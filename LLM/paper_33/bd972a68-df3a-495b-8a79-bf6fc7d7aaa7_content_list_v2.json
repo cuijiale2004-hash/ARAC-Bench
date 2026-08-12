@@ -1,0 +1,2236 @@
+[
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "ABSTRACT"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                450,
+                275,
+                547,
+                291
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Retrieval-Augmented Generation (RAG) is a framework for grounding Large Language Models (LLMs) in external, up-to-date information. However, recent advancements in context window size allow LLMs to process inputs of up to 128K tokens or more, offering an alternative strategy: supplying the full document context directly to the model, rather than relying on RAG to retrieve a subset of contexts. Nevertheless, this emerging alternative strategy has notable limitations: (i) it is token-inefficient to handle large and potentially redundant contexts; (ii) it exacerbates the ‘lost in the middle’ phenomenon; and (iii) under limited model capacity, it amplifies distraction, ultimately degrading LLM output quality. In this paper, we propose LDAR (Learning Distraction-Aware Retrieval), an adaptive retriever that learns to retrieve contexts in a way that mitigates interference from distracting passages, thereby achieving significantly higher performance with reduced token usage compared to long-context approaches. Extensive experiments across diverse LLM architectures and six knowledge-intensive benchmarks demonstrate the effectiveness and robustness of our approach, highlighting the importance of balancing the trade-off between information coverage and distraction."
+                    }
+                ]
+            },
+            "bbox": [
+                230,
+                305,
+                767,
+                530
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "1 INTRODUCTION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                174,
+                554,
+                338,
+                569
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Despite the remarkable progress of Large Language Models (LLMs), they continue to exhibit factual errors (Wei et al., 2024; Lv et al., 2024; Li et al., 2024a), and their knowledge remains limited to the static dataset on which they were trained. To address these limitations, Retrieval-Augmented Generation (RAG) has been proposed, enabling models to ground their outputs in external, up-to-date information, thereby enhancing both accuracy and relevance in knowledge-intensive tasks (Zhang et al., 2024a; Xu et al., 2024). In practice, RAG retrieves a small set of the most relevant passages from an external corpus to ground the LLM’s generation process."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                585,
+                517,
+                766
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Recent advancements have substantially increased the context length of LLMs, with some models now supporting inputs of up to 128K tokens or more (e.g., GPT-4o (OpenAI, 2024), Gemini 2.5 (Comanici et al., 2025), Qwen 2.5 (Yang et al., 2025)). This capability offers an alternative strategy for grounding model outputs: supplying the full document context directly to the model, rather than relying on RAG to supply only a subset of them. With sufficient capacity, LLMs can selectively attend to salient information while disregarding irrelevant content, thereby reducing reliance on explicit retrieval mechanisms. Indeed, empirical evidence from emerging benchmarks indicates that providing LLMs with full long-contexts frequently outperforms RAG-based approaches (Li et al., 2024b; Wang et al., 2024b; Li et al., 2025a). Nevertheless, this long-context approach has its own drawbacks, as it can be token-inefficient to process large, potentially redundant contexts. Moreover, long-context approaches are prone to the ‘lost in the middle’ phenomenon, where the model struggles to recall information presented in the middle of a long input sequence (Liu et al., 2023). When model capacity is limited, supplying the full context may further introduce distraction, thereby degrading answer quality (Li et al., 2025a). These challenges highlight the need for approaches that integrate the advantages of both paradigms—approaching the performance of long-context approaches while maintaining the token efficiency of RAG."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                772,
+                517,
+                883
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/49488bfd3c667111ccd1c21f7def442925159f85a4f381f3d7ead806ff9e3c90.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 1: Performance of LLMs across token usage ratios. Higher ratio corresponds to retrieving more passages. Lines indicate performance when retrieving top-similarity passages within a fixed token usage ratio (1.0 = full context). ☆ marks the performance of LDAR optimized for each LLM, illustrating its ability to strike a balance between information coverage and distraction that surpasses all fixed token usage baselines."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                527,
+                584,
+                825,
+                763
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "∗ Equal contribution."
+                    }
+                ]
+            },
+            "bbox": [
+                192,
+                893,
+                318,
+                907
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "<sup>†</sup>Corresponding author."
+                    }
+                ]
+            },
+            "bbox": [
+                192,
+                909,
+                336,
+                924
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "1"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                503,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                826,
+                272
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this paper, we demonstrate that both open and closed-source LLMs can still fail to answer questions even when the gold passage is retrieved, due to interference from additionally retrieved passages (i.e., distracting passages) (Shi et al., 2023a; Cuconasu et al., 2024; Amiraz et al., 2025). However, retrieving passages to minimize such distraction remains a non-trivial challenge, as the optimal strategy depends not only on the capacity of the target LLM, but also on the combinatorial interactions among the retrieved passages. To address this challenge, we introduce LDAR (Learning Distraction-Aware Retrieval), a retriever that learns to select passages to minimize potential interference from distracting passages in accordance with the capacity of the LLM, thereby achieving significantly better performance and lower token usage compared to long-context approaches. In summary, our contributions are as follows:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                277,
+                826,
+                417
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "1. Unlike previous heuristic-based methods, we propose a learning-based retrieval strategy framework that adaptively balances information coverage and distraction in accordance with the capacity of the LLM, achieving better performance with significantly reduced token usage compared to the long-context approach."
+                    }
+                ]
+            },
+            "bbox": [
+                210,
+                426,
+                825,
+                484
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "2. We empirically demonstrate that retrieving passages in bands (i.e., selecting from contiguous ranges along the similarity-ranked list) is critical for learning a distraction-aware retrieval strategy. The banded retrieval strategy provides a form of abstraction that improves generalization and prevents the retriever from converging to suboptimal solutions."
+                    }
+                ]
+            },
+            "bbox": [
+                209,
+                487,
+                825,
+                544
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "3. We validate our approach across diverse LLM architectures (both open and closed-source) and six knowledge-intensive benchmarks, demonstrating both the effectiveness and robustness of the proposed retrieval strategy. Our code is at https://github.com/ku-dmlab/LDAR."
+                    }
+                ]
+            },
+            "bbox": [
+                209,
+                546,
+                825,
+                590
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2 RELATED WORKS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                607,
+                357,
+                625
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "RAG vs. Long-context LLM Numerous studies have examined the comparative performance of RAG versus LLMs provided with the entire input context. While some works report that RAG outperforms long-context approaches (Xu et al., 2023b), other works demonstrate the opposite trend, with long-context models surpassing RAG-based methods (Li et al., 2024b). Li et al. (2025a) demonstrates that this divergence in findings largely stems from the capacity of LLMs used to evaluate the results. Open-source LLMs typically exhibit limited capacity for processing long contexts and therefore benefit substantially from retrieval mechanisms. On the other hand, closed-source LLMs often possess stronger long-context capabilities and consequently achieve higher performance when given full-context inputs (Li et al., 2025a). These findings suggest that RAG works as a stopgap technique to boost models that otherwise struggle with long sequences (Bai et al., 2023; Li et al., 2025a). Furthermore, several studies highlight that increasing the number of retrieved text chunks yields an inverted-U pattern: performance initially improves but eventually declines as the model becomes distracted by irrelevant or misleading passages (Jin et al., 2024; Leng et al., 2024). This observation underscores the need for retrieval strategies that balance information coverage against the risk of distraction, thereby optimizing the trade-off in passage selection."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                638,
+                826,
+                849
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Bridging the Gap between Retriever and LLM Our method can also be interpreted as bridging the gap between the retriever and the LLM. Since retrievers and LLMs are pretrained under distinct training objectives and architectures, a preference gap naturally arises between them (Ke et al., 2024; Ye et al., 2024). The passages retrieved by the retriever can even distract the LLM during answer generation, thereby degrading downstream performance (Shi et al., 2023a; Cuconasu et al., 2024;"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                854,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "2"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Cosine Similarity Correct Answer Wrong Answer Retrieved Passage"
+                    }
+                ]
+            },
+            "bbox": [
+                271,
+                282,
+                735,
+                294
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/17f59a01624b0e575b318b18d2038e31ccc016d9b421cdcadd16a675a5e368c8.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 2: Visualization of different retrieval strategies and their impact on performance. A green circle ( ) indicates that retrieving the passage yields a correct answer, a red cross ( ) indicates retrieving the passage yields a wrong answer, and a purple star ( ) denotes a passage that has already been incorporated into the retrieved passage set. The black curve represents the cosine similarity between the query and passages. The top row reports results for an open-source model (Llama-3.1- 8B), while the bottom row shows results for a closed-source model (GPT-4o) on a reasoning task (Li et al., 2025a)."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                173,
+                98,
+                823,
+                284
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Amiraz et al., 2025). Prior work has attempted to mitigate this gap by fine-tuning the LLM (Izacard & Grave, 2020; de Jong et al., 2023), fine-tuning the retriever (Shi et al., 2023b; Xu et al., 2023a), jointly fine-tuning both components (Izacard et al., 2022; Lewis et al., 2020), or training a module that bridges the gap (Ke et al., 2024; Ye et al., 2024). Whereas bridge modules identify relevant passages based on textual information within the top-k candidates retrieved by cosine similarity, our method instead targets the retrieval stage itself. Specifically, we aim to retrieve sets of passages that minimize distraction under a fixed pretrained retriever and LLM, relying solely on the similarity distribution between the query and passages."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                416,
+                826,
+                529
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3 MOTIVATION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                173,
+                550,
+                316,
+                566
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Although prior works have highlighted the detrimental impact of distracting passages on retrieval performance (Jin et al., 2024; Leng et al., 2024), relatively little attention has been paid to retrieval strategies that explicitly mitigate such influence. The columns in Figure 2 illustrate retrieval strategies commonly adopted in practice: (1) gold passages that lead to correct answer when individually retrieved; (2) retrieving all passages cumulatively from top to bottom, which corresponds to the conventional top-k similarity-based retrieval approach (Lewis et al., 2020; Karpukhin et al., 2020); (3) retrieving all gold passages first ( ) followed by retrieving additional passages, which corresponds to reranking the retrieved top-k passages to prioritize relevance (Nogueira & Cho, 2019; Nogueira et al., 2020; Glass et al., 2022); (4) retrieving gold passages cumulatively from top to bottom, which resembles the successful outcome of the hybrid strategy: first selecting the top-k passages by similarity and then applying a relevance-based top-n selection to retain only the gold passages (Asai et al., 2024; Ke et al., 2024; Lee et al., 2025)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                584,
+                826,
+                751
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "As shown in (2), top-k retrieval is susceptible to distracting passages. Even when individually correct passages are included, their joint presence with distracting passages can result in incorrect answers. Note that retrieving all available passages is effectively equivalent to the long-context approach setting, which is likewise prone to errors. In (3), reranking approaches that place highly relevant passages at the front of the retrieved passages still fail when distracting passages are present, as their inclusion can override or obscure the signal from the relevant ones. Finally, (4) shows that even when the hybrid strategy, which combines similarity-based top-k retrieval with relevance-based topn selection, successfully retains only the gold passages, their joint retrieval can still lead to incorrect answers. Counterintuitively, even when all passages individually lead to the correct answer, their collective inclusion can complicate the reasoning process and ultimately cause the model to generate incorrect outputs. Based on these observations, we define distracting passages as passages that misguide the LLM in generating the correct answer, irrespective of whether they lead to correct answer when individually retrieved. Furthermore, the differing outcomes in Figure 2 (top vs. bottom) demonstrate that retrieval effectiveness is strongly tied to the capacity of the underlying LLM."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                758,
+                826,
+                926
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "3"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/10bf6e567c0c02ba4be23917ea4936d24196b81e5e7dd0cd98238718d52426b2.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                181,
+                102,
+                343,
+                194
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/6c1d48c64e86ba5c20300ea7eb416c61fe86d190921e3343cfdf47890cfa2a60.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                341,
+                101,
+                493,
+                194
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/c4cfc56c7fa0165e2345e72bfcfacd14f2403fcf283ccbf7dc99b7b6287a31a2.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                500,
+                99,
+                660,
+                195
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/b97c55e9897de7c0a3914efbed7d0e0aff76067cc2228d3bd14b854f70d5bb23.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 3: (Left) Visualization of passages retrieved by "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "based on the similarity distribution between queries and passages, with retrieved passages marked in green if they contain the correct answer and in red otherwise. (Right) Comparison of performance and passage usage ratio across Bernoulli- and band-based retrieval strategies across gradient steps."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                658,
+                99,
+                816,
+                194
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                171,
+                284,
+                825,
+                314
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "These findings underscore the inherent difficulty of reliably retrieving passages that yield correct answers, motivating the need for retrieval strategies that explicitly account for distracting effects in relation to model capacity. Note that a brute-force remedy to minimize distraction would be to employ a high-capacity LLM to exhaustively read and align every passage to the query. However, this approach is prohibitively expensive, as inference cost scales with the number of passages, making it infeasible in practice (especially in the long-context setting). To address this challenge, we propose a lightweight adaptive retriever framework that learns to minimize distraction by selecting effective passage sets in accordance with the long-context capability of LLMs. This method relies solely on the cosine similarity distribution between queries and passages, guided by evaluation signals to learn an effective balance between information coverage and distraction."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                319,
+                826,
+                460
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4 MAIN METHOD"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                478,
+                338,
+                494
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "RAG employs a pretrained embedding model "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "f _ { \\phi }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "that maps a query q and passages "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{ p _ { i } \\} _ { i = 1 } ^ { N }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "into a shared vector space "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbb { R } ^ { d }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", retrieving the top-k passages ranked by semantic similarity. Let "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "s _ { i }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denote the similarity "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( \\mathrm { e . g . }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", dot product or cosine similarity) between the query and the i-th passage,"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                508,
+                825,
+                554
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\exists \\sigma \\text {   s.t.   } s _ {\\sigma (1)} \\leq s _ {\\sigma (2)} \\leq \\ldots \\leq s _ {\\sigma (N)}, \\quad \\mathcal {R} = \\{p _ {\\sigma (N - k + 1)}, \\ldots , p _ {\\sigma (N)} \\}.\\tag{1}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/2c9b3bf3c5560c6f8065f52e28d8ca576a2fe5c51922d273461b318e7bdcd300.jpg"
+                }
+            },
+            "bbox": [
+                261,
+                556,
+                733,
+                574
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Retrieved passages "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { R }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "with higher similarity scores are semantically closer to the query, as the embedding space is trained via contrastive objectives that pull matched query–passage pairs together while pushing apart mismatched pairs (Izacard et al., 2021; Li et al., 2023; Zhang et al., 2024b). This dense retrieval approach has remained the dominant strategy due to its effectiveness in retrieving relevant passages at low computational cost, spanning from early RAG models to recent applications (Lewis et al., 2020; Tang & Yang, 2024; Asai et al., 2024; Li et al., 2025b)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                575,
+                826,
+                661
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this section, we present our lightweight retriever "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "that learns to select passages to minimize potential interference from distracting passages, solely based on the similarity between the query and passages. As discussed in Section 3, employing a high-capacity LLM to exhaustively align all passages with the query is impractical, particularly in long-context settings. To ensure our approach scales to large-scale retrieval scenarios, we deliberately restrict "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "from accessing textual information. Moreover, our approach avoids the expense of fine-tuning the large pretrained LLM and embedding model by training only a lightweight neural network to reduce distraction, while keeping the larger components fixed."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                666,
+                826,
+                780
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Our retriever "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "operates on the cosine similarity distribution and selects a dynamic set of passages from a contiguous quantile interval "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "q _ { L } , q _ { U } \\subset [ 0 , 1 ]"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". When the retriever "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "determines that information coverage should be prioritized at the risk of increased distraction, it retrieves passages from a wide quantile interval. On the contrary, if the risk of having distraction is higher, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "retrieves passages from a narrow quantile interval, minimizing the risk of having distraction. Figure 3 (left) illustrates that optimized "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "adapts its retrieval strategy based on the similarity distribution between the query and passages. If passages with high semantic similarity exist, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "tends to focus narrowly on that region. In contrast, when no passages exhibit strong semantic similarity, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "expands the retrieval range to ensure broader information coverage, even at the cost of incorporating more potential distracting passages."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                785,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "4"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/86045f4c99accd7d80588c3b81c8e243e2bc36387ad63e5ff5a995dfd4dea5b8.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 4: Overview of LDAR, a learning-based retrieval strategy that adapts to each LLM by balancing information coverage and distraction. Given a query, a fixed pretrained retriever computes cosine similarity scores between the query and passages. Then periodic embeddings encode each score into a token, followed by a Transformer encoder that processes the tokenized similarity distribution. The encoder representations are aggregated via attention pooling, after which two output heads predict the lower and upper quantiles that define the similarity interval used for retrieval. The selected passages are passed to a pretrained LLM for prediction, and the evaluation signal is used to update the adaptive retriever through gradient-based learning."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                174,
+                99,
+                823,
+                359
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Notably, this behavior also depends on the capability of the pretrained LLM: models with stronger long-context processing generally exhibit lower susceptibility to distraction compared to those with limited long-context capability (Li et al., 2025a). Later in experiments, we demonstrate that the LDAR framework adaptively retrieves fewer passages for open-source models compared to closedsource models on the same task, indicating that our framework aligns retrieval strategies with the long-context capability of the underlying LLM."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                503,
+                825,
+                589
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.1 DESIGNING THE ADAPTIVE RETRIEVER"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                604,
+                491,
+                619
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We provide the adaptive retriever "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "with a cosine similarity vector s "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\in \\mathbb { R } ^ { N }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "between the query and the N passages, computed by a pretrained embedding model "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "f _ { \\phi } \\colon"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                628,
+                825,
+                659
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "s _ {i} := \\frac {f _ {\\phi} (q) ^ {\\top} f _ {\\phi} (p _ {i})}{\\| f _ {\\phi} (q) \\| \\| f _ {\\phi} (p _ {i}) \\|}, \\quad i = 1, \\dots , N.\\tag{2}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/8c1fd112075c95ec67690aab73b86a62392f4ab17b720097f51171169626f274.jpg"
+                }
+            },
+            "bbox": [
+                357,
+                666,
+                637,
+                700
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Since the number of passages associated with each query may differ, the dimensionality of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "s \\in \\mathbb { R } ^ { N }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is not fixed and varies across queries. To accommodate this variability, we employ a bidirectional self-attention Transformer that maps the token embedding of each similarity score "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "s _ { i }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to a contextualized representation. An attention-pooling layer then aggregates these token-level representations into a global summary vector, which is fed to output heads that predict the parameters "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( \\alpha _ { L } , \\beta _ { L } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( \\alpha \\sigma , \\beta _ { U } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "of two Beta distributions. The lower and upper quantiles "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "q _ { L }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "q _ { U }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "are then sampled from these distributions respectively, and the resulting band "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{ \\mathsf { \\bar { q } } _ { L } , q _ { U } \\} \\in [ 0 , 1 ]"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is used to select the passages from the similarity distribution."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                708,
+                825,
+                821
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Intuitively, allowing the adaptive retriever "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to select passages via independent Bernoulli sampling for each candidate is also a valid strategy. However, as shown in Figure 3 (right), the Bernoulli-based variant of LDAR fails to identify a balanced trade-off between the RAG and long-context approach. This limitation arises from its need to explore the entire combinatorial subset selection space, which impedes generalization and ultimately causes convergence to a local optimum (corresponding to the long-context approach in this case). In contrast, band-based retrieval reduces the effective search space from combinatorial subset selection to a low-dimensional and smooth control space, yielding a temporally abstract retrieval strategy that enables more sample-efficient credit assignment and promotes better exploration (Baranes & Oudeyer, 2013; Machado et al., 2023; Kim et al., 2025). Ultimately, our band-based retrieval strategy allows "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to achieve an effective trade-off between information coverage and distraction, yielding a higher score while maintaining a lower passageretrieval ratio. (see Figure 3 (right)). We provide an illustration of our adaptive retrieval process in Figure 4, with corresponding pseudo-code in Algorithm 1."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                825,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "5"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "algorithm",
+            "content": {
+                "algorithm_caption": [],
+                "algorithm_content": [
+                    {
+                        "type": "text",
+                        "content": "Algorithm 1 Distraction-Aware Adaptive Retrieval\nRequire: Instances   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal{D}=\\{(q_{m},P_{m},y_{m})\\}_{m=1}^{M}"
+                    },
+                    {
+                        "type": "text",
+                        "content": " , Embedding model   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "f_{\\phi}"
+                    },
+                    {
+                        "type": "text",
+                        "content": " , Adaptive Retriever   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi_{\\theta}"
+                    },
+                    {
+                        "type": "text",
+                        "content": " \n\n1: for m-th query   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "q_{m}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  and passages   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{p_{m,i}\\}_{i=1}^{N}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  in D do\n\n2:   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "s_{i}\\leftarrow\\frac{f_{\\phi}(q_{m})^{\\top}f_{\\phi}(p_{m,i})}{\\|f_{\\phi}(q_{m})\\|\\|f_{\\phi}(p_{m,i})\\|}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  for   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "i=1,\\cdots,N"
+                    },
+                    {
+                        "type": "text",
+                        "content": " \n\n3:   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "(q_{L},q_{U})\\sim\\pi_{\\theta}(\\cdot|s)"
+                    },
+                    {
+                        "type": "text",
+                        "content": " \n\n4:   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\ell\\leftarrow\\max(1,\\lfloor N\\cdot q_{L}\\rfloor)"
+                    },
+                    {
+                        "type": "text",
+                        "content": " \n\n5:   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "u\\leftarrow\\max(\\ell,\\lfloor N\\cdot q_{U}\\rfloor)"
+                    },
+                    {
+                        "type": "text",
+                        "content": " \n\n6:   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\sigma\\leftarrow\\operatorname{argsort}(s)"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  s.t.   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "s_{\\sigma(1)}\\leq s_{\\sigma(2)}\\leq\\cdots\\leq s_{\\sigma(N)}"
+                    },
+                    {
+                        "type": "text",
+                        "content": " \n\n7:   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "R_{m}\\leftarrow\\{p_{\\sigma(\\ell)},p_{\\sigma(\\ell+1)},\\ldots,p_{\\sigma(u)}\\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": " \n\n8: end for\n\n9: return   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{R_{m}\\}_{m=1}^{M}"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                99,
+                823,
+                281
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                306,
+                826,
+                393
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.2 OPTIMIZING THE ADAPTIVE RETRIEVER"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                407,
+                498,
+                422
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The main goal of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is to retrieve a set of passages that maximizes the likelihood of the pretrained LLM producing the correct answer to a given query. To this end, we formulate the objective as maximizing the prediction accuracy of the LLM conditioned on the passage set retrieved by π<sub>θ</sub>:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                434,
+                825,
+                477
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\max _ {\\theta} J (\\theta) = \\mathbb {E} _ {(q, P, y) \\sim \\mathcal {D}, \\mathcal {R} \\sim \\pi_ {\\theta} (\\cdot | s)} [ r _ {\\psi} (q, \\mathcal {R}, y) ], \\text {where} r _ {\\psi} (q, \\mathcal {R}, y) := \\mathbb {1} _ {\\text {corr}} (F _ {\\psi} (q, \\mathcal {R}), y)\\tag{3}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/7d9cc227f6359fd80bf853afece80fcf895098950f039b34f05bdb972a2bdf41.jpg"
+                }
+            },
+            "bbox": [
+                184,
+                482,
+                785,
+                502
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Here, D denotes the dataset with each instance comprising a query "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "q ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": "a candidate passage pool "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "P _ { - }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and a ground-truth answer "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "y . \\ R"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denotes the set of passages retrieved by "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "given the similarity scores "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "s ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbb { 1 } _ { \\mathrm { c o r r } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is an indicator function that evaluates whether the output of the LLM "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "F _ { \\psi } ( q , \\mathcal { R } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "matches ground-truth answer "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "y ."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                510,
+                823,
+                566
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "By applying the likelihood ratio gradient with log-derivative trick (Sutton et al., 1999), we can update θ at k-th gradient update step as:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                571,
+                823,
+                602
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\theta_ {k + 1} = \\theta_ {k} + \\gamma \\cdot r _ {\\psi} (q, \\mathcal {R}, y) \\cdot \\nabla_ {\\theta_ {k}} \\log \\pi_ {\\theta_ {k}} (\\cdot | s),\\tag{4}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/f1eafa0a6bbb239ba3367fe1e8d9d7fc46aeb3960294564f7db5613f83433948.jpg"
+                }
+            },
+            "bbox": [
+                339,
+                608,
+                653,
+                625
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\gamma"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denotes the step size. Through this optimization, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "learns a distraction-aware retrieval strategy that reduces the likelihood of distracting passages interfering with the prediction LLM."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                630,
+                823,
+                660
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5 EXPERIMENTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                679,
+                328,
+                694
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.1 TASKS AND DATASETS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                709,
+                374,
+                724
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Six datasets encompassing diverse tasks and contexts are used to evaluate LDAR with other baselines. Each dataset is partitioned into training and test sets using an 8:2 split ratio, and performance is assessed on the test set. Both the training and test sets are available in our GitHub repository."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                734,
+                825,
+                779
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Location, Reasoning, Comparison, Hallucination tasks are from the LaRA benchmark (Li et al., 2025a), which is delicately designed to compare the performance between RAG and long-context approach. Notably, these tasks include contexts approaching the maximum supported length of mainstream commercial and open-weight models (128K tokens), thereby providing a rigorous evaluation of the long-context capabilities of LLMs. In LaRA, contexts are drawn from novels, financial statements, and academic papers with entity replacement (Li et al., 2020; Zhang et al., 2024c) to mitigate the risk of data leakage. The Location task evaluates an LLM’s ability to identify precise information based on the provided context. The Reasoning task examines the model’s capacity for logical inference, deduction, or computation within the given context. The Comparison task assesses whether the model can integrate and contrast information across multiple parts of the provided context. The"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                784,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "6"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/083df999be976f545703fa4f60ff367c6536369c8089f05e1aa932a05927fed5.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 1: Comparison of retrieval strategies across context lengths and task types. Each cell reports the average score across LLMs with standard error. White background indicates the average over open-source LLMs and brown background indicates the average over closed-source LLMs . Numbers in parentheses denote the token-usage ratio relative to LC. The best performing strategy for each task is highlighted in bold. The open-source and closed-source models used to compute the scores are introduced in Section 5.2. The full results are available in Appendix D.11."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Method</td><td colspan=\"2\">Location</td><td colspan=\"2\">Reasoning</td><td colspan=\"2\">Comparison</td><td colspan=\"2\">Hallucination</td><td colspan=\"2\">Overall</td></tr><tr><td colspan=\"11\">Context Length 32k</td></tr><tr><td>Top-1</td><td> $52.7 \\pm 0.5(0.019)$ </td><td> $56.6 \\pm 0.9(0.019)$ </td><td> $23.3 \\pm 3.2(0.019)$ </td><td> $37.1 \\pm 2.2(0.019)$ </td><td> $20.6 \\pm 2.2(0.018)$ </td><td> $33.0 \\pm 3.6(0.018)$ </td><td> $86.0 \\pm 3.1(0.019)$ </td><td> $89.4 \\pm 2.8(0.019)$ </td><td> $45.65 \\pm 2.3(0.018)$ </td><td> $54.02 \\pm 2.4(0.018)$ </td></tr><tr><td>Top-5</td><td> $66.7 \\pm 1.2(0.095)$ </td><td> $78.0 \\pm 0.5(0.095)$ </td><td> $38.2 \\pm 4.8(0.097)$ </td><td> $61.6 \\pm 4.8(0.097)$ </td><td> $47.6 \\pm 2.7(0.091)$ </td><td> $62.8 \\pm 3.8(0.091)$ </td><td> $82.5 \\pm 3.4(0.095)$ </td><td> $84.3 \\pm 3.3(0.095)$ </td><td> $58.75 \\pm 3.0(0.094)$ </td><td> $71.67 \\pm 3.1(0.094)$ </td></tr><tr><td>Top-10</td><td> $75.3 \\pm 1.6(0.190)$ </td><td> $83.4 \\pm 1.1(0.190)$ </td><td> $41.6 \\pm 4.0(0.194)$ </td><td> $59.5 \\pm 3.0(0.194)$ </td><td> $51.5 \\pm 5.9(0.182)$ </td><td> $65.2 \\pm 3.6(0.182)$ </td><td> $79.1 \\pm 6.1(0.190)$ </td><td> $80.8 \\pm 4.3(0.190)$ </td><td> $61.87 \\pm 4.4(0.189)$ </td><td> $72.22 \\pm 3.0(0.189)$ </td></tr><tr><td>Top-25</td><td> $78.1 \\pm 3.0(0.474)$ </td><td> $87.4 \\pm 1.2(0.474)$ </td><td> $39.9 \\pm 4.0(0.486)$ </td><td> $61.6 \\pm 0.9(0.486)$ </td><td> $50.2 \\pm 6.9(0.457)$ </td><td> $70.9 \\pm 3.7(0.457)$ </td><td> $74.4 \\pm 8.6(0.476)$ </td><td> $77.0 \\pm 4.8(0.476)$ </td><td> $60.65 \\pm 5.6(0.473)$ </td><td> $74.22 \\pm 2.7(0.473)$ </td></tr><tr><td>Top-50</td><td> $78.1 \\pm 2.8(0.866)$ </td><td> $87.0 \\pm 2.5(0.866)$ </td><td> $37.4 \\pm 4.0(0.897)$ </td><td> $63.8 \\pm 2.6(0.897)$ </td><td> $49.6 \\pm 4.2(0.853)$ </td><td> $69.3 \\pm 5.4(0.853)$ </td><td> $72.1 \\pm 10.6(0.862)$ </td><td> $74.7 \\pm 5.0(0.862)$ </td><td> $59.30 \\pm 5.4(0.869)$ </td><td> $73.70 \\pm 3.9(0.869)$ </td></tr><tr><td>LC</td><td> $80.3 \\pm 1.9(1.000)$ </td><td> $87.4 \\pm 0.7(1.000)$ </td><td> $36.9 \\pm 4.0(1.000)$ </td><td> $62.2 \\pm 3.2(1.000)$ </td><td> $47.7 \\pm 5.3(1.000)$ </td><td> $73.5 \\pm 4.0(1.000)$ </td><td> $69.6 \\pm 8.4(1.000)$ </td><td> $73.0 \\pm 7.3(1.000)$ </td><td> $58.62 \\pm 4.9(1.000)$ </td><td> $74.00 \\pm 3.8(1.000)$ </td></tr><tr><td>RAG</td><td> $76.3 \\pm 1.7(0.095)$ </td><td> $82.5 \\pm 0.5(0.095)$ </td><td> $43.7 \\pm 3.2(0.097)$ </td><td> $59.0 \\pm 1.3(0.097)$ </td><td> $47.0 \\pm 6.5(0.091)$ </td><td> $61.2 \\pm 5.7(0.091)$ </td><td> $81.5 \\pm 3.7(0.095)$ </td><td> $79.8 \\pm 4.7(0.095)$ </td><td> $62.12 \\pm 3.8(0.094)$ </td><td> $70.62 \\pm 3.1(0.094)$ </td></tr><tr><td>Self-Route</td><td> $80.6 \\pm 1.7(0.255)$ </td><td> $89.6 \\pm 0.8(0.295)$ </td><td> $40.3 \\pm 5.0(0.258)$ </td><td> $62.7 \\pm 4.1(0.232)$ </td><td> $47.0 \\pm 4.6(0.244)$ </td><td> $67.6 \\pm 2.9(0.312)$ </td><td> $69.9 \\pm 8.2(0.949)$ </td><td> $76.0 \\pm 5.2(0.967)$ </td><td> $59.45 \\pm 4.9(0.426)$ </td><td> $73.97 \\pm 3.3(0.451)$ </td></tr><tr><td>Adaptive-k</td><td> $61.0 \\pm 2.2(0.395)$ </td><td> $71.4 \\pm 2.2(0.395)$ </td><td> $25.4 \\pm 0.4(0.362)$ </td><td> $51.5 \\pm 3.5(0.362)$ </td><td> $43.1 \\pm 3.0(0.385)$ </td><td> $59.6 \\pm 3.8(0.385)$ </td><td> $77.3 \\pm 7.1(0.479)$ </td><td> $82.2 \\pm 4.4(0.479)$ </td><td> $51.70 \\pm 3.2(0.405)$ </td><td> $66.17 \\pm 3.5(0.405)$ </td></tr><tr><td>BGM</td><td> $78.8 \\pm 0.9(0.048)$ </td><td> $82.6 \\pm 0.8(0.057)$ </td><td> $46.5 \\pm 4.0(0.067)$ </td><td> $59.0 \\pm 1.6(0.074)$ </td><td> $50.1 \\pm 1.6(0.066)$ </td><td> $61.2 \\pm 6.9(0.064)$ </td><td> $75.4 \\pm 4.7(0.049)$ </td><td> $75.7 \\pm 2.8(0.045)$ </td><td> $62.70 \\pm 2.8(0.057)$ </td><td> $69.63 \\pm 3.0(0.060)$ </td></tr><tr><td>RankZephyr</td><td> $72.4 \\pm 1.2(0.095)$ </td><td> $82.1 \\pm 1.2(0.095)$ </td><td> $36.9 \\pm 4.7(0.097)$ </td><td> $59.5 \\pm 2.7(0.097)$ </td><td> $44.4 \\pm 4.3(0.091)$ </td><td> $62.1 \\pm 4.8(0.091)$ </td><td> $80.5 \\pm 4.4(0.095)$ </td><td> $85.2 \\pm 2.4(0.095)$ </td><td> $58.55 \\pm 3.7(0.094)$ </td><td> $72.2 \\pm 2.8(0.094)$ </td></tr><tr><td>LDAR</td><td> $87.7 \\pm 1.4(0.478)$ </td><td> $91.9 \\pm 1.2(0.628)$ </td><td> $52.7 \\pm 4.7(0.400)$ </td><td> $70.1 \\pm 0.9(0.636)$ </td><td> $63.1 \\pm 2.6(0.518)$ </td><td> $78.9 \\pm 4.0(0.619)$ </td><td> $76.5 \\pm 6.9(0.474)$ </td><td> $76.8 \\pm 5.8(0.633)$ </td><td> $70.00 \\pm 3.9(0.467)$ </td><td> $79.42 \\pm 3.0(0.629)$ </td></tr><tr><td colspan=\"11\">Context Length 128k</td></tr><tr><td>Top-1</td><td> $31.1 \\pm 1.1(0.005)$ </td><td> $31.5 \\pm 0.9(0.005)$ </td><td> $26.1 \\pm 2.8(0.004)$ </td><td> $33.7 \\pm 2.4(0.004)$ </td><td> $4.30 \\pm 1.5(0.005)$ </td><td> $12.1 \\pm 4.4(0.005)$ </td><td> $84.9 \\pm 4.5(0.005)$ </td><td> $83.7 \\pm 4.0(0.005)$ </td><td> $36.60 \\pm 2.5(0.004)$ </td><td> $40.25 \\pm 2.9(0.004)$ </td></tr><tr><td>Top-5</td><td> $60.1 \\pm 1.4(0.026)$ </td><td> $61.7 \\pm 1.8(0.026)$ </td><td> $47.4 \\pm 3.6(0.024)$ </td><td> $62.6 \\pm 3.3(0.024)$ </td><td> $24.3 \\pm 3.0(0.025)$ </td><td> $34.1 \\pm 2.6(0.025)$ </td><td> $74.1 \\pm 6.6(0.026)$ </td><td> $71.6 \\pm 5.4(0.026)$ </td><td> $51.47 \\pm 3.7(0.025)$ </td><td> $57.50 \\pm 3.3(0.025)$ </td></tr><tr><td>Top-10</td><td> $66.9 \\pm 0.6(0.053)$ </td><td> $70.8 \\pm 2.3(0.053)$ </td><td> $53.7 \\pm 3.7(0.049)$ </td><td> $67.5 \\pm 2.3(0.049)$ </td><td> $29.2 \\pm 5.1(0.050)$ </td><td> $42.6 \\pm 3.2(0.050)$ </td><td> $70.3 \\pm 0.9(0.052)$ </td><td> $64.3 \\pm 7.1(0.052)$ </td><td> $55.02 \\pm 2.6(0.051)$ </td><td> $61.30 \\pm 3.7(0.051)$ </td></tr><tr><td>Top-25</td><td> $71.3 \\pm 2.7(0.133)$ </td><td> $80.0 \\pm 1.2(0.133)$ </td><td> $54.5 \\pm 4.6(0.124)$ </td><td> $75.3 \\pm 1.9(0.124)$ </td><td> $24.8 \\pm 2.2(0.126)$ </td><td> $48.1 \\pm 2.5(0.126)$ </td><td> $65.1 \\pm 12.0(0.131)$ </td><td> $55.6 \\pm 7.8(0.131)$ </td><td> $53.92 \\pm 5.4(0.128)$ </td><td> $64.75 \\pm 3.4(0.128)$ </td></tr><tr><td>Top-50</td><td> $67.9 \\pm 4.1(0.267)$ </td><td> $80.3 \\pm 0.5(0.267)$ </td><td> $52.4 \\pm 3.9(0.249)$ </td><td> $74.3 \\pm 2.0(0.249)$ </td><td> $33.6 \\pm 3.6(0.252)$ </td><td> $52.4 \\pm 4.7(0.252)$ </td><td> $61.2 \\pm 11.8(0.262)$ </td><td> $52.7 \\pm 7.4(0.262)$ </td><td> $53.77 \\pm 5.9(0.257)$ </td><td> $64.92 \\pm 3.7(0.257)$ </td></tr><tr><td>LC</td><td> $56.2 \\pm 10.1(1.000)$ </td><td> $88.0 \\pm 2.3(1.000)$ </td><td> $45.1 \\pm 6.4(1.000)$ </td><td> $76.9 \\pm 2.2(1.000)$ </td><td> $23.8 \\pm 5.9(1.000)$ </td><td> $56.6 \\pm 4.0(1.000)$ </td><td> $49.5 \\pm 11.3(1.000)$ </td><td> $58.4 \\pm 9.8(1.000)$ </td><td> $43.65 \\pm 8.4(1.000)$ </td><td> $69.97 \\pm 4.6(1.000)$ </td></tr><tr><td>RAG</td><td> $71.6 \\pm 1.5(0.026)$ </td><td> $75.2 \\pm 2.1(0.026)$ </td><td> $49.8 \\pm 3.6(0.024)$ </td><td> $65.8 \\pm 2.3(0.024)$ </td><td> $26.4 \\pm 4.4(0.025)$ </td><td> $42.6 \\pm 2.3(0.025)$ </td><td> $70.9 \\pm 6.5(0.026)$ </td><td> $74.1 \\pm 6.5(0.026)$ </td><td> $54.67 \\pm 4.0(0.025)$ </td><td> $64.42 \\pm 3.3(0.025)$ </td></tr><tr><td>Self-Route</td><td> $65.8 \\pm 2.6(0.187)$ </td><td> $80.0 \\pm 3.2(0.282)$ </td><td> $51.3 \\pm 4.6(0.181)$ </td><td> $59.7 \\pm 2.0(0.249)$ </td><td> $25.3 \\pm 0.2(0.381)$ </td><td> $52.4 \\pm 5.0(0.625)$ </td><td> $56.4 \\pm 11.3(0.888)$ </td><td> $57.5 \\pm 9.7(0.943)$ </td><td> $49.70 \\pm 4.7(0.409)$ </td><td> $62.40 \\pm 5.0(0.524)$ </td></tr><tr><td>Adaptive-k</td><td> $47.7 \\pm 4.7(0.398)$ </td><td> $64.4 \\pm 2.3(0.398)$ </td><td> $32.1 \\pm 6.0(0.405)$ </td><td> $54.1 \\pm 1.4(0.405)$ </td><td> $18.5 \\pm 3.0(0.675)$ </td><td> $44.4 \\pm 1.8(0.675)$ </td><td> $66.0 \\pm 8.8(0.502)$ </td><td> $68.3 \\pm 6.8(0.502)$ </td><td> $41.07 \\pm 5.6(0.495)$ </td><td> $57.80 \\pm 3.1(0.495)$ </td></tr><tr><td>BGM</td><td> $68.9 \\pm 1.6(0.017)$ </td><td> $72.2 \\pm 3.0(0.019)$ </td><td> $56.5 \\pm 3.1(0.013)$ </td><td> $66.8 \\pm 0.8(0.017)$ </td><td> $30.3 \\pm 4.8(0.015)$ </td><td> $34.2 \\pm 2.2(0.020)$ </td><td> $73.1 \\pm 6.1(0.015)$ </td><td> $73.4 \\pm 6.0(0.016)$ </td><td> $57.20 \\pm 3.9(0.015)$ </td><td> $61.65 \\pm 3.0(0.018)$ </td></tr><tr><td>RankZephyr</td><td> $56.1 \\pm 2.1(0.026)$ </td><td> $62.7 \\pm 0.9(0.026)$ </td><td> $54.5 \\pm 3.3(0.024)$ </td><td> $71.4 \\pm 1.9(0.024)$ </td><td> $20.9 \\pm 4.5(0.025)$ </td><td> $28.0 \\pm 3.6(0.025)$ </td><td> $73.3 \\pm 5.9(0.026)$ </td><td> $75.8 \\pm 6.5(0.026)$ </td><td> $51.20 \\pm 4.0(0.025)$ </td><td> $59.48 \\pm 3.2(0.025)$ </td></tr><tr><td>LDAR</td><td> $77.3 \\pm 2.2(0.209)$ </td><td> $90.5 \\pm 0.8(0.502)$ </td><td> $61.7 \\pm 2.3(0.272)$ </td><td> $82.7 \\pm 0.8(0.444)$ </td><td> $42.9 \\pm 2.3(0.312)$ </td><td> $65.8 \\pm 1.4(0.606)$ </td><td> $64.3 \\pm 10.5(0.209)$ </td><td> $65.9 \\pm 6.3(0.519)$ </td><td> $61.55 \\pm 4.3(0.250)$ </td><td> $76.22 \\pm 2.3(0.517)$ </td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                176,
+                199,
+                821,
+                625
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Hallucination task evaluates whether an LLM can appropriately refuse to answer when the provided context lacks the required information (which is always the case in this task). We observed that training models with feedback from the Hallucination task leads to undesirable strategies in practice (e.g., deliberately retrieving no passage or irrelevant passages to trigger refusal. See Appendix D.1 for more details). This behavior arises because the Hallucination task, by design, rewards avoidance rather than the constructive use of retrieved evidence, leading to degenerate strategies that do not reflect real-world retrieval requirements. To circumvent this issue, we treated the Hallucination task purely as an evaluation benchmark rather than a training objective. Consequently, for this task, we employed models trained on the Location task—the most widely adopted retrieval strategy in practice—and evaluated them in a zero-shot setting on the Hallucination task using the full dataset."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                694,
+                826,
+                835
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "HotpotQA (Yang et al., 2018) and Natural Questions (NQ) (Kwiatkowski et al., 2019) are widely used open-domain QA benchmarks that are incorporated into the HELMET benchmark (Yen et al., 2024). Within HELMET, these datasets are adapted for long-context evaluation by extending input lengths to approximately 128K tokens through the inclusion of distractor passages, with all contexts drawn from Wikipedia. Among them, HotpotQA is distinguished as a multi-hop QA task, requiring the model to retrieve and integrate information from multiple passages to derive the correct answer."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                839,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "7"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.2 BASELINES AND EXPERIMENTAL SETTINGS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                104,
+                519,
+                119
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Baselines We compare LDAR with eight top-k retrieval methods (Top-1, Top-5, Top-10, Top-25, Top-50, long-context, RAG (Lewis et al., 2020), RankZephyr (Pradeep et al., 2023)), one baseline designed to minimize the gap between a pretrained retriever and a pretrained LLM (BGM (Ke et al., 2024)), and two retrieval baselines that aim to balance the trade-off between RAG and long-context processing (Self-Route (Li et al., 2024b), Adaptive-k (Taguchi et al., 2025)). For the top-k retrieval baselines, we retrieved the top-k passages according to similarity scores. Note that retrieving all passages (i.e., the full document context) corresponds to the long-context (LC) approach. For RAG, we applied a bge-reranker-large to reorder the retrieved top-5 passages. BGM trains a sequence-tosequence model on textual information to identify the effective passage set among the top-5 candidates retrieved by similarity. Self-Route queries the LLM to decide between RAG and long-context processing based on the model’s self-assessment of answerability. Adaptive-k retrieves passages by identifying the largest gap in the sorted similarity score. The listwise reranker RankZephyr jointly processes the top-50 similarity-retrieved passages and produces a global ranking over them, from which it selects the final top-5 passages."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                131,
+                826,
+                328
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Experimental Settings Following the evaluation metric used in LaRA (Li et al., 2025a) and HEL-MET (Yen et al., 2024), we employed GPT-4o to judge response correctness by providing it with the query, the ground-truth answer, and the model prediction. Throughout the experiments, we used bge-large-en-v1.5 as the embedding model. Note LDAR does not use reranker for reordering the retrieved passages, both to maintain high training efficiency and to demonstrate the effectiveness of our method in isolation. For open-source LLMs, we used Qwen-2.5-7B-Instruct, Qwen-3-4B-2507, Llama-3.1-8B-Instruct, Llama-3.2-3B-Instruct and Mistral-Nemo-Instruct-12B to evaluate the results. For closed-source LLMs, we used GPT-4o, GPT-4o-mini, Gemini-2.5-pro, Gemini-2.5-flash to evaluate the results. Across all LDAR experiments, we used the same hyperparameter configuration, as summarized in Appendix C.2."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                345,
+                826,
+                486
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.3 MAIN RESULTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                507,
+                325,
+                521
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Table 1 demonstrates the performance of LDAR compared to baseline methods. To ensure statistical significance, we report the average score across LLMs with standard errors, and provide separate averages for open-source and closed-source models as introduced in Section 5.2. LDAR generally achieves significantly higher performance compared to all other baselines, while using only about half the token usage of the long-context approach. It is worth noting that no penalty on token usage was imposed during the training of LDAR; the model was optimized solely for prediction accuracy (see Appendix D.5 for the cost-regularized variant of LDAR). These results suggest that a trade-off between information coverage and distraction does exist, and that LDAR is able to balance such trade-offs by leveraging the similarity distribution between the query and the passages. As LDAR typically retrieves more passages than RAG but fewer than the long-context approach, it achieves Hallucination scores that are generally higher than those of the long-context approach yet lower than those of RAG. This trend arises because retrieving a larger number of passages increases the likelihood of including misleading but seemingly relevant passages, thereby increasing the risk of hallucination. Nevertheless, LDAR consistently outperforms RAG across all other tasks, resulting in a significantly higher overall performance."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                534,
+                826,
+                744
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The average token usage ratio of LDAR relative to the long-context approach is: 0.47 (32K opensource), 0.63 (32K closed-source), 0.25 (128K open-source), 0.52 (128K closed-source). LDAR tends to use more tokens for closed-source models, which generally exhibit stronger long-context capability than open-source models. Notably, when the context length extends to 128K, the LDAR framework adapts by retrieving smaller portion of passages compared to the context length 32K setting, indicating that the risk of having distraction with the long-context approach increases with longer input contexts. These results indicate that the LDAR framework dynamically aligns its retrieval strategy to the long-context capability of the underlying LLM, adaptively balancing information coverage against potential distraction."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                750,
+                826,
+                876
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Breaking down by task, the average token usage ratio relative to the long-context approach is: 0.45 (Location), 0.43 (Reasoning), 0.50 (Comparison), 0.42 (Hallucination). Since the Comparison task requires integrating information from multiple regions of a whole context, LDAR is optimized to retrieve a larger number of passages relative to other tasks. This highlights that the optimal retrieval strategy varies across tasks, and our framework effectively adapts its retrieval strategy accordingly."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                882,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "8"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                825,
+                133
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.4 COMPARISON TO BASELINE METHODS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                150,
+                485,
+                164
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "As demonstrated in Table 1, LDAR achieves significantly better performance compared to the Top-k baselines, implying that LDAR executes a different retrieval strategy based on the similarity distribution between the query and passages (see Figure 3 (left) for visualizations). Heuristic baseline methods that try to balance the trade-off between RAG and long-context processing (Self-Route, Adaptive-k) fail to retrieve passages based on the long-context capability of LLMs, leading to worse performance. The reranker baselines (RAG, BGM, RankZephyr) also yield limited performance improvements, as they operate solely within the top-similarity region and only reorder those passages, effectively disregarding the LLM’s long-context reasoning capability. Specifically, the learning method that selects the top-k passages by similarity and subsequently identifying the optimal subset based on textual information through evaluation signals (BGM) yield only marginal gains in long-context settings. While increasing k might seem like a straightforward solution, it substantially enlarges the combinatorial subset selection space, causing the model to converge to a suboptimal strategy. Accordingly, we report the best performance of BGM with k = 5, which is consistent with the original paper setting. In contrast, LDAR is explicitly designed for scalability by reducing the search space to a low-dimensional, smooth control space (Section 4.1), resulting in significantly better performance across overall settings."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                176,
+                826,
+                400
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.5 ZERO-SHOT EVALUATION OF LDAR"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                416,
+                467,
+                430
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Table 2 evaluates whether retrieval strategies learned in the LaRA benchmark can generalize in a zero-shot manner to tasks in another benchmark (HELMET). To ensure alignment across multi-hop and single-hop tasks, LDAR trained on the Comparison task is evaluated zero-shot on long-context HotpotQA task, and LDAR trained on the Location task is evaluated zero-shot on long-context NQ task. Although the observed performance gap is smaller than in Table 1, LDAR still achieves better average performance compared to RAG or the long-context approach, while also attaining a lower token usage ratio relative to the longcontext approach. These results indicate that LDAR’s learned retrieval strategies can generalize to tasks in another benchmark in a zero-shot manner."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                441,
+                454,
+                720
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/4b18b74122fe7e1dbe679b8c6bc4ff8e5ff9cee34fbdd689fe467e7eff2fec28.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 2: Zero-shot performance results of LDAR on HotpotQA and NQ dataset. White cells denote LC, gray denotes RAG , and red denotes LDAR . Numbers in parentheses show token-usage ratio relative to LC. The best performing strategy for each task within each LLM is highlighted in bold."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Method</td><td colspan=\"3\">HotpotQA</td><td colspan=\"3\">NQ</td></tr><tr><td>Llama-3.1-8B-Instruct</td><td>52.0(1.000)</td><td>50.0(0.019)</td><td>59.0(0.499)</td><td>43.0(1.000)</td><td>40.0(0.021)</td><td>49.0(0.213)</td></tr><tr><td>Llama-3.2-3B-Instruct</td><td>54.0(1.000)</td><td>52.0(0.019)</td><td>54.0(0.207)</td><td>42.0(1.000)</td><td>37.0(0.021)</td><td>43.0(0.146)</td></tr><tr><td>Qwen-2.5-7B-Instruct</td><td>30.0(1.000)</td><td>63.0(0.019)</td><td>64.0(0.305)</td><td>25.0(1.000)</td><td>42.0(0.021)</td><td>54.0(0.126)</td></tr><tr><td>Qwen-3-4B-Instruct</td><td>56.0(1.000)</td><td>51.0(0.019)</td><td>62.0(0.536)</td><td>54.0(1.000)</td><td>41.0(0.021)</td><td>53.0(0.486)</td></tr><tr><td>Mistral-Nemo-12B</td><td>29.0(1.000)</td><td>63.0(0.019)</td><td>61.0(0.061)</td><td>23.0(1.000)</td><td>45.0(0.021)</td><td>47.0(0.099)</td></tr><tr><td>Open-source Average</td><td>44.2(1.000)</td><td>55.8(0.019)</td><td>60.0(0.321)</td><td>37.4(1.000)</td><td>41.0(0.021)</td><td>49.2(0.214)</td></tr><tr><td>GPT-4o</td><td>81.0(1.000)</td><td>65.0(0.019)</td><td>84.0(0.579)</td><td>61.0(1.000)</td><td>54.0(0.021)</td><td>60.0(0.738)</td></tr><tr><td>GPT-4o-mini</td><td>64.0(1.000)</td><td>65.0(0.019)</td><td>76.0(0.629)</td><td>59.0(1.000)</td><td>52.0(0.021)</td><td>59.0(0.374)</td></tr><tr><td>Gemini-2.5-pro</td><td>85.0(1.000)</td><td>55.0(0.019)</td><td>84.0(0.638)</td><td>62.0(1.000)</td><td>37.0(0.021)</td><td>65.0(0.518)</td></tr><tr><td>Gemini-2.5-flash</td><td>82.0(1.000)</td><td>57.0(0.019)</td><td>83.0(0.953)</td><td>54.0(1.000)</td><td>37.0(0.021)</td><td>60.0(0.564)</td></tr><tr><td>Closed-source Average</td><td>78.0(1.000)</td><td>60.5(0.019)</td><td>81.8(0.699)</td><td>59.0(1.000)</td><td>45.0(0.021)</td><td>61.0(0.457)</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                468,
+                529,
+                821,
+                727
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.6 COST EFFICIENCY ANALYSIS OF LDAR"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                737,
+                493,
+                752
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "While LDAR brings performance improvements, it introduces additional cost, both from its training procedure and from the extra inference-time incurred by the forward pass of the learned retriever π<sub>θ</sub>. To quantify this overhead, we measured the end-to-end inference time per example in Location task with all baseline methods. Specifically, the inference time includes the time required to (1) compute the query and passage embeddings, (2) run the bridge model (e.g., reranker or LDAR retriever), and (3) process the selected passages through the prediction LLM to generate the final answer."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                763,
+                826,
+                849
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Table 3 summarizes the average per-example inference time with corresponding performance across all baselines using both open-source LLMs and closed-source LLMs. With open-source models, LC exhibits the highest latency as it forwards all retrieved passages to the underlying LLM. Methods that rely on text-based rerankers (RAG, RankZephyr, BGM) also incur substantial overhead due to heavy cross-encoder computation. In contrast, LDAR employs a lightweight, text-free adaptive retrieval mechanism, selecting passages to minimize potential interference from distracting passages. As a result, LDAR achieves the fastest inference time among LC and all reranker baselines, while simultaneously achieving the best overall performance. In the closed-source LLMs, the underlying LLM is highly optimized for fast inference, making total inference time less sensitive to input length. Even under these conditions, LDAR remains faster than LC and all reranker baselines while also achieving better performance."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                854,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "9"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/109e442e004a5ab77746de0bb6f3da076492d7aae0c7e67ed0b9a5668f0f3a7f.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 3: Comparison of retrieval strategies on LaRA Location task. Each cell reports the average per-example inference time or performance with standard error, computed using open-source and closed-source LLMs. Numbers in parentheses denote standard error for inference time and the tokenusage ratio for performance metrics, respectively."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Metric</td><td>Top-1</td><td>Top-5</td><td>Top-10</td><td>Top-25</td><td>Top-50</td><td>LC</td><td>RAG</td><td>Self-Route</td><td>Adap-tive-k</td><td>BGM</td><td>Rank Zephyr</td><td>LDAR</td></tr><tr><td>Time (Open-source)</td><td>1.3(0.55)</td><td>1.5(0.73)</td><td>1.7(0.91)</td><td>2.5(0.99)</td><td>4.0(1.31)</td><td>15.4(5.17)</td><td>18.4(0.86)</td><td>4.5(5.93)</td><td>8.6(11.70)</td><td>13.3(1.14)</td><td>10.2(1.07)</td><td>3.9(1.61)</td></tr><tr><td>Time (Closed-source)</td><td>3.9(2.29)</td><td>4.7(1.91)</td><td>5.2(2.36)</td><td>5.8(2.52)</td><td>5.9(2.20)</td><td>8.2(2.67)</td><td>22.6(1.75)</td><td>9.0(4.09)</td><td>6.5(4.70)</td><td>17.8(5.94)</td><td>13.6(2.56)</td><td>8.0(2.69)</td></tr><tr><td>Score (Open-source)</td><td>31.1(0.01)</td><td>60.1(0.03)</td><td>66.9(0.05)</td><td>71.3(0.13)</td><td>67.9(0.27)</td><td>56.2(1.00)</td><td>71.6(0.03)</td><td>65.8(0.19)</td><td>47.7(0.40)</td><td>68.9(0.02)</td><td>56.1(0.03)</td><td>77.3(0.21)</td></tr><tr><td>Score (Closed-source)</td><td>31.5(0.01)</td><td>61.7(0.03)</td><td>70.8(0.05)</td><td>80.0(0.13)</td><td>80.3(0.27)</td><td>88.0(1.00)</td><td>75.2(0.03)</td><td>80.0(0.28)</td><td>64.4(0.40)</td><td>72.2(0.02)</td><td>62.7(0.03)</td><td>90.5(0.50)</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                176,
+                169,
+                820,
+                257
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/cdcd8dcd7ad80cd8b77122ebb6ed7f33b35eacf129df0089cbd9a4901f68373b.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Training + Inference GPU Hours"
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                171,
+                277,
+                338,
+                375
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/996f51990f86b17f82b496804dd49dc3b4e54720c6fa9837637e97c0fa034522.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Training + Inference GPU Hours"
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                344,
+                265,
+                500,
+                375
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/41719c381c0abbfb2a19f3851f97e7515c1edf6493b1ec99b2b6faefcd46590c.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Training + Inference GPU Hours"
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                500,
+                265,
+                663,
+                373
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/994005251998d8c81b51d1844850b4d869316c5d92f6d9f0487f886483b4771e.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Training + Inference GPU Hours"
+                    },
+                    {
+                        "type": "text",
+                        "content": "Figure 5: Average performance plotted against total cumulative computational cost (GPU hours) for both training and inference. The left two panels report the total cost when applying LDAR at different training epochs under 100K and 500K inference calls using open-source LLMs; the right two panels show the corresponding results for closed-source LLMs."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                663,
+                277,
+                825,
+                375
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                468,
+                826,
+                554
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In addition, we include an analysis illustrating how the cost benefits accumulate over time when deploying the learned lightweight adaptive retriever "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "in Figure 5. For each LDAR training epoch, we compute (1) the cumulative training cost up to that epoch and (2) the inference cost when deploying "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "learned until that epoch with a certain number of inference calls (100K and 500K inference calls). We include CAG (Chan et al., 2025), a cache-augmented generation method that accelerates inference by preloading documents and reusing a precomputed KV-cache, as an additional baseline to compare inference-time efficiency with LDAR."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                559,
+                826,
+                657
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Since LDAR has lower inference-time overhead compared to LC, its cost advantage becomes increasingly pronounced as the number of deployments grows. As LDAR trains, it learns to identify the most effective passage set that minimizes distraction. This not only improves performance but also reduces token usage during both training and inference. As shown in the right panels of Figure 5, LDAR progressively selects fewer tokens over training epochs, thereby reducing the per-epoch training cost. These results demonstrate that LDAR ensures a favorable cost–benefit trade-off in practice."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                662,
+                826,
+                750
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "6 CONCLUSION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                767,
+                321,
+                782
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this paper, we demonstrated retrieving passages to minimize distraction remains a challenging problem, as the optimal strategy depends on both the capacity of the target LLM and the interactions among retrieved passages. Although a high-capacity LLM could exhaustively align all passages with the query to minimize distraction, the cost grows prohibitively with passage count, making this approach impractical. To this end, we present LDAR, an adaptive retriever that selects passages in accordance with LLM’s long-context capability to minimize potential interference from distracting passages, relying solely on the similarity distribution. Experiments across diverse LLM architectures and knowledge-intensive benchmarks demonstrate that LDAR achieves significantly better performance compared to baselines with lower token usage compared to the long-context approach."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                799,
+                826,
+                926
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "10"
+                    }
+                ]
+            },
+            "bbox": [
+                490,
+                948,
+                509,
+                960
+            ]
+        }
+    ]
+]

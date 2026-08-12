@@ -1,0 +1,1347 @@
+[
+    {
+        "type": "text",
+        "text": "ABSTRACT",
+        "text_level": 2,
+        "bbox": [
+            450,
+            263,
+            547,
+            279
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Large Language Models (LLMs) have shown remarkable success, and their multimodal expansions (MLLMs) further unlock capabilities spanning images, videos, and other modalities beyond text. However, despite this shift, prompt optimization approaches, designed to reduce the burden of manual prompt crafting while maximizing performance, remain confined to text, ultimately limiting the full potential of MLLMs. Motivated by this gap, we introduce the new problem of multimodal prompt optimization, which expands the prior definition of prompt optimization to the multimodal space defined by the pairs of textual and non-textual prompts. To tackle this problem, we then propose the Multimodal Prompt Optimizer (MPO), a unified framework that not only performs the joint optimization of multimodal prompts through alignment-preserving updates but also guides the selection process of candidate prompts by leveraging earlier evaluations as priors in a Bayesianbased selection strategy. Through extensive experiments across diverse modalities that go beyond text, such as images, videos, and even molecules, we demonstrate that MPO outperforms leading text-only optimization methods, establishing multimodal prompt optimization as a crucial step to realizing the potential of MLLMs.",
+        "bbox": [
+            228,
+            292,
+            767,
+            517
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "1 INTRODUCTION",
+        "text_level": 2,
+        "bbox": [
+            174,
+            537,
+            338,
+            553
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Large Language Models (LLMs) have demonstrated outstanding capabilities across a diverse range of tasks and domains (OpenAI, 2024; Grattafiori et al., 2024; Yang et al., 2025). We note that a central factor in unlocking their full potential lies in the design of prompts, which directly influence model performance. However, crafting high-quality prompts is often a labor-intensive and iterative process that requires substantial human intervention. To address this limitation, the field of Automatic Prompt Optimization (APO) has emerged, whose goal is to automate the discovery of effective prompts (Pryzant et al., 2023; Ramnath et al., 2025; Cui et al., 2025a; Li et al., 2025). For example, Zhou et al. (2023) frames this challenge as an iterative search problem, where at each step, a set of new candidate prompts is generated or updated, evaluated on a target task, and the best-performing prompts are selected to guide the next round of generation.",
+        "bbox": [
+            169,
+            568,
+            826,
+            709
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Recently, on top of the LLMs, Multimodal Large Language Models (MLLMs) have been proposed, which process not only text but also images, videos, and other modalities (such as molecules) (Kim et al., 2025; Zheng et al., 2024; Song et al., 2025). Yet, despite these advances and their wide-ranging applications, existing prompt optimization methods remain restricted to the textual modality (Choi et al., 2025; Fernando et al., 2024; Cui et al., 2025b), and overlook the richer expressive capacity afforded by multimodal inputs (that text alone cannot capture). For instance, as illustrated in Figure 1, describing the distinct characteristics of a specific bird may require long and potentially ambiguous text, while a single image can convey the same information far more directly. By limiting optimization to text, existing methods are prone to generating less effective, suboptimal prompts that fail to fully exploit the multimodal space that MLLMs are inherently capable of leveraging.",
+        "bbox": [
+            169,
+            714,
+            826,
+            854
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Motivated by this limitation, we first define the novel problem of multimodal prompt optimization<sup>1</sup>, which expands the prompt optimization space beyond text to incorporate multiple modalities. However, while this expanded space opens new opportunities, it also introduces a couple of challenges for automatic optimization. First, exploring the larger, combinatorial space of multimodal prompts requires a prompt update strategy that can efficiently navigate candidate prompts while maintaining cross-modal consistency. Furthermore, selecting promising candidates becomes substantially more difficult, as the enlarged search space makes optimal prompts increasingly sparse, given the need to account for both the effectiveness within each modality and the alignment across modalities, which, in turn, calls for evaluation strategies that are both efficient and accurate.",
+        "bbox": [
+            171,
+            859,
+            825,
+            890
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_footnote",
+        "text": "<sup>∗</sup>Equal Contribution; <sup>†</sup>Equal Advising; Code is available at https://github.com/Dozi01/MPO.",
+        "bbox": [
+            191,
+            896,
+            741,
+            910
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_footnote",
+        "text": "<sup>1</sup>We define a multimodal prompt as a pair of a discrete textual and non-textual prompts.",
+        "bbox": [
+            191,
+            910,
+            712,
+            924
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_number",
+        "text": "1",
+        "bbox": [
+            493,
+            948,
+            503,
+            959
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "image",
+        "img_path": "images/fecc775cdf682e70f37ff9d5f66203848208a1aa1e0ff02c1c181f116fb56f76.jpg",
+        "image_caption": [
+            "Figure 1: Concept Figure. (A) Existing prompt optimization approaches restrict the optimization to the textual space, leaving MLLMs underutilized by failing to provide rich contextual signals. (B) Our multimodal prompt optimization expands the optimization space into multimodality, allowing the discovery of salient multimodal context and fully leveraging the expressive capacity of MLLMs."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            179,
+            101,
+            812,
+            215
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            305,
+            826,
+            404
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "To address these challenges, we propose Multimodal Prompt Optimizer (MPO), a unified framework for optimizing prompts across both the textual and non-textual modalities, which consists of the two key components: (i) alignment-preserving exploration and (ii) prior-inheritance-based selection. Specifically, for exploration, the proposed MPO jointly updates the textual prompt, as well as its associated non-textual counterparts by generating instructions to create (or revise) the non-textual components of the multimodal prompt (unlike prior approaches that refine only text), and notably, their updates are guided by the single semantic gradient (i.e., feedback) to ensure their alignment derived from the failure analysis of the current prompt. Moreover, these updates are further diversified through complementary operations, namely generation, editing, and mixing, to ensure the broad and expressive exploration of the multimodal prompt space. Then, building on this exploration with multiple candidate prompts updated, MPO leverages the prior-inherited Bayesian-UCB as a prompt selection strategy, which utilizes the performance score of parent prompts as a prior (unlike conventional approaches that treat each candidate independently), to reliably identify the high-performing prompts by biasing the selection process toward more promising regions of the multimodal space.",
+        "bbox": [
+            169,
+            409,
+            826,
+            607
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "To validate MPO, we conduct extensive experiments benchmarking it against leading text-only optimization methods across 10 datasets, and our evaluation suite spans not only images and videos but also molecular structures, ensuring broad coverage of diverse modalities. Across all domains, MPO demonstrate consistent and significant performance gains, empirically confirming our core hypothesis: expanding the prompt search space into the multimodal domain is crucial to exploit the expanded capacity of MLLMs. Further analyses show the efficacy of MPO components: alignment-preserving exploration with complementary operators facilitates the discovery of optimal multimodal prompts by not only ensuring cross-modal consistency but also thoroughly probing the search space; and the prior-inherited Bayesian-UCB accurately and efficiently selects high-performing prompts, reducing evaluation budget by 42% compared with a prior-free baseline. These results highlight MPO as an effective framework for optimizing multimodal prompts, unlocking the full capabilities of MLLMs.",
+        "bbox": [
+            169,
+            611,
+            826,
+            766
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "2 RELATED WORK",
+        "text_level": 2,
+        "bbox": [
+            171,
+            784,
+            348,
+            799
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Multimodal Large Language Models The development of MLLMs has significantly extended the capabilities of traditional LLMs by enabling them to process and reason over diverse nontextual modalities, including images, videos, audio, and more (Liu et al., 2023; Chu et al., 2023; M. Bran et al., 2024). In particular, these models are typically trained through large-scale multimodal pre-training, which aligns modality-specific encoders (e.g., vision or audio) with LLM backbones, followed by post-training stages such as supervised fine-tuning and preference optimization to endow them with multimodal instruction-following abilities (Gemini, 2025; Bai et al., 2025; Zhu et al., 2025). Moreover, leveraging these capabilities, MLLMs have achieved strong performance on a broad range of tasks, from foundational ones such as classification and captioning, to domainspecific, high-stakes applications such as medical image question answering and pharmacological property prediction (Martin et al., 2019; Liu et al., 2021; Corbiere et al.\\` , 2025; Huang et al., 2021).",
+        "bbox": [
+            169,
+            811,
+            826,
+            925
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "page_number",
+        "text": "2",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "image",
+        "img_path": "images/3b7d9ac5ca5ffbec828c4a8237b00ce6f6a57358f824f2fbe7503a3f2f16c072.jpg",
+        "image_caption": [
+            "Figure 2: Overview of MPO, consisting of two components. (A) Alignment-preserving exploration analyzes a failure set to generate feedback, which is then used both to refine the textual prompt and to guide a modality-specific generator to create a new non-textual prompt with one of three operators. (B) Prior-Inherited Bayesian UCB Selection leverages the parent’s performance as an informative prior, warm-starting the search to effectively identify high-performing prompts among candidates."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            184,
+            102,
+            808,
+            244
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            349,
+            825,
+            393
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Automatic Prompt Optimization To reduce the burden of manual prompt engineering and systematically uncover the effective prompts, the field of Automatic Prompt Optimization (APO) has emerged. Existing works can be broadly categorized into two paradigms. The first is gradient-based optimization, which learns continuous embedding vectors (i.e., soft prompts) that are prepended to model inputs to steer behavior (Khattak et al., 2023; Zeng et al., 2024; Wang et al., 2024). Yet, while effective, they are computationally costly, yield uninterpretable numerical vectors, and are restricted to open-source models with accessible parameters. To overcome these drawbacks, gradient-free approaches have been proposed, which iteratively generate, evaluate, and refine candidate prompts using LLMs themselves (Zhou et al., 2023; Yang et al., 2024). Also, some recent works enhance this process by analyzing prompt failures to guide improvements (Khattab et al., 2024; Ye et al., 2024; Cui et al., 2025b; Yuksekgonul et al., 2025), while others borrow ideas from evolutionary algorithms (e.g., mutation and crossover) to explore the prompt space (Guo et al., 2024; Fernando et al., 2024). Despite this progress, current APO techniques are limited to text-only settings, restricting optimization to purely linguistic information. In contrast, our work expands prompt optimization into the multimodal domain, enabling the prompt discovery that fully exploits the capabilities of MLLMs.",
+        "bbox": [
+            169,
+            402,
+            826,
+            614
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Instance-Specific Prompting and Optimization Distinct from task-level prompt optimization, another line of research focuses on instance-specific prompting strategies that operate at inference time to enhance reasoning on a per-query basis. For example, MM-CoT (Zhang et al., 2024b) guides the model to generate an intermediate textual rationale before producing the final answer. Also, other methods augment visual inputs with query-dependent signals, such as bounding boxes or points, to guide attention toward relevant regions of an image (Zhou et al., 2024; Jiang et al., 2024; Lin et al., 2024). Similar ideas have been explored in text-to-image and text-to-video generation, where prompts are crafted and refined to produce outputs more faithfully aligned with user intent (Manas et al. ˜ , 2024; Mo et al., 2024; Gao et al., 2025). However, these techniques are queryspecific, designed to improve model performance for a single instance at a time. By contrast, APO pursues a different objective: discovering a single, reusable prompt that boosts performance across an entire task, and our work advances this paradigm by extending it into the multimodal domain.",
+        "bbox": [
+            169,
+            621,
+            826,
+            791
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "3 METHODOLOGY: MULTIMODAL PROMPT OPTIMIZER",
+        "text_level": 2,
+        "bbox": [
+            171,
+            804,
+            647,
+            820
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "We present Multimodal Prompt Optimizer (MPO), composed of two modules: alignment-preserving exploration of multimodal prompt space and prompt selection with prior-inherited Bayesian UCB.",
+        "bbox": [
+            169,
+            830,
+            825,
+            861
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "3.1 PROBLEM DEFINITION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            871,
+            374,
+            886
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "We begin by formally describing MLLMs and then proposing a novel problem of multimodal prompt optimization, which redefines and expands the notion of existing prompt optimization beyond text.",
+        "bbox": [
+            169,
+            897,
+            825,
+            926
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "page_number",
+        "text": "3",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Multimodal Large Language Models Multimodal Large Language Models (MLLMs) extend the capabilities of LLMs by processing inputs that combine text with non-textual modalities. Formally, an MLLM can be represented as a parametric function MLLM : $( { \\mathcal { T } } \\cup { \\mathcal { M } } ) ^ { * } \\to { \\mathcal { T } }$ , where $\\tau$ denotes the textual input space, M denotes the non-textual input space, and <sup>∗</sup> denotes the Kleene Star (representing a finite sequence over the combined spaces). In other words, given a multimodal query q and a prompt $\\pmb { p }$ (each potentially containing both textual and non-textual components), the model generates a textual output $\\pmb { y } = \\mathtt { M L L M } ( \\pmb { p } , \\pmb { q } )$ . It is worth noting that prior work on prompt optimization has generally restricted p to a purely textual form $( p = t \\in \\mathcal { T } )$ , leaving the non-textual dimensions of M unused. This restriction underutilizes the expressive capacity of MLLMs and fails to provide richer contextual signals that are often crucial for real-world multimodal tasks (See Figure 1).",
+        "bbox": [
+            169,
+            103,
+            826,
+            244
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Multimodal Prompt Optimization Building on the expanded space of MLLMs, we extend the notion of a prompt for optimization from text-only to multimodal. Specifically, we define a multimodal prompt as a pair $\\pmb { p } = ( \\pmb { t } , \\pmb { m } ) \\in \\mathcal { T } \\times \\mathcal { M }$ , where t is the textual prompt and m is the non-textual prompt. Then, given a task dataset $\\mathcal { D }$ consisting of query–answer pairs $( q , a )$ , the objective of multimodal prompt optimization is to discover the optimal prompt $( t ^ { * } , m ^ { * } )$ that maximizes performance:",
+        "bbox": [
+            169,
+            256,
+            825,
+            328
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\n(\\boldsymbol {t} ^ {*}, \\boldsymbol {m} ^ {*}) = \\underset {(\\boldsymbol {t}, \\boldsymbol {m}) \\in \\mathcal {T} \\times \\mathcal {M}} {\\operatorname{argmax}} \\mathbb {E} _ {(\\boldsymbol {q}, \\boldsymbol {a}) \\sim \\mathcal {D}} \\Big [ f \\big (\\mathrm{MLLM} (\\boldsymbol {t}, \\boldsymbol {m}, \\boldsymbol {q}), \\boldsymbol {a} \\big) \\Big ],\n$$",
+        "text_format": "latex",
+        "bbox": [
+            295,
+            337,
+            699,
+            366
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "where $f$ is a function for a task-specific evaluation metric, such as accuracy or F1 scores.",
+        "bbox": [
+            171,
+            376,
+            756,
+            392
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Notably, compared to optimizing only textual prompts, the joint search space $\\mathcal { T } \\times \\mathcal { M }$ introduces an entirely new axis of non-textual information, which in turn raises two fundamental challenges. First, multimodal prompts must maintain cross-modal consistency: textual and non-textual components should provide complementary, not conflicting signals; however, expanding to the combinatorial space greatly increases the risk of semantic misalignment. Second, the enlarged space amplifies the difficulty of candidate selection: high-quality prompts become sparse, and low-quality prompts dominate, making it harder to efficiently identify promising candidates. To overcome these, we now explain the proposed multimodal prompt optimizer, designed to navigate this enlarged space below.",
+        "bbox": [
+            169,
+            397,
+            826,
+            511
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3.2 ALIGNMENT-PRESERVING EXPLORATION OF MULTIMODAL PROMPT SPACE",
+        "text_level": 2,
+        "bbox": [
+            171,
+            527,
+            738,
+            542
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "The first challenge in multimodal prompt optimization lies in exploring the enlarged search space while preserving semantic consistency across modalities; thus, a naive approach that independently updates textual and non-textual components risks producing misaligned prompts, where one modality contradicts the other. To tackle this, we introduce an exploration framework that couples the update of textual and non-textual prompts while supporting diverse operations (Figure 2).",
+        "bbox": [
+            169,
+            554,
+            825,
+            627
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Joint Optimization of Multimodal Prompt Our MPO jointly updates the textual and non-textual prompts to ensure that both evolve coherently, achieved through the following two mechanisms:",
+        "bbox": [
+            169,
+            637,
+            823,
+            667
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "• Cohesive Backpropagation. We begin by identifying a failure set ${ \\mathcal { F } } = \\{ ( \\mathbf { \\boldsymbol { q } } , \\mathbf { \\boldsymbol { a } } , \\mathbf { \\boldsymbol { y } } ) ~ | ~ \\mathbf { \\boldsymbol { y } } \\neq \\mathbf { \\boldsymbol { a } } \\}$ for a multimodal prompt $\\pmb { p } = ( \\pmb { t } , \\pmb { m } )$ . Instead of treating errors separately for text and non-textual inputs, we then generate a unified feedback $\\nabla _ { p } = ( \\bar { \\nabla _ { t } } , \\nabla _ { m } ) \\stackrel { - } { = } \\mathtt { M L L M } ( t , m ; { \\mathcal F } )$ , which encodes cross-modal weaknesses in textual form. By doing so, we obtain the single supervisory signal that guides both modalities simultaneously, mitigating the risk of overfitting updates to one modality.",
+        "bbox": [
+            171,
+            676,
+            825,
+            748
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "• Joint Multimodal Update. Using the feedback, MPO jointly refines the textual prompt while deriving modality-specific conditions (in the textual form) that direct non-textual revisions. Specifically, the MLLM produces an updated textual prompt $\\dot { \\mathbf { } t ^ { \\prime } }$ and further a modality-specific condition $^ c$ describing how the non-textual prompt should adapt: $( t ^ { \\prime } , c ) = \\tt M L L M  ( t , m ; \\mathcal { F } , \\bar { \\nabla } _ { p } )$ . The condition c is then passed to modality-specific generators $g$ (such as text-to-image or text-to-molecule modules), which yield updated non-textual prompts ${ m } ^ { \\prime } = g ( \\pmb { c } )$ . This guarantees that updates to m remain consistent with the revised textual prompt $\\mathbf { { \\boldsymbol { t } } ^ { \\prime } } ,$ rather than being optimized in isolation.",
+        "bbox": [
+            171,
+            752,
+            825,
+            851
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "For the optimization process, we adopt the beam search. Specifically, at each iteration, we select topb best-performing multimdoal prompts $\\{ \\pmb { p } _ { i } = ( t _ { i } , \\pmb { m } _ { i } ) \\} _ { i = 1 } ^ { b }$ , and then apply the cohesive backpropagation and the joint multimodal update to generate new $b ^ { 2 }$ multimodal prompts $\\{ p _ { j } ^ { \\prime } = ( t _ { j } ^ { \\prime } , m _ { j } ^ { \\prime } ) \\} _ { j = 1 } ^ { b ^ { 2 } }$ from the top-b multimodal prompts $\\mathbf { \\delta } _ { p . }$ We refer to p and $\\pmb { p } ^ { \\prime }$ as parent and child prompts, respectively.",
+        "bbox": [
+            169,
+            864,
+            825,
+            928
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "page_number",
+        "text": "4",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Exploration Operators Ensuring that generated outputs remain consistent with the guiding textual conditions is a necessary baseline, and effective optimization further requires $g$ that actively explores diverse regions of the multimodal space. To achieve this, we design three operators (namely, generation, edit, and mix), which systematically expand, refine, and recombine non-textual prompts.",
+        "bbox": [
+            169,
+            104,
+            826,
+            162
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "• Generation operator. This operator explores entirely new non-textual prompts, e.g., novel spatial arrangements in visual inputs or unique substructures in molecules. Specifically, conditioned only on the generation signal $c _ { \\mathrm { g e n } } .$ , it creates a prompt from scratch without referencing prior candidates:",
+        "bbox": [
+            171,
+            169,
+            825,
+            213
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\boldsymbol {m} ^ {\\prime} = g \\left(\\boldsymbol {c} _ {\\text { gen }}, \\varnothing\\right), \\text {   where   } \\left(\\boldsymbol {c} _ {\\text { gen }}, \\boldsymbol {t} ^ {\\prime}\\right) = \\operatorname{MLLM} (\\boldsymbol {t}, \\boldsymbol {m}; \\nabla_ {\\boldsymbol {p}}, \\mathcal {F}).\n$$",
+        "text_format": "latex",
+        "bbox": [
+            313,
+            220,
+            694,
+            237
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "By decoupling from past candidates, it explores unexplored regions and avoids local optima, especially in early stages (where initial prompts are unavailable) or when the candidate pool is biased.",
+        "bbox": [
+            183,
+            244,
+            825,
+            273
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "• Edit operator. This operator performs fine-grained refinements of non-textual prompts (e.g., textures) while retaining useful structures from the prior prompt. Specifically, given the edit condition $c _ { \\mathrm { e d i t } }$ , the update is performed by conditioning on the prior non-textual prompt:",
+        "bbox": [
+            171,
+            279,
+            826,
+            323
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\boldsymbol {m} ^ {\\prime} = g \\left(\\boldsymbol {c} _ {\\text { edit }}, \\{\\boldsymbol {m} \\}\\right), \\text {   where   } \\left(\\boldsymbol {c} _ {\\text { edit }}, \\boldsymbol {t} ^ {\\prime}\\right) = \\operatorname{MLLM} (\\boldsymbol {t}, \\boldsymbol {m}; \\nabla_ {\\boldsymbol {p}}, \\mathcal {F}).\n$$",
+        "text_format": "latex",
+        "bbox": [
+            300,
+            329,
+            707,
+            345
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "This enables targeted, incremental refinements, making it particularly effective when a prompt is already strong but requires adjustment on specific attributes rather than a complete redesign.",
+        "bbox": [
+            184,
+            352,
+            825,
+            383
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "• Mix operator. This operator blends the complementary strengths of multiple multimodal prompts. Specifically, it first leverages feedback from multiple prompts to generate a mixing condition $\\mathbf { c } _ { \\mathrm { m i x } } .$ which is then used by the generator to combine non-textual prompts as follows:",
+        "bbox": [
+            171,
+            388,
+            823,
+            431
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\boldsymbol {m} ^ {\\prime} = g \\left(\\boldsymbol {c} _ {\\text { mix }}, \\left\\{\\boldsymbol {m} _ {i} \\right\\} _ {i = 1} ^ {K}\\right), \\text {   where   } \\left(\\boldsymbol {c} _ {\\text { mix }}, \\boldsymbol {t} ^ {\\prime}\\right) = \\operatorname{MLM} \\left(\\left\\{\\boldsymbol {t} _ {i}, \\boldsymbol {m} _ {i}; \\nabla_ {\\boldsymbol {p} _ {i}}, \\mathcal {F} _ {i} \\right\\} _ {i = 1} ^ {K}\\right).\n$$",
+        "text_format": "latex",
+        "bbox": [
+            258,
+            438,
+            750,
+            455
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "By synthesizing multiple candidates, it yields balanced compositions, avoids over-reliance on a single candidate, and enables exploration of intermediate solutions better than individual ones.",
+        "bbox": [
+            183,
+            463,
+            826,
+            492
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "It is worth noting that, for the generation and edit operators, we randomly select one parent prompt from top-b multimodal prompts of the previous iteration to generate a child prompt $( \\mathrm { i } . \\mathrm { e } . , p  p ^ { \\prime } )$ while $\\bar { K }$ parent prompts are selected for the mix operator $( \\mathrm { i . e . , } \\{ p _ { 1 } , . . . , p _ { K } \\} \\to p ^ { \\prime } )$",
+        "bbox": [
+            169,
+            500,
+            823,
+            544
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "3.3 EFFECTIVE PROMPT SELECTION BY PRIOR-INHERITED BAYESIAN UCB",
+        "text_level": 2,
+        "bbox": [
+            171,
+            559,
+            712,
+            574
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Another challenge in multimodal prompt optimization is to identify which candidates should be prioritized for evaluation and carried forward (Pryzant et al., 2023; Shi et al., 2024). Yet, this step is non-trivial with the enlarged multimodal space, since high-quality prompts become relatively sparse, and a large portion of the evaluation budget risks being wasted on low-potential candidates. Existing approaches typically adopt either (i) uniform allocation, where each candidate is evaluated equally regardless of its prior likelihood of success (Zhou et al., 2023; Cui et al., 2025b), or (ii) bandit-based allocation, such as UCB (Auer, 2002; Bouneffouf & Feraud´ , 2025; Li et al., 2026; Ashizawa et al., 2025), which adaptively balances exploration and exploitation. However, both paradigms suffer from an inefficient cold-start problem: newly generated prompts are treated as independent arms with no prior information, leading to unproductive evaluations in the early rounds.",
+        "bbox": [
+            169,
+            585,
+            826,
+            727
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Parent-Child Correlation We address this cold-start inefficiency by introducing informative priors that warm-start the evaluation process. In particular, our hypothesis is that the performance of a parent prompt is positively correlated with that of its children. To test this, we analyze the optimization trajectory, measuring the correlation between the performance of parent prompts and the average performance of their children. As shown in Figure 3, we observe a strong positive correlation (Pearson’s $r = 0 . 8 8 )$ , providing concrete evidence that parent scores could serve as highly informative priors for estimating child performance.",
+        "bbox": [
+            169,
+            739,
+            648,
+            868
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "chart",
+        "img_path": "images/a4692c31bc944311988329feee6876d05e73bb9907bee3f917a9417507397aac.jpg",
+        "content": "",
+        "chart_caption": [
+            "Figure 3: Correlation of parent and child scores."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            669,
+            738,
+            808,
+            840
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Prior-Inherited Bayesian UCB Motivated by this finding, we propose prior-inherited Bayesian UCB (Kaufmann et al., 2012), a selection strategy that initializes the score distribution of a new child prompt based on the posterior of its parent (rather than uniform). Specifically, we model the expected score of each multimodal prompt $\\mathbf { \\nabla } _ { \\mathbf { p } _ { i } }$ as a Beta distribution, $\\mathrm { B e t a } ( \\alpha _ { i } , \\beta _ { i } )$ , where $\\alpha _ { i }$ and $\\beta _ { i }$ correspond to (pseudo-) counts of successful and failure outcomes, respectively. Then, for a child prompt $\\mathbf { \\nabla } p _ { i }$ originated from a parent prompt $p _ { \\mathtt { p a r } ( i ) } { } ^ { 2 }$ , we initialize its prior proportionally to the posterior mean performance of the parent $\\hat { \\mu } _ { \\mathtt { p a r } ( i ) }$ , scaled by a prior strength hyperparameter $S > 0$ formalized as follows:",
+        "bbox": [
+            169,
+            881,
+            826,
+            925
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "page_number",
+        "text": "5",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            104,
+            825,
+            174
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\alpha_ {i} = \\hat {\\mu} _ {\\mathrm{par} (i)} \\cdot S + 1, \\beta_ {i} = (1 - \\hat {\\mu} _ {\\mathrm{par} (i)}) \\cdot S + 1, \\text {where} \\hat {\\mu} _ {\\mathrm{par} (i)} = \\frac {\\alpha_ {\\mathrm{par} (i)}}{\\alpha_ {\\mathrm{par} (i)} + \\beta_ {\\mathrm{par} (i)}}.\\tag{1}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            187,
+            179,
+            787,
+            210
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "This prior-inherited mechanism provides S pseudo-observations to newly generated child prompts, effectively warm-starting the evaluation process. With a fixed total budget, it then proceeds iteratively: at each round, we select the prompt with the highest UCB score (an upper quantile of its Beta posterior), evaluate it on a small batch of data, and update its posterior parameters $\\alpha _ { i }$ and $\\beta _ { i }$ . Once the budget is exhausted, the candidate prompt with the highest expected score is selected as the new parent for the next iteration of optimization. Please refer to Algorithm 2 for the complete procedure. The following proposition guarantees that our proposed selection strategy leverages an informative parent prior (better than random chance) to accelerate the selection of the best-promising prompt.",
+        "bbox": [
+            169,
+            224,
+            825,
+            338
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Proposition 3.1. (Fewer Pulls via Prior-Inherited Bayesian UCB) With the prior of Equation 1, and if the prior is more informative than uniform $( \\mathbb { E } _ { i } \\big [ \\dot { d } ( \\mu _ { i } , \\hat { \\mu } _ { p a r ( i ) } ) - d ( \\mu _ { i } , \\frac { 1 } { 2 } \\big ) \\big ] \\leq 0 )$ , the best-arm identification cost ofBayesian UCB is nonincreasing, where $d ( p , q )$ is the Bernoulli KL divergence.",
+        "bbox": [
+            169,
+            340,
+            825,
+            387
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "The proof and detailed analysis are provided in Appendix B. Intuitively, this guarantee demonstrates that informative parent priors accelerate the discovery of high-quality prompts by reducing wasted evaluations on low-potential candidates, which is particularly beneficial for multimodal prompt optimization, where the combinatorial search space is far larger than text-only settings. In other words, by rapidly eliminating unpromising candidates and reallocating the budget toward more promising regions, our method enables efficient exploration of the vast multimodal prompt landscape.",
+        "bbox": [
+            169,
+            393,
+            826,
+            478
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "4 EXPERIMENTS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            493,
+            328,
+            508
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "4.1 EXPERIMENTAL SETUP",
+        "text_level": 2,
+        "bbox": [
+            171,
+            520,
+            377,
+            534
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Datasets We conduct an extensive evaluation on MPO across a diverse set of modalities, including images, videos, and molecules. For the image modality, we consider both image classification and visual question answering (VQA) tasks. Specifically, we use PlantVillage (Mohanty et al., 2016) for diseased leaf identification and CUB-200-2011 (Wah et al., 2011) for fine-grained bird classification; meanwhile, for VQA, we evaluate on SLAKE (Liu et al., 2021), RSVQA (Lobry et al., 2020), and DrivingVQA (Corbiere et al.\\` , 2025), which cover radiology, remote sensing, and dynamic driving scenes, respectively. For the video modality, we evaluate on Drive&Act (Martin et al., 2019) for driver action recognition and VANE-Bench (Gani et al., 2025) for abnormality detection in videobased VQA. Finally, for the molecular modality, we include three different property prediction tasks from TDC (Huang et al., 2021), namely, Absorption (Hou et al., 2007; Ma et al., 2008; Broccatelli et al., 2011; Siramshetty et al., 2021), BBBP (Martins et al., 2012), and CYP inhibition tasks (Veith et al., 2009). Detailed configurations for each dataset are provided in Appendix A.1.",
+        "bbox": [
+            169,
+            542,
+            826,
+            710
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Baselines We benchmark MPO against both manually designed prompts and representative automatic prompt optimization methods. For manual prompting, we include Human, a simple handcrafted prompt, Chain-of-Thought (CoT) (Wei et al., 2022), which uses the widely adopted phrase “Let’s think step by step,” and Few-Shot, which supplies in-context examples drawn from the training data. For automatic methods, we compare against leading LLM-based text-only optimizers, including APE (Zhou et al., 2023), OPRO (Yang et al., 2024), EvoPrompt (Guo et al., 2024), PE2 (Ye et al., 2024), ProTeGi (Pryzant et al., 2023), and SEE (Cui et al., 2025b). Detailed descriptions of all baselines are provided in Appendix A.2.",
+        "bbox": [
+            169,
+            720,
+            826,
+            834
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Implementation Details For answer generation, we use Qwen2.5-VL (7B) (Bai et al., 2025) as the base model for image and video tasks, and Qwen3 (8B) (Yang et al., 2025) for molecular tasks. During optimization, GPT-4o mini (OpenAI, 2024) serves as the prompt optimizer, responsible for analyzing failures and refining multimodal prompts. For modality-specific generation, we employ GPT-Image (OpenAI, 2025) for images, Wan2.1 (1.3B) (Wan et al., 2025) for videos, and again GPT-4o mini for molecules. For the implementation of the iterative optimization loop, we use the beam search (Pryzant et al., 2023) with the beam size of b = 3 and the number of iterations of T = 13. Also, at each iteration (except the first), $b ^ { 2 }$ child prompts are produced by evenly applying the generation, edit, and mix operators, after which the top-b prompts are selected via prior-inherited Bayesian-UCB. Meanwhile, in the first iteration, only the generation operator is used to initialize multimodal prompts, since no non-textual prompts exist yet. The complete optimization process is summarized in Algorithm 1. To ensure fairness, we keep the number of explored prompts consistent across all methods. In our case, each candidate prompt is allocated an evaluation budget of 100, and the prior strength for our prior inheritance is set to 10% of this budget (S = 10). Reported results are averaged over three independent runs. Please see Appendix A.3 for additional details.",
+        "bbox": [
+            169,
+            844,
+            826,
+            888
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "page_footnote",
+        "text": "<sup>2</sup>If a child prompt is generated by the mix operator, we average the posterior mean performance of multiple parent prompts.",
+        "bbox": [
+            169,
+            897,
+            825,
+            925
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "page_number",
+        "text": "6",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "table",
+        "img_path": "images/fb0dae999b8afc39cb11e165d24a6d34f95e1e4dc5627b7741c12a2a2aa9c067.jpg",
+        "table_caption": [
+            "Table 1: Main Results. Comparison of MPO with manual prompting, few-shot prompting, and text-only APO baselines on diverse benchmarks across image, video, and molecular modalities. Results are averaged over three independent runs. \\* denotes the average performance across multiple subtasks within the benchmark. Avg. denotes the average accuracy over all datasets except F1."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td rowspan=\"3\">Methods</td><td colspan=\"5\">Image</td><td colspan=\"2\">Video</td><td colspan=\"6\">Molecule</td><td></td></tr><tr><td>PlantVillage*</td><td>CUB*</td><td>SLAKE*</td><td>DrivingVQA</td><td>RSVQA</td><td>Drive&amp;Act</td><td>VANE.</td><td colspan=\"2\">Absorption*</td><td colspan=\"2\">BBBP</td><td colspan=\"2\">CYP Inhibit.*</td><td></td></tr><tr><td>Acc.</td><td>Acc.</td><td>Acc.</td><td>Acc.</td><td>Acc.</td><td>Acc.</td><td>Acc.</td><td>Acc.</td><td>F1</td><td>Acc.</td><td>F1</td><td>Acc.</td><td>F1</td><td>Avg.</td></tr><tr><td>Human</td><td>42.2</td><td>47.9</td><td>35.2</td><td>49.7</td><td>51.0</td><td>47.3</td><td>47.0</td><td>38.5</td><td>36.3</td><td>39.4</td><td>38.6</td><td>43.1</td><td>37.1</td><td>44.1</td></tr><tr><td>CoT</td><td>43.1</td><td>49.0</td><td>30.8</td><td>52.9</td><td>49.6</td><td>37.2</td><td>31.6</td><td>39.6</td><td>36.7</td><td>33.6</td><td>32.5</td><td>40.1</td><td>32.3</td><td>40.8</td></tr><tr><td>1-Shot</td><td>39.7</td><td>54.7</td><td>31.4</td><td>54.5</td><td>48.5</td><td>50.4</td><td>62.4</td><td>37.8</td><td>35.7</td><td>36.1</td><td>34.8</td><td>56.2</td><td>48.3</td><td>47.2</td></tr><tr><td>3-Shot</td><td>48.2</td><td>58.8</td><td>30.6</td><td>53.9</td><td>52.2</td><td>54.2</td><td>56.0</td><td>46.1</td><td>44.2</td><td>42.7</td><td>42.6</td><td>51.9</td><td>47.3</td><td>49.5</td></tr><tr><td>5-Shot</td><td>46.5</td><td>58.1</td><td>28.0</td><td>45.9</td><td>49.2</td><td>54.3</td><td>61.4</td><td>48.1</td><td>45.5</td><td>49.3</td><td>49.3</td><td>52.0</td><td>47.0</td><td>49.3</td></tr><tr><td>APE</td><td>55.8</td><td>67.3</td><td>34.3</td><td>52.8</td><td>54.4</td><td>50.3</td><td>64.3</td><td>45.7</td><td>40.4</td><td>36.0</td><td>34.7</td><td>52.3</td><td>50.9</td><td>51.3</td></tr><tr><td>OPRO</td><td>54.1</td><td>59.7</td><td>33.9</td><td>52.7</td><td>51.0</td><td>46.4</td><td>51.0</td><td>37.6</td><td>35.4</td><td>39.2</td><td>38.3</td><td>43.0</td><td>37.1</td><td>46.9</td></tr><tr><td>EvoPrompt</td><td>56.1</td><td>59.6</td><td>34.8</td><td>52.9</td><td>50.5</td><td>46.7</td><td>56.5</td><td>48.2</td><td>46.5</td><td>38.7</td><td>37.7</td><td>51.1</td><td>49.7</td><td>49.5</td></tr><tr><td>PE2</td><td>67.9</td><td>71.6</td><td>35.8</td><td>53.7</td><td>55.2</td><td>50.8</td><td>63.0</td><td>64.5</td><td>56.8</td><td>61.3</td><td>58.2</td><td>58.5</td><td>55.1</td><td>58.2</td></tr><tr><td>ProTeGi</td><td>64.4</td><td>70.0</td><td>35.4</td><td>54.4</td><td>54.2</td><td>53.0</td><td>65.5</td><td>71.1</td><td>58.2</td><td>72.1</td><td>65.7</td><td>59.8</td><td>57.0</td><td>60.0</td></tr><tr><td>SEE</td><td>69.0</td><td>71.6</td><td>35.0</td><td>52.2</td><td>53.4</td><td>51.7</td><td>57.9</td><td>71.4</td><td>60.0</td><td>67.0</td><td>62.3</td><td>61.4</td><td>56.7</td><td>59.1</td></tr><tr><td>MPO (Ours)</td><td>76.4</td><td>78.6</td><td>38.2</td><td>56.0</td><td>55.9</td><td>58.3</td><td>71.2</td><td>76.7</td><td>64.5</td><td>75.3</td><td>67.6</td><td>64.3</td><td>60.2</td><td>65.1</td></tr></table>",
+        "bbox": [
+            173,
+            161,
+            820,
+            319
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "table",
+        "img_path": "images/db24521bcb576ff70c78fb66bd270edbcb1141e14dc79de0ade302f232f235cd.jpg",
+        "table_caption": [
+            "Table 2: Generalizability results of MPO across components with different backbones: (Top) base models; (Bottom Left) optimizer models; (Bottom Right) modality-specific generators."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td></td><td>Qwen2.5-VL (72B)</td><td>Gemma3 (12B)</td><td>InternVL-3.5 (14B)</td><td>GPT-4.1 nano</td></tr><tr><td>Human</td><td>55.7</td><td>45.6</td><td>51.6</td><td>46.8</td></tr><tr><td>1-shot</td><td>66.8</td><td>56.7</td><td>34.7</td><td>46.1</td></tr><tr><td>3-shot</td><td>69.6</td><td>64.6</td><td>36.5</td><td>37.7</td></tr><tr><td>5-shot</td><td>72.3</td><td>68.9</td><td>34.9</td><td>42.6</td></tr><tr><td>ProTeGi</td><td>74.1</td><td>68.2</td><td>71.9</td><td>61.0</td></tr><tr><td>SEE</td><td>73.6</td><td>68.1</td><td>70.8</td><td>61.6</td></tr><tr><td>MPO</td><td>80.4</td><td>73.1</td><td>73.2</td><td>65.9</td></tr></table>",
+        "bbox": [
+            171,
+            378,
+            589,
+            472
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "table",
+        "img_path": "images/20f65f0d697d679ac1e38b7243d409dd3316a7f9424df122ff08ffd7f8960d41.jpg",
+        "table_caption": [],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Optimizer Model</td><td>SEE</td><td>MPO</td></tr><tr><td>Qwen2.5-VL (7B)</td><td>65.2</td><td>69.1</td></tr><tr><td>Gemini 2.5 Flash</td><td>68.2</td><td>74.8</td></tr><tr><td>GPT-4o mini</td><td>69.0</td><td>76.4</td></tr><tr><td>GPT-4o</td><td>69.2</td><td>78.0</td></tr></table>",
+        "bbox": [
+            174,
+            477,
+            375,
+            551
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "table",
+        "img_path": "images/f8de0eb9b772cd428ae337521605752dae5438e06c964f717692664045687944.jpg",
+        "table_caption": [],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>T2I Generator</td><td>PlantVillage*</td></tr><tr><td>SEE (Text-only)</td><td>69.0</td></tr><tr><td>SANA1.5 (1.6B)</td><td>71.8</td></tr><tr><td>Nano Banana</td><td>72.9</td></tr><tr><td>GPT-Image-Low</td><td>76.4</td></tr><tr><td>GPT-Image-Medium</td><td>76.6</td></tr></table>",
+        "bbox": [
+            383,
+            476,
+            588,
+            551
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "chart",
+        "img_path": "images/a6bba258f7bbd5046071172aece54f92acc7948c1f1cb05d3401fd9fb6593254.jpg",
+        "content": "",
+        "chart_caption": [
+            "Figure 4: Relationship between cross-modal alignment and performance gain. We report median values alongside Q1 and Q3."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            601,
+            338,
+            810,
+            497
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            574,
+            826,
+            743
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "4.2 EXPERIMENTAL RESULTS AND ANALYSES",
+        "text_level": 2,
+        "bbox": [
+            171,
+            758,
+            508,
+            773
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Main Results As shown in Table 1, MPO consistently outperforms all baselines across image, video, and molecular domains, confirming its effectiveness in discovering prompts that more effectively harness the capabilities of MLLMs. Specifically, compared to existing text-only optimization methods, MPO achieves substantial gains, demonstrating that incorporating non-textual signals into prompts provides stronger contextual grounding and enhances task-specific reasoning. Moreover, MPO outperforms exemplar-based Few-Shot prompting, showing that it can capture richer crossmodal information and its underlying dependencies beyond simple query–answer demonstrations. In both image and video domains, MPO performs strongly on classification and QA tasks, underscoring its robustness across diverse real-world scenarios. Likewise, on molecular tasks, MPO surpasses all baselines, highlighting its effectiveness in highly specialized applications.",
+        "bbox": [
+            169,
+            784,
+            826,
+            926
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "page_number",
+        "text": "7",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "table",
+        "img_path": "images/a9c573936aaff3aa72a38fdc6cd22a5a073f4c406965bff37b1abeca35be54e1.jpg",
+        "table_caption": [
+            "Table 3: Ablation on the contribution of each modality in the optimized multimodal prompt."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Text</td><td>Image</td><td>PlantVillage*</td><td>CUB*</td></tr><tr><td>Human</td><td>-</td><td>42.2</td><td>47.9</td></tr><tr><td>Human</td><td>MPO</td><td>50.4</td><td>58.2</td></tr><tr><td>MPO</td><td>-</td><td>55.6</td><td>64.2</td></tr><tr><td>MPO</td><td>MPO</td><td>76.4</td><td>78.6</td></tr></table>",
+        "bbox": [
+            179,
+            152,
+            385,
+            239
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "table",
+        "img_path": "images/ea8a60a347586e097c48805c93223c33563edaa880f8dd018326a549c7e320e8.jpg",
+        "table_caption": [
+            "Table 4: Ablation on three exploration operators, utilizing each one of them individually."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td></td><td>Apple</td><td>Corn</td><td>Grape</td><td>Potato</td><td>Avg.</td></tr><tr><td>SEE</td><td>76.4</td><td>75.9</td><td>48.0</td><td>75.7</td><td>69.0</td></tr><tr><td>Generation</td><td>76.9</td><td>77.9</td><td>53.7</td><td>83.6</td><td>73.3</td></tr><tr><td>Edit</td><td>77.2</td><td>76.3</td><td>56.2</td><td>80.1</td><td>72.5</td></tr><tr><td>Mix</td><td>74.0</td><td>77.9</td><td>65.1</td><td>79.8</td><td>74.8</td></tr><tr><td>MPO (Full)</td><td>77.7</td><td>78.2</td><td>65.9</td><td>84.0</td><td>76.4</td></tr></table>",
+        "bbox": [
+            398,
+            150,
+            611,
+            239
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "chart",
+        "img_path": "images/9324651d12b658aea47877b700bbf953db2c72fee77cdb37ad5cc153f0a38584.jpg",
+        "content": "",
+        "chart_caption": [
+            "Figure 5: Efficiency comparison of selection strategies."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            624,
+            101,
+            813,
+            213
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "image",
+        "img_path": "images/2a8b547383d51e6bd44fde59ed6781db55b9527b7e950c8ae6320c5b215b9d80.jpg",
+        "image_caption": [
+            "Figure 6: Image prompt optimization process of the best-performing multimodal prompt on a subtask (i.e., grosbeak species classification) of CUB. “Task Classes” box contains the examples of four species: Rose Breasted Grosbeak, Pine Grosbeak, Blue Grosbeak, and Evening Grosbeak."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            179,
+            256,
+            810,
+            400
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Generalizability to Diverse Backbone Models We further validate the generalizability of MPO by varying the backbone models used in each component, namely, base models, optimizer models, and modality-specific generators, and assessing its robustness under these variations. First, as shown in Table 2 (Top), MPO maintains strong performance across different architectures and exhibits even greater effectiveness as model size increases, for example, with Qwen2.5-VL (72B). Also, Table 2 (Bottom Left) further shows that MPO remains effective regardless of the optimizer model, surpassing state-of-the-art text-only methods (e.g., SEE) under diverse backbone models for optimization. Finally, Table 2 (Bottom Right) demonstrates that MPO generalizes well to modality-specific generators, including lightweight open-source models such as SANA1.5 (1.6B), where it continues to outperform textual optimization methods. These results highlight MPO as a broadly generalizable and robust framework, effective across a wide variety of base models and practical scenarios.",
+        "bbox": [
+            169,
+            467,
+            826,
+            622
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Analysis on Cross-Modal Alignment Recall that MPO uses the alignment-preserving exploration to jointly refine textual and non-textual components of multimodal prompts, and we further analyze how this cross-modal alignment strategy contributes to performance gains. To isolate this effect, we consider four variants: (1) Sequential, where the textual prompt is optimized first and the nontextual prompt is refined afterward; (2) Random Image Prompt, where the image component is replaced with another optimized image prompt (i.e., not jointly optimized with the text); (3) In-Distribution Image Query, where it is replaced with an image sampled from the same task; and (4) OOD Image Query, where it is replaced with an image sampled from a different task. After that, we measure the relationship between performance gain over the Human baseline, as well as the DSG score<sup>3</sup> (Cho et al., 2024), used as a standard metric for measuring cross-modal alignment following prior work (Manas et al.˜ , 2024). As shown in Figure 4, MPO achieves both the highest alignment score and the largest performance gains, followed by Sequential optimization and Random Image Prompt, while In-Distribution and OOD Image Query lag significantly behind. These results coAnfirm that stronger cross-modal alignment directly translates to better task performance, and that alignment-preserving updates (included in MPO) are crucial in promoting modality consistency.",
+        "bbox": [
+            169,
+            635,
+            826,
+            845
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Ablation on Modality Contributions in Prompts To examine the contribution of each modality within optimized prompts, we ablate the textual and non-textual components from the final multimodal prompt. As shown in Table 3, using only a single modality (either MPO text without image or human text combined with MPO image) already surpasses the Human baseline, confirming that both modalities independently provide useful signals. However, the full multimodal prompt yields substantially higher performance, demonstrating that the two modalities are not merely additive but mutually reinforcing, which underscores the importance ofjointly leveraging textual and non-textual information to achieve performance gains beyond what either modality can deliver alone.",
+        "bbox": [
+            169,
+            859,
+            826,
+            888
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "page_footnote",
+        "text": "<sup>3</sup>DSG decomposes the textual description into atomic, dependency-aware queries and verifies each using an MLLM, enabling a precise assessment of whether the visual content reflects the intended textual details.",
+        "bbox": [
+            169,
+            897,
+            826,
+            924
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "page_number",
+        "text": "8",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "chart",
+        "img_path": "images/63eb71b0add004159cb467c88a1d342d401caf9ba4cb8dbdbf35daaa43b58fd1.jpg",
+        "content": "",
+        "chart_caption": [
+            "Number of Iterations"
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            176,
+            104,
+            380,
+            224
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "chart",
+        "img_path": "images/106828993dabca976dd256bd048d822f2ac100844198971f6f31ef9dc4b222ab.jpg",
+        "content": "",
+        "chart_caption": [
+            "Principal Component 1"
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            395,
+            104,
+            599,
+            224
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "chart",
+        "img_path": "images/c8121d2f75805c05af537a46951e03533041310962d033155ad9e8a25da624e3.jpg",
+        "content": "",
+        "chart_caption": [
+            "Prior Strength (S)",
+            "Figure 7: Train Curve of MPO Figure 8: Visualization of hid- Figure 9: Analysis of the prior compared to ProTeGi on CUB. den states in MLLMs by PCA. strength (S) on performance."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            612,
+            104,
+            816,
+            226
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            285,
+            826,
+            369
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Effect of Exploration Operators To assess the contribution of the proposed exploration operators (such as generation, edit, and mix), we conduct both qualitative and ablation analyses. Qualitatively, as illustrated in Figure 6, we observe that each operator serves a distinct role: the generation operator introduces novel visual compositions, the edit operator fine-tunes local features such as textures or visual characters, and the mix operator blends broader attributes such as background or spatial layout. In addition to this, the ablation study in Table 4 further confirms their complementary effects: while each operator individually improves over the baseline, combining all three within MPO leads to the best performance. This demonstrates that the proposed operators jointly enable a more comprehensive exploration of the multimodal prompt space, facilitating the discovery of the optimal prompts. We observe a similar pattern in molecular prompt optimization, shown in Figure 14, with concrete examples of operator-driven updates (including textual conditions) provided in Table 8.",
+        "bbox": [
+            169,
+            385,
+            826,
+            541
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Selection Strategies We evaluate the effectiveness of our prior-inherited Bayesian UCB strategy for candidate prompt selection by comparing it against three alternatives: Uniform, which distributes the evaluation budget evenly across candidates; UCB (Auer, 2002), a standard bandit algorithm; and an ablated variant of ours w/o Prior. As shown in Figure 5, MPO achieves the same performance as the Uniform strategy while using only 30% of the evaluation budget, yielding a 70% reduction in resource cost. Moreover, MPO consistently outperforms both UCB and w/o Prior, reaching their performance levels with 52% and 42% less budget, respectively. These results confirm that the warm start enabled by prior inheritance is crucial for both efficiency and accuracy, allowing MPO to scale effectively over the enlarged multimodal search space and reliably identify high-quality prompts.",
+        "bbox": [
+            169,
+            555,
+            826,
+            684
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Train Dynamics of MPO To better understand how MPO improves over the course of optimization, we analyze its training dynamics in comparison to ProTeGi by tracking the test performance of the top-1 prompt on the CUB dataset. As shown in Figure 7, both methods improve during the early iterations; however, ProTeGi quickly plateaus after the third iteration, with only a marginal additional gain of 1.1 points. In contrast, MPO continues to improve steadily, ultimately achieving a much higher final score, including an additional 6.4-point gain beyond the third iteration. This comparison result highlights that MPO effectively overcomes the performance ceiling of text-only optimization methods by effectively navigating the multimodal prompt space, enabling it to escape local optima (imposed by the text-only strategy) and discover prompts closer to the global optimum.",
+        "bbox": [
+            169,
+            696,
+            826,
+            825
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Hidden State Visualization To gain deeper insight into why optimized multimodal prompts yield greater performance improvements than text-only prompts, we visualize the hidden state of MLLMs by averaging intermediate-layer embeddings, following Zhang et al. (2024a). As shown in Figure 8, hidden states obtained from text-only methods (including the text-only component of MPO) cluster together, suggesting that they guide the reasoning of MLLMs within a similar yet limited semantic space. In contrast, the full multimodal prompt from MPO shifts the hidden states into a distinct region, indicating that the non-textual component introduces information unavailable from text alone. In other words, the multimodal prompt alters the internal representation space of models, enabling richer reasoning pathways and ultimately leading to superior task performance.",
+        "bbox": [
+            169,
+            839,
+            826,
+            925
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "page_number",
+        "text": "9",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            104,
+            825,
+            148
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "Analysis of Prior Strength Recall that in our prior-inherited selection strategy, the prior strength S determines the number of pseudo-observations used to initialize the score distributions of child prompts, and we study its effect by varying S and reporting the resulting performance. As shown in Figure 9, we first observe that a small S under-utilizes the parent prior, resulting in weaker guidance and suboptimal performance. In contrast, an excessively large S causes the model to over-rely on the parent prior, limiting its ability to adapt to the actual performance of child prompts. Consequently, the performance is maximized at an intermediate S, where inherited knowledge provides a strong warm start while still allowing sufficient flexibility to incorporate new observations.",
+        "bbox": [
+            169,
+            161,
+            826,
+            273
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "Qualitative Result We provide qualitative examples for the optimized multimodal prompts for the image modality in Table 9 of Appendix. From this, we observe that the optimized multimodal prompts consistently supply task-critical context in both textual and visual forms. Also, more importantly, the textual prompts explicitly instruct the model to leverage non-textual signals (e.g., Use the hybrid reference image for guidance), thereby unlocking the full multimodal capacity of MLLMs. Additional examples for the video and molecular modalities are presented in Tables 10, 11, and 12.",
+        "bbox": [
+            169,
+            287,
+            826,
+            373
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "5 CONCLUSION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            390,
+            321,
+            407
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "We introduced the novel problem of multimodal prompt optimization, extending the optimization space beyond text to fully leverage the capability of MLLMs. To tackle this, we proposed the Multimodal Prompt Optimizer (MPO), a unified framework that jointly refines textual and non-textual components through alignment-preserving exploration with multiple generation operations and efficiently identifies high-quality prompts via a prior-inherited Bayesian UCB strategy. Experiments across diverse modalities (including images, videos, and molecules) demonstrate that MPO consistently surpasses leading text-only prompt optimization methods, validating its efficacy in diverse real-world multimodal problems. We believe our work establishes multimodal prompt optimization as a key direction for advancing the use of MLLMs, moving beyond text-only prompting paradigms.",
+        "bbox": [
+            169,
+            422,
+            826,
+            550
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "ETHICS STATEMENT",
+        "text_level": 2,
+        "bbox": [
+            171,
+            566,
+            346,
+            584
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "Our study does not involve human subjects, personally identifiable data, or sensitive information. All experiments were conducted on public datasets and models under research-permissive licenses.",
+        "bbox": [
+            169,
+            598,
+            823,
+            628
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "REPRODUCIBILITY STATEMENT",
+        "text_level": 2,
+        "bbox": [
+            171,
+            647,
+            439,
+            662
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "We provide the public GitHub link to the code to ensure the reproducibility of our work. Additionally, we provide a detailed description of the experimental setup in Section 4.1. We further provide additional implementation details in Appendix A.3, the dataset configuration in Appendix A.1, the meta prompts to operationalize MPO in Appendix A.4, and the full algorithms in Appendix A.5.",
+        "bbox": [
+            169,
+            676,
+            826,
+            734
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "ACKNOWLEDGEMENT",
+        "text_level": 2,
+        "bbox": [
+            173,
+            755,
+            359,
+            770
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "This work was supported by the Institute for Information & communications Technology Planning & Evaluation (IITP) grant funded by the Korea government (MSIT) (RS-2019-II190075, Artificial Intelligence Graduate School Program (KAIST) and RS-2022-II220713, Meta-learning Applicable to Real-world Problems), the National Research Foundation of Korea (NRF) grant funded by the Korea government (MSIT) (No. RS-2023-00256259), the Korea Machine Learning Ledger Orchestration for Drug Discovery Project (K-MELLODDY) funded by the Ministry of Health & Welfare and Ministry of Science and ICT, Republic of Korea (No. RS-2024-00460870), the Basic Science Research Program through the National Research Foundation of Korea (NRF) funded by the Ministry of Education (RS-2024-00414751), and the InnoCORE program of the Ministry of Science and ICT (No. N10250156).",
+        "bbox": [
+            169,
+            785,
+            826,
+            924
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "page_number",
+        "text": "10",
+        "bbox": [
+            490,
+            948,
+            509,
+            960
+        ],
+        "page_idx": 9
+    }
+]

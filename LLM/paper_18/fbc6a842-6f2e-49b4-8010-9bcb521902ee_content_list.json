@@ -1,0 +1,1312 @@
+[
+    {
+        "type": "text",
+        "text": "ABSTRACT",
+        "text_level": 2,
+        "bbox": [
+            450,
+            320,
+            547,
+            335
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "While Long Chain-of-Thought (CoT) reasoning significantly improves Large Language Models (LLMs) performance on complex reasoning tasks, the substantial computational and memory costs of generating long CoT sequences limit their efficiency and practicality. Existing studies usually enhance the reasoning efficiency of LLMs by compressing CoT sequences. However, this approach conflicts with test-time scaling, limiting the reasoning capacity of LLMs. In this paper, we propose an efficient reasoning framework that models the reasoning process of LLMs as a state-transition process. Specifically, we first apply a linear attention mechanism to estimate the LLM’s reasoning state, which records the historical reasoning information from previous reasoning steps. Then, based on the query prompt and the reasoning state, the LLM can efficiently perform the current reasoning step and update the state. With the linear attention, each token in the current reasoning step can directly retrieve relevant historical reasoning information from the reasoning state, without explicitly attending to tokens in previous reasoning steps. In this way, the computational complexity of attention is reduced from quadratic to linear, significantly improving the reasoning efficiency of LLMs. In addition, we propose a state-based reasoning strategy to mitigate the over-thinking issue caused by noisy reasoning steps. Extensive experiments across multiple datasets and model sizes demonstrate that our framework not only improves the reasoning efficiency of LLMs but also enhances their reasoning performance.",
+        "bbox": [
+            230,
+            349,
+            767,
+            630
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "1 INTRODUCTION",
+        "text_level": 2,
+        "bbox": [
+            174,
+            655,
+            336,
+            670
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Chain-of-Thought (CoT) (Wei et al., 2022; Kojima et al., 2022) has become a core technique for enhancing the reasoning ability of large language models (LLMs) on complex tasks. Through prompting step-by-step reasoning, CoT enables LLMs to decompose complex problems into simpler subtasks, thus improving their problem-solving capabilities (Yao et al., 2023; Wang et al., 2023; Zhou et al., 2023; Wang et al., 2024). Recent studies, including OpenAI o1 (OpenAI et al., 2024), QwQ (Team, 2024), and DeepSeek-R1 (DeepSeek et al., 2025), demonstrate that scaling up CoT length can further enhance the reasoning abilities of LLMs. However, since most current LLMs are built on the Transformer architecture (Vaswani et al., 2017b), the computational complexity of their attention grows quadratically with context length, and the memory overhead of their KV-cache increases linearly with context length. Hence, generating long CoT substantially increase the computational and memory cost of LLMs, limiting their practical efficiency on complex reasoning tasks.",
+        "bbox": [
+            169,
+            686,
+            826,
+            840
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "To improve the reasoning efficiency of LLMs, previous studies employ prompting (Han et al., 2024; Ma et al., 2025a), supervised fine-tuning (SFT) (Liu et al., 2024; Munkhbat et al., 2025), or reinforcement learning (RL) (Aggarwal et al., 2025; Shen et al., 2025) to encourage LLMs toward generating shorter CoT sequences. However, these methods often impair the reasoning ability of",
+        "bbox": [
+            171,
+            845,
+            826,
+            904
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_footnote",
+        "text": "Corresponding author.",
+        "bbox": [
+            191,
+            910,
+            336,
+            924
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_number",
+        "text": "1",
+        "bbox": [
+            493,
+            948,
+            503,
+            959
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "LLMs (Jin et al., 2024; Merrill et al., 2024), since CoT shortening conflicts with test-time scaling (OpenAI et al., 2024). To preserve the reasoning ability of LLMs, some studies (Ma et al., 2025b; Kang et al., 2025; Xia et al., 2025) express the CoT in more concise text (e.g., by removing less important tokens or rewriting with GPT-4) to reduce its length. However, they risk losing critical reasoning information or reducing interpretability when simplifying long CoT (Wang et al., 2025c).",
+        "bbox": [
+            169,
+            104,
+            826,
+            175
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "In this paper, we propose an efficient reasoning framework for LLMs, which models the reasoning process of LLMs as a state-transition process. We regard a long CoT as a sequence of reasoning steps, where LLMs perform a specific thinking pattern in each step, such as induction or reflection. Notably, each reasoning step contains two types of information: substantial linguistic information to ensure its fluency, and limited reasoning information to support subsequent reasoning or answer generation (Zhang et al., 2025a; Xia et al., 2025). Thus, our framework (Figure 1) first compresses the reasoning information from previously generated reasoning steps into a matrix, termed as the reasoning state matrix. Then, based on the query prompt and the state matrix, LLMs can efficiently generate the current reasoning step and updates the state matrix accordingly. Specifically, tokens in the current reasoning step can directly retrieve relevant historical reasoning information from the reasoning state, without explicitly attending to tokens in previous steps. In this way, we effectively reduce both the computational complexity of attention and the memory overhead of the KV-cache. Crucially, our framework does not shorten or simplify the CoT sequences generated by LLMs, thus preserving their reasoning ability and interpretability.",
+        "bbox": [
+            169,
+            181,
+            826,
+            377
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "To efficiently obtain the state matrix, we design a Mixed Attention Module (MAM) to replace the original attention module in LLMs, which consists of a Softmax-Attention (SA) submodule and a Linear-Attention (LA) submodule. We use the original attention module of LLMs as our SA submodule, where each token can only attend to the tokens in the query prompt and those in its current reasoning step. In the LA submodule, we adopt a linear-attention mechanism (Katharopoulos et al., 2020) to capture the reasoning state of LLMs. Meanwhile, with the linear attention, each token can directly retrieve relevant historical reasoning information from the reasoning state. Compared with other methods, such as CNN (Krizhevsky et al., 2012) and Q-Former (Li et al., 2023), linear attention offers the following advantages in capturing the model’s reasoning state: (1) As a variant of softmax attention, linear attention is naturally compatible with it, thereby reducing the risk of losing critical reasoning information during compression and ensuring the stability and efficiency of model training. (2) Recent studies (Yang et al., 2024b; 2025d) have demonstrated that the stateupdate process of linear attention is essentially a gradient-descent learning procedure (i.e., test-time training), revealing its strong potential for handling complex reasoning tasks (Zhu et al., 2025).",
+        "bbox": [
+            169,
+            382,
+            826,
+            579
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Another challenge is that LLMs often produce noisy reasoning steps, which may mislead subsequent reasoning steps and lead to the overthinking issue (Chen et al., 2025b; Yang et al., 2025c). To mitigate this issue, we propose a state-based reasoning strategy. Given the model’s state-transition process is a gradient-descent process, we first apply the momentum method to accumulate gradients from completed reasoning steps, obtaining a global gradient. The global gradient indicates the global reasoning direction of LLMs. Thus, we employ it to guide LLMs in completing the current reasoning step, ensuring they do not significantly deviate from the global direction.",
+        "bbox": [
+            169,
+            583,
+            826,
+            683
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "To validate the efficacy of our framework, we conduct experiments on seven widely-used benchmark datasets. Experimental results show that our framework not only improves the reasoning efficiency of LLMs but also enhances their reasoning performance. Extensive ablation studies further demonstrate the effectiveness of various components in our framework.",
+        "bbox": [
+            169,
+            686,
+            826,
+            744
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "2 PRELIMINARY",
+        "text_level": 2,
+        "bbox": [
+            171,
+            763,
+            325,
+            780
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "We first present a brief background on linear attention, which lays the foundation for our proposed framework. Meanwhile, we outline the specific form of the CoT sequences in our framework.",
+        "bbox": [
+            171,
+            796,
+            825,
+            825
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "2.1 LINEAR ATTENTION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            842,
+            357,
+            856
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Softmax Attention (SA). Popular LLMs, such as Qwen 3 (Yang et al., 2025a) and Llama 4 (Meta, 2025), adopt a decoder-only Transformer architecture composed of repeated blocks of multi-head softmax attention followed by feed-forward networks (FFNs) (Vaswani et al., 2017a). Given the input sequence $\\pmb { X } \\mathrm { = } [ x _ { 1 } , \\cdots , \\mathbf { \\bar { x } } _ { | \\pmb { X } | } ]$ , the softmax attention can be formulated as follows:",
+        "bbox": [
+            169,
+            867,
+            825,
+            925
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "page_number",
+        "text": "2",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "image",
+        "img_path": "images/7e7f4f76c658c418d82f6f26f65cdd9f7933f6273f1799fa86df2249c80cae52.jpg",
+        "image_caption": [
+            "Figure 1: A comparison of traditional token-based reasoning with our state-based reasoning. think<sub>t</sub> denotes one reasoning step. In state-based reasoning, LLMs can efficiently generate think<sub>t</sub> only based on the query prompt and the reasoning state $S _ { t - 1 }$"
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            207,
+            102,
+            785,
+            210
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\pmb {o} _ {t} = \\frac {\\sum_ {i = 1} ^ {t} \\exp (\\pmb {q} _ {t} \\pmb {k} _ {i} ^ {\\top} / \\sqrt {d}) \\pmb {v} _ {i}}{\\sum_ {i ^ {\\prime} = 1} ^ {t} \\exp (\\pmb {q} _ {t} \\pmb {k} _ {i ^ {\\prime}} ^ {\\top} / \\sqrt {d})}; \\quad \\pmb {q} _ {t}, \\pmb {k} _ {t}, \\pmb {v} _ {t} = x _ {t} \\pmb {W} _ {Q}, x _ {t} \\pmb {W} _ {K}, x _ {t} \\pmb {W} _ {V},\\tag{1}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            253,
+            299,
+            743,
+            349
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "where $W _ { Q } , W _ { K } , W _ { V }$ are learnable weight matrices. The computational complexity of the softmax function increases quadratically with the length of the context sequence. Moreover, softmax attention heavily depends on the growing KV-cache to recall historical information for sequence modeling, leading to substantial memory overheads, particularly in the long context setting.",
+        "bbox": [
+            169,
+            354,
+            825,
+            412
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Linear Attention (LA). Linear attention is a variant of softmax attention, designed to reduce its computational complexity and memory costs. Here, we first replaces the exponential function exp(·) in softmax attention with a simpler kernel function $\\phi ( \\cdot ) \\colon$ : exp $( { q _ { t } } { k _ { i } } / \\sqrt { d } )  \\phi ( { q _ { t } } ) \\phi ( { k _ { i } } ) ^ { \\top }$ . Next, based on the associative property of matrix products, linear attention can be written as",
+        "bbox": [
+            169,
+            416,
+            825,
+            476
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\boldsymbol {o} _ {t} = \\frac {\\sum_ {i = 1} ^ {t} \\phi (\\boldsymbol {q} _ {t}) \\phi (\\boldsymbol {k} _ {i}) ^ {\\top} \\boldsymbol {v} _ {i}}{\\sum_ {i ^ {\\prime} = 1} ^ {t} \\phi (\\boldsymbol {q} _ {t}) \\phi (\\boldsymbol {k} _ {i ^ {\\prime}}) ^ {\\top}} = \\frac {\\phi (\\boldsymbol {q} _ {t}) \\sum_ {i = 1} ^ {t} \\phi (\\boldsymbol {k} _ {i}) ^ {\\top} \\boldsymbol {v} _ {i}}{\\phi (\\boldsymbol {q} _ {t}) \\sum_ {i ^ {\\prime} = 1} ^ {t} \\phi (\\boldsymbol {k} _ {i ^ {\\prime}}) ^ {\\top}}.\\tag{2}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            307,
+            482,
+            671,
+            521
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Moreover, recent studies (Sun et al., 2023; Yang et al., 2024a) have shown that linear attention can perform well even when $\\phi ( \\cdot )$ is set to the identity function and the normalizer is removed:",
+        "bbox": [
+            169,
+            526,
+            825,
+            556
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\boldsymbol {o} _ {t} = \\boldsymbol {q} _ {t} \\sum_ {i = 1} ^ {t} \\boldsymbol {k} _ {i} ^ {\\top} \\boldsymbol {v} _ {i} = \\boldsymbol {q} _ {t} \\boldsymbol {S} _ {t}; \\quad \\boldsymbol {S} _ {t} = \\sum_ {i = 1} ^ {t} \\boldsymbol {k} _ {i} ^ {\\top} \\boldsymbol {v} _ {i},\\tag{3}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            346,
+            564,
+            648,
+            604
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "where $S _ { t }$ is the state matrix storing historical information. By using $S _ { t }$ , linear attention can perform sequence modeling in linear time while maintaining constant memory overhead.",
+        "bbox": [
+            169,
+            611,
+            825,
+            641
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "The Test-Time Training (TTT) Perspective of LA. Recent works (Sun et al., 2024; Chen et al., 2025b) treat the state matrix $S _ { t }$ in linear attention as a fast-adapting parameter, updated at every token via lightweight gradient descent. They further introduce an online learning objective for linear attention and provide its closed-form gradient descent solution:",
+        "bbox": [
+            169,
+            646,
+            826,
+            704
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Objective:",
+        "bbox": [
+            290,
+            709,
+            370,
+            727
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "SGD update:",
+        "bbox": [
+            290,
+            729,
+            387,
+            747
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\begin{array}{l} \\mathcal {L} (\\boldsymbol {S}) = - \\langle \\boldsymbol {S} \\boldsymbol {k} _ {t}, \\boldsymbol {v} _ {t} \\rangle , \\\\ \\therefore \\quad \\boldsymbol {S} _ {t} = \\boldsymbol {S} _ {t - 1} - \\beta \\nabla \\mathcal {L} _ {t} (\\boldsymbol {S} _ {t - 1}) = \\boldsymbol {S} _ {t - 1} + \\beta \\boldsymbol {v} _ {t} \\boldsymbol {k} _ {i} ^ {\\top}, \\end{array}\\tag{4}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            377,
+            709,
+            705,
+            747
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "where $\\langle \\cdot , \\cdot \\rangle$ denotes the inner product, and β is the learning rate. When $\\beta$ is set to 1, the state update process of linear attention is equivalent to training the state matrix $S _ { t }$ using the learning objective $\\mathcal { L } ( S )$ . While current studies have yet to provide direct evidence that linear attention can improve the model’s reasoning ability, its theoretical properties suggest significant potential (Zhu et al., 2025).",
+        "bbox": [
+            169,
+            753,
+            825,
+            813
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "2.2 LONG COT SEGMENTATION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            827,
+            410,
+            843
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "A long CoT sample (Q, T , A) usually comprises three parts: a query prompt $Q ,$ , a thinking sequence T , and a final answer A. Given the query prompt $Q ,$ LLMs first perform complex reasoning (T), and then generates the final answer A. During reasoning, LLMs engage in various thinking patterns (e.g., reflection and result verification) and switch between them using common transitional tokens (e.g., “Wait”, “Hmm”) (Yang et al., 2025c; Wang et al., 2025d). Recent work (Wang et al., 2025b)",
+        "bbox": [
+            169,
+            854,
+            825,
+            925
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "page_number",
+        "text": "3",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "image",
+        "img_path": "images/7c4593a905d525ebf721c757ab83ea79d03ef97fa5a30b328bafe5caca085a4c.jpg",
+        "image_caption": [
+            "Figure 2: In our framework, the original softmax attention module in LLMs is replaced with our mixed attention module (MAM), thus improving reasoning efficiency and reducing memory cost."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            241,
+            101,
+            759,
+            263
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "further shows that LLMs usually transition thinking patterns at some high-entropy tokens, such as “Alternatively” and $^ { * } M a y b e ^ { * }$ Here, we refer to the completion of a thinking pattern by LLMs as a reasoning step. Notably, when performing the current reasoning step, LLMs only consider the reasoning information $( e . g .$ , conclusion) of previous completed steps without their linguistic information (e.g., grammar).",
+        "bbox": [
+            169,
+            335,
+            826,
+            406
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Following Wang et al. (2025b), we first extract high-entropy transition tokens from the long CoT training set, which occur at the start of a sentence. Next, we use these tokens to segment the thinking sequence T in each training sample into a sequence of reasoning steps. Meanwhile, we cluster all reasoning steps in the entire training set, with each cluster corresponding to a thinking pattern $( i . e . ,$ type). Finally, for each thinking pattern, we introduce two special tokens to enclose its corresponding reasoning steps, as shown in Figure 1. With the reconstructed training set, the trained LLMs can generate more structured thinking sequences. Meanwhile, these special tokens allow us to track and control the reasoning processes of LLMs more accurately.",
+        "bbox": [
+            169,
+            412,
+            826,
+            525
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3 OUR FRAMEWORK",
+        "text_level": 2,
+        "bbox": [
+            171,
+            546,
+            362,
+            561
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "In this section, we provide a detailed description for our proposed framework. In our framework, we first design a mixed attention module (MAM) to replace the original attention module in LLMs, as illustrated in Figure 2. Using MAM, we can model the reasoning process of LLMs as a state-transition process (see Section 3.1). Then, we further introduces our state-based reasoning strategy in Section 3.2. Finally, our training strategy is presented in Section 3.3.",
+        "bbox": [
+            169,
+            578,
+            826,
+            650
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3.1 MIXED ATTENTION MODULE",
+        "text_level": 2,
+        "bbox": [
+            171,
+            667,
+            424,
+            681
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Our framework aims to improve the reasoning efficiency of LLMs without sacrificing reasoning ability by modeling their reasoning process as a state-transition process. To achieve this, we design a MAM to replace the softmax attention module in LLMs, which consists of a Softmax Attention (SA) submodule and a Linear Attention (LA) submodule. To avoid the performance loss caused by this replacement, we use the original softmax attention module of LLMs as our SA submodule. However, in the SA submodule, each token can only attend to the tokens in the query prompt Q and the previously generated tokens in its reasoning step. By doing so, we reduce the computational complexity of attention from quadratic $O ( \\mathcal { C } ^ { 2 } )$ to linear $O ( \\mathcal { C } )$ and the memory usage of the KV-cache from linear $O ( \\mathcal { C } )$ to constant O(1), where C denotes the context length. This significantly improves the reasoning efficiency of our model, especially in complex scenarios requiring longer thinking sequences. Moreover, the LA submodule applies a linear attention mechanism to obtain the LLM’s reasoning state matrix, which records the reasoning information from previously completed reasoning steps. Therefore, each token in the current reasoning step can access relevant historical information from the state matrix without attending directly to tokens in previous reasoning steps.",
+        "bbox": [
+            169,
+            694,
+            826,
+            890
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Given our LLM generates each token in every reasoning step using the same procedure, we take the generation of the i-th token $\\boldsymbol { x } _ { t , i }$ in the t-th reasoning step as an example. Specifically, at the l-th layer of our model, we first feed $h _ { t , i - 1 } ^ { ( l - 1 ) }$ , the output feature of the input token $x _ { t , i - 1 }$ at the (l-1)-th layer, into the MAM of the current layer. Then, $h _ { t , i - 1 } ^ { ( l - 1 ) }$ is passed to the two submodules in MAM:",
+        "bbox": [
+            169,
+            895,
+            826,
+            925
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "page_number",
+        "text": "4",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            171,
+            102,
+            823,
+            140
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "In the SA submodule, the KV-cache retains only the KV vectors of the query prompt tokens and ones of the previously generated tokens in the current reasoning step, while those of tokens in completed reasoning steps have been removed. Through the softmax attention mechanism (seen Eq. 1), the input token $x _ { t , i - 1 }$ attends to tokens retained in the KV-cache, yielding an updated feature $\\hat { h } _ { t , i - 1 } ^ { ( l ) }$",
+        "bbox": [
+            171,
+            146,
+            823,
+            209
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "In the $\\mathbf { L A }$ submodule, after completing the first $t { - } 1$ reasoning steps, our model state is updated to $S _ { t - 1 } ^ { ( l ) }$ . Then, we use this state as the initial state $S _ { t , 0 } ^ { ( l ) } { = } S _ { t - 1 } ^ { ( l ) }$ for the current reasoning step and update it token-by-token, yielding the current model state $\\begin{array} { r } { \\mathbf { S } _ { t , i - 1 } ^ { ( l ) } { = } \\mathbf { S } _ { t , 0 } ^ { ( l ) } { + } \\sum _ { j = 1 } ^ { i - 1 } \\mathbf { \\Sigma } \\mathbf { k } _ { j } ^ { ( l ) ^ { \\top } } \\mathbf { v } _ { j } ^ { ( l ) } } \\end{array}$ . Next, we utilize the query vector $\\pmb q _ { i - 1 } ^ { ( l ) }$ of the input token $x _ { i - 1 }$ to extract the relevant historical reasoning information $o _ { i - 1 } ^ { ( l ) }$ from $\\pmb { S } _ { t , i - 1 } ^ { ( l ) } \\colon \\pmb { o } _ { i - 1 } ^ { ( l ) } { = } \\pmb { q } _ { i - 1 } ^ { ( l ) } \\pmb { S } _ { t , i - 1 } ^ { ( l ) }$ . In the current reasoning step, the model usually relies more on historical reasoning information to generate token in the early stage, and this dependence gradually decreases as more tokens are generated. Therefore, we obtain the output of this submodule via a gating mechanism: $\\check { h } _ { t , i - 1 } ^ { ( l ) } { = } \\sigma ( \\mathbf { \\check { W } } _ { g } h _ { t , i - 1 } ^ { ( l - 1 ) } ) * o _ { i - 1 } ^ { ( l ) }$ , where $\\sigma ( \\cdot )$ denotes the sigmoid function and $W _ { g }$ is a learnable weight (see Figure 2).",
+        "bbox": [
+            171,
+            214,
+            825,
+            364
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Finally, we combine the outputs of the two submodules and apply a linear output layer to yield the final output of MAM: $\\widetilde { h } _ { t , i - 1 } ^ { ( l ) } { = } W _ { o } ( \\check { h } _ { t , i - 1 } ^ { ( l ) } { + } \\hat { h } _ { t , i - 1 } ^ { ( l ) } )$ . As shown in Figure 2, the two submodules have identical structures, except that the LA submodule incorporates an additional gating weight $W _ { g } .$ . To control its parameter size, we implement the LA submodule via the LoRA strategy (Hu et al., 2022).",
+        "bbox": [
+            171,
+            371,
+            823,
+            433
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Subsequently, we process $\\tilde { h } _ { t , i - 1 } ^ { ( l ) }$ using the FFN module to produce the output $h _ { t , i - 1 } ^ { ( l ) }$ for the l-th layer of our model. By repeating the above process L times, we obtain the final output feature $h _ { t , i - 1 } ^ { ( L ) }$ of the input token $x _ { t - 1 }$ , where $L$ denotes the number of layers in our model. Next, $h _ { t , i - 1 } ^ { ( L ) }$ is fed into the model’s prediction layer to produce the predicted distribution $p ( x )$ of the next token. Finally, our model generates the i-th token $x _ { i }$ of the t-th inference step according to $x _ { i } { = } \\arg \\operatorname* { m a x } _ { x } p ( x )$",
+        "bbox": [
+            171,
+            439,
+            825,
+            527
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Following the above procedure, our model sequentially generates tokens in the current reasoning step until reaching its end token $\\langle \\backslash e _ { t } \\rangle$ , which corresponds to the thinking pattern of the step (see Figure 1). After generating $\\langle \\backslash e _ { t } \\rangle$ , the state matrix of our model at the l-th layer is updated to $S _ { t , n _ { t } } ^ { ( l ) }$ which we denote as ${ S } _ { t } ^ { ( l ) }$ and use as the initial state for the next reasoning step, where $n _ { i }$ denotes the number of tokens in the i-th reasoning step. Meanwhile, we clear the KV vectors of all tokens in the current inference step from the KV-cache.",
+        "bbox": [
+            169,
+            532,
+            825,
+            626
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "3.2 THE STATE-BASED REASONING STRATEG",
+        "text_level": 2,
+        "bbox": [
+            171,
+            643,
+            498,
+            659
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "During reasoning, LLMs often produce noisy reasoning steps that may mislead subsequent ones, thus resulting in overthinking problems (Chen et al., 2025b; Yang et al., 2025c). In our framework, such noisy reasoning step can deviate the model’s state transitions from the correct reasoning trajectory, resulting in erroneous results (see Figure 3(a)). To mitigate this issue, we propose a state-based reasoning strategy, which guides model reasoning with a global reasoning direction.",
+        "bbox": [
+            169,
+            672,
+            823,
+            744
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "In the reasoning process, the state transition of our model at the l-th layer can be formalized as: $S _ { 0 } ^ { l } {  } S _ { 1 } ^ { l } {  } \\cdot \\cdot \\cdot {  } \\dot { S } _ { | T | } ^ { l }$ , where ${ \\cal S } _ { 0 } ^ { l }$ denotes the model state after the LA submodule processes the token in the query prompt $Q$ . Considering that the state transition process in the line attention is a gradient descent process (see Section $2 . 1 )$ , we represent the total gradient contributed by each reasoning step as $[ \\nabla _ { 1 } ^ { l } , \\dot { \\nabla } _ { 2 } ^ { l } , \\cdots , \\nabla _ { | T | } ^ { l } ]$ , where $\\scriptstyle \\dot { \\nabla } _ { t } ^ { l } = { \\cal S } _ { t } ^ { l } - { \\cal S } _ { t - 1 } ^ { l }$ indicates the reasoning direction of the t-th step. The reasoning direction of a noisy reasoning step often deviates substantially from those of other steps.",
+        "bbox": [
+            171,
+            750,
+            825,
+            838
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Therefore, we first aggregate the reasoning directions of all previous steps into a global reasoning direction $\\bar { \\nabla } _ { t - 1 } ^ { l }$ using momentum accumulation: $\\begin{array} { r }  \\bar { \\nabla } _ { t - 1 } ^ { l } \\bar {  { - }  } \\bar {  { - }  } ( 1 - \\bar { \\frac { 1 } { t - 1 } } ) \\bar { \\nabla } _ { t - 2 } ^ { l } \\bar { + } \\frac { 1 } { t - 1 } \\nabla _ { t - 1 } ^ { l } \\bar   { = } \\frac { 1 } { t - 1 } \\sum _ { i = 1 } ^ { t - 1 } \\nabla _ { i } ^ { l } \\bar {  { + }  } \\bar {  { + }  } \\end{array}$ where $\\bar { \\nabla } _ { 0 } ^ { l }$ is initialized as a zero matrix. Then, once the t-th reasoning step is completed, we employ the global direction $\\bar { \\nabla } _ { t - 1 } ^ { l }$ to correct its reasoning direction $\\nabla _ { t } ^ { l } \\colon \\hat { \\nabla } _ { t } ^ { l } = ( 1 - \\alpha ) \\nabla _ { t } ^ { l } + \\alpha \\bar { \\nabla } _ { t - 1 } ^ { l }$ , where $\\alpha { = } \\operatorname* { m a x } \\{ \\alpha _ { \\operatorname* { m a x } } , \\frac { t } { | T | } \\}$ and $| T |$ | denotes the maximum number of reasoning steps (default: 40). Since more prior reasoning steps yield a more accurate global reasoning direction, we linearly increase the correction coefficient α up to a predefined threshold $\\alpha _ { \\mathrm { m a x } } .$ In this way, our model can fully explore diverse reasoning directions during the early stages of reasoning and then gradually converge toward the global reasoning direction. Finally, we use the corrected reasoning direction $\\hat { \\nabla } _ { t } ^ { l }$ to update the model state, ${ S _ { t } ^ { l } } { = } S _ { t - 1 } ^ { l } { + } \\hat { \\nabla } _ { t } ^ { l }$ , alleviating the negative impact of the noisy step on subsequent steps.",
+        "bbox": [
+            169,
+            844,
+            823,
+            926
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "page_number",
+        "text": "5",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "image",
+        "img_path": "images/0ed70132a8674de6055250ce3fd959c8299c59556bb7b595166e78c8f1da47e0.jpg",
+        "image_caption": [
+            "(1) The state-based reasoning strategy"
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            205,
+            104,
+            532,
+            277
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "image",
+        "img_path": "images/6227be7deb2a967a478828e4154d9bec1f362e3d9842ed4883874c92461be663.jpg",
+        "image_caption": [
+            "(2) The training strategy",
+            "Figure 3: Illustration of our reasoning and training strategies. SAM is the softmax attention module."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            547,
+            101,
+            794,
+            282
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            349,
+            825,
+            425
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "To enhance the diversity of thinking patterns during reasoning, we apply special markers indicating thinking patterns to guide the model toward adopting different thinking patterns across consecutive steps. By doing so, we can further enhance the robustness and overall performance of our model.",
+        "bbox": [
+            169,
+            430,
+            825,
+            474
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "3.3 MODEL TRAINING",
+        "text_level": 2,
+        "bbox": [
+            171,
+            489,
+            344,
+            505
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "We train our model using the long CoT training set constructed in Section 2.1. To improve training efficiency while preserving the original reasoning ability of LLMs, we fine-tune only the parameters of the newly added LA submodule and ones of the special tokens corresponding to thinking patterns. As shown in Figure 3(b), we jointly optimize our model with two loss terms: (1) the autoregressive loss $\\mathcal { L } _ { \\mathrm { A R } }$ of our model on the training samples, and (2) the knowledge distillation loss ${ \\mathcal { L } } _ { \\mathrm { K D } }$ between the base model (the original LLM with softmax attention module) and our proposed model. Finally, our training objective is defined as $\\scriptstyle { \\mathcal { L } } = { \\mathcal { L } } _ { \\mathrm { A R } } + \\beta { \\mathcal { L } } _ { \\mathrm { K D } }$ , where $\\beta$ denotes a hyperparameter.",
+        "bbox": [
+            169,
+            516,
+            825,
+            616
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Specifically, we first input a long CoT sample into our model to obtain the predicted probability distribution $P ( A , T | Q )$ over the thinking sequence T and the final answer A conditioned on the query prompt Q. To maintain the consistency between training and testing, we apply a customized mask matrix in the SA submodule to ensure that each token attends only the tokens in the query prompt A and those from its corresponding reasoning step. Next, our autoregressive loss term $\\mathcal { L } _ { \\mathrm { A R } }$ is defined as follows: $\\mathcal { L } _ { \\mathrm { A R } } { = } - \\log \\mathbf { \\bar { P } } ( A , \\bar { T } | Q )$",
+        "bbox": [
+            169,
+            621,
+            825,
+            707
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Meanwhile, the same long CoT sample is fed into the base model to produce the predicted probability distribution ${ \\hat { P } } ( A , T | Q )$ . Notably, our model is built upon the base model by replacing its softmax attention module with our MAM. In the base model, each token attends to all previous tokens. Subsequently, we use the Kullback–Leibler (KL) divergence between $P ( A , T | Q )$ and ${ \\hat { P } } ( A , T | Q )$ as our distillation loss term $\\mathcal { L } _ { \\mathrm { K D } } { = } \\mathrm { K L } ( \\hat { P } ( A , T | Q ) | | P ( A , T | Q ) )$ . The ${ \\mathcal { L } } _ { \\mathrm { K D } }$ loss term is designed to effectively train our LA submodule for capturing global reasoning information.",
+        "bbox": [
+            169,
+            710,
+            825,
+            804
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "4 EXPERIMENTS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            824,
+            326,
+            839
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "4.1 EXPERIMENT SETTINGS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            854,
+            383,
+            869
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Implementation Details. Our experiments are primarily conducted on the Qwen-2.5 series models (Hui et al., 2024). Meanwhile, we extract 95K high-quality samples from OpenR1-Math-220K to construct our training set using the method described in Section 2.1. We initialize Qwen-2.5 using its corresponding distilled version of DeepSeek-R1 (DeepSeek et al., 2025), and then train it on the training set to obtain our base model. Finally, our framework is built upon this base model.",
+        "bbox": [
+            169,
+            882,
+            825,
+            925
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "page_number",
+        "text": "6",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "table",
+        "img_path": "images/8b1f0812d594f5b3140af9eddc50d1583b059f0f629077ff7024ae0681c9e4de.jpg",
+        "table_caption": [
+            "Table 1: The results of our model and baselines on mathematical reasoning benchmarks."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td rowspan=\"2\">Method</td><td colspan=\"3\">GSM8K</td><td colspan=\"3\">MATH-500</td><td colspan=\"3\">AMC23</td><td colspan=\"3\">AIME24</td><td colspan=\"3\">AIME25</td><td colspan=\"2\">AVG.</td></tr><tr><td>Acc↑</td><td>Tok</td><td>ReL↓</td><td>Acc↑</td><td>Tok</td><td>ReL↓</td><td>Acc↑</td><td>Tok</td><td>ReL↓</td><td>Acc↑</td><td>Tok</td><td>ReL↓</td><td>Acc↑</td><td>Tok</td><td>ReL↓</td><td>Acc↑</td><td>ReL↓</td></tr><tr><td colspan=\"18\">Qwen2.5-1.5B Series</td></tr><tr><td>Ours (Base)</td><td>80.1</td><td>2086</td><td>76.2</td><td>78.8</td><td>3958</td><td>139.4</td><td>62.5</td><td>6392</td><td>242.9</td><td>20.0</td><td>13765</td><td>536.8</td><td>16.7</td><td>12684</td><td>504.7</td><td>51.5</td><td>300.0</td></tr><tr><td>+H2O</td><td>76.1</td><td>2116</td><td>71.7</td><td>75.4</td><td>3835</td><td>128.5</td><td>55.0</td><td>6230</td><td>209.7</td><td>13.3</td><td>13921</td><td>462.2</td><td>10.0</td><td>12802</td><td>428.6</td><td>46.0</td><td>260.1</td></tr><tr><td>+SepLLM</td><td>77.3</td><td>2230</td><td>75.8</td><td>76.0</td><td>3890</td><td>130.3</td><td>57.5</td><td>6573</td><td>220.2</td><td>13.3</td><td>13690</td><td>452.6</td><td>13.3</td><td>12690</td><td>423.9</td><td>47.5</td><td>260.6</td></tr><tr><td>LightThinker</td><td>78.8</td><td>2109</td><td>69.6</td><td>77.6</td><td>4060</td><td>134.8</td><td>60.5</td><td>6312</td><td>214.6</td><td>16.7</td><td>13827</td><td>461.6</td><td>13.3</td><td>12934</td><td>434.6</td><td>50.1</td><td>263.0</td></tr><tr><td>INFTYTHINK</td><td>79.5</td><td>2503</td><td>89.3</td><td>78.0</td><td>4750</td><td>170.2</td><td>62.5</td><td>7605</td><td>263.5</td><td>16.7</td><td>16318</td><td>566.2</td><td>16.7</td><td>15020</td><td>501.0</td><td>50.7</td><td>318.0</td></tr><tr><td>Ours</td><td>82.1</td><td>2116</td><td>69.7</td><td>81.2</td><td>3812</td><td>125.8</td><td>67.5</td><td>6460</td><td>213.2</td><td>26.7</td><td>13610</td><td>440.13</td><td>23.3</td><td>12910</td><td>416.0</td><td>56.2</td><td>253.0</td></tr><tr><td colspan=\"18\">Qwen2.5-7B Series</td></tr><tr><td>Ours (Base)</td><td>89.4</td><td>2649</td><td>96.4</td><td>87.4</td><td>4253</td><td>161.6</td><td>82.5</td><td>6704</td><td>242.9</td><td>40.0</td><td>12901</td><td>522.1</td><td>30.0</td><td>13204</td><td>548.1</td><td>65.9</td><td>314.2</td></tr><tr><td>+H2O</td><td>83.5</td><td>2730</td><td>92.0</td><td>82.6</td><td>4389</td><td>147.1</td><td>77.5</td><td>6843</td><td>209.7</td><td>30.0</td><td>13274</td><td>448.9</td><td>23.3</td><td>13204</td><td>443.7</td><td>59.4</td><td>268.3</td></tr><tr><td>+SepLLM</td><td>84.9</td><td>2582</td><td>92.3</td><td>84.2</td><td>4244</td><td>144.3</td><td>80.0</td><td>6511</td><td>220.2</td><td>33.3</td><td>13100</td><td>484.7</td><td>23.3</td><td>12972</td><td>435.9</td><td>61.1</td><td>275.5</td></tr><tr><td>LightThinker</td><td>85.6</td><td>2779</td><td>90.0</td><td>84.8</td><td>4321</td><td>145.2</td><td>80.0</td><td>6790</td><td>214.6</td><td>33.3</td><td>13307</td><td>449.0</td><td>26.7</td><td>13250</td><td>443.9</td><td>62.1</td><td>268.5</td></tr><tr><td>INFTYTHINK</td><td>87.9</td><td>3237</td><td>117.0</td><td>86.2</td><td>5050</td><td>184.8</td><td>82.5</td><td>8061</td><td>254.3</td><td>36.7</td><td>15094</td><td>508.7</td><td>30.0</td><td>15448</td><td>530.5</td><td>64.7</td><td>319.0</td></tr><tr><td>Ours</td><td>90.9</td><td>2603</td><td>87.2</td><td>90.0</td><td>4196</td><td>140.6</td><td>85.0</td><td>6665</td><td>213.2</td><td>43.3</td><td>13017</td><td>434.8</td><td>33.3</td><td>13191</td><td>440.6</td><td>68.3</td><td>263.3</td></tr></table>",
+        "bbox": [
+            174,
+            101,
+            820,
+            306
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            171,
+            351,
+            825,
+            381
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Baselines. We compare our framework with two types of baselines: efficient reasoning methods and KV-cache reduction methods. In the first category, LightThinker (Zhang et al., 2025a) uses learnable special tokens to compress the reasoning information of completed reasoning steps, improving the reasoning efficiency of LLMs. INFTYTHINK (Yan et al., 2025) compresses the information from previous reasoning steps into a concise summary. In the second category, H2O (Zhang et al., 2023) reduces KV-cache by only retaining the KV vectors for a small set of heavy-hitter tokens and recent tokens with a greedy eviction strategy. SapLLM (Chen et al., 2025a) only stores the KV vectors of the initial, neighboring, and separator tokens into the KV-cache of LLMs. These baselines are trained with LoRA and use the same number of trainable parameters as our model.",
+        "bbox": [
+            169,
+            386,
+            826,
+            513
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Dataset & Metric. We evaluate our framework on seven benchmarks, including five mathematical reasoning benchmarks (GSM8K (Cobbe et al., 2021), MATH-500 (Hendrycks et al., 2021), AMC23 (AMC, 2023), AIME24 (AIME, 2024), AIME25 (AIME, 2025)), a scientific reasoning benchmark (GPQA Diamond (Rein et al., 2024)), and a code reasoning benchmark (HumanEval (Chen et al., 2021)). We use greedy decoding to generate the output of the target LLM. We report three metrics to assess the performance and efficiency of various methods: (1) Accuracy (Acc) denotes the percentage of correct answers generated by the target model; (2) Token Number (Tok) refers to the average length of the CoT sequence; (3) Reasoning Latency (ReL) is defined as the average inference time per sample. Moreover, we measure reasoning latency on a single NVIDIA A100 GPU with a batch size of 1, while enabling FlashAttention-2 (Dao, 2023) with BF16 (Kalamkar et al., 2019).",
+        "bbox": [
+            169,
+            518,
+            826,
+            659
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "4.2 MAIN RESULTS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            674,
+            325,
+            689
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "The experimental results on mathematical benchmarks are presented in Table 1. As shown in the AVG. column, our framework outperforms all baselines in reasoning efficiency and attains the best overall performance. After carefully analyzing these results, we draw several conclusions:",
+        "bbox": [
+            169,
+            700,
+            826,
+            744
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "First, our model significantly outperforms the base model in reasoning speed, particularly on benchmarks requiring longer CoT. On the AIME24 benchmark, our model achieved a 16−18% improvement in reasoning speed over the base model. This is mainly attributed to the lower computational complexity of our MAM relative to the softmax attention module of the base model. Furthermore, our model consistently achieves superior performance over the base model across all benchmarks. These results highlight the strong potential of linear attention mechanisms for efficient reasoning.",
+        "bbox": [
+            169,
+            750,
+            825,
+            835
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Second, the baselines (except INFTYTHINK) and our model generate CoT sequences with similar length on each benchmark, as they are trained on the same dataset. While these baselines achieve higher reasoning efficiency than the base model, they exhibit worse reasoning performance. For instance, on the AIME25 benchmark, LightThinker improves reasoning efficiency by 10–12% over the base model, but its performance decreases by 3–6 points. These results suggest that naive KV-cache compression methods risk losing important reasoning information, thus limiting model performance.",
+        "bbox": [
+            169,
+            840,
+            826,
+            925
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            173,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "page_number",
+        "text": "7",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "table",
+        "img_path": "images/a09c0a5f2fa90204fcfcdebf88b526c9be30ddca30de6fc67cda4d85d4dd2ddc.jpg",
+        "table_caption": [
+            "Table 2: Ablation results of our model on mathematical reasoning benchmarks."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Method</td><td>GSM8K</td><td>MATH-500</td><td>AMC23</td><td>AIME24</td><td>AIME25</td><td>AVG.</td></tr><tr><td>Ours</td><td>82.1</td><td>81.2</td><td>67.0</td><td>26.7</td><td>23.3</td><td>56.2</td></tr><tr><td>(1) w/o The state-based reasoning strategy</td><td>79.3</td><td>78.8</td><td>65.0</td><td>20.0</td><td>20.0</td><td>52.6</td></tr><tr><td>(2) w/o Thinking patterns diversity</td><td>80.9</td><td>80.0</td><td>65.0</td><td>23.3</td><td>20.0</td><td>53.8</td></tr><tr><td>(3) w/o The distillation loss  $\\mathcal{L}_{\\text{KD}}$ </td><td>77.0</td><td>77.6</td><td>62.5</td><td>20.0</td><td>16.7</td><td>50.8</td></tr><tr><td>(4) w/o The model reasoning state</td><td>76.4</td><td>76.2</td><td>62.5</td><td>20.0</td><td>16.7</td><td>46.8</td></tr><tr><td>(5) w/o The gating mechanism</td><td>80.1</td><td>79.4</td><td>65.0</td><td>23.3</td><td>23.3</td><td>54.2</td></tr></table>",
+        "bbox": [
+            178,
+            101,
+            816,
+            196
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Third, unlike other baselines, INFTYTHINK uses text summaries of previous reasoning steps to record their reasoning information. While enhancing interpretability, this method reduces reasoning efficiency because it requires generating longer CoT sequences. Moreover, such discrete summarization may omit part of the implicit reasoning information within the model, leading to a slight performance drop for INFTYTHINK compared to the base model. However, we effectively avoid these two issues by utilizing the model’s reasoning states to record reasoning information, enabling our model to outperform INFTYTHINK in both efficiency and performance.",
+        "bbox": [
+            169,
+            241,
+            826,
+            340
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "4.3 ABLATION STUDY",
+        "text_level": 2,
+        "bbox": [
+            171,
+            357,
+            344,
+            371
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "We further conduct extensive ablation studies by removing different components from our framework to investigate their different impacts. As shown in Table 2, we only compare our model with the following variants in terms of performance, as they share the same reasoning efficiency.",
+        "bbox": [
+            169,
+            383,
+            825,
+            428
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "w/o The state-based reasoning strategy. In this variant, we remove the state-based reasoning strategy from our framework. We observe an average performance drop of 3.54 points across all benchmarks for this variant. These results suggest that our reasoning strategy can indeed enhance the robustness of LLMs to noisy reasoning steps, improving their overall performance. Moreover, this also indicates that, with suitable processing, our model states can intuitively reflect the quality of reasoning steps, which offers an interesting insight for future exploration (e.g., process-reward-based RL).",
+        "bbox": [
+            169,
+            433,
+            826,
+            518
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "w/o Thinking patterns diversity. We guide LLMs to use different thinking patterns in adjacent reasoning steps via corresponding special tokens, thus ensuring diversity of the thinking patterns in the reasoning process. To test its effectiveness, we remove this operation from our framework. As shown in Line (2), this variant exhibits a consistent decline in performance across all benchmarks. These findings imply that more diverse thinking patterns can enhance LLMs’ exploration ability, thereby improving the accuracy of their generated answers.",
+        "bbox": [
+            169,
+            523,
+            826,
+            609
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "The distillation loss ${ \\mathcal { L } } _ { \\mathrm { K D } }$ . As described in Section 3.3, we use ${ \\mathcal { L } } _ { \\mathrm { K D } }$ to train our LA submodule so that it can better capture global reasoning information. In this variant, ${ \\mathcal { L } } _ { \\mathrm { K D } }$ is excluded from our training objective. From Line (3) in Table 2, we note that this variant results in a performance drop of 3.6–6.6 points across all benchmarks. The main reason is that the autoregressive loss $\\mathcal { L } _ { \\mathrm { A R } }$ may struggle to train the LA submodule to capture the global correlations between reasoning steps.",
+        "bbox": [
+            169,
+            614,
+            826,
+            685
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "w/o The model reasoning state. In this variant, we replace the model states in our framework with a sliding window of size 64 to store historical reasoning information. Although this approach is also compatible with the original softmax attention in LLMs, this variant yields the most significant performance drop compared with other variants. This is mainly because this approach lacks reasoning capability as strong as that of linear attention.",
+        "bbox": [
+            169,
+            690,
+            826,
+            762
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "w/o The gating mechanism. This variant removes the gating mechanism from our LA submodule and directly sums the outputs of the two submodules in the MAM. This change leads to a slight performance drop across all benchmarks. This confirms that our gating mechanism can more precisely control the amount of historical reasoning information each token requires.",
+        "bbox": [
+            169,
+            767,
+            826,
+            825
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "4.4 FURTHER ANALYSIS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            840,
+            359,
+            856
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Analysis of Computational and Memory Costs. We conduct experiments to further compare the computational and memory efficiency of our model and the base model across varying CoT lengths. The experimental results are presented in Figure 4(a). Although our model exhibits similar reasoning efficiency to the base model for shorter CoT, it significantly surpasses the base model once the CoT length exceeds 4K. In particular, when the CoT length reaches 32K, our model achieves over 40% faster reasoning speed than the base model. Moreover, our model maintains a nearly constant memory usage across varying CoT lengths, whereas that of the base model increases linearly with CoT length. Theoretically, our model’s advantages in computational and memory efficiency would become even more significant when FlashAttention-2 is disabled.",
+        "bbox": [
+            169,
+            867,
+            826,
+            925
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "page_number",
+        "text": "8",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "chart",
+        "img_path": "images/639706434aa4b36442590c313d2309959051d25eb323ad8a17681a2ecea64ed8.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            176,
+            101,
+            434,
+            224
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "chart",
+        "img_path": "images/775e26ae6bdfaebf1bd6185bc6e88cba3ac1016e369fcb64c7098a6c5832cc3b.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            439,
+            99,
+            627,
+            224
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "chart",
+        "img_path": "images/66d2cd60542c26a617a5355418f0c7b4032f479ae6e54bf5a8fd9cb7caf1c084.jpg",
+        "content": "",
+        "chart_caption": [
+            "Figure 4: (a) shows the computational and memory efficiency of our model and the base model. (b) and (c) present our model’s performance with different values of hyper-parameters $\\beta$ and $\\alpha _ { \\mathrm { m a x } } .$ respectively. These experiments are conducted on Qwen2.5-1.5B."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            630,
+            99,
+            821,
+            224
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            318,
+            826,
+            390
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Analysis of Hyper-Parameters. We also investigate the impact of the two key hyper-parameters, $\\beta$ and $\\alpha _ { \\mathrm { m a x } } .$ , on the performance of our model. As illustrated in Figure 4(b)–(c), our model exhibits low sensitivity to these two hyper-parameters. Meanwhile, our model attains the best performance when $\\beta$ and $\\alpha _ { \\mathrm { m a x } }$ are set to 0.2 and 0.4, respectively. We further analyze the choice of these two hyperparameter values as follows:",
+        "bbox": [
+            169,
+            395,
+            825,
+            465
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "$\\beta$ denotes the weight of the distillation loss term ${ \\mathcal { L } } _ { \\mathrm { K D } }$ . Setting β to an excessively small value (e.g., 0.1) prevents our linear attention module from effectively capturing global reasoning information, whereas an overly large value (e.g., 0.8) limits the potential of our model to outperform the base model.",
+        "bbox": [
+            215,
+            481,
+            825,
+            539
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "• In the state-based reasoning strategy, α determines the magnitude of correction applied to the reasoning direction of noisy reasoning steps. Hence, setting α too low (e.g., 0.1) increases the model’s sensitivity to noisy reasoning steps, whereas setting it too high (e.g., 0.8) constrains the exploration capabilities of LLMs.",
+        "bbox": [
+            215,
+            551,
+            825,
+            609
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "• Moreover, within an appropriate range (e.g., 0.2−0.6), our model’s performance is insensitive to these hyperparameters.",
+        "bbox": [
+            215,
+            621,
+            825,
+            650
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Analysis of More Baselines. Recently, many studies (Cheng et al., 2025; Wu et al., 2025; Aggarwal & Welleck, 2025; Li et al., 2025a; Fatemi et al., 2025; Li et al., 2025b; Lan et al., 2025b; Lin et al., 2025; Yuan et al., 2025; Dai et al., 2025a; Xiang et al., 2025; Qi et al., 2025a; Zhang et al., 2025b; Wang et al., 2025a; Yong et al., 2025; Zhao et al., 2025; Chen et al., 2025c; Qi et al., 2025b; Yang et al., 2025b) have focused on shortening the length of CoT to improve the reasoning efficiency of LLMs. However, our method aims to reduce both the computational and storage complexity of attention in LLMs, leading to faster token generation. This indicates that our method improves the reasoning efficiency of LLMs regardless of the CoT length. Therefore, these baselines are both orthogonal to and compatible with our method. Here, we select four open-source baselines as examples to verify the compatibility of our method with these baselines: Task Arithmetic-based Model Merging(TAMM) (Wu et al., 2025), SBT-D (Zhao et al., 2025), L1-Max (Aggarwal & Welleck, 2025), and Anytime-Reasoning (AR) (Qi et al., 2025b). As shown in Table 3, our method further enhances the reasoning efficiency of these baselines by accelerating the token generation speed of LLMs. Furthermore, RL-based baselines (e.g., AR) provide stronger base models for our method, thus further raising its performance upper bound.",
+        "bbox": [
+            169,
+            666,
+            826,
+            877
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "In Appendix A, we further analyze both the domain generalization capability of our framework and the gating mechanism within our LA submodule. In Appendix C, we present a more intuitive explanation of our framework and further examine its potential.",
+        "bbox": [
+            169,
+            882,
+            825,
+            925
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "page_number",
+        "text": "9",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "table",
+        "img_path": "images/d4fbc3e397ea5b21cb3b78e6cba187b3ae4329e30350b7aa898ec8992e667e66.jpg",
+        "table_caption": [
+            "Table 3: The results of our model combined with baselines on mathematical reasoning benchmarks."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td rowspan=\"2\">Method</td><td colspan=\"3\">GSM8K</td><td colspan=\"3\">MATH-500</td><td colspan=\"3\">AMC23</td><td colspan=\"3\">AIME24</td><td colspan=\"3\">AIME25</td><td colspan=\"2\">AVG.</td></tr><tr><td>Acc↑</td><td>Tok</td><td>ReL↓</td><td>Acc↑</td><td>Tok</td><td>ReL↓</td><td>Acc↑</td><td>Tok</td><td>ReL↓</td><td>Acc↑</td><td>Tok</td><td>ReL↓</td><td>Acc↑</td><td>Tok</td><td>ReL↓</td><td>Acc↑</td><td>ReL↓</td></tr><tr><td colspan=\"18\">Qwen2.5-1.5B Series</td></tr><tr><td>Ours (Base)</td><td>80.1</td><td>2086</td><td>76.2</td><td>78.8</td><td>3958</td><td>139.4</td><td>62.5</td><td>6392</td><td>242.9</td><td>20.0</td><td>13765</td><td>536.8</td><td>16.7</td><td>12684</td><td>504.7</td><td>51.5</td><td>300.0</td></tr><tr><td>+TAMM</td><td>78.0</td><td>1212</td><td>43.4</td><td>73.2</td><td>2265</td><td>82.1</td><td>55.0</td><td>2924</td><td>105.6</td><td>16.7</td><td>5702</td><td>215.8</td><td>16.7</td><td>5010</td><td>189.0</td><td>47.9</td><td>127.2</td></tr><tr><td>+SBT-D</td><td>77.8</td><td>1170</td><td>43.1</td><td>72.8</td><td>2105</td><td>76.7</td><td>57.5</td><td>3215</td><td>114.9</td><td>16.7</td><td>6409</td><td>246.4</td><td>16.7</td><td>6173</td><td>235.5</td><td>48.3</td><td>143.3</td></tr><tr><td>Ours</td><td>82.1</td><td>2116</td><td>69.7</td><td>81.2</td><td>3812</td><td>125.8</td><td>67.5</td><td>6460</td><td>213.2</td><td>26.7</td><td>13610</td><td>440.13</td><td>23.3</td><td>12910</td><td>416.0</td><td>56.2</td><td>253.0</td></tr><tr><td>+TAMM</td><td>82.1</td><td>2116</td><td>69.7</td><td>81.2</td><td>3812</td><td>125.8</td><td>67.5</td><td>6460</td><td>213.2</td><td>26.7</td><td>13610</td><td>440.13</td><td>23.3</td><td>12910</td><td>416.0</td><td>56.2</td><td>253.0</td></tr><tr><td>+SBT-D</td><td>79.9</td><td>1081</td><td>36.2</td><td>76.8</td><td>2110</td><td>70.3</td><td>62.5</td><td>3193</td><td>101.4</td><td>23.3</td><td>6458</td><td>212.6</td><td>20.0</td><td>6106</td><td>201.5</td><td>52.1</td><td>124.4</td></tr><tr><td>Token Budget</td><td colspan=\"3\">2k</td><td colspan=\"3\">4k</td><td colspan=\"3\">6k</td><td colspan=\"3\">13k</td><td colspan=\"3\">12k</td><td colspan=\"2\"></td></tr><tr><td>Base+L1-Max</td><td>80.5</td><td>2077</td><td>77.4</td><td>79.0</td><td>4091</td><td>144.8</td><td>62.5</td><td>6103</td><td>233.5</td><td>20.0</td><td>13108</td><td>514.5</td><td>16.7</td><td>11904</td><td>475.5</td><td>51.7</td><td>289.1</td></tr><tr><td>Base+AR</td><td>79.8</td><td>2061</td><td>75.8</td><td>79.4</td><td>4083</td><td>143.6</td><td>62.5</td><td>6097</td><td>232.0</td><td>23.3</td><td>13108</td><td>514.5</td><td>20.0</td><td>12088</td><td>483.8</td><td>53.0</td><td>289.9</td></tr><tr><td>Ours+L1-Max</td><td>82.7</td><td>2103</td><td>69.5</td><td>81.4</td><td>3962</td><td>129.1</td><td>65.0</td><td>6025</td><td>199.2</td><td>26.7</td><td>12980</td><td>415.2</td><td>23.3</td><td>11871</td><td>382.0</td><td>55.8</td><td>239.0</td></tr><tr><td>Ours+AR</td><td>82.7</td><td>2084</td><td>68.6</td><td>82.0</td><td>4079</td><td>131.2</td><td>67.5</td><td>6101</td><td>200.5</td><td>30.0</td><td>12980</td><td>415.2</td><td>26.7</td><td>12101</td><td>389.3</td><td>57.8</td><td>240.9</td></tr><tr><td>Token Budget</td><td colspan=\"3\">1k</td><td colspan=\"3\">2k</td><td colspan=\"3\">3k</td><td colspan=\"3\">6.5k</td><td colspan=\"3\">6k</td><td colspan=\"2\"></td></tr><tr><td>Base+L1-Max</td><td>77.8</td><td>1161</td><td>41.6</td><td>76.8</td><td>2171</td><td>80.3</td><td>57.5</td><td>3206</td><td>124.6</td><td>16.7</td><td>6606</td><td>260.7</td><td>16.7</td><td>6075</td><td>230.8</td><td>49.1</td><td>147.6</td></tr><tr><td>Base+AR</td><td>78.8</td><td>1105</td><td>39.8</td><td>78.2</td><td>2075</td><td>77.8</td><td>60.0</td><td>3112</td><td>124.7</td><td>20.0</td><td>6587</td><td>260.3</td><td>16.7</td><td>6094</td><td>231.6</td><td>50.7</td><td>146.8</td></tr><tr><td>Ours+L1-Max</td><td>79.4</td><td>1130</td><td>36.3</td><td>79.2</td><td>2066</td><td>68.6</td><td>62.5</td><td>3147</td><td>103.1</td><td>23.3</td><td>6691</td><td>208.0</td><td>23.3</td><td>6030</td><td>198.1</td><td>53.5</td><td>122.8</td></tr><tr><td>Ours+AR</td><td>81.9</td><td>1092</td><td>35.1</td><td>80.4</td><td>2107</td><td>69.1</td><td>65.0</td><td>3107</td><td>101.6</td><td>26.7</td><td>6603</td><td>207.4</td><td>23.3</td><td>6088</td><td>198.8</td><td>55.5</td><td>122.4</td></tr></table>",
+        "bbox": [
+            174,
+            101,
+            821,
+            340
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "5 RELATED WORK",
+        "text_level": 2,
+        "bbox": [
+            171,
+            388,
+            343,
+            402
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "Efficient Reasoning. Although long CoT enhances the reasoning ability of LLMs, it introduces significant computational overhead. To alleviate this challenge, existing methods for CoT compression can be roughly divided into three categories. The first category leverages prompting (Han et al., 2024; Ma et al., 2025a), supervised fine-tuning (SFT) (Liu et al., 2024; Munkhbat et al., 2025), and reinforcement learning (RL) (Aggarwal et al., 2025; Shen et al., 2025; Dai et al., 2025b) to encourage LLMs to generate shorter CoT sequences. Since such CoT reductions conflict with test-time scaling (OpenAI et al., 2024), these methods often impair the reasoning ability of LLMs (Jin et al., 2024; Merrill et al., 2024). The second category compresses information from multiple text tokens into a single hidden vector, converting longer discrete CoT sequences into shorter continuous ones to improve the reasoning efficiency of LLMs (Hao et al., 2024; Su et al., 2025). However, such methods typically require altering the input/output patterns of LLMs, increasing their vulnerability to catastrophic forgetting and limiting their performance. The third category expresses the CoT in more concise text to reduce its length while preserving the reasoning ability of LLMs (Ma et al., 2025b; Kang et al., 2025; Xia et al., 2025). Nevertheless, when simplifying long CoT, these methods risk losing critical reasoning information or reducing interpretability (Wang et al., 2025c).",
+        "bbox": [
+            169,
+            419,
+            826,
+            630
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "Linear Attention. To address the quadratic computational cost of softmax attention (Zhang et al., 2018; 2022), many linear attention methods have been proposed to improve training and inference efficiency. Early studies investigated kernel functions for linear attention (Kasai et al., 2021; Peng et al., 2021). Subsequently, some studies introduced gating mechanisms into linear attention to more effectively control the information in the model state (Yang et al., 2024a; Qin et al., 2024; Lan et al., 2025a). Recent studies has provided theoretical evidence for the TTT property of linear attention (Yang et al., 2024b; Sun et al., 2024; Liu et al., 2025; Chen et al., 2025b). They focus on exploring online learning objectives for linear attention to enhance its sequence modeling capability.",
+        "bbox": [
+            169,
+            635,
+            826,
+            748
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "6 CONCLUSION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            767,
+            321,
+            782
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "In this paper, we propose an efficient reasoning framework that models the reasoning process of LLMs as a state-transition process to enhance their reasoning efficiency. In our framework, we design an MAM to replace the original attention module in LLMs. The MAM uses a linear attention mechanism to capture the model’s reasoning state that stores reasoning information from previous reasoning steps. By utilizing the model state, we can significantly reduce the computational complexity and memory cost of attention, thereby improving the reasoning efficiency of LLMs. Furthermore, we design a state-based reasoning strategy to avoid the overthinking issue caused by noisy reasoning steps. Extensive experiments across multiple benchmarks and model sizes demonstrate the efficiency and robustness of our framework.",
+        "bbox": [
+            169,
+            799,
+            826,
+            925
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            173,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "page_number",
+        "text": "10",
+        "bbox": [
+            490,
+            948,
+            509,
+            960
+        ],
+        "page_idx": 9
+    }
+]

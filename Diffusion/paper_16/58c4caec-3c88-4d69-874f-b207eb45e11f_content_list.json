@@ -1,0 +1,1558 @@
+[
+    {
+        "type": "text",
+        "text": "ABSTRACT",
+        "text_level": 2,
+        "bbox": [
+            450,
+            287,
+            547,
+            305
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Denoising-based generative models have been significantly advanced by representationalignment (REPA) loss, which leverages pre-trained visual encoders to guide intermediate network features. However, REPA’s reliance on external visual encoders introduces two critical challenges: potential distribution mismatches between the encoder’s training data and the generation target, and the high computational costs of pre-training. Inspired by the observation that REPA primarily aids early layers in capturing robust semantics, we propose an unsupervised alternative that avoids external visual encoder and the assumption of consistent data distribution. We introduce DUal-Path condition Alignment (DUPA), a novel self-alignment framework, which independently noises an image multiple times and processes these noisy latents through decoupled diffusion transformer, then aligns the derived conditions—low-frequency semantic features extracted from each path. Experiments demonstrate that DUPA achieves FID=1.46 on ImageNet 256×256 with only 400 training epochs, outperforming all methods that do not rely on external supervision. DUPA is also model-agnostic and can be readily applied to any denoising-based generative model, showcasing its excellent scalability and generalizability. Code is available at https://github.com/PCH-gg/DUPA, https://openi.pcl.ac.cn/OpenAIDriving/DUPA.",
+        "bbox": [
+            202,
+            324,
+            794,
+            549
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "image",
+        "img_path": "images/121083b0a085724ab7a2b7b77809f26adb158fb0c9fa36a1c39f406d3bb5eb04.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            147,
+            564,
+            393,
+            709
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "image",
+        "img_path": "images/27a201f2fa6c1f35f3930f4186ca271a5f1cd2dbac4e5684a5e3573e1b6a83ca.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            395,
+            564,
+            604,
+            709
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "chart",
+        "img_path": "images/c1cc4b07b41b415f1c8cdd08e22cfa97046d10d16fa792c7dce5557498265fb2.jpg",
+        "content": "",
+        "chart_caption": [
+            "Figure 1: Unsupervised representation alignment can efficiently train diffusion transformer as REPA does. By aligning the representations of different noised images, DUPA achieves FID performance comparable to that of REPA with only 400 training epochs, which means ≥ 3× faster convergence than current state-of-the-art methods that do not rely on supervision from an external visual encoder. The radius of the circles in the right figure denotes model size while the gray ring surrounding REPA represents the auxiliary visual encoder."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            604,
+            564,
+            849,
+            708
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_number",
+        "text": "1",
+        "bbox": [
+            468,
+            847,
+            477,
+            858
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "1 INTRODUCTION",
+        "text_level": 2,
+        "bbox": [
+            147,
+            119,
+            312,
+            133
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "In recent years, denoising-based generative models (Peebles & Xie, 2023; Ma et al., 2024) have achieved remarkable progress in modeling complex data distributions. Such models are typically composed of stacking transformer blocks. REPA (Yu et al., 2025) points out that aligning the intermediate representations of transformer blocks with the features extracted by high-performance visual encoders (e.g., CLIP (Radford et al., 2021), DINOv2 (Oquab et al., 2024), etc.) can significantly enhance the performance of generative models. Since the proposal of REPA, most methods in class-to-image generation tasks have been built upon this approach.",
+        "bbox": [
+            143,
+            154,
+            852,
+            253
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "However, applying REPA to specific application scenarios may face the following challenges from our perspective:",
+        "bbox": [
+            143,
+            258,
+            851,
+            287
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Out of distribution. If there is a significant discrepancy between the data distribution modeled by the generative model and the pre-training distribution of the large visual encoder, the features extracted by the visual encoder may not only fail to facilitate the training of the generative model but could also potentially ”mislead” it, resulting in performance degradation.",
+        "bbox": [
+            143,
+            292,
+            852,
+            351
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Additional computational costs. Both pre-training and fine-tuning large visual encoders for specific application scenarios incur additional computational costs. For instance, pre-training DINOv2 requires 1.1 billion model parameters, 1,500 training epochs, and 142 million images—far exceeding the computational resources needed to train DiT (Yao et al., 2024) or SiT(Ma et al., 2024). Moreover, if the data distribution in a specific domain differs from the pre-training distribution, further fine-tuning of the visual encoder is necessary, which further increases the computational costs.",
+        "bbox": [
+            143,
+            356,
+            852,
+            441
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Xie et al. point out in REPA: “Limiting regularization to the first few layers further enhances generation performance. We hypothesize that this enables the remaining layers to concentrate on capturing highfrequency details, building on a strong representation.” Similarly, Wang et al. note in Decoupled Diffusion Transformer (Wang et al., 2025): “Current diffusion transformers are fundamentally constrained by their low-frequency semantic encoding capacity.” Therefore, we posit that the primary contribution of REPA lies in providing accurate and invariant representations derived from pure images to the first few transformer blocks when they extract semantic features from noisy images. As illustrated on the left of Figure 2, REPA acts like a “data annotator” during training, supplying “labels” (i.e., effective representations) obtained from “ground truth”(i.e., pure images) for noisy images, which is similar to supervised learning. However, as discussed above, this “supervised learning” approach in REPA faces two challenges compared to unsupervised learning: “costliness of labeling” and “inaccurate labeling” issues. Consequently, we aim to utilize unsupervised learning to provide effective representation guidance for generative model training, much like REPA does but without the assumption of consistent data distribution and expensive additional computational costs.",
+        "bbox": [
+            143,
+            446,
+            854,
+            643
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Recently, several works have incorporated unsupervised learning into generative model training to improve performance. Broadly, we categorize these works into two types: introducing masked image modeling into the denoising process to enhance the contextual reasoning ability of generative models, such as MaskDiT (Zheng et al., 2024) and SD-DiT (Zhu et al., 2024); and utilizing intermediate representations of generative models for contrastive learning (typically treating them as negative pairs) to improve training efficiency, such as Contrastive Flow Matching (Stoica et al., 2025) and Dispersive Loss (Wang & He, 2025). However, neither of these unsupervised approaches can provide accurate representation guidance for each image in the way REPA does, making it difficult for their performance to match that of REPA.",
+        "bbox": [
+            143,
+            648,
+            852,
+            762
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Based on the above insights, we propose DUal-Path condition Alignment (DUPA). As shown on the right of Figure 2, an image is independently noised multiple times during training, and use Decoupled Diffusion Transformer to predict different denoising paths. In this way, the condition encoder can extract different conditions, which are low-frequency semantic features from different noisy images. Since these conditions originate from the same pure image, they should be similar, much like the representations obtained by large visual encoders in REPA. We propose to align these different conditions derived from independently noised versions of a single image to furnish effective representation guidance for model training. In summary, our contributions can be outlined as follows:",
+        "bbox": [
+            143,
+            766,
+            854,
+            824
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            145,
+            49,
+            455,
+            64
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "page_number",
+        "text": "2",
+        "bbox": [
+            465,
+            845,
+            478,
+            858
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            143,
+            119,
+            852,
+            176
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "• We point out that REPA may face issues of out of distribution and high computational costs, and hypothesize that internal alignment of noisy images can also provide effective representation guidance for training of diffusion transformer without external supervision.",
+        "bbox": [
+            145,
+            184,
+            852,
+            226
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "• We introduce DUPA, a simple alignment for two noisy views of a single image without external supervision, which can be easily applied to other denoising-based generative models.",
+        "bbox": [
+            145,
+            226,
+            851,
+            255
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "• Our proposed DUPA achieves a remarkable FID of 1.46 after only 400 training epochs, surpassing all evaluated methods that do not rely on external supervision. It also significantly narrows the performance gap with REPA (FID=1.42), a model trained for 800 epochs under the guidance of external visual encoders. Furthermore, compared to DUPA’s base model, DUPA accelerates training by 5× and inference by 10×.",
+        "bbox": [
+            145,
+            255,
+            852,
+            311
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "2 RELATED WORKS",
+        "text_level": 2,
+        "bbox": [
+            145,
+            327,
+            330,
+            343
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "2.1 DIFFUSION TRANSFORMERS WITH REPRESENTATION LEARNING",
+        "text_level": 2,
+        "bbox": [
+            145,
+            354,
+            635,
+            369
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Diffusion transformers (Peebles & Xie, 2023) present an innovative architecture for diffusion models which integrates transformers (Vaswani et al., 2023) into the diffusion framework, effectively replacing the conventional U-Net structure. Studies demonstrate that this architecture can surpass traditional methods particularly when sufficiently trained. SiT (Ma et al., 2024) further validates the effectiveness of transformers and extends their application to challenging tasks such as text-to-image generation (Chen et al., 2023; 2024). Furthermore, diffusion transformers have achieved remarkable progress in the text-to-video domain, exhibiting outstanding visual and motion quality (Hong et al., 2022; Kong et al., 2025).",
+        "bbox": [
+            143,
+            380,
+            852,
+            479
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "2.2 REPRESENTATION LEARNING IN DIFFUSION MODELS",
+        "text_level": 2,
+        "bbox": [
+            145,
+            494,
+            560,
+            510
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "In image generation research, REPA leverages auxiliary representation learning to optimize generative mod els by aligning their intermediate representations with those of high-capacity pretrained encoders trained on external data. Building on this foundation, SARA (Chen et al., 2025) innovates by incorporating structured and adversarial alignment strategies. SoftREPA (Lee et al., 2025) extends this approach to the multimodal domain by aligning noisy image representations with soft semantic embeddings. While these approaches demonstrate strong performance in practice, they exhibit a high dependency on additional pretraining and external data.",
+        "bbox": [
+            143,
+            521,
+            852,
+            619
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "2.3 UNSUPERVISED LEARNING IN DIFFUSION MODELS",
+        "text_level": 2,
+        "bbox": [
+            145,
+            636,
+            544,
+            651
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "The integration of masked image modeling(Xie et al., 2022) into diffusion transformers significantly enhances training efficiency and semantic representation. By masking image tokens during training, masked image modeling forces the model to learn contextual reasoning within the diffusion process, often using an asymmetric encoder-decoder structure that reduces computational cost. This approach accelerates training, improves generation quality, and enables zero-shot image editing capabilities like inpainting. Models such as MaskDiT (Zheng et al., 2024) and MDTv2(Gao et al., 2023b) demonstrate its effectiveness in producing high-quality images with better structural coherence.",
+        "bbox": [
+            143,
+            662,
+            852,
+            761
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Compared to masked image modeling, contrastive learning (Khosla et al., 2020) has recently been demonstrated to be a simpler yet also effective unsupervised method for improving diffusion transformer training. These methods primarily work by constructing negative samples to separate distinct representations. Contrastive Flow Matching (Stoica et al., 2025) proposes to significantly reduce the number of sampling steps required during inference by maximizing the dissimilarities between the predicted velocity and the groundtruth velocity of an image from another category. Dispersive Loss (Wang & He, 2025) suggests that maximizing pairwise distances among different intermediate representations within the same batch can enhance the generative capability of diffusion transformers without considering whether these representations belong to the same category.",
+        "bbox": [
+            143,
+            766,
+            852,
+            824
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            145,
+            49,
+            454,
+            64
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "page_number",
+        "text": "3",
+        "bbox": [
+            467,
+            847,
+            478,
+            858
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "image",
+        "img_path": "images/269af674ebbd0321d0421c222193738fd2240029959a552ebce29eddfdd42c93.jpg",
+        "image_caption": [
+            "Figure 2: Comparison between REPA and DUPA. REPA needs an external visual encoder to generate effective representations, whereas DUPA can get effective representations through internal alignment."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            225,
+            125,
+            777,
+            295
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            143,
+            369,
+            852,
+            440
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3 PRELIMINARIES",
+        "text_level": 2,
+        "bbox": [
+            145,
+            450,
+            313,
+            465
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3.1 FLOW AND DIFFUSION-BASED MODELS",
+        "text_level": 2,
+        "bbox": [
+            145,
+            481,
+            465,
+            494
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Based on the unified framework of stochastic interpolants, flow and diffusion-based models are characterized by a continuous-time interpolation process between data and noise $\\mathbf { x } _ { t } = \\alpha _ { t } \\mathbf { x } _ { * } + \\sigma _ { t } \\epsilon .$ , where ${ \\bf x } _ { * } \\sim p ( { \\bf x } )$ is data and $\\epsilon \\sim \\mathcal { N } ( \\mathbf { 0 } , \\mathbf { I } )$ is Gaussian noise, with $\\alpha _ { t }$ decreasing and $\\sigma _ { t }$ increasing in time t. The dynamic are governed by a probability flow ODE $\\dot { \\mathbf x } _ { t } = \\mathbf v ( \\mathbf x _ { t } , t )$ , enabling deterministic sampling, and an equivalent reverse SDE",
+        "bbox": [
+            143,
+            507,
+            851,
+            575
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\nd \\mathbf {x} _ {t} = \\mathbf {v} (\\mathbf {x} _ {t}, t) d t - \\frac {1}{2} w _ {t} \\mathbf {s} (\\mathbf {x} _ {t}, t) d t + \\sqrt {w _ {t}} d \\bar {\\mathbf {w}} _ {t},\\tag{1}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            341,
+            574,
+            653,
+            601
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "enabling stochastic sampling. The velocity field",
+        "bbox": [
+            143,
+            602,
+            465,
+            617
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathbf {v} (\\mathbf {x}, t) = \\dot {\\alpha} _ {t} \\mathbb {E} [ \\mathbf {x} _ {*} | \\mathbf {x} _ {t} = \\mathbf {x} ] + \\dot {\\sigma} _ {t} \\mathbb {E} [ \\epsilon | \\mathbf {x} _ {t} = \\mathbf {x} ]\\tag{2}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            351,
+            619,
+            643,
+            635
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "is trained by minimizing the objective",
+        "bbox": [
+            145,
+            638,
+            398,
+            652
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathcal {L} _ {\\text { velocity }} (\\theta) = \\mathbb {E} _ {\\mathbf {x} _ {*}, \\epsilon , t} \\left[ \\| \\mathbf {v} _ {\\theta} (\\mathbf {x} _ {t}, t) - \\dot {\\alpha} _ {t} \\mathbf {x} _ {*} - \\dot {\\sigma} _ {t} \\epsilon \\| ^ {2} \\right],\\tag{3}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            326,
+            655,
+            668,
+            672
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "unifying both ODE and SDE-based generation approaches.",
+        "bbox": [
+            143,
+            674,
+            535,
+            689
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3.2 DECOUPLED DIFFUSION TRANSFORMER",
+        "text_level": 2,
+        "bbox": [
+            145,
+            705,
+            468,
+            719
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Decoupled Diffusion Transformer (DDT) (Wang et al., 2025) introduces a novel encoder-decoder architecture to resolve the optimization dilemma in traditional diffusion transformers between low-frequency semantic encoding and high-frequency detail decoding.",
+        "bbox": [
+            143,
+            731,
+            851,
+            773
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Specifically, DDT uses a dedicated condition encoder to extract semantic condition features $\\begin{array} { r l } { \\mathbf { z } _ { t } } & { { } = } \\end{array}$ Encoder $\\left( \\mathbf { x } _ { t } , t , y \\right)$ and a velocity decoder to predict the velocity field $\\mathbf { v } _ { t } = \\mathbf { D e c o d e r } ( \\mathbf { x } _ { t } , t , \\mathbf { z } _ { t } )$ . This encoder decoder architecture significantly improves training efficiency while reducing FID (Deng et al., 2009).",
+        "bbox": [
+            143,
+            780,
+            851,
+            823
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            145,
+            49,
+            454,
+            64
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "page_number",
+        "text": "4",
+        "bbox": [
+            465,
+            847,
+            478,
+            858
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "4 DUPA: DUAL-PATH CONDITION ALIGNMENT",
+        "text_level": 2,
+        "bbox": [
+            143,
+            119,
+            560,
+            135
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "4.1 DUAL-PATH SAMPLING",
+        "text_level": 2,
+        "bbox": [
+            145,
+            148,
+            352,
+            164
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "For an input image x and its class label $y ,$ we conduct multiple samplings to get different noises $\\epsilon _ { k }$ and timestamps $t _ { k }$ , thereby generating distinct noisy latents $\\mathbf { x } _ { t _ { k } } = \\alpha _ { t _ { k } } \\cdot \\mathbf { x } + \\sigma _ { t _ { k } } \\cdot \\epsilon _ { k } , 1 \\le k \\le K$ to be denoised, where K represents the number of independent sampling times.",
+        "bbox": [
+            143,
+            175,
+            851,
+            219
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Then we use DDT to estimate the velocity for $\\mathbf { x } _ { t _ { k } }$ :",
+        "bbox": [
+            143,
+            224,
+            478,
+            239
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathbf {z} _ {t _ {k}} = \\mathbf {E n c o d e r} (\\mathbf {x} _ {t _ {k}}, t _ {k}, y), \\mathbf {v} _ {t _ {k}} = \\mathbf {D e c o d e r} (\\mathbf {x} _ {t _ {k}}, t _ {k}, \\mathbf {z} _ {t _ {k}}).\\tag{4}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            303,
+            244,
+            689,
+            258
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Considering the overall performance and computational cost trade-off (refer to Figure 3a), we set $K = 2$ Multiple independent noise sampling of a single pure image are performed for two main reasons.",
+        "bbox": [
+            143,
+            263,
+            849,
+            294
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Training efficiency. It enables the training of different noised states of an image through a single training step. As will be discussed in Section 5.4, this approach is more efficient compared to applying only a single noising operation.",
+        "bbox": [
+            143,
+            299,
+            852,
+            343
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Different conditions to align. Multiple independent noise sampling can obtain different velocity conditions for decoding velocities of distinct paths with the same “end point” via DDT. By aligning these conditions, DDT can encode more accurate low-frequency semantic information, which will be discussed in detail in Section 4.2.",
+        "bbox": [
+            143,
+            349,
+            852,
+            405
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "4.2 CONDITION ALIGNMENT",
+        "text_level": 2,
+        "bbox": [
+            145,
+            421,
+            364,
+            435
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "In REPA and DDT, the features extracted from pure images by state-of-the-art visual encoders are used to align the conditional features learned by DiT blocks from noisy latents, which has been shown to significantly enhance the model’s performance:",
+        "bbox": [
+            143,
+            446,
+            852,
+            489
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathcal {L} _ {\\mathrm{REPA}} (\\theta , \\phi) = - \\mathbb {E} _ {\\mathbf {x} _ {*}, \\epsilon , t} \\Big [ \\frac {1}{N} \\sum_ {n = 1} ^ {N} \\mathrm{sim} (\\mathbf {y} _ {*} ^ {[ n ]}, z _ {\\phi} (\\mathbf {z} _ {t} ^ {[ n ]})) \\Big ]\\tag{5}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            323,
+            492,
+            671,
+            532
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "where $\\mathbf { y } _ { * }$ denotes the output of the visual encoder, $\\mathbf { z } _ { t }$ represents the conditions extracted by DDT, and $z _ { \\phi }$ is a trainable MLP used to align the data dimensions of $\\mathbf { y } _ { * }$ and $\\mathbf { z } _ { t }$ . θ and ϕ are the parameters of DDT and $z _ { \\phi } ,$ respectively. N is the patch number and sim(·, ·) is a pre-defined similarity function.",
+        "bbox": [
+            143,
+            535,
+            852,
+            579
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "However, large visual encoders introduce additional training data and model parameters. We posit that the features output by the visual encoder provide consistent and accurate conditioning for different noisy latents derived from the same pure image during training. The fact that different condition features of the same image converge toward the representation extracted by the visual encoder during training resembles clustering in unsupervised learning. This inspires us to sample multiple condition features in a single training step and align them towards the cluster center—which corresponds to the representation extracted by the visual encoder in REPA as intuitively illustrated in 2.",
+        "bbox": [
+            143,
+            585,
+            852,
+            683
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Similarly, We align any two conditions of $\\left\\{ \\mathbf { z } _ { t _ { k } } \\right\\}$ in the manner of REPA:",
+        "bbox": [
+            145,
+            689,
+            622,
+            704
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathcal {L} _ {\\mathrm{DUPA}} (\\theta , \\phi) := - \\mathbb {E} _ {\\mathbf {x} _ {*}, \\{\\epsilon_ {k}, t _ {k} \\} _ {k = 1} ^ {K}} \\left[ \\frac {2}{K (K - 1)} \\sum_ {1 \\leq i <   j \\leq K} \\frac {1}{N} \\sum_ {n = 1} ^ {N} \\operatorname{sim} (z _ {\\phi} (\\mathbf {z} _ {t _ {i}} ^ {[ n ]}), z _ {\\phi} (\\mathbf {z} _ {t _ {j}} ^ {[ n ]})) \\right].\\tag{6}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            210,
+            709,
+            785,
+            750
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "On the other hand, we modify the original diffusion model’s loss to the average of diffusion losses over K-times samplings:",
+        "bbox": [
+            143,
+            753,
+            851,
+            781
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathcal {L} _ {\\text {velocity}} (\\theta) := \\mathbb {E} _ {\\mathbf {x} _ {*}, \\{\\epsilon_ {k}, t _ {k} \\} _ {k = 1} ^ {K}} \\left[ \\sum_ {k = 1} ^ {K} \\| \\mathbf {v} _ {\\theta} (\\mathbf {x} _ {t _ {k}}, t _ {k}) - \\dot {\\alpha} _ {t _ {k}} \\mathbf {x} _ {*} - \\dot {\\sigma} _ {t _ {k}} \\epsilon_ {k} \\| ^ {2} \\right].\\tag{7}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            264,
+            784,
+            730,
+            825
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            145,
+            49,
+            454,
+            64
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "page_number",
+        "text": "5",
+        "bbox": [
+            465,
+            847,
+            478,
+            858
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "code",
+        "sub_type": "algorithm",
+        "code_caption": [],
+        "code_body": "<div class=\"mineru-algorithm\" style=\"white-space: pre-wrap; font-family:monospace;\">\nAlgorithm 1 Dual-Path Condition Alignment Batch Step\n1: Input: DDT $v_{\\theta}$, batch of $B$ flow examples $F = \\{(\\mathbf{x}_1, y_1), \\ldots, (\\mathbf{x}_B, y_B)\\}$, projector $z_{\\phi}$, learning rate $\\beta$, sampling times $K = 2$ and hyperparameter $\\lambda = 0.5$.\n2: Output: Updated model parameters $\\theta$.\n3: $L(\\theta, \\phi) = 0$\n4: for $i$ in range($B$) do\n5:    for $j$ in range($K$) do\n6:    $t_j \\sim U(0,1)$, $\\epsilon_j \\sim \\mathcal{N}(0,1)$, $\\mathbf{x}_{t_j} = \\alpha_{t_j} \\mathbf{x}_i + \\sigma_{t_j} \\epsilon_j$\n7:    $\\hat{\\mathbf{v}}_j, \\mathbf{z}_j = v_\\theta(\\mathbf{x}_{t_j}, t_j, y_i)$, $\\mathbf{v}_j = \\dot{\\alpha}_{t_j} \\mathbf{x}_i + \\dot{\\sigma}_{t_j} \\epsilon_j$\n8:    $\\mathbf{z}_j = z_{\\phi}(\\mathbf{z}_j)$\n9:    $L(\\theta, \\phi) += ||\\hat{\\mathbf{v}}_j - \\mathbf{v}_j||^2$\n10:    for $k$ in range($j$) do\n11:    $L(\\theta, \\phi) - = \\frac{2\\lambda}{K(K-1)} \\cdot \\text{sim}(\\mathbf{z}_k, \\mathbf{z}_j)$\n12:    end for\n13:    end for\n14: end for\n15: $\\theta \\leftarrow \\theta - \\frac{\\beta}{B} \\nabla_\\theta L(\\theta, \\phi)$, $\\phi \\leftarrow \\phi - \\frac{\\beta}{B} \\nabla_\\phi L(\\theta, \\phi)$\n</div>",
+        "bbox": [
+            147,
+            119,
+            848,
+            325
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Then we sum the condition alignment loss and diffusion loss to construct the loss function for model training:",
+        "bbox": [
+            145,
+            349,
+            851,
+            364
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathcal {L} := \\mathcal {L} _ {\\text { velocity }} + \\lambda \\mathcal {L} _ {\\text { DUPA }},\\tag{8}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            413,
+            368,
+            583,
+            383
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "where λ is a hyperparameter that controls the tradeoff between condition alignment and denoising. $\\mathrm { \\sf A l g o - }$ rithm 1 illustrates the implementation of an arbitrary batch step in training DUPA.",
+        "bbox": [
+            143,
+            387,
+            851,
+            417
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "5 EXPERIMENTS",
+        "text_level": 2,
+        "bbox": [
+            145,
+            436,
+            303,
+            452
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "We conduct extensive experiments to evaluate DUPA’s performance and effectiveness, focusing on three key aspects:",
+        "bbox": [
+            143,
+            465,
+            851,
+            496
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "• Performance comparison between DUPA and current state-of-the-art methods. (Section 5.2)",
+        "bbox": [
+            145,
+            505,
+            767,
+            520
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "• Effectiveness and necessity of DUPA’s components and settings. (Section 5.3, 5.4)",
+        "bbox": [
+            145,
+            523,
+            705,
+            539
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "• Time and computational costs of DUPA during training and inference. (Section 5.5)",
+        "bbox": [
+            145,
+            542,
+            715,
+            556
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "5.1 EXPERIMENTAL SETUP",
+        "text_level": 2,
+        "bbox": [
+            145,
+            573,
+            351,
+            588
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Implementation details. Our experimental setup aligns with DiT, SiT, REPA, and DDT. DUPA is trained on 256×256 ImageNet datasets with a batch size of 256. Images are processed through the off-shelf Stable Diffusion VAE to obtain latents $\\mathbf { z } \\in \\mathbb { R } ^ { 3 2 \\times 3 2 \\times 4 }$ . Adam optimizer with a learning rate of 0.0001 is employed throughout the entire training process. DUPA’s model configuration is shown in Appendix B, which maintains the same model size with SiT. We set hyperparameter $\\bar { \\lambda } = 0 . 5$ and independent noise sampling times $K = 2 ,$ choose cosine similarity as sim $( \\cdot , \\cdot )$ and do not use classifier-free guidance (CFG) unless otherwise specified. Our default training infrastructure consisted of 8×A100 GPUs. For more experimental details, please refer to Appendix D.",
+        "bbox": [
+            143,
+            599,
+            852,
+            712
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Initialization of projector. It is crucial to avoid setting both the weights and biases to 0 when initializing projector $z _ { \\phi }$ . Otherwise, the condition used to align with will remain 0, leading to shortcut learning. In our experiments, we employ Kaiming initialization (He et al., 2015) for the first layer of projector $z _ { \\phi }$ to preserve variance during forward propagation, while utilizing a reduced-gain Xavier initialization (Glorot & Bengio, 2010) for subsequent layers to prevent gradient explosion or overfitting.",
+        "bbox": [
+            143,
+            717,
+            852,
+            789
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Evaluation. We report following five quantitative metrics to evaluate model’s performance: Frechet incep-´ tion distance (FID; (Heusel et al., 2017)), sFID (Nash et al., 2021), inception score (IS; (Salimans et al.,",
+        "bbox": [
+            143,
+            794,
+            852,
+            824
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            145,
+            49,
+            454,
+            64
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "page_number",
+        "text": "6",
+        "bbox": [
+            465,
+            847,
+            478,
+            858
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "table",
+        "img_path": "images/30f65628d5990dee78e676a23789b1a5bf57d6c9a19d5f987f79294d1152476e.jpg",
+        "table_caption": [
+            "Table 1: System-Level Performance on ImageNet $2 5 6 \\times 2 5 6$ . Our results are bolded to indicate that DUPA performs better than methods without external supervision of large visual encoders, while highlighted to indicate that DUPA performs the best among all methods. ↓ indicates a lower value is better and ↑ indicates a higher value is better."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td rowspan=\"2\">Method</td><td rowspan=\"2\">Training Epochs</td><td rowspan=\"2\">#params</td><td rowspan=\"2\">External Images</td><td rowspan=\"2\">External Params</td><td colspan=\"5\">Generation w/o CFG</td><td colspan=\"5\">Generation w/ CFG</td></tr><tr><td>FID↓</td><td>sFID↓</td><td>IS↑</td><td>Prec.↑</td><td>Rec.↑</td><td>FID↓</td><td>sFID↓</td><td>IS↑</td><td>Prec.↑</td><td>Rec.↑</td></tr><tr><td colspan=\"15\">No Auxiliary Task</td></tr><tr><td>DiT</td><td>1400</td><td>675M</td><td>0</td><td>0</td><td>9.62</td><td>6.85</td><td>121.5</td><td>0.67</td><td>0.67</td><td>2.27</td><td>4.60</td><td>278.2</td><td>0.83</td><td>0.57</td></tr><tr><td>SiT</td><td>1400</td><td>675M</td><td>0</td><td>0</td><td>8.61</td><td>6.32</td><td>131.7</td><td>0.68</td><td>0.67</td><td>2.06</td><td>4.50</td><td>270.3</td><td>0.82</td><td>0.59</td></tr><tr><td>FasterDiT</td><td>400</td><td>675M</td><td>0</td><td>0</td><td>7.91</td><td>5.45</td><td>131.3</td><td>0.67</td><td>0.69</td><td>2.03</td><td>4.63</td><td>264.0</td><td>0.81</td><td>0.60</td></tr><tr><td>DDT</td><td>400</td><td>675M</td><td>0</td><td>0</td><td>8.06</td><td>5.31</td><td>127.4</td><td>0.69</td><td>0.67</td><td>2.01</td><td>4.66</td><td>281.7</td><td>0.80</td><td>0.59</td></tr><tr><td colspan=\"15\">Masked Image Modeling</td></tr><tr><td>MaskGIT</td><td>555</td><td>227M</td><td>0</td><td>0</td><td>6.18</td><td>-</td><td>182.1</td><td>0.80</td><td>0.51</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr><tr><td>LlamaGen</td><td>300</td><td>3.1B</td><td>0</td><td>0</td><td>9.38</td><td>8.24</td><td>112.9</td><td>0.69</td><td>0.67</td><td>2.18</td><td>5.97</td><td>263.3</td><td>0.81</td><td>0.58</td></tr><tr><td>VAR</td><td>350</td><td>2.0B</td><td>0</td><td>0</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>1.80</td><td>-</td><td>365.4</td><td>0.83</td><td>0.57</td></tr><tr><td>MagViT-v2</td><td>1080</td><td>307M</td><td>0</td><td>0</td><td>3.65</td><td>-</td><td>200.5</td><td>-</td><td>-</td><td>1.78</td><td>-</td><td>319.4</td><td>-</td><td>-</td></tr><tr><td>MAR</td><td>800</td><td>945M</td><td>0</td><td>0</td><td>2.35</td><td>-</td><td>227.8</td><td>0.79</td><td>0.62</td><td>1.55</td><td>-</td><td>303.7</td><td>0.81</td><td>0.62</td></tr><tr><td>MaskDiT</td><td>1600</td><td>675M</td><td>0</td><td>0</td><td>5.69</td><td>10.34</td><td>177.9</td><td>0.74</td><td>0.60</td><td>2.28</td><td>5.67</td><td>276.6</td><td>0.80</td><td>0.61</td></tr><tr><td>MDT</td><td>1300</td><td>675M</td><td>0</td><td>0</td><td>6.23</td><td>5.23</td><td>143.0</td><td>0.71</td><td>0.65</td><td>1.79</td><td>4.57</td><td>283.0</td><td>0.81</td><td>0.61</td></tr><tr><td>MDTv2</td><td>920</td><td>675M</td><td>0</td><td>0</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>1.58</td><td>4.52</td><td>314.7</td><td>0.79</td><td>0.65</td></tr><tr><td colspan=\"15\">Contrastive Learning</td></tr><tr><td>ΔFM</td><td>800</td><td>675M</td><td>0</td><td>0</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>1.97</td><td>4.53</td><td>268.4</td><td>0.79</td><td>0.65</td></tr><tr><td>Disp-Loss</td><td>1200</td><td>675M</td><td>0</td><td>0</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>1.97</td><td>4.61</td><td>275.2</td><td>0.80</td><td>0.63</td></tr><tr><td colspan=\"15\">Supervised Representation Alignment</td></tr><tr><td rowspan=\"3\">REPA</td><td>80</td><td rowspan=\"3\">675M</td><td rowspan=\"3\">142M</td><td rowspan=\"3\">1.1B</td><td>7.90</td><td>5.06</td><td>122.6</td><td>0.70</td><td>0.65</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr><tr><td>200</td><td>6.40</td><td>-</td><td>-</td><td>-</td><td>-</td><td>1.96</td><td>4.49</td><td>264.0</td><td>0.82</td><td>0.60</td></tr><tr><td>800</td><td>5.90</td><td>5.73</td><td>157.8</td><td>0.70</td><td>0.69</td><td>1.42</td><td>4.70</td><td>305.7</td><td>0.80</td><td>0.65</td></tr><tr><td colspan=\"15\">Unsupervised Representation Alignment</td></tr><tr><td rowspan=\"3\">DUPA (Ours)</td><td>80</td><td rowspan=\"3\">675M</td><td rowspan=\"3\">0</td><td rowspan=\"3\">0</td><td>8.71</td><td>4.65</td><td>114.6</td><td>0.70</td><td>0.65</td><td>2.28</td><td>4.48</td><td>237.2</td><td>0.83</td><td>0.59</td></tr><tr><td>200</td><td>6.57</td><td>4.63</td><td>136.5</td><td>0.70</td><td>0.68</td><td>1.70</td><td>4.45</td><td>265.3</td><td>0.83</td><td>0.61</td></tr><tr><td>400</td><td>5.92</td><td>4.63</td><td>149.6</td><td>0.71</td><td>0.69</td><td>1.46</td><td>4.45</td><td>296.2</td><td>0.84</td><td>0.62</td></tr></table>",
+        "bbox": [
+            207,
+            184,
+            782,
+            438
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "2016)), precision (Prec.) and recall (Rec.) (Kynka¨anniemi et al., 2019). We sample 50,000 images to¨ calculate the above quantitative metrics.",
+        "bbox": [
+            143,
+            464,
+            852,
+            494
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Sampler. We use the SDE Euler-Maruyama sampler (for SDE with $w _ { t } = \\sigma _ { t } )$ and set the number of function evaluations (NFE) as 250 which follows SiT unless otherwise specified.",
+        "bbox": [
+            143,
+            500,
+            851,
+            529
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Baselines. We select state-of-the-art generative models in recent years as our baselines. Unlike other works, we do not distinguish DUPA and baselines based on model architecture, but rather based on the types of auxiliary tasks used for generation: (a) No auxiliary task: Dit (Peebles & Xie, 2023), SiT (Ma et al., 2024), FasterDiT (Yao et al., 2024) and DDT (Wang et al., 2025). (b) Masked Image Modeling: MaskGIT, (Chang et al., 2022), LlamaGen (Sun et al., 2024), VAR (Tian et al., 2024), MagViT-v2 (Yu et al., 2023), MAR (Li et al., 2024), MaskDiT (Zheng et al., 2024), MDT (Gao et al., 2023a) and MDTv2(Gao et al., 2023b). (c) Contrastive learning: ∆FM (Stoica et al., 2025) and Disp-Loss (Wang & He, 2025). (d) Supervised representation alignment: REPA (Yu et al., 2025). (e) Unsupervised representation alignment: DUPA. We categorize all autoregressive models as (b). The original DDT introduces architectural improvements, such as SwiGLU (Touvron et al., 2023), RoPE (Su et al., 2024), and RMSNorm (Touvron et al., 2023), as well as supervision from external visual encoders. Our approach solely focuses on its core contribution—decoupled encoder-decoder architecture. Therefore, the following results regarding DDT are all reproduced based on SiT.",
+        "bbox": [
+            143,
+            535,
+            854,
+            717
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "5.2 SYSTEM-LEVEL COMPARISON",
+        "text_level": 2,
+        "bbox": [
+            145,
+            732,
+            398,
+            748
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Table 3 shows the performance of our method compared to different sizes of base models. It can be seen that DUPA has improved all sizes of base models in various generation metrics.",
+        "bbox": [
+            143,
+            758,
+            852,
+            789
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Table 1 presents a comparative analysis of DUPA-XL/2 against current state-of-the-art methods on the ImageNet $2 5 6 \\times 2 5 6$ . In terms of sFID, DUPA outperforms all other listed methods, both with and without",
+        "bbox": [
+            143,
+            794,
+            852,
+            823
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            145,
+            49,
+            454,
+            64
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "page_number",
+        "text": "7",
+        "bbox": [
+            467,
+            845,
+            478,
+            858
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "table",
+        "img_path": "images/9f2e1942cbc1fbbf0a0824c16cb34421d2cf37ceb34e41d23bbf0ac3e6f414a1.jpg",
+        "table_caption": [
+            "Table 2: Component-wise analysis. All models are DUPA-L/2 trained for 400K iterations with different settings. “Resampling” column indicates whether to independently resample timestamp t or noise ϵ."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Resampling</td><td>Depth</td><td>Objective</td><td> $\\lambda$ </td><td>FID↓</td></tr><tr><td colspan=\"4\">Vanilla SiT-L/2</td><td>18.8</td></tr><tr><td>t</td><td>8</td><td>Cos. sim.</td><td>0.5</td><td>13.2</td></tr><tr><td> $\\epsilon$ </td><td>8</td><td>Cos. sim.</td><td>0.5</td><td>12.4</td></tr><tr><td>t,  $\\epsilon$ </td><td>4</td><td>Cos. sim.</td><td>0.5</td><td>11.8</td></tr><tr><td>t,  $\\epsilon$ </td><td>6</td><td>Cos. sim.</td><td>0.5</td><td>11.3</td></tr><tr><td>t,  $\\epsilon$ </td><td>10</td><td>Cos. sim.</td><td>0.5</td><td>11.2</td></tr><tr><td>t,  $\\epsilon$ </td><td>12</td><td>Cos. sim.</td><td>0.5</td><td>11.6</td></tr><tr><td>t,  $\\epsilon$ </td><td>14</td><td>Cos. sim.</td><td>0.5</td><td>11.9</td></tr><tr><td>t,  $\\epsilon$ </td><td>16</td><td>Cos. sim.</td><td>0.5</td><td>12.1</td></tr><tr><td>t,  $\\epsilon$ </td><td>8</td><td>NT-Xent</td><td>0.5</td><td>11.6</td></tr><tr><td>t,  $\\epsilon$ </td><td>8</td><td>Cos. sim.</td><td>0.25</td><td>11.2</td></tr><tr><td>t,  $\\epsilon$ </td><td>8</td><td>Cos. sim.</td><td>0.75</td><td>11.1</td></tr><tr><td>t,  $\\epsilon$ </td><td>8</td><td>Cos. sim.</td><td>1</td><td>11.1</td></tr><tr><td>t,  $\\epsilon$ </td><td>8</td><td>Cos. sim.</td><td>0.5</td><td>11.1</td></tr></table>",
+        "bbox": [
+            153,
+            181,
+            478,
+            434
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "table",
+        "img_path": "images/53acd8ab6d65176bd09a6bfb1fd109b8be524a9cb1d200de2675b4e343362ee9.jpg",
+        "table_caption": [
+            "Table 3: Model performance across different sizes with 400K training steps."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Model</td><td>FID↓</td><td>sFID↓</td><td>IS↑</td><td>Prec.↑</td><td>Rec.↑</td></tr><tr><td>SiT-B/2</td><td>33.0</td><td>6.46</td><td>43.7</td><td>0.53</td><td>0.63</td></tr><tr><td>DDT-B/2</td><td>29.5</td><td>6.23</td><td>51.7</td><td>0.57</td><td>0.63</td></tr><tr><td>DUPA-B/2</td><td>25.2</td><td>5.89</td><td>67.4</td><td>0.61</td><td>0.63</td></tr><tr><td>SiT-L/2</td><td>18.8</td><td>5.29</td><td>72.0</td><td>0.64</td><td>0.64</td></tr><tr><td>DDT-L/2</td><td>14.9</td><td>5.17</td><td>87.8</td><td>0.65</td><td>0.64</td></tr><tr><td>DUPA-L/2</td><td>11.1</td><td>4.91</td><td>104.8</td><td>0.69</td><td>0.65</td></tr><tr><td>SiT-XL/2</td><td>17.2</td><td>5.07</td><td>76.5</td><td>0.65</td><td>0.63</td></tr><tr><td>DDT-XL/2</td><td>12.8</td><td>4.98</td><td>91.3</td><td>0.67</td><td>0.63</td></tr><tr><td>DUPA-XL/2</td><td>8.71</td><td>4.65</td><td>114.6</td><td>0.70</td><td>0.65</td></tr></table>",
+        "bbox": [
+            522,
+            155,
+            838,
+            308
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "table",
+        "img_path": "images/6fd3c77bb6a806c99649debc73a00c89459dc493aca67e037819931f6eb0cf6e.jpg",
+        "table_caption": [
+            "Table 4: Ablation study of proposed improvements."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Method</td><td>FID↓</td><td>sFID↓</td><td>IS↑</td><td>Prec.↑</td><td>Rec.↑</td></tr><tr><td>DDT-L/2</td><td>14.9</td><td>5.17</td><td>87.8</td><td>0.65</td><td>0.64</td></tr><tr><td>+ Dual-Path Sampling</td><td>12.5</td><td>5.02</td><td>96.6</td><td>0.68</td><td>0.65</td></tr><tr><td>+ Condition Alignment</td><td>11.1</td><td>4.91</td><td>104.8</td><td>0.69</td><td>0.65</td></tr></table>",
+        "bbox": [
+            511,
+            363,
+            848,
+            433
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "CFG. Furthermore, it achieves the best recall score in the non-CFG setting and the best precision score when CFG is applied.",
+        "bbox": [
+            143,
+            465,
+            851,
+            494
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Notably, for FID, DUPA surpasses all methods that do not rely on external supervision after only 400 training epochs. Even when compared to REPA—a model trained for a full 800 epochs with the aid of large visual encoders’ representation alignment—DUPA’s performance is within a narrow 3% margin. This achievement, despite the shorter training schedule (we train DUPA-XL/2 only for 400 epochs due to resource and time limits), strongly demonstrates the superior efficiency of DUPA.",
+        "bbox": [
+            143,
+            501,
+            852,
+            573
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "5.3 COMPONENT-WISE ANALYSIS",
+        "text_level": 2,
+        "bbox": [
+            145,
+            579,
+            398,
+            594
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "The resampling strategy, encoder-decoder architecture, condition alignment method and hyperparameter settings of DUPA significantly impact the model’s performance. Results of the impact of these components are shown in Table 2.",
+        "bbox": [
+            143,
+            598,
+            852,
+            641
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Resampling strategy. Experiments show that independently resampling of both timestamp t and noise ϵ performs the best. We believe this provides more diverse noisy images, thereby enhancing the reliability of cluster centers of extracted condition representations.",
+        "bbox": [
+            143,
+            647,
+            852,
+            690
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Condition encoder depth. We investigate the impact of the number of layers in the condition encoder on DUPA-L/2. Similar to the conclusion in REPA, aligning the representations output by the first few layers can help the subsequent network predict high-frequency details. In the remaining experiments, we perform condition alignment at the 8th layer.",
+        "bbox": [
+            143,
+            696,
+            852,
+            753
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Alignment objective. We compare the effects of two similarity functions which are commonly used in contrastive learning: Normalized Temperature-scaled Cross Entropy (NT-Xent) and negative cosine similarity (cos. sim.), and we choose cos. sim. in other experiments.",
+        "bbox": [
+            143,
+            758,
+            852,
+            801
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Effect of tradeoff parameter. As shown in Table 2, DUPA is robust to the tradeoff parameter λ.",
+        "bbox": [
+            143,
+            806,
+            781,
+            823
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            145,
+            49,
+            454,
+            64
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "page_number",
+        "text": "8",
+        "bbox": [
+            465,
+            845,
+            478,
+            858
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "table",
+        "img_path": "images/2c1a8c7f773f3ec0f0adbd6de393978860eb84f5938646ca624a652a505287db.jpg",
+        "table_caption": [],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Method</td><td>Iter.</td><td>BS</td><td>K</td><td>TS↓</td><td>Mem.↓</td><td>FID↓</td></tr><tr><td>SiT-L/2</td><td>400K</td><td>256</td><td>1</td><td>0.97</td><td>22.6</td><td>18.8</td></tr><tr><td>DDT-L/2</td><td>400K</td><td>256</td><td>1</td><td>1.01</td><td>23.3</td><td>15.2</td></tr><tr><td>DDT-L/2</td><td>400K</td><td>512</td><td>1</td><td>1.87</td><td>35.5</td><td>13.9</td></tr><tr><td>DDT-L/2</td><td>800K</td><td>256</td><td>1</td><td>1.01</td><td>23.3</td><td>13.4</td></tr><tr><td>DUPA-L/2</td><td>400K</td><td>256</td><td>2</td><td>1.12</td><td>27.9</td><td>11.1</td></tr><tr><td>DUPA-L/2</td><td>400K</td><td>256</td><td>3</td><td>1.26</td><td>32.5</td><td>10.8</td></tr><tr><td>DUPA-L/2</td><td>400K</td><td>256</td><td>4</td><td>1.43</td><td>38.2</td><td>10.7</td></tr></table>",
+        "bbox": [
+            147,
+            119,
+            354,
+            215
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "chart",
+        "img_path": "images/c97e2f781bd80b7ad010511d85ec2207015bd7471f2b58a8164ec0b12d22ee50.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            357,
+            126,
+            591,
+            209
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "chart",
+        "img_path": "images/cb78d1152948e6d4c7da36ebe5a9cdbbc005cb8aeb6322fac377a8ece77b5e7d.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            594,
+            130,
+            727,
+            217
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "chart",
+        "img_path": "images/16ebc1c9991e1930cdf99f597206c7e91e4d8a49ae30b2e85c904a9ecdb48267.jpg",
+        "content": "",
+        "chart_caption": [
+            "(a) “BS” indicates batch size, “K” indicates noising times, “TS” indicates (b) Image sampling is performed on training speed (sec/step) and “Mem.” indicates memory usage of a single DUPA-XL/2 and DDT-XL/2 trained for GPU (GB). 400K iterations.",
+            "Figure 3: Time and computational cost analysis. (a) Time and computational costs comparison. (b)Training efficiency and inference speed comparison."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            725,
+            131,
+            849,
+            218
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "5.4 ABLATION STUDY",
+        "text_level": 2,
+        "bbox": [
+            145,
+            328,
+            318,
+            342
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Compared to the baseline model DDT, our primary improvements lie in dual-path sampling and condition alignment. Since condition alignment relies on dual-path sampling, we conduct the following three sets of ablation experiments on DUPA-L/2: DUPA without dual-path sampling and condition alignment (which degenerates to DDT), DUPA without condition alignment and the vanilla DUPA. The results of the ablation experiments are shown in Table 4.",
+        "bbox": [
+            143,
+            344,
+            852,
+            415
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Dual-path sampling offers more precise gradient guidance for model parameter optimization in a training step, enhancing training efficiency, while conditional alignment enables the condition encoder to capture more accurate semantic representations from noisy images, further boosting model performance.",
+        "bbox": [
+            143,
+            421,
+            852,
+            464
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "5.5 TIME AND COMPUTATIONAL COSTS",
+        "text_level": 2,
+        "bbox": [
+            145,
+            465,
+            439,
+            481
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Since training and sampling of generative models require significant time and computational resources, we emphasize evaluating the model’s computational cost in addition to its performance. During training, multiple independent sampling of noises and velocity prediction for single image represent the primary extra computational overhead introduced by our method. For the sampling phase, we also conduct experiments to explore whether DUPA can accelerate the sampling procedure through aligned condition feature.",
+        "bbox": [
+            143,
+            484,
+            852,
+            555
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Noise sampling times. We compare the impact of different noise sampling times on training speed, GPU memory usage, and model performance in Figure 3a. To illustrate the difference between multiple sampling and batch size enlargement, we additionally train DDT with a batch size of 2 × 256 = 512.",
+        "bbox": [
+            143,
+            560,
+            852,
+            604
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Neither doubling the batch size nor the training steps of DDT can achieve the performance of DUPA. Moreover, the former approach leads to a nearly doubled training cost. On the other hand, increasing K significantly raises GPU memory usage and slows down training speed, without significant FID gains. We thu select K = 2 in other experiments.",
+        "bbox": [
+            143,
+            609,
+            852,
+            666
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Improved training efficiency and inference speed. To accelerate experiments, we compare the training efficiency of DUPA-L/2 and DDT-L/2. As shown in Figure 3b, DUPA achieved 5× and 10× speedups over DDT in training and inference stages respectively without external supervision, which highlights DUPA’s remarkable efficiency.",
+        "bbox": [
+            143,
+            672,
+            852,
+            729
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "6 CONCLUSION AND FUTURE WORK",
+        "text_level": 2,
+        "bbox": [
+            143,
+            734,
+            470,
+            750
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Inspired by REPA, we propose DUPA, which provides efficient semantic information for denoising-based generative models’ training by aligning the representations of different noisy views from the same image, which is similar to REPA. DUPA can achieve performance comparable to that of REPA without any external supervision of large visual encoder, which can easily applied to any denoising-based models. Furthermore, we intend to conduct further testing and improvement of DUPA on text-to-image tasks in the future.",
+        "bbox": [
+            143,
+            752,
+            852,
+            824
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            145,
+            49,
+            455,
+            64
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "page_number",
+        "text": "9",
+        "bbox": [
+            465,
+            845,
+            478,
+            858
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "ACKNOWLEDGMENT",
+        "text_level": 2,
+        "bbox": [
+            147,
+            119,
+            323,
+            133
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "This work was supported by National Science and Technology Major Project (2024ZD01NL00101), Natural Science Foundation of China (62271013), Guangdong Provincial Key Laboratory of Ultra High Definition Immersive Media Technology (2024B1212010006), Guangdong Province Pearl River Talent Program (2021QN020708), Guangdong Basic and Applied Basic Research Foundation (2024A1515010155), Shenzhen Science and Technology Program (JCYJ20240813160202004, JCYJ20230807120808017, SYSPG20241211173440004), and was also financially supported for Outstanding Talents Training Fund in Shenzhen.",
+        "bbox": [
+            143,
+            151,
+            852,
+            250
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "REFERENCES",
+        "text_level": 2,
+        "bbox": [
+            145,
+            270,
+            261,
+            286
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "ref_text",
+        "text": "Huiwen Chang, Han Zhang, Lu Jiang, Ce Liu, and William T Freeman. Maskgit: Masked generative image transformer. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pp. 11315–11325, 2022.",
+        "bbox": [
+            147,
+            295,
+            851,
+            337
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "ref_text",
+        "text": "Hesen Chen, Junyan Wang, Zhiyu Tan, and Hao Li. Sara: Structural and adversarial representation alignment for training-efficient diffusion models, 2025. URL https://arxiv.org/abs/2503.08253.",
+        "bbox": [
+            147,
+            349,
+            851,
+            378
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "ref_text",
+        "text": "Junsong Chen, Jincheng Yu, Chongjian Ge, Lewei Yao, Enze Xie, Yue Wu, Zhongdao Wang, James Kwok, Ping Luo, Huchuan Lu, et al. Pixart-alpha: Fast training of diffusion transformer for photorealistic textto-image synthesis. arXiv preprint arXiv:2310.00426, 2023.",
+        "bbox": [
+            147,
+            388,
+            849,
+            431
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "ref_text",
+        "text": "Junsong Chen, Chongjian Ge, Enze Xie, Yue Wu, Lewei Yao, Xiaozhe Ren, Zhongdao Wang, Ping Luo, Huchuan Lu, and Zhenguo Li. Pixart-σ: Weak-to-strong training of diffusion transformer for 4k text-toimage generation. In European Conference on Computer Vision, pp. 74–91. Springer, 2024.",
+        "bbox": [
+            147,
+            443,
+            851,
+            486
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "ref_text",
+        "text": "Jia Deng, Wei Dong, Richard Socher, Li-Jia Li, Kai Li, and Li Fei-Fei. Imagenet: A large-scale hierarchical image database. In 2009 IEEE conference on computer vision and pattern recognition, pp. 248–255. Ieee, 2009.",
+        "bbox": [
+            147,
+            497,
+            851,
+            537
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "ref_text",
+        "text": "Shanghua Gao, Pan Zhou, Ming-Ming Cheng, and Shuicheng Yan. Masked diffusion transformer is a strong image synthesizer, 2023a.",
+        "bbox": [
+            147,
+            551,
+            849,
+            580
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "ref_text",
+        "text": "Shanghua Gao, Pan Zhou, Ming-Ming Cheng, and Shuicheng Yan. Mdtv2: Masked diffusion transformer is a strong image synthesizer. arXiv preprint arXiv:2303.14389, 2023b.",
+        "bbox": [
+            147,
+            590,
+            849,
+            621
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "ref_text",
+        "text": "Xavier Glorot and Yoshua Bengio. Understanding the difficulty of training deep feedforward neural networks. In Proceedings of the thirteenth international conference on artificial intelligence and statistics, pp. 249–256. JMLR Workshop and Conference Proceedings, 2010.",
+        "bbox": [
+            147,
+            632,
+            849,
+            675
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "ref_text",
+        "text": "Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. Delving deep into rectifiers: Surpassing human-level performance on imagenet classification, 2015. URL https://arxiv.org/abs/1502. 01852.",
+        "bbox": [
+            147,
+            686,
+            849,
+            727
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "ref_text",
+        "text": "Martin Heusel, Hubert Ramsauer, Thomas Unterthiner, Bernhard Nessler, and Sepp Hochreiter. Gans trained by a two time-scale update rule converge to a local nash equilibrium. Advances in neural information processing systems, 30, 2017.",
+        "bbox": [
+            147,
+            739,
+            851,
+            782
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "ref_text",
+        "text": "Wenyi Hong, Ming Ding, Wendi Zheng, Xinghan Liu, and Jie Tang. Cogvideo: Large-scale pretraining for text-to-video generation via transformers. arXiv preprint arXiv:2205.15868, 2022.",
+        "bbox": [
+            147,
+            794,
+            851,
+            821
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            145,
+            49,
+            454,
+            64
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "page_number",
+        "text": "10",
+        "bbox": [
+            464,
+            845,
+            483,
+            859
+        ],
+        "page_idx": 9
+    }
+]

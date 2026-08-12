@@ -1,0 +1,1414 @@
+[
+    {
+        "type": "text",
+        "text": "ABSTRACT",
+        "text_level": 2,
+        "bbox": [
+            450,
+            292,
+            547,
+            309
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Unified multimodal Large Language Models (LLMs) that can both understand and generate visual content hold immense potential. However, existing open-source models often suffer from a performance trade-off between these capabilities. We present Manzano, a simple and scalable unified framework that substantially reduces this tension by coupling a hybrid image tokenizer with a well-curated training recipe. A single shared vision encoder feeds two lightweight adapters that produce continuous embeddings for image-to-text understanding and discrete tokens for text-to-image generation within a common semantic space. A unified autoregressive LLM predicts high-level semantics in the form of text and image tokens, with an auxiliary diffusion decoder subsequently translating the image tokens into pixels. The architecture, together with a unified training recipe over understanding and generation data, enables scalable joint learning of both capabilities. Manzano achieves state-of-the-art results among unified models, and is competitive with specialist models, particularly on text-rich evaluation. Our studies show minimal task conflicts and consistent gains from scaling model size, validating our design choice of a hybrid tokenizer.",
+        "bbox": [
+            230,
+            325,
+            767,
+            550
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "1 INTRODUCTION",
+        "text_level": 2,
+        "bbox": [
+            174,
+            579,
+            338,
+            594
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Unified multimodal models (OpenAI, 2025; Deng et al., 2025; Chen et al., 2025d; Wu et al., 2025a; Zhou et al., 2024), which integrate both understanding and generation capabilities, have become increasingly prominent within the research community. The appeal of this paradigm stems from the discovery that integrating these domains unlocks emergent capabilities (OpenAI, 2025; Deng et al., 2025) in generation, such as complex world reasoning, multimodal instruction following, and iterative visual editing. Yet, in practice, adding generation often degrades understanding. Existing unified models (Deng et al., 2025; Fan et al., 2025; Liang et al., 2024; Chen et al., 2025d) consistently lag far behind their understanding-only counterparts (Seed, 2025; Bai et al., 2025; Zhang et al., 2024a), especially on text-rich benchmarks (Mathew et al., 2021; Masry et al., 2022)",
+        "bbox": [
+            169,
+            611,
+            826,
+            738
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "A key reason for this gap is the conflicting nature of visual tokenization. Auto-regressive generation usually prefers discrete image tokens (Chameleon, 2024; Wu et al., 2024; Ma et al., 2025) while understanding typically benefits from continuous embeddings. Many models adopt a dual-tokenizer strategy (Wu et al., 2025b; Chen et al., 2025d; Fan et al., 2025; Tong et al., 2024b), using a semantic encoder for rich, continuous features while a separate quantized tokenizer like VQ-VAE (Van Den Oord et al., 2017) handles generation. However, this forces the language model to process two different image token types, one from high-level semantic space versus one from low-level spatial space, creating a significant task conflict. While some solutions like Mixture-of-Transformers (MoT) (Liang et al., 2024; Deng et al., 2025) can mitigate this by dedicating separate pathways for each task, they are parameter-inefficient and are often incompatible with modern Mixture-of-Experts (MoE) (Fedus et al., 2022; Lepikhin et al., 2021) architectures. An alternative line of work bypasses this conflict by freezing a pre-trained multimodal LLM and connecting it to a diffusion decoder (Pan et al., 2025; Wu et al., 2025a;c). While this preserves the understanding capability, it decouples generation, losing potential mutual benefits and limiting potential gains for generation from scaling the multimodal LLM.",
+        "bbox": [
+            169,
+            744,
+            826,
+            926
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_number",
+        "text": "1",
+        "bbox": [
+            493,
+            949,
+            503,
+            959
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "image",
+        "img_path": "images/0a5295f26eb657ef757918930e023cfd2c179c78fe33202f545d255824910a15.jpg",
+        "image_caption": [
+            "(a) Qualitative text-to-image generation on challenging prompts. Manzano handles counterintuitive, physics-defying prompts (e.g., ‘The bird is flying below the elephant’) comparably to GPT-4o (Islam & Moushi, 2024) and Nano Banana (DeepMind, 2025)"
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            173,
+            104,
+            486,
+            273
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "image",
+        "img_path": "images/673921be014ec1a7579ac49a455f95f0fc63a764a2f788ccf8f83cb4963861c5.jpg",
+        "image_caption": [
+            "(b) Quantitative comparisons on popular understand ing and generation benchmarks. Manzano 3B and 30B models achieve superior or competitive performance compared to other SOTA unified multimodal LLMs.",
+            "Figure 1: Comparison of qualitative and quantitative results for Manzano model."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            542,
+            119,
+            823,
+            273
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            409,
+            825,
+            438
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "To overcome the above challenges, we propose Manzano, a simple unified model that harmonizes the representations for understanding and generation. Manzano employs a unified shared visual encoder with two lightweight and specialized adapters: a continuous adapter for understanding tasks and a discrete adapter for generation. Because two adaptors originate from the same encoder, it yields hybrid representations from a homogeneous source, significantly mitigating task conflict in the LLM. We first pre-train the hybrid tokenizer with a small LLM decoder to pre-align the image features with the LLM feature space. Then the autoregressive multimodal LLM is jointly trained on a mixture of pure text, image understanding, and image generation data. Finally, we leverage a diffusion image decoder (Peebles & Xie, 2023; Chen et al., 2025a) to render pixels by taking the generated image tokens as conditioning. By delegating pixel-level synthesis to the diffusion decoder, the LLM can focus more on modeling semantics through an unified autoregressive objective.",
+        "bbox": [
+            169,
+            444,
+            826,
+            599
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "We train the unified multimodal LLM with a joint recipe to learn image understanding and generation simultaneously. This training consists of three stages: a pre-training stage on a large-scale corpus of text-only, interleaved image-text, image-to-text (IT), and text-to-image (TI) data; a continued pre-training stage on higher-quality IT and TI data; and a supervised fine-tuning (SFT) stage on curated text, IT, and TI instruction data to enhance instruction following capability and improve both understanding and generation tasks. Each stage serves a distinct role: pre-training on web-scale data builds broad cross-modal alignment, continued pre-training on curated data strengthens domainspecific capabilities such as document and chart understanding, and SFT teaches the model to follow diverse user instructions for both understanding and generation.",
+        "bbox": [
+            169,
+            604,
+            826,
+            729
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "We demonstrate that Manzano achieves state-of-the-art performance on both understanding and generation tasks. As shown in Fig. 1a and 1b, our 3B model, despite its smaller LLM size, achieves competitive generation performance compared to other unified multimodal LLMs. Simultaneously, it delivers significantly better understanding performance, especially on text-rich benchmarks that demand precise perceptual capabilities. Our ablations on the training recipes also indicate minimal cross-task conflict under joint training (Fig. 3). These findings suggest that the architecture and the training recipe effectively mitigate the conflict between understanding and generation, even in a compact model.",
+        "bbox": [
+            169,
+            734,
+            826,
+            849
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Facilitated by the simplicity of the architecture and the joint training recipe, we further investigate the scaling behavior of Manzano. Our scaling studies in Sec. 4.3 show substantial improvements across both understanding and generation benchmarks when scaling the LLM decoder (from 300M to 30B). In addition, enlarging the diffusion decoder also leads to significant gains in image structural integrity, as validated by large-scale human evaluations.",
+        "bbox": [
+            169,
+            854,
+            826,
+            925
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "page_number",
+        "text": "2",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "2 RELATED WORK",
+        "text_level": 2,
+        "bbox": [
+            171,
+            102,
+            346,
+            118
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "2.1 MLLMS FOR IMAGE UNDERSTANDING",
+        "text_level": 2,
+        "bbox": [
+            171,
+            133,
+            488,
+            148
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Recent advances in Multimodal Large Language Models (MLLMs) have led to a widely adopted architectural pattern that links a vision encoder with a language model through a trainable interface. Typical vision encoders include CLIP (Radford et al., 2021a), SigLIP (Zhai et al., 2023), and the recent InternViT (Chen et al., 2024c). Early works experimented with elaborate connector designs—for example, Flamingo (Alayrac et al., 2022) incorporates gated cross-attention layers to inject image features into the LLM, while BLIP-2 (Li et al., 2023b) introduces the Q-Former to better align visual and textual representations. A notable departure from these complex strategies is LLaVA (Liu et al., 2023; 2024a), which demonstrates that a lightweight Multi-Layer Perceptron (MLP) projection can effectively serve as the connector. This simplicity has since become the blueprint for many follow-up systems, such as the MM1 series (McKinzie et al., 2024; Zhang et al., 2024a), the InternVL family (Chen et al., 2024c; Zhu et al., 2025; Wang et al., 2025a), and the Qwen-VL models (team, 2024; Bai et al., 2025), which further improve performance by scaling up both data and backbone models. However, these MLLMs are primarily designed for understanding tasks and lack the capability to generate high-quality images, which limits their applicability in tasks that require bidirectional visual–text reasoning and creation. Despite being limited to understanding tasks, MLLMs still provide valuable strengths—their training recipes and scaling strategies are much more mature than those of current unified multimodal models, which we discuss next.",
+        "bbox": [
+            169,
+            159,
+            826,
+            397
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "2.2 UNIFIED MULTIMODAL MODELS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            411,
+            444,
+            426
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "The integration of image understanding and generation within a single, unified multimodal LLM is becoming prominent. GPT-4o (OpenAI, 2025) demonstrates embedding image generation capabilities directly into an autoregressive LLM, which unlocks emergent abilities, such as stronger instruction following, improved text rendering, multi-turn visual editing, and sophisticated world knowledge reasoning. Existing unified models can be broadly categorized into three architectural paradigms. First, the unified autoregressive (AR) approach (OpenAI, 2025; Chen et al., 2025d;c;b; Han et al., 2025b; Tian et al., 2024; Chameleon, 2024; Tong et al., 2024b; Fan et al., 2025; Ma et al., 2025; Han et al., 2025a; Geng et al., 2025; Wu et al., 2025d; 2024; Wang et al., 2025c) converts images into sequences of discrete or continuous tokens, enabling LLM to jointly model both image and text sequences in an autoregressive manner. Second, the decoupled LLM-diffusion approach (Pan et al., 2025; Wu et al., 2025a;c) employs a largely frozen LLM for semantic understanding and contextual reasoning, while delegating image synthesis to a separate diffusion decoder. In this design, the LLM itself does not possess native image generation capability. Third, the hybrid AR-diffusion approach (Deng et al., 2025; Zhou et al., 2024; Liang et al., 2024) integrates both paradigms within a single transformer, using autoregressive decoding for text and an embedded diffusion process for images. Our model is most closely aligned with the first, autoregressive paradigm. However, instead of employing separate tokenizers (Deng et al., 2025; Chen et al., 2025d; Fan et al., 2025; Wu et al., 2025c) for understanding and generation, we introduce a unified semantic tokenizer to produce both continuous features for understanding tasks and quantized features for generation tasks. This hybrid tokenizer strategy substantially mitigates the task conflict that commonly arises. Moreover, while our LLM backbone follows the autoregressive design, we augment it with a diffusion decoder for image synthesis, enabling high-fidelity generation guided by the semantic representations.",
+        "bbox": [
+            169,
+            436,
+            828,
+            744
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "2.3 DIFFUSION MODELS FOR IMAGE GENERATION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            758,
+            540,
+            773
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Diffusion-based generative models (Song et al., 2020; Ho et al., 2020; Dhariwal & Nichol, 2021) have become one of the most prominent approaches for high-fidelity image synthesis. These models gradually refine Gaussian noise into realistic images through a learned denoising process. Latent diffusion methods (Rombach et al., 2022; Podell et al., 2023) enhance computational efficiency by conducting generation in the latent space of a pre-trained variational autoencoder (VAE) (Kingma & Welling, 2022), reducing memory and compute requirements while preserving visual quality. More recently, flow matching approaches (Liu et al., 2022; Ma et al., 2024; Tong et al., 2023) have been introduced to connect source and target distributions via simplified continuous trajectories, leading to further gains in synthesis performance (Esser et al., 2024). In parallel, architectural advances such as Diffusion Transformers (DiTs) (Peebles & Xie, 2023; Chen et al., 2024a; Esser et al., 2024; Labs,",
+        "bbox": [
+            169,
+            784,
+            826,
+            925
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "page_number",
+        "text": "3",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "image",
+        "img_path": "images/7fc9c1cd6e3e987f728704ff266245702027eb238924c8f06ae07f93770f5b70.jpg",
+        "image_caption": [
+            "Figure 2: Our hybrid tokenizer workflow. (Left): The tokenizer produces two distinct but homogeneous feature streams through separate adapters. During training, one adapter output is randomly sampled and passed to a small LLM decoder for alignment. (Right): Once the tokenizer is trained, the right panel illustrates how these two feature types are applied to understanding and generation tasks."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            210,
+            99,
+            790,
+            305
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "2024; Chen et al., 2025a) have demonstrated strong scalability and quality improvements, echoing the success of transformer-based designs in natural language processing.",
+        "bbox": [
+            169,
+            402,
+            825,
+            433
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Building on these developments, our diffusion decoder integrates the strengths of the field by employing a DiT in the latent domain with a conditional flow matching objective. Unlike conventional text-to-image diffusion models (Ramesh et al., 2022; Saharia et al., 2022) conditioned on semantic embeddings from pre-trained text encoders such as CLIP (Radford et al., 2021a), our method leverages visual token embeddings generated by the LLM as conditioning signals.",
+        "bbox": [
+            169,
+            436,
+            826,
+            508
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3 MODEL",
+        "text_level": 2,
+        "bbox": [
+            171,
+            529,
+            271,
+            544
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Manzano is a multimodal large language model (MLLM) that unifies understanding and generation tasks using the auto-regressive (AR) approach. The architecture comprises three components: (i) a hybrid vision tokenizer that produces both continuous and discrete visual representations; (ii) an LLM decoder that accepts text tokens and/or continuous image embeddings and auto-regressively predicts the next discrete image or text tokens from a joint vocabulary; and (iii) an image decoder that renders image pixels from predicted image tokens (see Figure 2 for the framework).",
+        "bbox": [
+            169,
+            560,
+            826,
+            647
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3.1 DESIGN CHOICES",
+        "text_level": 2,
+        "bbox": [
+            171,
+            661,
+            339,
+            676
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Unified hybrid representation. The hybrid image tokenizer encodes images into continuous tokens for understanding (I2T), and discrete tokens for generation (T2I), while sharing the same visual encoder: (i) Continuous for I2T: Manzano utilizes continuous embeddings for I2T tasks, a strategy widely adopted in popular visual understanding models (team, 2024; Seed, 2025), which has shown superior performance, especially on text-rich tasks that require more visual details (e.g., DocVQA, ChartQA, and InfoVQA). Our ablation (Table 1) also shows discrete tokens underperform on understanding tasks, which reflects the weak understanding results reported for some pure-discrete unified models (Chameleon, 2024; Wang et al., 2024). (ii) Discretefor T2I: Representing images as discrete code indices lets the LLM use the same AR next-token learning strategy as text, simplifying the generation pipeline and scaling behavior. (iii) Shared unified semantic space: Both branches originate from the same encoder backbone; thus, continuous and discrete tokens inhabit a common semantic space, which reduces potential task conflict. The LLM decoder focuses on regressing high-level semantics (text and image tokens), while the diffusion decoder is responsible for rendering high-fidelity details in pixel space. Many existing unified models rely on separate tokenizers for understanding and generation (Chen et al., 2025d; Deng et al., 2025) — for instance, using a CLIP tokenizer for understanding tasks and a VAE tokenizer for generation. Although this strategy preserves more image spatial details, it exacerbates the task conflict within the subsequent LLM.",
+        "bbox": [
+            169,
+            686,
+            828,
+            926
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "page_number",
+        "text": "4",
+        "bbox": [
+            491,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Some studies (Chen et al., 2025b;c) find that a dedicated generation tokenizer is not as compatible with LLM as the semantic tokenizer. Thus, our hybrid unified image tokenizer employs a single image encoder for both understanding and generation tasks.",
+        "bbox": [
+            169,
+            104,
+            825,
+            148
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Simplicity and scalability. Our design keeps the training losses standard and components cleanly decoupled, which simplifies unification and scaling for the unified MLLM in these aspects: (i) Unified AR objective: Our unified LLM decoder uses a single AR objective for text-only, I2T, and T2I tasks without additional auxiliary losses or per-task heads. (ii) Decoupled components: The clear split between semantic prediction (LLM decoder) and detail generation (image decoder) supports independent scaling of the base LLM and the image decoder. (iii) Practical scaling: Our approach readily leverages mature, scalable training pipelines from LLM/MLLM and diffusion decoders. By contrast, prior works (e.g., Transfusion (Zhou et al., 2024) and Bagel (Deng et al., 2025)) explored incorporating auto-regressive text prediction and a diffusion image generation process for image generation in one LLM, but left large-scale scaling under-explored. Our decoupled design facilitates scaling the LLM to 30B and diffusion decoder to 3B, yielding promising scaling behavior (Sec. 4.3)",
+        "bbox": [
+            169,
+            152,
+            826,
+            309
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "3.2 ARCHITECTURE",
+        "text_level": 2,
+        "bbox": [
+            171,
+            323,
+            328,
+            338
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Hybrid Image Tokenizer. Our tokenizer comprises three components: (i) a standard vision transformer (ViT) (Dosovitskiy et al., 2020) as the vision backbone; (ii) a continuous adapter, which first applies a 3 3 Spatial-to-Channel (STC) layer to reduce the number of spatial tokens by a factor of 9 (e.g., from 42 42 1024 to 14 14 9216) and then uses an MLP to project each feature into the LLM feature dimension (e.g., 2048); and (iii) a discrete adapter, which also starts with the STC compression step but further quantizes the features using finite scalar quantization (FSQ) (Mentzer et al., 2023) — chosen for its simplicity and scalability to large codebooks (64K in our experiments) — before applying an MLP projection into the LLM feature dimension.",
+        "bbox": [
+            169,
+            349,
+            826,
+            463
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Unified LLM. We connect our hybrid image tokenizer to a standard text LLM decoder for unified training on a mixture of datasets containing text, understanding, and generation data. For the language backbone, we leverage internal pre-trained LLMs.",
+        "bbox": [
+            169,
+            476,
+            825,
+            520
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Image Decoder. We train an image decoder on top of a pre-trained hybrid image tokenizer to reconstruct images in pixel space from discrete image tokens. Given an input image, the hybrid tokenizer first encodes it into a latent representation, which serves as the conditioning input for a flow-matching pipeline (Lipman et al., 2022) that transports Gaussian noise into realistic images. For the decoder backbone, we adopt the DiT-Air architecture (Chen et al., 2025a), which employs a layer-wise parameter-sharing strategy that reduces the size of the standard MMDiT model (Esser et al., 2024) by approximately 66% while maintaining comparable performance. We provide three decoder configurations with the parameter sizes of 0.9B, 1.75B, and 3.52B, supporting a range of output canvas resolutions from 256 to 2048 pixels.",
+        "bbox": [
+            169,
+            534,
+            826,
+            661
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Inference Pipeline. The inference pipeline for both understanding and generation tasks is shown in Fig. 2 (right). For understanding tasks, Manzano uses the hybrid image tokenizer to extract continuous features. These features, along with text features, are then fed into the unified LLM decoder to predict the final answer. For generation tasks, Manzano takes a text input and predicts a sequence of image tokens. The image decoder then renders these tokens into image pixels.",
+        "bbox": [
+            169,
+            674,
+            826,
+            747
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "4 EXPERIMENTS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            765,
+            328,
+            781
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "In this section, we first introduce the evaluation setup for understanding and generation capabilities (Sec. 4.1). We then study the cross-token interplay in our model (Sec. 4.2). After that, we analyze the scaling behavior by varying model sizes (Sec. 4.3). Finally, we compare our model against state-of-the-art models, including both specialist and unified models. The training details, including the data mixture for understanding and generation, can be found in Appendix A.",
+        "bbox": [
+            169,
+            796,
+            826,
+            868
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "4.1 EVALUATION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            883,
+            308,
+            898
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "We evaluate our models on image understanding and generation capabilities on popular benchmarks.",
+        "bbox": [
+            169,
+            909,
+            826,
+            925
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "page_number",
+        "text": "5",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "table",
+        "img_path": "images/92195401aed644eaa6022866126c349a1ef234f642a25ad1c102757c67fc275c.jpg",
+        "table_caption": [
+            "Table 1: Tokenizer strategy ablation. Tokenizers are evaluated with a 1B unified LLM model. The full list of evaluation tasks for understanding can be referred to Sec. 4.4.1. The hybrid tokenizer outperforms the other two tokenizer paradigms."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td rowspan=\"2\">Tokenizer Paradigm</td><td colspan=\"3\">Understanding Tasks</td><td colspan=\"3\">Generation Tasks</td></tr><tr><td>General</td><td>Knowledge</td><td>Text-Rich</td><td>GenEval</td><td>DPG</td><td>WISE</td></tr><tr><td>Pure-Discrete</td><td>63.3</td><td>62.2</td><td>62.3</td><td>77</td><td>80.9</td><td>35</td></tr><tr><td>Dual-Encoder</td><td>63.8</td><td>63.6</td><td>72.0</td><td>65</td><td>66.3</td><td>17</td></tr><tr><td>Hybrid Tokenizer</td><td>64.9</td><td>66.5</td><td>73.3</td><td>77</td><td>79.9</td><td>35</td></tr></table>",
+        "bbox": [
+            245,
+            101,
+            751,
+            191
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Understanding. We adopt the three categories of benchmarks for multimodal understanding: (i) General VQA: SeedBench (Li et al., 2023a), RealWorldQA (Zhang et al., 2024b), and MMBench (Liu et al., 2024b). (ii) Knowledge & Reasoning: AI2D (Kembhavi et al., 2016), ScienceQA (Lu et al., 2022), MMMU (Yue et al., 2023), and MathVista (Lu et al., 2023). (iii) Text-rich Document & Chart Understanding: ChartQA (Masry et al., 2022), TextVQA (Singh et al., 2019), DocVQA (Mathew et al., 2021), InfoVQA (Mathew et al., 2022), and OCRBench (Liu et al., 2024c).",
+        "bbox": [
+            169,
+            267,
+            826,
+            353
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Generation. We use both automated and human evaluations: (i) Automated Evaluation: The automated benchmarks include GenEval (Ghosh et al., 2023) and DPGBench (Hu et al., 2024) for prompt following generation, and WISE (Niu et al., 2025) for World Knowledge-Informed generation. (ii) Human Evaluation: We curate a comprehensive evaluation set comprising 800 challenging prompts, subsampled from established academic benchmarks (Wiles et al., 2025; Yu et al., 2022) and from widely used community evaluation platforms. The generated outputs are assessed by in-house human raters on three dimensions: structural integrity, instruction following, and aesthetic quality. For each dimension, raters assign one of three grades: major issues, minor issues, or no issues, and are quantized to scores afterwards. To mitigate bias, entity information is masked, and the sample order is randomized. Each sample is independently rated by three raters, and the final scores are obtained by averaging across raters to reduce variability.",
+        "bbox": [
+            169,
+            357,
+            828,
+            513
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "4.2 UNDERSTANDING-GENERATION INTERPLAY",
+        "text_level": 2,
+        "bbox": [
+            171,
+            534,
+            522,
+            549
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "In this section, we study the task conflict along two axes: (i) tokenizer strategy (pure-discrete vs. dual-encoder vs. our hybrid); (ii) task mixing (unified vs. single-task). For simplicity, we skip the continued pre-training stage in the unified LLM training for these ablations.",
+        "bbox": [
+            169,
+            563,
+            826,
+            606
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Tokenizer Strategy. We construct two baselines to compare our unified hybrid tokenizer strategy: (i) Pure-discrete. Prior works (Chameleon, 2024; Wang et al., 2024; Wu et al., 2024) train a quantized semantic vision tokenizer using various quantization techniques (Mentzer et al., 2023; Van Den Oord et al., 2017) and then use an LLM to predict the next text and image tokens. To mimic these methods in our setting, we replace the understanding inputs for LLM with discrete features from our hybrid tokenizer, so the LLM uses the same discrete tokens for both understanding and generation. To isolate the effect of quantization on understanding, we use the same weights for the vision encoder and the discrete adapter from our hybrid tokenizer. (ii) Dual-encoder. Other popular models (Chen et al., 2025d; Deng et al., 2025) use a dual-encoder strategy to preserve detailed features by a semantic encoder for understanding and a VAE-style encoder for generation, effectively mitigating the degradation of understanding. We reproduce this baseline by replacing the discrete tokens from our hybrid tokenizer with those generated by an internal reproduction of MagViT-2 (Yu et al., 2023) an autoencoder-style tokenizer. This MagViT-2 tokenizer uses FSQ (Mentzer et al., 2023) with a 64K codebook and a spatial compression ratio of 8. For generation tasks, we resize images to 128x128 pixels instead of the original 256x256. This reduced the number of tokens per image to 256, which we found improved the model’s instruction-following capabilities on benchmarks.",
+        "bbox": [
+            169,
+            611,
+            826,
+            835
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Table 1 shows the results on both image understanding and generation tasks. Our hybrid tokenizer paradigm shows the least task conflict and outperforms both pure-discrete and dual-encoder baselines on all tasks. Specifically, the pure-discrete baseline leads to a significant drop in understanding performance–especially on text-rich benchmarks, due to information loss from quantization. While the dual-encoder baseline mitigates some of this degradation, it still consistently underperforms our hybrid tokenizer on all understanding tasks–especially on knowledge benchmarks, which rely heavily on the LLM’s reasoning abilities. This suggests that the conflict between heterogeneous visual tokens resides within the LLM.",
+        "bbox": [
+            169,
+            839,
+            826,
+            926
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "page_number",
+        "text": "6",
+        "bbox": [
+            493,
+            946,
+            504,
+            960
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "chart",
+        "img_path": "images/f1c371724d1cb6d55a2f171c300a0aa8432639eccd727906b88d930c9dcc4850.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            173,
+            99,
+            330,
+            215
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "chart",
+        "img_path": "images/671314a12adda6d3677536101dfca64582c3cb2b040f09d7ec7e0fed150d46b7.jpg",
+        "content": "",
+        "chart_caption": [
+            "(a) 300M Model"
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            333,
+            99,
+            490,
+            215
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "chart",
+        "img_path": "images/6eb194c369cec8fc35cea0ce509a278c3e434c4bc1eca4f8a7f97ece8f7f27d0.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            508,
+            99,
+            666,
+            214
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "chart",
+        "img_path": "images/543656a9e429b5228607b131d087ce73d3a6e9f41e199a214732d87d0e3348b3.jpg",
+        "content": "",
+        "chart_caption": [
+            "(b) 3B Model",
+            "Figure 3: Unified vs. Single-task study. Our unified model exhibits a slight regression compared with the understanding-only model on understanding tasks; however, this effect becomes negligible at the 3B scale, where the gap is less than 1.0. For generation, the unified model shows a decline on only one benchmark compared with the generation-only model."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            669,
+            99,
+            823,
+            214
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            316,
+            825,
+            345
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Unified vs. Single-task. To quantify the task conflict in our hybrid tokenizer paradigm, we compare our unified model with baselines trained exclusively for understanding or generation. For the understanding-only baseline, we remove all text-to-image data from both the pre-training and SFT stages. We reduce the training steps to ensure it is exposed to the same number of text and image understanding tokens as our unified model. Similarly, for the generation-only baseline, we remove the understanding data and keep only the text-only and text-to-image data, while also reducing the training steps. We conduct this ablation study with a 300M and a 3B LLM decoder. The results, plotted in Fig. 3a and 3b, show that the unified LLM trained with our hybrid tokenizer performs on par with the dedicated, single-task models on nearly all tasks, even at a compact size like 300M. This demonstrates that our unified hybrid tokenizer paradigm successfully unifies visual perception and generation without a performance trade-off.",
+        "bbox": [
+            169,
+            351,
+            826,
+            507
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "4.3 MODEL SCALING BEHAVIOR",
+        "text_level": 2,
+        "bbox": [
+            171,
+            529,
+            416,
+            544
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Facilitated by the decoupled design of LLM Decoder and Image Decoder, we explore the model scaling behavior along two dimensions: LLM Decoder and Image Decoder. Similar to Sec. 4.2, we skip the continued pre-train stage in the unified LLM training for the scaling experiments.",
+        "bbox": [
+            169,
+            555,
+            826,
+            599
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Scaling LLM Decoder. We vary only the LLM Decoder size (300M, 1B, 3B, and 30B) while keeping the image decoder (0.9B), data mixtures, and training hyperparameters fixed<sup>1</sup>. Fig. 4a shows monotonic gains across all understanding (General / Knowledge / Text-Rich) and generation (GenEval / DPG / WISE) metrics as the LLM decoder scales. Compared to 300M, our 3B Manzano model improves significantly by +14.2 (General), +18.8 (Knowledge), +10.9 (Text-rich), +11.0 (GenEval), +1.48 (DPG), +12.0 (WISE). Further scaling to 30B yields smaller but consistent gains over 3B. Fig. 7 shows the qualitative examples for image generation. We can see that the generation capabilities, including instruction-following, text-rendering, and overall image quality, are improved consistently across different LLM scales. The results support the simple yet effective design for Manzano: LLM decoder captures high-level semantics, and scaling it benefits both understanding and generation.",
+        "bbox": [
+            169,
+            613,
+            828,
+            756
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Scaling Image Decoder. We evaluate the performance of image decoders of varying sizes built on top of a 3B LLM decoder. Figure 4b shows that, in human evaluations, structural integrity improves substantially (+9.9), while instruction following performance remains unchanged. A slight decrease is observed in aesthetic quality. For automatic generation benchmarks, performance on GenEval and DPGEval remains nearly identical, whereas WISE exhibits a modest improvement (+2.0).",
+        "bbox": [
+            169,
+            768,
+            826,
+            842
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Takeaways. Scaling the unified LLM backbone consistently improves both understanding and generation, with substantial gains on text-rich understanding tasks and on WISE for generation. Scaling the image decoder also enhances image quality, without negatively affecting understanding.",
+        "bbox": [
+            169,
+            856,
+            828,
+            901
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "page_footnote",
+        "text": "<sup>1</sup>We pre-train 30B LLM Decoder on roughly half the tokens compared to other model sizes.",
+        "bbox": [
+            191,
+            909,
+            736,
+            924
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "page_number",
+        "text": "7",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "chart",
+        "img_path": "images/6d391ab3d8fe75eb4874b9926600dab101176312051bdb0bdebb09326d1d8560.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            174,
+            98,
+            333,
+            207
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "chart",
+        "img_path": "images/2fa832e03b322be5fe35c70d35eea5d9ab4f639cc2d6967d19fcdf3f6fa8640d.jpg",
+        "content": "",
+        "chart_caption": [
+            "(a) LLM Decoder Scaling"
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            334,
+            99,
+            493,
+            207
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "chart",
+        "img_path": "images/9ae7ea289f6330ae3c9c5b00bc8efed5c195f421ae1fe80f335458338bb35690.jpg",
+        "content": "",
+        "chart_caption": [
+            "(b) Image Decoder Scaling"
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            506,
+            99,
+            666,
+            214
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "chart",
+        "img_path": "images/45480fe21f9fa89f40572fa7c8f980c9eef847719d8cab61484190eabe4ad8f3.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            668,
+            99,
+            825,
+            210
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "table",
+        "img_path": "images/54692389790fc881844ba93dbc850ad9a9883608434f81d8a896f2e2aed69a33.jpg",
+        "table_caption": [
+            "Figure 4: Model scaling behavior of Manzano. (a) Scaling the LLM decoder yields monotonic improvements across both understanding and generation benchmarks. (b) Scaling the image decoder enhances structural integrity while maintaining stable quantitative benchmarks. A drop in aesthetic quality is observed, which we leave for more in-depth study in future work.",
+            "Table 2: Comparison on general, knowledge, and text-rich benchmarks. GPT-4o, Gemini-1.5-Pro, and Gemini-2.5-Pro numbers are from OpenVLM Leaderboard. represents that the results were reproduced independently in our experiments and might differ from those reported in previous studies. Manzano demonstrate competitive understanding capabilities, especially on text-rich benchmarks."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td rowspan=\"2\" colspan=\"2\">Model</td><td colspan=\"3\">General Benchmarks</td><td colspan=\"4\">Knowledge Benchmarks</td><td colspan=\"5\">Text-rich Benchmarks</td></tr><tr><td> $SEED^1$ </td><td>RealWorldQA</td><td>MMBench (dev-en)</td><td>AI2D (test)</td><td>SQA (test)</td><td>MMMU (val)</td><td>MathV (testmini)</td><td>ChartQA (test)</td><td>TextVQA (val)</td><td>DocVQA (test)</td><td>InfoVQA (test)</td><td>OCRBench (test)</td></tr><tr><td colspan=\"14\">3B Specialist Model</td></tr><tr><td>BLIP-3-4B</td><td>Xue et al., 2024</td><td>72.2</td><td>60.5</td><td>-</td><td>-</td><td>88.3</td><td>41.1</td><td>39.6</td><td>-</td><td>71.0</td><td>-</td><td>-</td><td>-</td></tr><tr><td>Phi-3-Vision-4B</td><td>Abdin et al., 2024</td><td>71.8</td><td>59.4</td><td>78.6</td><td>76.7</td><td>90.8</td><td>40.4</td><td>44.5</td><td>81.4</td><td>70.1</td><td>83.3</td><td>49.0</td><td>63.7</td></tr><tr><td>MM1.5-3B</td><td>Zhang et al., 2024a</td><td>72.4</td><td>56.9</td><td>72.4</td><td>65.7</td><td>85.8</td><td>37.1</td><td>44.4</td><td>74.2</td><td>76.5</td><td>87.7</td><td>58.5</td><td>65.7</td></tr><tr><td>InternVL2.5-2B</td><td>Chen et al., 2024b</td><td>-</td><td>60.1</td><td>77.2</td><td>74.9</td><td>-</td><td>43.6</td><td>51.3</td><td>79.2</td><td>74.3</td><td>88.7</td><td>60.9</td><td>80.4</td></tr><tr><td>InternVL2.5-4B</td><td>Chen et al., 2024b</td><td>-</td><td>64.3</td><td>78.7</td><td>81.4</td><td>-</td><td>52.3</td><td>60.5</td><td>84.0</td><td>76.8</td><td>91.6</td><td>72.1</td><td>82.8</td></tr><tr><td>InternVL3.5-4B</td><td>Wang et al., 2025b</td><td>-</td><td>66.3</td><td>-</td><td>82.6</td><td>-</td><td>66.6</td><td>77.1</td><td>86.0</td><td>77.9</td><td>92.4</td><td>78.0</td><td>82.2</td></tr><tr><td>Qwen2.5VL-3B</td><td>Bai et al., 2025</td><td>-</td><td>65.4</td><td>76.4</td><td>81.6</td><td>-</td><td>53.1</td><td>62.3</td><td>84.0</td><td>79.3</td><td>93.9</td><td>77.1</td><td>79.7</td></tr><tr><td colspan=\"14\">30B Specialist Model</td></tr><tr><td>LLaVA-NeXT-34B</td><td>Liu et al., 2024a</td><td>75.9</td><td>-</td><td>-</td><td>-</td><td>81.8</td><td>51.1</td><td>46.5</td><td>-</td><td>69.5</td><td>-</td><td>-</td><td>-</td></tr><tr><td>Cambrian-34B</td><td>Tong et al., 2024a</td><td>75.3</td><td>67.8</td><td>-</td><td>79.7</td><td>85.6</td><td>49.7</td><td>53.2</td><td>75.6</td><td>76.7</td><td>75.5</td><td>-</td><td>60.0</td></tr><tr><td>MM1.5-30B</td><td>Zhang et al., 2024a</td><td>75.0</td><td>69.0</td><td>-</td><td>77.2</td><td>91.9</td><td>47.4</td><td>55.6</td><td>83.6</td><td>79.2</td><td>91.4</td><td>67.3</td><td>65.8</td></tr><tr><td>InternVL2.5-26B</td><td>Chen et al., 2024b</td><td>-</td><td>74.5</td><td>-</td><td>86.4</td><td>-</td><td>51.8</td><td>67.7</td><td>87.2</td><td>82.4</td><td>94.0</td><td>79.8</td><td>85.2</td></tr><tr><td colspan=\"14\">Unified Model</td></tr><tr><td>Blip-3o-4B</td><td>Chen et al., 2025b</td><td>73.8</td><td>60.4</td><td>78.6</td><td>-</td><td>-</td><td>46.6</td><td>-</td><td>-</td><td>78.0</td><td>-</td><td>-</td><td>-</td></tr><tr><td>Emu3-8B</td><td>Wang et al., 2024</td><td>68.2</td><td>57.4</td><td>58.5</td><td>70.0</td><td>-</td><td>31.6</td><td>47.6</td><td>-</td><td>64.7</td><td>76.3</td><td>-</td><td>68.7</td></tr><tr><td>Janus-Pro-7B</td><td>Chen et al., 2025d</td><td>72.1</td><td>-</td><td>79.2</td><td> $68.1^\\dagger$ </td><td>-</td><td>41.0</td><td>42.5</td><td> $25.8^\\dagger$ </td><td> $45.6^\\dagger$ </td><td> $40.8^\\dagger$ </td><td> $21.3^\\dagger$ </td><td> $59.0^\\dagger$ </td></tr><tr><td>X-Omni-7B</td><td>Geng et al., 2025</td><td>74.1</td><td> $62.6^\\dagger$ </td><td>74.8</td><td> $76.8^\\dagger$ </td><td>-</td><td> $47.2^\\dagger$ </td><td> $54.1^\\dagger$ </td><td> $81.5^\\dagger$ </td><td> $77.4^\\dagger$ </td><td>88.6</td><td> $46.9^\\dagger$ </td><td> $70.4^\\dagger$ </td></tr><tr><td>Bagel-14B</td><td>Deng et al., 2025</td><td> $78.5^\\dagger$ </td><td> $72.8^\\dagger$ </td><td> $85.0^\\dagger$ </td><td> $89.2^\\dagger$ </td><td>-</td><td>55.3</td><td>73.1</td><td> $78.5^\\dagger$ </td><td> $80.0^\\dagger$ </td><td> $88.1^\\dagger$ </td><td> $51.0^\\dagger$ </td><td> $73.3^\\dagger$ </td></tr><tr><td>Manzano-3B</td><td></td><td>74.3</td><td>65.1</td><td>78.1</td><td>82.2</td><td>92.9</td><td>51.4</td><td>69.8</td><td>88.2</td><td>80.1</td><td>93.5</td><td>75.0</td><td>85.7</td></tr><tr><td>Manzano-30B</td><td></td><td>76.0</td><td>70.1</td><td>83.4</td><td>86.0</td><td>96.2</td><td>57.8</td><td>73.3</td><td>89.0</td><td>84.4</td><td>94.3</td><td>81.9</td><td>86.3</td></tr><tr><td>GPT-4o</td><td>Islam &amp; Moushi, 2024</td><td>77.1</td><td>75.4</td><td>-</td><td>84.6</td><td>90.7</td><td>69.2</td><td>61.3</td><td>85.7</td><td>-</td><td>92.8</td><td>-</td><td>73.6</td></tr><tr><td>Gemini-2.5-Pro</td><td>Comanci et al., 2025</td><td>-</td><td>78</td><td>86.3</td><td>89.5</td><td>88.4</td><td>81.7</td><td>82.7</td><td>83.3</td><td>76.8</td><td>94.0</td><td>84.3</td><td>86.2</td></tr></table>",
+        "bbox": [
+            173,
+            315,
+            821,
+            537
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "We observed that performance on the GenEval and DPG benchmarks becomes saturated when the model becomes larger. This saturation motivates a re-examination of how emergent capabilities of unified models could be assessed, as existing benchmarks may capture only a limited portion of overall capability and can be boosted through targeted data tuning (Liu et al., 2025). Meanwhile, we observe substantial improvements on world-knowledge generation tasks, and we hope these findings pave the way for new directions in future community research.",
+        "bbox": [
+            169,
+            621,
+            826,
+            707
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "4.4 COMPARISONS WITH UNIFIED AND SPECIALIST MODELS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            729,
+            607,
+            744
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "To comprehensively assess our Manzano model’s capabilities, we compare its performance against SOTA unified and specialist models (i.e., understanding-only and standalone generation models).",
+        "bbox": [
+            169,
+            756,
+            825,
+            786
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "4.4.1 IMAGE UNDERSTANDING",
+        "text_level": 2,
+        "bbox": [
+            171,
+            801,
+            405,
+            816
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "As mentioned in Sec. 4.1, we evaluate our model’s understanding capabilities from three perspectives: Knowledge & Reasoning, General Visual Question Answering, and Text-rich Document & Chart Understanding. The results, shown in Table 2, compare our model against other understandingonly models of a similar size. Despite being a unified model, our model achieves state-of-the-art performance on many understanding benchmarks: (i) Knowledge & Reasoning: At the 3B scale, our model outperforms all unified models within the 7B scale and achieves performance on par with or better than the best specialist models at the 3B size. At the 30B scale, our model ranks first on the ScienceQA, MMMU, and MathVista benchmarks and third on the AI2D benchmark, outperforming all other unified and specialist models in these categories. Notably, our model surpasses the proprietary models listed in the final three rows on ScienceQA and is competitive with the current state-of-the-art model on the AI2D benchmark. (ii) General Visual Question Answering: For general visual question answering, our model generally outperforms other unified models, despite its smaller size. It also achieves competitive results with state-of-the-art specialist models at both scales. (iii) Text-rich Document and Chart Understanding: On text-rich and chart understanding tasks, our model achieves the best performance on four out of five benchmarks (ChartQA, TextVQA, DocVQA, and OCRBench) when compared to all other unified, specialist, and proprietary models. For the InfoVQA task, our model significantly outperforms its unified counterparts and achieves the best results among specialist models.",
+        "bbox": [
+            169,
+            825,
+            828,
+            925
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "page_number",
+        "text": "8",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "table",
+        "img_path": "images/c7c3a29f9324e78405f24720677cc486397a4c262588981c14e4370f7282b57e.jpg",
+        "table_caption": [
+            "Table 3: Comparison on GenEval and WISE benchmarks. represents the evaluation that involves LLM rewriting. Manzano achieves competitive performance compared with other unified models."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td rowspan=\"2\">Model</td><td colspan=\"7\">GenEval Benchmark</td><td colspan=\"7\">WISE Benchmark</td></tr><tr><td>Single</td><td>Two</td><td>Counting</td><td>Colors</td><td>Position</td><td>Color Attr.</td><td>Overall</td><td>Cultural</td><td>Time</td><td>Space</td><td>Biology</td><td>Physics</td><td>Chemistry</td><td>Overall</td></tr><tr><td colspan=\"15\">Dedicated T2I Model</td></tr><tr><td>SDXL-3.5B (Podell et al., 2023)</td><td>0.98</td><td>0.74</td><td>0.39</td><td>0.85</td><td>0.15</td><td>0.23</td><td>0.55</td><td>0.43</td><td>0.48</td><td>0.47</td><td>0.44</td><td>0.45</td><td>0.27</td><td>0.43</td></tr><tr><td>DALL-E 3 (OpenAI, 2024)</td><td>0.96</td><td>0.87</td><td>0.47</td><td>0.83</td><td>0.43</td><td>0.45</td><td>0.67</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr><tr><td>SD3-Medium-2B (Esser et al., 2024)</td><td>0.99</td><td>0.94</td><td>0.72</td><td>0.89</td><td>0.33</td><td>0.60</td><td>0.74</td><td>0.43</td><td>0.50</td><td>0.52</td><td>0.41</td><td>0.53</td><td>0.33</td><td>0.45</td></tr><tr><td>PixArt-Alpha-0.6B (Chen et al., 2023)</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>0.45</td><td>0.50</td><td>0.48</td><td>0.49</td><td>0.56</td><td>0.34</td><td>0.47</td></tr><tr><td>FLUX.1-dev-12B (Labs, 2024)</td><td>0.98</td><td>0.93</td><td>0.75</td><td>0.93</td><td>0.68</td><td>0.65</td><td>0.82</td><td>0.48</td><td>0.58</td><td>0.62</td><td>0.42</td><td>0.51</td><td>0.35</td><td>0.50</td></tr><tr><td colspan=\"15\">LLM &amp; Diffusion Conjunction</td></tr><tr><td>MetaQuery-XL-7B (Pan et al., 2025)</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td> $0.80^†$ </td><td>0.56</td><td>0.55</td><td>0.62</td><td>0.49</td><td>0.63</td><td>0.41</td><td>0.55</td></tr><tr><td>OmniGen2-7B (Wu et al., 2025c)</td><td>1.00</td><td>0.95</td><td>0.64</td><td>0.88</td><td>0.55</td><td>0.76</td><td>0.80</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr><tr><td>Qwen-Image-27B (Wu et al., 2025a)</td><td>0.99</td><td>0.92</td><td>0.89</td><td>0.88</td><td>0.76</td><td>0.77</td><td>0.87</td><td>0.67</td><td>0.67</td><td>0.80</td><td>0.62</td><td>0.79</td><td>0.41</td><td>0.67</td></tr><tr><td colspan=\"15\">Unified Multimodal LLM</td></tr><tr><td>Janus-Pro-7B (Chen et al., 2025d)</td><td>0.99</td><td>0.89</td><td>0.59</td><td>0.90</td><td>0.79</td><td>0.66</td><td> $0.80^†$ </td><td>0.30</td><td>0.37</td><td>0.49</td><td>0.36</td><td>0.42</td><td>0.26</td><td>0.35</td></tr><tr><td>Bagel-14B-A7B (Deng et al., 2025)</td><td>0.99</td><td>0.94</td><td>0.81</td><td>0.88</td><td>0.64</td><td>0.63</td><td>0.82</td><td>0.44</td><td>0.55</td><td>0.68</td><td>0.44</td><td>0.60</td><td>0.39</td><td>0.52</td></tr><tr><td>X-Omni-7B (Geng et al., 2025)</td><td>0.98</td><td>0.95</td><td>0.75</td><td>0.91</td><td>0.71</td><td>0.68</td><td> $0.83^†$ </td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr><tr><td>Manzano-3B</td><td>0.98</td><td>0.91</td><td>0.82</td><td>0.71</td><td>0.78</td><td>0.71</td><td>0.85</td><td>0.42</td><td>0.51</td><td>0.59</td><td>0.45</td><td>0.51</td><td>0.32</td><td>0.46</td></tr><tr><td>Manzano-30B</td><td>1.00</td><td>0.91</td><td>0.83</td><td>0.87</td><td>0.84</td><td>0.65</td><td>0.85</td><td>0.58</td><td>0.50</td><td>0.65</td><td>0.50</td><td>0.55</td><td>0.32</td><td>0.54</td></tr><tr><td>GPT-4o (Islam &amp; Moushi, 2024)</td><td>0.99</td><td>0.92</td><td>0.85</td><td>0.92</td><td>0.75</td><td>0.61</td><td>0.84</td><td>0.81</td><td>0.71</td><td>0.89</td><td>0.83</td><td>0.79</td><td>0.74</td><td>0.80</td></tr></table>",
+        "bbox": [
+            173,
+            101,
+            821,
+            273
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            342,
+            826,
+            498
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "4.4.2 IMAGE GENERATION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            529,
+            375,
+            544
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "We present the quantitative results for our model’s image generation capabilities, evaluating them on two benchmarks: GenEval (Ghosh et al., 2023) and WISE (Niu et al., 2025). While both benchmarks assess how well models follow text instructions, WISE additionally evaluates semantic grounding through world-knowledge-informed attributes. As shown in Table 3, our model achieves SOTA results among unified MLLMs on both GenEval and WISE. The 3B model can already perform competitively with or better than much larger unified models, and scaling to 30B further improves generation quality – most notably yielding a large gain on WISE, while maintaining strong GenEval performance. This confirms that our unified architecture and training recipe support strong instruction-following generation. Furthermore, we show the editing capabilities of our model in Sec. 5.",
+        "bbox": [
+            169,
+            560,
+            826,
+            688
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "4.4.3 COMPARISON WITH UNIFIED MODELS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            719,
+            495,
+            734
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "In addition to specialist models, we also compare against recent unified models such as Janus-Pro (Chen et al., 2025d), X-Omni (Geng et al., 2025), and Bagel (Deng et al., 2025), which aim to handle both understanding and generation within a single framework. Our Manzano model substantially outperforms these unified baselines across almost all understanding benchmarks. At a similar scale, our 3B model exceeds X-Omni and BAGEL on DocVQA, OCRBench, and SEEDBench while maintaining competitive performance on MathVista and ChartQA. Our 30B model further extends this lead, consistently surpassing all existing unified models across knowledge, general VQA, and text-rich domains. This demonstrates that unification does not have to come at the cost of understanding capability. With careful architectural and training design, our model matches or surpasses the best specialist models while providing strong generative capability. We provide more qualitative comparison to the state-of-the-art unified models in Fig. 8.",
+        "bbox": [
+            169,
+            750,
+            828,
+            906
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            173,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "page_number",
+        "text": "9",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "5 CAPABILITY EXTENSION TO IMAGE EDITING",
+        "text_level": 2,
+        "bbox": [
+            171,
+            102,
+            581,
+            119
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "Image editing represents both a crucial application and a natural extension of text-to-image generation. Despite Manzano demonstrating strong multimodal modeling capabilities, particularly on text-rich understanding benchmarks, achieving pixel-level precision in fine-grained image editing remains challenging. Similarly, recent work within the decoupled LLM–diffusion paradigm (Wu et al., 2025c) reports difficulties when relying solely on the LLM for precise editing, since the LLM lacks native mechanisms for direct pixel-level control.",
+        "bbox": [
+            169,
+            133,
+            826,
+            219
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "We adopt an approach similar to (Wu et al., 2025c) by providing the reference image simultaneously to both the LLM and the diffusion decoder. In this formulation, the LLM is responsible for diverse instruction following and maintaining semantic coherence, while the diffusion decoder enforces precise pixel-level control. By jointly conditioning on the reference image, Manzano enables accurate semantic instruction following while preserving fine-grained visual consistency. In Fig. 5, Manzano demonstrates versatile editing capabilities, including instruction-guided editing, style transfer, inpainting, outpainting, and depth estimation.",
+        "bbox": [
+            169,
+            224,
+            826,
+            324
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "image",
+        "img_path": "images/cd2b1963537c054f5d9c496625aaaa4eee589eef27abae8817ba108f8aac1771.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            197,
+            364,
+            290,
+            436
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "image",
+        "img_path": "images/a187958a80f71dcc644ed04077ebad5b36c042ab558135538641b13b73539954.jpg",
+        "image_caption": [],
+        "image_footnote": [
+            "Change the word \"crazy\" to \"wow\"."
+        ],
+        "content": "",
+        "bbox": [
+            294,
+            364,
+            385,
+            436
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "image",
+        "img_path": "images/6bc2bf58f94833d74f79d2a33b900e3ef7186d04f118164368374bb99677d682.jpg",
+        "image_caption": [
+            "a) Instruction-guided Editing"
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            403,
+            364,
+            498,
+            436
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "image",
+        "img_path": "images/ccfefa094be68b1db13063f21fa18a315430f605d28d21421721f1ba57dfeba0.jpg",
+        "image_caption": [],
+        "image_footnote": [
+            "Add a pink ball in front of the kitten."
+        ],
+        "content": "",
+        "bbox": [
+            500,
+            364,
+            594,
+            436
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "image",
+        "img_path": "images/e880e02af7cd9d1aff65677b6bef667b483adad77d92d647909b28e6604a8b1c.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            611,
+            364,
+            704,
+            436
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "image",
+        "img_path": "images/d427db06acb091bf5343df91fb9f36093500bf9c96fe194b677906a83a760e97.jpg",
+        "image_caption": [],
+        "image_footnote": [
+            "Turn the blanket to light purple."
+        ],
+        "content": "",
+        "bbox": [
+            707,
+            364,
+            800,
+            436
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "image",
+        "img_path": "images/c0187eadd38ac4cc12583afad1f68c802e19c11c7f30ec80973ff5a48b382c02.jpg",
+        "image_caption": [],
+        "image_footnote": [
+            "Ink dripping drawing"
+        ],
+        "content": "",
+        "bbox": [
+            197,
+            484,
+            290,
+            555
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "image",
+        "img_path": "images/9a6d317bc8ec4a66aaf4eeb49e487b737702f8fda00270164e57bfae1c9d579d.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            292,
+            484,
+            387,
+            556
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "image",
+        "img_path": "images/749cd246180647bfacd5cb65e7cde662b6de81dd34b9ea6d48339f9d28d2f2f0.jpg",
+        "image_caption": [
+            "b) Style Transfer"
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            403,
+            484,
+            500,
+            556
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "image",
+        "img_path": "images/41cc3bc5c7a9500cacaa6c4282dec68391eaa024d06ce3af80b76502167f676a.jpg",
+        "image_caption": [],
+        "image_footnote": [
+            "Mics-stained glass"
+        ],
+        "content": "",
+        "bbox": [
+            500,
+            483,
+            594,
+            556
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "image",
+        "img_path": "images/f342caf1207c556f2dcd055acaf638fdf942928fc1c7d5e26c553d5fe7114468.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            612,
+            484,
+            707,
+            558
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "image",
+        "img_path": "images/3e6707be43a863957f23e2e2a0957fc0c91186dc975beda72a9f29cb37b1fe6d.jpg",
+        "image_caption": [],
+        "image_footnote": [
+            "Game retro"
+        ],
+        "content": "",
+        "bbox": [
+            707,
+            484,
+            800,
+            556
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "image",
+        "img_path": "images/891ef4edb7e7750b569c18ad2430d14bda7210b46bdc518280662a54cb7c650a.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            194,
+            603,
+            287,
+            676
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "image",
+        "img_path": "images/0b3bfc1ea84582f4cc667faad5439595a9ca16407243fca3685aee6edb0eb6ba.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            290,
+            604,
+            385,
+            676
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "image",
+        "img_path": "images/3cdd83894efbfe284b0aa0c7d00ba899b7b132c455f9f15fa192e7d36d5b4817.jpg",
+        "image_caption": [
+            "c) Inpainting/Outpainting/Depth Estimation"
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            405,
+            604,
+            500,
+            676
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "image",
+        "img_path": "images/20016671083845c7d97f1bc169f6b882d4fe21105ac36e209c705073194240ce.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            501,
+            604,
+            594,
+            676
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "image",
+        "img_path": "images/123e6bffdca7756a28361db96b5f9584d987dd829418b451f0cc069816eaae7c.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            612,
+            602,
+            707,
+            676
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "image",
+        "img_path": "images/2a4c99ed1c17baa31249fdfe8feb0bc5f9d17507bd23c200ae81af69875e0b33.jpg",
+        "image_caption": [
+            "Figure 5: Editing capabilities of Manzano. (a) instruction-guided editing, (b) style transfer across diverse visual domains, and (c) extended editing tasks including inpainting, outpainting, and depthestimation. Manzano achieves pixel-level controls across these five editing tasks."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            710,
+            602,
+            803,
+            676
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "6 CONCLUSION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            767,
+            321,
+            782
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "We introduced Manzano, an MLLM that combines visual understanding and image generation through a hybrid image tokenizer and a unified autoregressive backbone. The LLM predicts highlevel semantics in the form of text and image tokens, while a lightweight diffusion-based image decoder renders final pixels from the generated image tokens. Coupled with a streamlined three-stage training recipe, this architecture delivers: (i) state-of-the-art on understanding tasks, (ii) substantial gains on generation among unified models, and (iii) minimal task interference as validated by interplay and scaling ablations. Beyond generation, Manzano naturally supports image editing by conditioning both the LLM and image decoder on a reference image, enabling instruction-following with pixel-level control.",
+        "bbox": [
+            169,
+            799,
+            826,
+            925
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "page_number",
+        "text": "10",
+        "bbox": [
+            488,
+            946,
+            509,
+            960
+        ],
+        "page_idx": 9
+    }
+]

@@ -1,0 +1,2315 @@
+[
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "ABSTRACT"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                450,
+                292,
+                547,
+                309
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "There is a growing interest in Universal Multimodal Embeddings (UME), where models are required to generate task-specific representations. While recent studies show that Multimodal Large Language Models (MLLMs) perform well on such tasks, they treat MLLMs solely as encoders, overlooking their generative capacity. However, such an encoding paradigm becomes less effective as instructions become more complex and require compositional reasoning. Inspired by the proven effectiveness of chain-of-thought reasoning, we propose a general Think-Then-Embed (TTE) framework for UME, composed of a reasoner and an embedder. The reasoner MLLM first generates reasoning traces that explain complex queries, followed by an embedder that produces representations conditioned on both the original query and the intermediate reasoning. This explicit reasoning step enables more nuanced understanding of complex multimodal instructions. Our contributions are threefold. First, by leveraging a powerful MLLM reasoner, we achieve state-of-the-art performance on the MMEB-V2 benchmark, surpassing proprietary models trained on massive in-house datasets. Second, to reduce the dependency on large MLLM reasoners, we finetune a smaller MLLM reasoner using high-quality embedding-centric reasoning traces, achieving the best performance among open-source models with a 7% absolute gain over recently proposed models. Third, we investigate strategies for integrating the reasoner and embedder into a unified model for improved efficiency without sacrificing performance."
+                    }
+                ]
+            },
+            "bbox": [
+                230,
+                323,
+                767,
+                604
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "1 INTRODUCTION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                174,
+                628,
+                338,
+                643
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Multimodal embedding-based retrieval has emerged as a popular and effective solution for handling diverse data types such as text, images, and videos (Radford et al., 2021; Li et al., 2023a; Yu et al., 2022; Li et al., 2023b). Traditionally, these models focus on learning general-purpose representations that capture content similarity across modalities. Recently, there has been growing interest in instruction-aware Universal Multimodal Embeddings (UME) (Jiang et al., 2024; Gu et al., 2025). UMEs are powerful representations because they bridge the gap between generalpurpose content similarity and user-specific requirements. This capability unlocks a wide range of applications, such as retrieving documents or images based on nuanced queries, powering personalized recommendation systems, supporting multimodal search with complex transformations, and tackling knowledge-intensive tasks where the same input may yield different embeddings depending on the downstream objective. To advance this direction, recent benchmarks like MMEB (Meng et al., 2025) aggregate diverse, instruction-driven retrieval tasks—including VQA, grounding, and document retrieval—where both the input and the user instruction determine the retrieval target."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                659,
+                826,
+                840
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this context, leveraging multimodal large language models (MLLMs) as encoders for UME is a promising new approach (Jiang et al., 2024; Gu et al., 2025; Lan et al., 2025). MLLMs can generate instruction-aware representations that incorporate long context and nuanced user guidance (Peng et al., 2024). However, while state-of-the-art models on these benchmarks have advanced through techniques such as hard negative sampling (Lee et al., 2025; Thirukovalluru et al., 2025; Lan et al., 2025; Lin et al., 2025), additional training stages (Gu et al., 2025; Yu et al., 2025; Lin et al., 2025), external data (Yu et al., 2025; Chen et al., 2025b), and improved embedding extraction (Faysse et al., 2024), a central challenge remains: understanding instructions of varying complexity that require different levels of reasoning. Addressing this challenge calls for leveraging the generative capacity of MLLMs, rather than restricting them to encoder-only models."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                845,
+                826,
+                890
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "<sup>∗</sup>Equal contribution."
+                    }
+                ]
+            },
+            "bbox": [
+                192,
+                896,
+                318,
+                909
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "<sup>†</sup>Work done during the internship at Meta. Email: xuanming.cui@ucf.edu"
+                    }
+                ]
+            },
+            "bbox": [
+                191,
+                909,
+                632,
+                924
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "1"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                503,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                826,
+                203
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Our approach is motivated by a closer examination of the tasks in MMEB-v2 (Meng et al., 2025), revealing that many, such as VQA, classification, visual grounding, and composed retrieval, require substantial reasoning capabil ities. For example, the first case in Fig. 1 (from the MMEB-v2 RefCOCO dataset) involves retrieving the image region referred to by the query “vehicle second closest to camera”. Rather than simply encoding the query and matching it to the target image, we argue that it is beneficial for the model to first reason about the query—identifying, for instance, that it refers to the vehicle with “bright yellow on the upper halfand deep blue on the lower”. For such complex tasks, we believe that explic-"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                209,
+                486,
+                430
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/5dcd547568acaf627f5b255a152dd8a240e15621daa6e8d9c550ffe9dc80102d.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 1: Given a multi-modal input, we want to first think about the desired embedding content. Then, the representation is obtained by conditioning on both original input and the thinking result."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                501,
+                223,
+                821,
+                354
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "itly augmenting multi-step reasoning and contextual grounding enables the model to achieve more fine-grained and accurate retrieval."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                430,
+                825,
+                459
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To address these challenges, we propose a Think-Then-Embed (TTE) framework for the UME task. Our key idea is to introduce an explicit thinking stage before embedding, in which the model generates reasoning traces based on the given instruction. Prior work has shown that intermediate reasoning processes, such as Chain-of-Thought (CoT) (Wei et al., 2023b), can significantly improve the accuracy of language model generation. We hypothesize that a similar benefit can be achieved for multimodal representation learning, since the embeddings produced by MLLMs are inherently conditioned on the sequence of preceding tokens. In this work, we investigate how explicit chain-ofthought reasoning can enhance universal multimodal embeddings, by enabling the model to better interpret, follow complex task instructions, and to reduce retrieval asymmetry."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                464,
+                826,
+                592
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this paper, we made several contributions. First, we proposed a Think-Then-Embed (TTE) framework that by exploiting reasoning traces generated by a powerful reasoner (e.g. Qwen2.5 VL 72B), it can achieve state-of-the-art performance on MMEB V2 (Meng et al., 2025) with a smaller embedder (Qwen2 7B), surpassing close-sourced models trained with additional data. This provides an effective way for retrieval test-time-scaling, by flexibly incorporating strong external reasoner."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                597,
+                825,
+                669
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Second, we study how a backbone model can be effectively used both as a reasoner and as an embedder. We experimented with two approaches. First, we use the backbone as a zero-shot reasoner while fine-tuning a copy of the same backbone as the embedder. This method yields noticeable improvements on smaller datasets, but the gains diminish as the dataset size increases. Motivated by this limitation, our second approach involves fine-tuning a second copy of the backbone (same size as the embedder, either 2B or 7B) as a strong reasoner, using reasoning traces generated by the 72B reasoner model as the training data. The resulting SFT-ed reasoner performs effectively across the entire MMEB v2 benchmark, achieving the best performance among all open source models."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                674,
+                826,
+                787
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Finally, to improve efficiency of both inference and number of parameters in the TTE framework, we explore unifying reasoning and embedding creation within a single unified model. Although prior work (Yu et al., 2025) also investigated the unification of generation and contrastive learning, it treats generation and embedding as separate, unrelated tasks. In contrast, our focus is on enhancing embedding through reasoning, that is, generate first, then embed. We explored two strategies: (1) joint contrastive-autoregressive training of the same backbone for reasoning and embedding tasks, and (2) a two-stage autoregressive-then-contrastive training with a dedicated embedding head on top of the reasoner. Empirically, we find that the two-stage approach consistently outperforms joint training, almost halving the overall parameters, while not degrading end-to-end TTE retrieval performance."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                792,
+                826,
+                919
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "2"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2 RELATED WORK"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                102,
+                346,
+                118
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Multimodal Embeddings. The multimodal representation paradigm has been popularized by largescale foundational models such as CLIP (Radford et al., 2021), MetaCLIP (Xu et al., 2024), BLIP (Li et al., 2023a), and SigLIP (Zhai et al., 2023), which encode images and texts using separate unimodality encoders and enforce alignment using contrastive objectives."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                133,
+                825,
+                191
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Universal Multimodal Embedding. Recently there has been growing interest in developing Universal Multimodal Embedding (UME) (Gu et al., 2025; Jiang et al., 2024; Meng et al., 2025), where the embedding depends both on the query and task instruction. Representative examples include VLM2Vec (Jiang et al., 2024), which proposes the Massive Multimodal Embedding Benchmark (MMEB), comprising a wide range of cross / multimodal retrieval tasks, as well as non-conventional retrieval tasks such as VQA, grounding, and classification. Subsequently, MMEB-V2 (Meng et al., 2025) is proposed, extending MMEB-V1 to include video and visual document (visdoc) tasks."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                196,
+                826,
+                295
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "MLLM-based Embedding Models. Recent studies have gone beyond dual encoder setups, building embedding models directly on top of powerful Multimodal Language Models (MLLMs) (Jiang et al., 2024; Meng et al., 2025; Gu et al., 2025; Yu et al., 2025; Thirukovalluru et al., 2025). Existing work on MLLM-based embedding typically explores a training strategy such as text-continual contrastive training (Gu et al., 2025; Yu et al., 2025; Chen et al., 2025a), hard negative mining approach (Lee et al., 2025; Lan et al., 2025; Thirukovalluru et al., 2025), additional training data (Zhou et al., 2024; Chen et al., 2025b), and architectural design (e.g. with / without causal mask) (Lee et al., 2025; Chen et al., 2025a). However, these methods all treat MLLMs solely as encoders, while overlooking their generative capability obtained from pre-training. In contrast, we explore an orthogonal approach, where we leverage MLLMs for both generative reasoning and representation learning."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                300,
+                826,
+                441
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "LLM-based Query Rewriting. Frequently used in text-based retrievals, query rewriting (Ma et al., 2023) is an effective approach to improve retrieval accuracy. Popular trends include prompt-based rewriting (Wilson et al., 2025; Ye et al., 2023), iterative or Reinforcement Learning (RL)-guided (Cao et al., 2025; Zhu et al., 2025) query rewritings, and multi-reformulation approaches (Kostric & Balog, 2024; Dhole et al., 2024). However, these works all focus on text-based retrievals using external retrievers, where no learned embedding is involved."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                446,
+                826,
+                532
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Recently, Bai et al. (2025b) applied the idea of query rewriting to uni-modal encoder-based models (e.g. CLIP) for text-to-video retrieval, by enriching textual queries with additional context to bridge information asymmetry. In contrast, our work focuses on leveraging reasoning to improve the quality of general instruction-following multimodal embeddings, which can apply to both query and target."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                537,
+                825,
+                595
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3 PRELIMINARY: MLLM-BASED UNIVERSAL MULTIMODAL EMBEDDING"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                613,
+                800,
+                628
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We briefly introduce MLLM-based Universal Multimodal Embedding (UME). In UME, every query q and target t is a triplet of an optional visual input, a textual input, and a pre-defined task instruction, written as "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\langle \\mathcal { V } , \\mathcal { T } , [ \\mathrm { I n s } ] \\rangle"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Both query and target are passed into the same MLLM separately to obtain the corresponding embedding, defined by the equation below:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                637,
+                825,
+                695
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathbf {h} _ {q} = \\operatorname{Pooling} (f _ {\\theta} (\\mathcal {V} _ {q}, [ \\mathrm{Ins} _ {q} ], \\mathcal {T} _ {q})), \\quad \\mathbf {h} _ {t} = \\operatorname{Pooling} (f _ {\\theta} (\\mathcal {V} _ {t}, [ \\mathrm{Ins} _ {t} ], \\mathcal {T} _ {t})),",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/f6348bd85636ebde2205513b7f7e6e217a984ae8fb400bc620bcd084580a4cd6.jpg"
+                }
+            },
+            "bbox": [
+                243,
+                699,
+                751,
+                717
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "f _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denotes the MLLM embedder and Pooling refers to the pooling operation for aggregating MLLM’s hidden states into the final embedding. Following previous works (Jiang et al., 2024; Gu et al., 2025), we use the last token’s hidden state for final embedding. During training, we adopt the standard uni-directional "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "q  t"
+                    },
+                    {
+                        "type": "text",
+                        "content": "InfoNCE loss as follow:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                720,
+                825,
+                777
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {L} _ {\\text { InfoNCE }} = - \\frac {1}{N} \\sum_ {i = 1} ^ {N} \\log \\frac {\\phi (\\mathbf {h} _ {q} ^ {i} , \\mathbf {h} _ {t} ^ {i})}{\\sum_ {j = 1} ^ {N} \\phi (\\mathbf {h} _ {q} ^ {i} , \\mathbf {h} _ {t} ^ {j})}, \\quad \\phi (\\mathbf {h} _ {q}, \\mathbf {h} _ {t}) = \\exp (\\frac {1}{\\tau} \\cos (\\mathbf {h} _ {q}, \\mathbf {h} _ {t})),",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/6f2a15cea352afcd375ca848c6ebefeb31df0b59803654ec35d974123662d850.jpg"
+                }
+            },
+            "bbox": [
+                238,
+                784,
+                756,
+                824
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where cos denotes the cosine similarity function, and τ is the temperature hyper-parameter."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                830,
+                769,
+                845
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4 THINK-THEN-EMBED"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                864,
+                387,
+                880
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We propose our Think-then-Embed (TTE) framework for enhancing Universal Multimodal Embeddings (UME) by incorporating an explicit reasoning step prior to the encoding step. TTE consists of a reasoner, that generates an Embedding-Centric Reasoning (ECR) trace, and an embedder, that produces task-specific representations conditioned on both the original input and the reasoning trace generated by the reasoner. Fig. 2 compares the standard approach of directly encoding multimodal inputs for embedding (2a) with our proposed approach TTE (2b, 2c)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                895,
+                825,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "3"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/93d238d5abce5de7ccdb9757ecf2165bc0c4be64fea0d6c9c1cb077389b213a5.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "(a) Existing MLLM-based embedding approach. The MLLM embedder directly en code visual and textual queries, producing the embedding from the last token."
+                    },
+                    {
+                        "type": "text",
+                        "content": "(b) TTE with a separate MLLM reasoner. The MLLM embedder takes in both the orig inal inputs and the embedding-centric CoT generated by the MLLM reasoner."
+                    },
+                    {
+                        "type": "text",
+                        "content": "(c) TTE with unified reasoning and embedding. After the MLLM reasoner finishes generation, its entire hidden states are passed to the pre-trained embedding head."
+                    },
+                    {
+                        "type": "text",
+                        "content": "Figure 2: Pipeline comparison between existing MLLM-based embedding (a) and proposed approach "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( \\boldsymbol { \\mathsf { b } } , \\boldsymbol { \\mathsf { c } } )"
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                174,
+                99,
+                823,
+                202
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                303,
+                825,
+                359
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Formally, given a multimodal input "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\langle \\mathcal { V } , \\mathcal { T } , [ \\mathrm { I n s } ] \\rangle"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", we obtain its embedding h by:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                364,
+                709,
+                381
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathbf {h} = \\operatorname{Pooling} (f _ {\\theta} (\\mathcal {V}, [ \\text {Ins} ], \\mathcal {T}, \\psi)), \\quad \\psi = g _ {\\omega} (\\mathcal {V}, [ \\text {Ins} ], \\mathcal {T}),",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/4026b58510da1a8e4d29be06f20917122dde727c19d0f095527f25a2f2d3356c.jpg"
+                }
+            },
+            "bbox": [
+                290,
+                387,
+                704,
+                404
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "g _ { \\omega }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and ψ are the reasoner MLLM and its embedding-centric reasoning trace, respectively."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                411,
+                807,
+                426
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.1 EMBEDDING-CENTRIC REASONING"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                443,
+                460,
+                458
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Here, we introduce the concept of Embedding-Centric Reasoning (ECR), a form of intermediate reasoning tailored to improve embedding quality. Inspired by chain-of-thought (CoT) reasoning (Wei et al., 2023b) in complex problem solving, ECR are generative reasoning traces that explicitly support the production of target embeddings. For example, for VQA query, the ECR represents the model’s step-by-step reasoning to understand the query, whereas for grounding query, it captures a detailed description of the referred object along with its surrounding visual context."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                469,
+                826,
+                554
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Formally, for a batch of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( q , t )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "pair, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { h } _ { q }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { h } _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "are conditioned on ψ, the ECR "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\psi"
+                    },
+                    {
+                        "type": "text",
+                        "content": "can be described as"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                560,
+                821,
+                575
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\psi_ {i} ^ {\\star} \\in \\arg \\max _ {\\psi} \\log \\frac {\\phi (\\mathbf {h} _ {q} ^ {i} , \\mathbf {h} _ {t} ^ {i})}{\\sum_ {j} \\phi (\\mathbf {h} _ {q} ^ {i} , \\mathbf {h} _ {t} ^ {j})}.",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/336888aa725d2e089f8113b4bc17f3a3c44859b83b5775dac7b8ec313ecdb25c.jpg"
+                }
+            },
+            "bbox": [
+                380,
+                583,
+                612,
+                622
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this work, we simplify the learning of ECR, by using manually designed task prompt and format to prompt reasoner MLLM to generate ECR. We formulate ECR in the form of <think> · · · </think> Final Reasoning, where the reasoner model first outputs some intermediate CoT, then generates the final reasoning. The content for CoT and reasoning can vary in terms of task types. For instance, for QA-based query, the CoT is the standard reasoning process; for simple embedding tasks such as visual document embedding, the CoT is a detailed description of the visual input, and the reasoning is as the summary. While it is also possible to directly optimize reasoner MLLM for ECR generation using retrieval signals (e.g. RL-based finetuning), we will leave these explorations for future work. By conditioning the embedder on these task-aligned reasoning traces, we enable the model to construct more semantically aligned and task-aware embeddings."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                636,
+                826,
+                777
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Inference cost. We note that, CoT is known to have higher inference cost. In the following subsections, we explore different approaches to construct the reasoner "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "g _ { \\omega }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "that can lower the cost but still improve the performance significantly."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                782,
+                826,
+                825
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.2 TTE WITH TEACHER REASONER"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                842,
+                437,
+                856
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "For our TTE framework, we employ a powerful MLLM (e.g., Qwen2.5VL-72B) as the teacher reasoner, while keeping the embedder model lightweight (Qwen2VL-2B or 7B). We refer to this setup as TTE . We utilize the ECR reasoning traces generated by the reasoner for both training and evaluation of the embedder. Although this setup may seem computationally expensive, many real-world retrieval tasks only require a one-time offline inference step to generate ECR (e.g., detailed descriptions of visual documents) when constructing the retrieval index. Importantly, the reasoner is not involved in online retrieval for existing data points, and only needs to be run once for new data points. We empirically show that TTE achieves superior performance on MMEB-v2 without requiring additional training data, advanced training techniques or changes to the model architecture."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                867,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "4"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/8eb34c665ae1cc7831306d205cbc3e4a1a9877b9acc3f98470953ddc232ffb60.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 3: Embedding head designs: (a) Attention Pooling with learnable query. (b) NV-Embed-style (Lee et al., 2025) pooler. (c) Qformer-style embedding head, and (d) Embedding head with self attention blocks initialized from the backbone MLLM. Green denotes trainable components. Q, K and V denote query, key, and value in attention mechanism. MHSA refers to MultiHead Self Attention, and refers to output embedding."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                174,
+                99,
+                820,
+                217
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                306,
+                826,
+                378
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.3 TTE WITH FINETUNED REASONER"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                395,
+                452,
+                409
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "While our TTE framework supports seamless integration with large MLLMs as the teacher reasoner, we are also interested in exploring whether comparable performance gains can be achieved with a smaller reasoner − specifically, by using the same MLLM backbone as the embedder. As an initial study (Fig. 4), we employ the backbone model itself to generate zero-shot ECRs, which are then used to train the embedder for retrieval. This setup results in noticeable performance gains across classification, retrieval, VQA, and grounding tasks."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                422,
+                826,
+                507
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Encouraged by these results, we further finetune a dedicated, student reasoner, initializing it from the same backbone as the embedder (2B or 7B). We refer this setting as TTE<sub>s</sub>. Specifically, we finetune the small reasoner using ECR traces generated by the teacher reasoner (e.g., Qwen2.5VL-72B). Given a multimodal input ⟨V, [Ins], T ⟩, we maximize the conditional likelihood of the ECR ψ by optimizing the standard negative log-likelihood (NLL) loss in standard LM finetuning:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                513,
+                826,
+                584
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {L} _ {\\mathrm{SFT}} (\\omega) = - \\frac {1}{T} \\sum_ {t = 1} ^ {T} \\log p _ {\\omega} (\\psi_ {t} | \\mathcal {V}, [ \\mathrm{Ins} ], \\mathcal {T}, \\psi_ {t ^ {\\prime} <   t}).",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/46852561dbd007f364441f156b677af5c30fd44ce51974042f062374199e7958.jpg"
+                }
+            },
+            "bbox": [
+                323,
+                593,
+                673,
+                633
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.4 TTE WITH UNIFIED REASONER AND EMBEDDER"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                654,
+                547,
+                669
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The TTE framework described so far rely on separately trained reasoners and embedders, where the reasoner’s ECR tokens are encoded together with the query to form embeddings. To reduce the computational overhead introduced by the additional reasoner, we explore unifying reasoning and embedding generation within a shared backbone, enabling embeddings to be produced in a single forward pass. We consider two approaches: (1) joint SFT-contrastive training of a shared reasoner–embedder backbone, and (2) a reasoner augmented with an embedding head. We begin with (1), training reasoning and embedding jointly in a multi-task learning setup. However, this configuration consistently resulted in performance degradation, due to the challenges in training curriculum. The implementation details and results for this approach are provided in Appendix B. For the rest of the section, we focus on design (2), as it offers greater flexibility in training control."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                680,
+                826,
+                821
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Reasoner with Embedding Heads. Our key design principle is that hidden states generated during reasoning can also be reused for downstream representation extraction. However, the two tasks should have specialized parameters so that the embedding training objective will not interfere with reasoning, and vice versa. Therefore, we adopt a two-stage training strategy for the unified model. In the first stage, we fully fine-tune the backbone as a reasoner on the curated ECR dataset. In the second stage, we freeze the backbone and train only the embedding head on top of it. This design enables the unified model to produce embeddings in a single forward pass, as illustrated in Figure 2c."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                825,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "5"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We refer this setting is "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { T T E } _ { u }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". As we decouple the contrastive and generative objective, there is no contrastive gradient flowing into the reasoning MLLM, and vice versa."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                104,
+                825,
+                133
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "A Systematic Study of Pluggable Embedding Head. We present the first systematic study of embedding head designs that can be seamlessly plugged into a frozen backbone MLLM. This stands in contrast to the focus of prior LLM-based embedding models (Lee et al., 2025; Lin et al., 2025; Jiang et al., 2024), which primarily rely on either full finetuning or parameter-efficient approaches based on LoRA (Hu et al., 2021). As illustrated in Fig. 3, we evaluate four embedding head designs: (1) Learnable attention queries over backbone hidden states (Fig. 3a); (2) Learnable latent context with backbone hidden states as queries; (3) A QFormer-style (Li et al., 2023a) embedding head patched onto the last n layers of the backbone (Fig. 3c). (4) Repeat the last n layers of the backbone to formulate N new layers as the embedding head (Fig. 3d)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                138,
+                826,
+                265
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We present a detailed experimental comparison of the four designs in Section 7.3."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                271,
+                710,
+                287
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5 EXPERIMENTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                310,
+                328,
+                325
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.1 EXPERIMENTAL SETUP"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                344,
+                377,
+                358
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Datasets. We conduct our experiments on both MMEB-V2 (Meng et al., 2025) and MMEB-V1 (Jiang et al., 2024) datasets. MMEB-V1 comprises 20 in-distribution (IND) tasks and 16 outof-distribution (OOD) tasks, spanning 4 meta-tasks: classification, VQA, retrieval, and grounding. MMEB-V2 extends MMEB-V1 by introducing additional video and visual document (visdoc) retrieval tasks. Video tasks including video "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { Q A } ."
+                    },
+                    {
+                        "type": "text",
+                        "content": ", classification, retrieval, and video moment retrieval. Visdoc involves supportive document retrieval, where the task is to retrieve supporting documents given the query. Overall, MMEB-V2 includes a total of 78 test tasks. We report NDCG@5 for visdoc retrieval and Precision@1 for image and video tasks (Meng et al., 2025)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                371,
+                826,
+                484
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Models. We employ Qwen2VL 2B and 7B as the backbone, and introduce three variants of TTE: TTE with a large teacher reasoner "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( \\mathrm { T T E } _ { t } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", TTE with a small, SFT-ed student reasoner "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\textstyle ( \\mathrm { T T E } _ { s } ) ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and TTE with a unified reasoner and embedder "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\left( \\mathbb { T } \\mathbb { T } \\mathbb { E } _ { u } \\right)"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". We compare our approach against several baselines, including dual-encoder methods such as CLIP (Radford et al., 2021), SigLIP (Zhai et al., 2023), UniIR (Wei et al., 2023a), and MagicLens (Zhang et al., 2024). We also directly compare with VLM2Vec-V1 (Jiang et al., 2024) and VLM2Vec-V2 (Meng et al., 2025) with Qwen2VL as the backbone MLLM. Additionally, we evaluate against recent MLLM-based embedding approaches, including UniME (Gu et al., 2025), LLaVE (Lan et al., 2025), and B3 (Thirukovalluru et al., 2025)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                489,
+                825,
+                603
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Training Details. For both MMEB-V1 and MMEB-V2, we use a global batch size of 8192 , with a learning rate of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "2 e ^ { - 4 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for the backbone MLLM and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "5 e ^ { - 4 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for the embedding head. The temperature for contrastive loss is set to 0.02. We train the backbone using LoRA (Hu et al., 2021) with rank 16 and alpha 64. Following VLM2Vec, we employ GradCache (Gao et al., 2021) to increase the per-device batch size. We train for 1 epoch on MMEB-V1, and 2.3 epochs for MMEB-V2. For MMEB-V2, we follow the same data weighing setup as in VLM2Vec-V2, and adopt its interleaved sampling strategy, where one global batch is splitted into n sub batches, each from one dataset."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                608,
+                826,
+                708
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "For supervised finetuning of the ECR Reasoner, we perform full parameter finetuning of the MLLM while keeping the visual encoder frozen, using a learning rate of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "2 e ^ { - 5 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", a global batch size of 128, and training for an epoch. We use DeepSpeed (Aminabadi et al., 2022) ZeRO 1 for optimizer offloading."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                712,
+                825,
+                757
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "6 RESULTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                779,
+                284,
+                794
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "6.1 MAIN RESULTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                813,
+                323,
+                827
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Results on MMEB-V1. Table 1 compares the performance of our models with recent approaches on MMEB-V1. The encoder-based baselines are evaluated in a zero-shot setting, while the remaining models are trained on the MMEB-V1 training data. Our proposed approach TTE achieves the best performance in both the 2B and 7B categories, with "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { T T E } _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "outperforming the next best approach by 6%. Compared to VLM2Vec-V1, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { T T E } _ { s } , \\mathrm { T T E } _ { u }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { T T E } _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "achieve substantial improvements of 7.5%, 7.4% and 12.7%, respectively, on the 7B embedding model."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                840,
+                826,
+                924
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "6"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/1ceed0642f0ca68a284cbd66fdc0678bf8fce986b63b3169389b4ebed0e33952.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 1: Results on the MMEB-V1 benchmark (Jiang et al., 2024). The scores are averaged per meta-task. Best/2nd-best performance across both 2B and 7B categories are in bold/underlined."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\">Model</td><td rowspan=\"2\">Backbone</td><td colspan=\"4\">Per Meta-Task Score</td><td colspan=\"3\">Average Score</td></tr><tr><td>Classification</td><td>VQA</td><td>Retrieval</td><td>Grounding</td><td>IND</td><td>OOD</td><td>Overall</td></tr><tr><td># of datasets →</td><td></td><td>10</td><td>10</td><td>12</td><td>4</td><td>20</td><td>16</td><td>36</td></tr><tr><td colspan=\"9\">Encoder-Based Baselines</td></tr><tr><td>CLIP (Radford et al., 2021)</td><td>-</td><td>42.8</td><td>9.1</td><td>53.0</td><td>51.8</td><td>37.1</td><td>38.7</td><td>37.8</td></tr><tr><td>SigLIP (Zhai et al., 2023)</td><td>-</td><td>40.3</td><td>8.4</td><td>31.6</td><td>59.5</td><td>32.3</td><td>38.0</td><td>34.8</td></tr><tr><td>UniIR (CLIP $_{SF}$ ) (Wei et al., 2023a)</td><td>-</td><td>44.3</td><td>16.2</td><td>61.8</td><td>65.3</td><td>47.1</td><td>41.7</td><td>44.7</td></tr><tr><td>MagicLens (Zhang et al., 2024)</td><td>-</td><td>38.8</td><td>8.3</td><td>35.4</td><td>26.0</td><td>31.0</td><td>23.7</td><td>27.8</td></tr><tr><td colspan=\"9\">~ 2B Model Size</td></tr><tr><td>VLM2Vec-V1 (Jiang et al., 2024)</td><td>Qwen2VL</td><td>59.0</td><td>49.4</td><td>65.4</td><td>73.4</td><td>66.0</td><td>52.6</td><td>59.3</td></tr><tr><td>UniME (Gu et al., 2025)</td><td>LLaVA-1.6</td><td>54.8</td><td>55.9</td><td>64.5</td><td>81.8</td><td>68.2</td><td>52.7</td><td>64.2</td></tr><tr><td>LLaVE (Lan et al., 2025)</td><td>Aquila-VL</td><td>62.1</td><td>60.2</td><td>65.2</td><td>84.9</td><td>69.4</td><td>59.8</td><td>65.2</td></tr><tr><td>B3 (Thirukovalluru et al., 2025)</td><td>Qwen2VL</td><td>67.0</td><td>61.2</td><td>70.9</td><td>79.9</td><td>72.1</td><td>63.1</td><td>68.1</td></tr><tr><td>(Ours) TTE $_s$ </td><td>Qwen2VL</td><td>67.6</td><td>62.7</td><td>70.7</td><td>80.0</td><td>71.4</td><td>65.2</td><td>68.7</td></tr><tr><td>(Ours) TTE $_u$ </td><td>Qwen2VL</td><td>69.7</td><td>60.8</td><td>71.4</td><td>78.4</td><td>71.6</td><td>65.1</td><td>68.8</td></tr><tr><td>(Ours) TTE $_t$ </td><td>Qwen2VL</td><td>72.6</td><td>74.3</td><td>72.6</td><td>85.2</td><td>80.5</td><td>67.0</td><td>74.5</td></tr><tr><td colspan=\"9\">~ 7B Model Size</td></tr><tr><td>VLM2Vec-V1 (Jiang et al., 2024)</td><td>Qwen2VL</td><td>62.6</td><td>57.8</td><td>69.9</td><td>81.7</td><td>65.2</td><td>56.3</td><td>65.8</td></tr><tr><td>UniME (Gu et al., 2025)</td><td>LLaVA-OV</td><td>66.8</td><td>66.6</td><td>70.5</td><td>90.9</td><td>74.6</td><td>65.8</td><td>70.7</td></tr><tr><td>LLaVE (Lan et al., 2025)</td><td>LLaVA-OV</td><td>65.7</td><td>65.4</td><td>70.9</td><td>91.9</td><td>75.0</td><td>64.4</td><td>70.3</td></tr><tr><td>B3 (Thirukovalluru et al., 2025)</td><td>Qwen2VL</td><td>70.0</td><td>66.5</td><td>74.1</td><td>84.6</td><td>75.9</td><td>67.1</td><td>72.0</td></tr><tr><td>QQMM (Xue et al., 2025)</td><td>LLaVA-OV</td><td>69.9</td><td>70.0</td><td>72.1</td><td>86.0</td><td>77.2</td><td>66.6</td><td>72.5</td></tr><tr><td>(Ours) TTE $_s$ </td><td>Qwen2VL</td><td>70.5</td><td>71.5</td><td>73.5</td><td>83.9</td><td>76.8</td><td>68.9</td><td>73.3</td></tr><tr><td>(Ours) TTE $_u$ </td><td>Qwen2VL</td><td>71.6</td><td>72.0</td><td>72.5</td><td>82.1</td><td>76.7</td><td>68.7</td><td>73.2</td></tr><tr><td>(Ours) TTE $_t$ </td><td>Qwen2VL</td><td>77.4</td><td>78.6</td><td>75.9</td><td>89.0</td><td>82.7</td><td>73.3</td><td>78.5</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                176,
+                101,
+                823,
+                393
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/964a7fb33ec06f276e025a67297acd73f9d1076f76b7babad819372d4bb0e3b1.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 2: Results on the MMEB-V2 benchmark (Meng et al., 2025). Best/2nd-best performance across all models are in bold/underlined. Task abbreviations: CLS (classification), QA (question answering), RET (retrieval), GD (grounding), MRET (moment retrieval), VDR (ViDoRe), VR (VisRAG), and OOD (out-of-domain)."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\">Model</td><td colspan=\"5\">Image</td><td colspan=\"5\">Video</td><td colspan=\"5\">VisDoc</td><td rowspan=\"2\">All</td></tr><tr><td>CLS</td><td>QA</td><td>RET</td><td>GD</td><td>Overall</td><td>CLS</td><td>QA</td><td>RET</td><td>MRET</td><td>Overall</td><td>VDRv1</td><td>VDRv2</td><td>VR</td><td>OOD</td><td>Overall</td></tr><tr><td># of Datasets →</td><td>10</td><td>10</td><td>12</td><td>4</td><td>36</td><td>5</td><td>5</td><td>5</td><td>3</td><td>18</td><td>10</td><td>4</td><td>6</td><td>4</td><td>24</td><td>78</td></tr><tr><td colspan=\"17\">Close-sourced Models or w/ Additional Data</td></tr><tr><td>seed-1.6-embedding</td><td>76.1</td><td>74.0</td><td>77.9</td><td>91.3</td><td>77.8</td><td>55.0</td><td>60.9</td><td>51.3</td><td>53.5</td><td>55.3</td><td>89.5</td><td>60.8</td><td>87.9</td><td>44.4</td><td>76.8</td><td>71.3</td></tr><tr><td>RzenEmbed-v1-2B</td><td>65.3</td><td>61.7</td><td>73.8</td><td>77.9</td><td>68.5</td><td>45.6</td><td>47.5</td><td>38.3</td><td>36.7</td><td>42.6</td><td>87.0</td><td>57.6</td><td>85.4</td><td>43.3</td><td>74.4</td><td>64.4</td></tr><tr><td>Ops-MM-embedding-v1-2B</td><td>68.1</td><td>65.1</td><td>69.2</td><td>80.9</td><td>69.0</td><td>53.6</td><td>55.7</td><td>41.8</td><td>33.7</td><td>47.6</td><td>87.0</td><td>57.6</td><td>85.4</td><td>43.3</td><td>74.4</td><td>63.4</td></tr><tr><td>GME-2B</td><td>54.4</td><td>29.9</td><td>66.9</td><td>55.5</td><td>51.9</td><td>34.9</td><td>42.0</td><td>25.6</td><td>32.4</td><td>33.9</td><td>86.1</td><td>54.0</td><td>82.5</td><td>43.1</td><td>72.7</td><td>54.1</td></tr><tr><td>ColPali v1.3-3B</td><td>40.3</td><td>11.5</td><td>48.1</td><td>40.3</td><td>34.9</td><td>26.7</td><td>37.8</td><td>21.6</td><td>25.5</td><td>28.2</td><td>83.6</td><td>52.0</td><td>81.1</td><td>43.1</td><td>71.0</td><td>44.4</td></tr><tr><td>Ops-MM-embedding-v1-7B</td><td>69.7</td><td>69.6</td><td>73.1</td><td>87.2</td><td>72.7</td><td>59.7</td><td>62.2</td><td>45.7</td><td>43.2</td><td>53.8</td><td>80.1</td><td>59.6</td><td>79.3</td><td>43.3</td><td>70.3</td><td>67.6</td></tr><tr><td>RzenEmbed-v1-7B</td><td>69.8</td><td>68.7</td><td>76.8</td><td>85.7</td><td>73.6</td><td>52.8</td><td>56.2</td><td>41.9</td><td>41.8</td><td>48.9</td><td>89.5</td><td>60.8</td><td>87.9</td><td>44.4</td><td>76.8</td><td>68.9</td></tr><tr><td>GME-7B</td><td>57.7</td><td>34.7</td><td>71.2</td><td>59.3</td><td>56.0</td><td>37.4</td><td>50.4</td><td>28.4</td><td>38.2</td><td>38.6</td><td>89.4</td><td>55.6</td><td>85.0</td><td>44.4</td><td>75.2</td><td>57.8</td></tr><tr><td>LamRA-Qwen2-7B</td><td>59.2</td><td>26.5</td><td>70.0</td><td>62.7</td><td>54.1</td><td>39.3</td><td>42.6</td><td>24.3</td><td>34.6</td><td>35.2</td><td>22.0</td><td>11.5</td><td>37.4</td><td>21.0</td><td>23.9</td><td>40.4</td></tr><tr><td>LamRA-Qwen2.5-7B</td><td>51.7</td><td>34.1</td><td>66.9</td><td>56.7</td><td>52.4</td><td>32.9</td><td>42.6</td><td>23.2</td><td>37.6</td><td>33.7</td><td>56.3</td><td>33.3</td><td>58.2</td><td>40.1</td><td>50.2</td><td>47.4</td></tr><tr><td colspan=\"17\">Models Trained on MMEB V2</td></tr><tr><td>VLM2Vec-V2-2B</td><td>62.9</td><td>56.3</td><td>69.5</td><td>77.3</td><td>64.9</td><td>39.3</td><td>34.3</td><td>28.8</td><td>38.5</td><td>34.9</td><td>75.5</td><td>44.9</td><td>79.4</td><td>39.4</td><td>65.4</td><td>58.0</td></tr><tr><td>(Ours) TTE $_s$ (2B)</td><td>67.9</td><td>66.6</td><td>70.2</td><td>84.1</td><td>70.1</td><td>47.3</td><td>49.1</td><td>34.4</td><td>33.2</td><td>32.1</td><td>77.5</td><td>53.2</td><td>83.2</td><td>41.1</td><td>68.8</td><td>63.1</td></tr><tr><td>(Ours) TTE $_u$ -2B</td><td>68.5</td><td>65.7</td><td>70.9</td><td>83.1</td><td>70.1</td><td>47.6</td><td>49.2</td><td>33.3</td><td>33.5</td><td>41.7</td><td>78.0</td><td>54.0</td><td>84.5</td><td>61.1</td><td>73.9</td><td>63.3</td></tr><tr><td>(Ours) TTE $_t$ -2B</td><td>76.6</td><td>76.8</td><td>71.5</td><td>87.2</td><td>76.1</td><td>56.1</td><td>65.3</td><td>34.1</td><td>33.8</td><td>47.9</td><td>81.1</td><td>62.4</td><td>84.7</td><td>43.2</td><td>72.6</td><td>68.6</td></tr><tr><td>VLM2Vec-V2-7B</td><td>65.7</td><td>61.5</td><td>70.0</td><td>85.2</td><td>68.1</td><td>45.9</td><td>33.9</td><td>27.6</td><td>39.3</td><td>36.4</td><td>78.8</td><td>52.6</td><td>82.7</td><td>42.1</td><td>69.3</td><td>61.2</td></tr><tr><td>(Ours) TTE $_s$ -7B</td><td>69.7</td><td>72.4</td><td>74.0</td><td>90.6</td><td>74.2</td><td>49.1</td><td>60.6</td><td>36.4</td><td>37.2</td><td>46.8</td><td>84.1</td><td>62.7</td><td>91.9</td><td>47.6</td><td>76.4</td><td>68.6</td></tr><tr><td>(Ours) TTE $_u$ -7B</td><td>69.6</td><td>72.3</td><td>73.2</td><td>90.7</td><td>73.9</td><td>51.2</td><td>59.5</td><td>36.0</td><td>38.2</td><td>47.1</td><td>83.5</td><td>63.8</td><td>91.5</td><td>66.8</td><td>80.6</td><td>68.2</td></tr><tr><td>(Ours) TTE $_t$ -7B</td><td>76.7</td><td>78.6</td><td>74.3</td><td>89.3</td><td>77.8</td><td>57.5</td><td>68.2</td><td>38.0</td><td>39.3</td><td>52.0</td><td>83.7</td><td>63.6</td><td>91.4</td><td>50.6</td><td>76.8</td><td>71.5</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                174,
+                445,
+                823,
+                689
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Results on MMEB-V2. Table 2 summarizes overall results on MMEB-V2 dataset across the entire leaderboard, at the time of submission. TTE -7B achieves highest overall score of 71.5% on the MMEB-V2 leaderboard, surpassing recent SOTA models trained with massive external data (e.g., seed-1.6-embedding). Without relying on the teacher reasoner, TTE achieves best performance across open-sourced models, for both 2B and 7B variants. Compared to baseline VLM2Vec-V2, TTE shows substantial gain. For instance, TTE and TTE improve 2B baseline by 5.1% and 10.6%."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                758,
+                826,
+                845
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Taking a closer look at the performance across modality and tasks, we can observe notable improvement against VLM2Vec-V2 baseline from VQA and classification-based tasks. For instance, TTE -7B improves video QA performance significantly against VLM2Vec-V2. As for retrieval, we observe larger improvements on video-based retrieval (+5%) as compared to image-based retrieval (e.g. +2% on TTE<sub>t</sub>-2B), possibly due to video-based retrieval is more challenging than image-based, and therefore signifying the role of teacher-generated ECR."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                849,
+                826,
+                935
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "7"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/9cd762da70aa52a2e80a97ff2182ed9773c95a51490069cd60337fa15985b0b0.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 3: Ablation on the effect of finetuning TTE under MMEB-V1. w/ SFT-ed Reasoner denotes whether to apply SFT/zero-shot generation of ECR."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\">w/ SFT-ed Reasoner</td><td colspan=\"4\">Per Meta-Task Score</td><td colspan=\"3\">Average Score</td></tr><tr><td>CLS</td><td>VQA</td><td>Ret</td><td>GD</td><td>IND</td><td>OOD</td><td>All</td></tr><tr><td colspan=\"8\">2B Model</td></tr><tr><td>Baseline</td><td>59.0</td><td>49.4</td><td>65.4</td><td>73.4</td><td>66.0</td><td>52.6</td><td>59.3</td></tr><tr><td> $\\times$ </td><td>62.0</td><td>57.3</td><td>62.7</td><td>73.9</td><td>65.1</td><td>58.7</td><td>62.2</td></tr><tr><td> $\\checkmark$ </td><td>67.6</td><td>62.7</td><td>70.7</td><td>80.0</td><td>71.4</td><td>65.2</td><td>68.7</td></tr><tr><td colspan=\"8\">7B Model</td></tr><tr><td>Baseline</td><td>62.6</td><td>57.8</td><td>69.9</td><td>81.7</td><td>65.2</td><td>56.3</td><td>65.8</td></tr><tr><td> $\\times$ </td><td>65.5</td><td>66.9</td><td>68.4</td><td>78.2</td><td>71.7</td><td>64.0</td><td>68.3</td></tr><tr><td> $\\checkmark$ </td><td>70.5</td><td>71.5</td><td>73.5</td><td>83.9</td><td>76.8</td><td>68.9</td><td>73.3</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                176,
+                101,
+                493,
+                220
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/4547824eac06721662b56b2dd93a84976467a7d830b23d406e371a058bdddb51.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 4: Effect of CoT traces in ECR with TTE . We ablate the same set of ECR but w/ CoT or w/o CoT (only final reasoning)."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\">w/ CoT</td><td colspan=\"4\">Per Meta-Task Score</td><td colspan=\"3\">Average Score</td></tr><tr><td>CLS</td><td>VQA</td><td>Ret</td><td>GD</td><td>IND</td><td>OOD</td><td>All</td></tr><tr><td colspan=\"8\">2B Model</td></tr><tr><td>Baseline</td><td>59.0</td><td>49.4</td><td>65.4</td><td>73.4</td><td>66.0</td><td>52.6</td><td>59.3</td></tr><tr><td>X</td><td>71.5</td><td>73.6</td><td>72.6</td><td>83.6</td><td>79.9</td><td>66.1</td><td>73.8</td></tr><tr><td>√</td><td>72.6</td><td>73.9</td><td>73.1</td><td>85.2</td><td>80.5</td><td>67.0</td><td>74.5</td></tr><tr><td colspan=\"8\">7B Model</td></tr><tr><td>Baseline</td><td>62.6</td><td>57.8</td><td>69.9</td><td>81.7</td><td>65.2</td><td>56.3</td><td>65.8</td></tr><tr><td>X</td><td>75.8</td><td>78.2</td><td>72.9</td><td>85.8</td><td>80.6</td><td>71.6</td><td>76.6</td></tr><tr><td>√</td><td>77.5</td><td>78.6</td><td>74.7</td><td>88.9</td><td>82.1</td><td>73.2</td><td>78.1</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                513,
+                101,
+                820,
+                220
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "7 ABLATIONS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                286,
+                307,
+                301
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "7.1 UNDERSTANDING THE ROLE OF TTE REASONER AND ECR"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                319,
+                625,
+                334
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Effect of zero-shot TTE reasoner. We begin by analyzing the impact of the model’s inherent reasoning capability to the retrieval performance. We first prompt the MLLM reasoner (Qwen2VL-2B) to generate ECR in a zero-shot setting. The generated ECR is then combined with the raw query for embedder training using the same Qwen2VL-2B backbone. We conduct the ablation on a subset of datasets within MMEB V1, where constrastive training is performed individually for each dataset. Fig. 4 shows the corresponding results. We can observe that incorporating self-generated zero-shot ECR leads to notable performance improvements across all tasks."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                345,
+                826,
+                445
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Effect of finetuning TTE reasoner. While we find that the zero-shot reasoner can generally improve embedding performance, its effectiveness can still be bottlenecked by the quality of the zero-shot ECR. In Table 3, we present ablation results on finetuning the TTE reasoner on MMEB-V1, where we observe a significant improvement after finetuning, with an absolute gain of over 6%."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                450,
+                550,
+                549
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Effect of intermediate CoT in ECR. To examine the role of reasoning within ECR, we conduct an ablation by including or excluding intermediate CoT during training and testing, with results shown in Table 4. Overall, incorporating CoT leads to consistent performance gains. We observe clear improvements on classification, retrieval, and grounding, with only marginal gains on VQA—an expected outcome since VQA primarily requires the final answer, whereas retrieval and grounding benefit from richer intermediate context. Notably, the improvements are larger for 7B than 2B models, likely due to the stronger language capacity of larger models."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                554,
+                550,
+                694
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/b02aad1dcdbeea0993d7d5a36894efe865bc22f687b844e048617d44376340ff.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 4: Baseline under Qwen2VL-2B with/without zero-shot ECR on MMEB-V1."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                565,
+                467,
+                818,
+                648
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                171,
+                693,
+                799,
+                708
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Analysis on the role of ECR. We conducted more analysis to understand the role of ECR in Fig. 5."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                714,
+                823,
+                729
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "A natural question is whether the ECR text alone is sufficient for retrieval, potentially eliminating the need to train a dedicated encoder. However, our experiments on MMEB show that this is not the case. Specifically, when we use the same ECR and apply a text-to-text (T2T) retrieval baseline—by directly encoding the ECR with a strong off-the-shelf text encoder, Jina-V3 (Sturua et al., 2024) – the performance is significantly worse."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                734,
+                826,
+                808
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Another concern is that imperfect ECRs might introduce noise that propagates into the Embedder, degrading retrieval performance. Interestingly, we find that our TTE Embedder is robust to such noise: it learns to extract useful information from the ECR without blindly relying on it. In fact, although ECRs alone do not yield high retrieval precision, they provide valuable signals that our Embedder can leverage. We observe similar trends across all task types. These findings indicate that our Embedder is robust to noisy ECRs, and retrieval performance can benefit even from imperfect reasoning traces. Meanwhile, we also note that the observed robustness does not imply that the embedder is invariant to the quality of ECRs. In fact, the robustness range we measure is within the same reasoner: the embedder outperforms directly using the ECRs themselves (e.g., for VQA-style tasks where retrieval does not rely on dense visual embeddings). However, using a different reasoner can still impact the embedder’s performance, as shown in Table 3 and between TTE and TTE ."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                813,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "8"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/66d82807dfcddbe2db085982846e5b46c8b761629984a8b1734af0066a1566b0.jpg"
+                },
+                "content": "",
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                176,
+                99,
+                821,
+                217
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/498a7772a3705b03cc9e4ab226bc3bcd181cdab4967bfaa419f08fdcf09041dc.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 5: Results on T2T evaluation on generated ECR, versus TTE<sub>s</sub> and VLM2Vec-V1 on MMEB V1."
+                    },
+                    {
+                        "type": "text",
+                        "content": "(a) VQA"
+                    },
+                    {
+                        "type": "text",
+                        "content": "(b) Classification"
+                    },
+                    {
+                        "type": "text",
+                        "content": "(c) Retrieval"
+                    },
+                    {
+                        "type": "text",
+                        "content": "(d) Grounding"
+                    },
+                    {
+                        "type": "text",
+                        "content": "Figure 6: t-SNE visualization (perplexity = 30) of query and target embeddings between baseline VLM2Vec 7B (left) and ours (TTE<sub>t</sub>, right). Zoom in for better visual effect."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                178,
+                251,
+                813,
+                315
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                373,
+                825,
+                416
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "7.2 VISUALIZATION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                436,
+                328,
+                450
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In Fig. 6 we show a side-by-side t-SNE visualization comparing embedding produced by the baseline VLM2Vec and TTE on MMEB-V1. For each task type, we select 3 distinct subtasks. We clearly observe larger overlap between query and target embedding for TTE<sub>t</sub>, as compared to VLM2Vec."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                457,
+                825,
+                501
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "7.3 EMBEDDING HEAD DESIGN"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                520,
+                410,
+                535
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Architecture Design. In Table 5, we investigate the design of embedding heads. We first explore simple (depth=1) trainable pooler, including an attention pooler with learnable queries and an NV-Embed–style latent pooler with learnable context. However, both approaches perform significantly worse than TTE<sub>s</sub>, and increasing the number of queries (n queries = 1 → 16) yields little improvement. We hypothesize that the hidden states from the final layer may not be optimal for capturing latent representations, as these layers"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                547,
+                421,
+                757
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/8ccc9185a699e822ca104aff6746c6d9f1fcd656ab297fd77b890ef1affa466c.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 5: Embedding head ablations on MMEB-V1."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\">Model</td><td colspan=\"4\">Per Meta-Task Score</td><td colspan=\"3\">Average Score</td></tr><tr><td>CLS</td><td>VQA</td><td>Ret</td><td>GD</td><td>IND</td><td>OOD</td><td>Overall</td></tr><tr><td> $TTE_s$ </td><td>67.6</td><td>62.7</td><td>70.7</td><td>80.0</td><td>71.4</td><td>65.2</td><td>68.7</td></tr><tr><td colspan=\"8\">w/ Simple Attention Pooler</td></tr><tr><td>n_queries = 1</td><td>48.0</td><td>45.4</td><td>45.8</td><td>53.1</td><td>50.5</td><td>42.9</td><td>47.1</td></tr><tr><td>n_queries = 8</td><td>48.3</td><td>46.1</td><td>45.9</td><td>60.1</td><td>51.3</td><td>44.3</td><td>48.2</td></tr><tr><td>n_queries = 16</td><td>49.7</td><td>47.6</td><td>47.8</td><td>56.7</td><td>53.1</td><td>44.5</td><td>49.3</td></tr><tr><td colspan=\"8\">w/ NV-Embed-style Pooler</td></tr><tr><td>n_latent_value = 512</td><td>39.3</td><td>46.3</td><td>42.7</td><td>57.6</td><td>48.2</td><td>39.7</td><td>44.4</td></tr><tr><td colspan=\"8\">w/ QFormer-style Embedding Head</td></tr><tr><td>n_layers/last_n = 4/4</td><td>65.2</td><td>57.8</td><td>68.0</td><td>79.8</td><td>68.8</td><td>61.8</td><td>65.7</td></tr><tr><td>n_layers/last_n = 8/8</td><td>65.8</td><td>60.7</td><td>69.8</td><td>78.7</td><td>70.0</td><td>63.6</td><td>67.1</td></tr><tr><td colspan=\"8\">w/ Self-Initialized MHSA</td></tr><tr><td>n_layers/last_n = 4/4</td><td>67.0</td><td>59.3</td><td>70.2</td><td>78.5</td><td>71.2</td><td>62.2</td><td>67.2</td></tr><tr><td>n_layers/last_n = 8/8</td><td>69.7</td><td>60.8</td><td>71.4</td><td>78.4</td><td>71.6</td><td>65.1</td><td>68.8</td></tr><tr><td>n_layers/last_n = 8/16</td><td>70.8</td><td>58.1</td><td>68.8</td><td>83.4</td><td>69.0</td><td>66.8</td><td>68.0</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                434,
+                551,
+                803,
+                724
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "are primarily tuned for providing discriminative features for token predictions."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                757,
+                689,
+                772
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To better exploit representations from a frozen MLLM, we shift focus to earlier layers (e.g., the 8th-to-last) and equip them with more expressive multi-layer embedding heads. Specifically, we compare a QFormer-style head with a self-initialized multi-head self-attention (MHSA) module. Empirically, the latter achieves superior performance compared to the QFormer-style head, which requires training from scratch. When self-initialized with the last n layers = 8, the MHSA head reaches performance on par with a separately fine-tuned embedder (TTE )."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                777,
+                826,
+                863
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The choice of last–n layer for embedding. Most prior work adopts the final hidden states of an MLLM as embeddings, but this design choice is rarely scrutinized. We hypothesize that the last layer may not be optimal for multimodal retrieval: while it is specialized for token-level discrimination, intermediate layers may retain richer semantic structure. To validate our hypothesis, we ablate the choice of bottom-n layers under two settings: (1) Attention Pooling with a frozen backbone, and (2) LoRA+Last Token, where LoRA is applied and the final token embedding is used."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                868,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "9"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                825,
+                133
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We report overall performance on MMEB v1 in Table 6. Under attention pooling, performance improves modestly as n increases from 1 to 8, then drops at "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "n = 1 6"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". This trend supports our hypothesis: when the backbone is frozen, intermediate layers can yield slightly more robust embeddings than the final layer. However, the gains are small, indicating that most of the improvement stems from the capacity of the embedding head itself (i.e., additional trainable parameters), rather than layer selection alone."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                138,
+                616,
+                252
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/9798e44aea1a84d4e2917bfa7e307ed893bd17c625778143c9776bdd86e5cf20.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 6: Effect of using bottom-n transformer layers for embedding on MMEB v1 (Qwen2-VL 2B)."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Last n</td><td>Attn Pooling</td><td>LoRA+Last</td></tr><tr><td>1</td><td>47.1</td><td>68.7</td></tr><tr><td>4</td><td>47.8</td><td>68.4</td></tr><tr><td>8</td><td>49.6</td><td>67.2</td></tr><tr><td>16</td><td>46.3</td><td>59.5</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                632,
+                143,
+                820,
+                200
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In contrast, the LoRA+Last Token setting exhibits the opposite trend—performance declines as n increases. Since LoRA injects trainable rank updates into each transformer block, selecting a larger bottom-n effectively reduces the number of blocks available for adaptation, limiting the model’s flexibility. Consequently, the final layer performs best under LoRA fine-tuning, whereas intermediate layers can be slightly preferable when the backbone is frozen."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                257,
+                826,
+                329
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "7.4 IMPACT OF REASONING MLLM"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                343,
+                437,
+                359
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "A natural question is whether stronger teacher models (e.g., Gemini2.5 Pro (?)) can further improve embedding quality through higher-quality reasoning traces. To study this, we run additional experiments on MMEB v2 using Qwen2-VL (7B) as the backbone embedder, while varying the teacher model that generates reasoning traces at evaluation time. Besides Qwen2.5-VL (72B), we consider Qwen2.5-VL (32B) and Gemini2.5-Pro, a state-of-the-art MLLM for visual understanding. We focus on retrieval tasks, where the impact of teacher quality is more meaningful than in VQA."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                369,
+                826,
+                455
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/913089c8a74ea35d4946594c61534c9bfc49aff4e921c1e3b71c09dc0176d845.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 7: Effect of using varying capacity of reasoning models at evaluation time on MMEB v2."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Task</td><td>Qwen2.5-VL 32B</td><td>Qwen2.5-VL 72B</td><td>Gemini2.5 Pro</td></tr><tr><td>i-ret</td><td>74.1</td><td>74.3</td><td>73.6</td></tr><tr><td>i-grounding</td><td>88.1</td><td>89.3</td><td>90.6</td></tr><tr><td>v-ret</td><td>35.8</td><td>37.6</td><td>41.8</td></tr><tr><td>v-moment_ret</td><td>37.8</td><td>39.3</td><td>53.4</td></tr><tr><td>visdoc</td><td>76.3</td><td>76.8</td><td>76.1</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                290,
+                460,
+                705,
+                539
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We observe that Qwen2.5-VL (32B) performs comparably to Qwen2.5-VL (72B), suggesting that moderate increases in teacher capacity do not necessarily translate to improved retrieval performance. In contrast, Gemini2.5 Pro achieves substantially higher accuracy on video and videomoment retrieval (up to +14% absolute), but performs slightly worse than Qwen2.5-VL (72B) on image and visdoc retrieval. These trends can be explained by two factors: (1) Qwen2.5-VL (72B) already achieves strong reasoning quality on image and visdoc tasks, but remains relatively weaker on video understanding, where a stronger teacher such as Gemini2.5 Pro offers greater benefit. (2) There is a distribution shift between training traces (from Qwen2.5-VL) and test-time reasoning (from Gemini2.5 Pro), leading to mild degradation on image and visdoc performance. The video tasks, however, are unaffected because the video subsets in MMEB v2 are largely out-of-distribution."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                566,
+                826,
+                708
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "8 CONCLUSION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                726,
+                321,
+                742
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We propose Think-Then-Embed (TTE), a general framework for universal multimodal embedding that leverages a reasoner to “think” before predicting embeddings with an embedder. We first show that using a multimodal LLM as the reasoner can substantially boost the performance of a smaller embedder, demonstrating that CoT-style reasoning also benefits multimodal representation learning. To improve efficiency, we then distill a compact reasoner from the reasoning traces of the large model. The distilled reasoner and the embedder can be trained from the same backbone, yielding both capacity and efficiency gains. Finally, we improve the integration of reasoning and embedding by introducing a pluggable embedding head on top of the reasoner. This design enables embeddings to be produced in a single forward pass, further improving efficiency while halving model parameters. Extensive experiments on the MMEB-V1 and MMEB-V2 benchmarks show that our approach significantly outperforms a range of baselines and recent methods without requiring additional data, validating the effectiveness and robustness of the proposed TTE framework."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                757,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "10"
+                    }
+                ]
+            },
+            "bbox": [
+                490,
+                948,
+                509,
+                960
+            ]
+        }
+    ]
+]

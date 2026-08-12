@@ -1,0 +1,238 @@
+## ABSTRACT
+
+Spiking Neural Networks (SNNs), with their temporal processing capabilities and biologically plausible dynamics, offer a natural platform for unsupervised representation learning. However, current unsupervised SNNs predominantly employ shallow architectures or localized plasticity rules, limiting their ability to model long-range temporal dependencies and maintain temporal feature consistency. This results in semantically unstable representations, thereby impeding the development of deep unsupervised SNNs for large-scale temporal video data. We propose PredNext, which explicitly models temporal relationships through cross-view future Step Prediction and Clip Prediction. This plug-and-play module seamlessly integrates with diverse self-supervised objectives. We firstly establish standard benchmarks for SNN self-supervised learning on UCF101, HMDB51, and MiniKinetics, which are substantially larger than conventional DVS datasets. PredNext delivers significant performance improvements across different tasks and self-supervised methods. PredNext achieves performance comparable to ImageNet-pretrained supervised weights, through unsupervised training solely on UCF101. Additional experiments demonstrate that PredNext, distinct from forced consistency constraints, substantially improves temporal feature consistency while enhancing network generalization capabilities. This work provides a effective foundation for unsupervised deep SNNs on large-scale temporal video data.
+
+## 1 INTRODUCTION
+
+![](images/88b36bbc9d9af0e0746e1f975f884306c519d8d2a6fb0543414a453c407d0106.jpg)  
+Figure 1: Analysis of temporal consistency. (a) Evolution of inter-frame feature similarity during SNN training. (b) Distribution of video features in high-dimensional space, demonstrating more concentrated clustering for high-consistency temporal representations. Blue points represent features from different timesteps of the same video, while red points indicate cluster centers in nearby feature space locations. Green and red arrows denote intra-video feature attraction across frames and inter-video feature repulsion respectively.
+
+Unsupervised learning has garnered significant attention in artificial intelligence for its capacity to extract meaningful representations from unlabeled data (Barlow, 1989; Bengio et al., 2012; Liu et al., 2021), substantially reducing dependence on extensive manual annotation. By revealing inherent structures and patterns in unlabeled data, this approach more accurately reflects natural human learning processes (Hinton & Sejnowski, 1999; Chen et al., 2020; He et al., 2020). Spiking neural networks (SNNs), with their characteristics of simulating brain functioning principles (Maass, 1997; Diehl & Cook, 2015; Wu et al., 2018), constitute an ideal framework for unsupervised learning research (Gerstner & Kistler, 2002; Tavanaei et al., 2019). Nevertheless, current research on unsupervised learning in SNNs has primarily concentrated on shallow architectures or synaptic plasticitybased methods (Diehl & Cook, 2015; Kheradpisheh et al., 2018; Dong et al., 2023). The challenges in extending these approaches to deep architectures, particularly when processing complex temporal data, predominantly arise from the limited capacity of current deep SNN models to effectively capture and leverage long-term temporal dependencies (Wu et al., 2018; Fang et al., 2021b). Efficient processing of large-scale, temporally rich data, especially video, is essential for developing robust unsupervised learning systems capable of generating richer, more semantically meaningful feature representations for downstream applications.
+
+![](images/4e3e0c0aba2c114fc0961eee767e5b609dde4d84e9e8a5a93548d0a635d458f6.jpg)  
+Figure 2: PredNext algorithmic framework. PredNext incorporates Step Prediction and Clip Prediction components for predicting features at the next step and in subsequent sampled clips from the same video, respectively. As an auxiliary module, PredNext can be seamlessly integrated into existing self-supervised learning methods. Red arrows indicate the Step Prediction pathway, while Blue arrows denote the Clip Prediction pathway.
+
+The temporal processing capability of spiking neural networks stems from the intrinsic dynamics of spiking neurons, which serve as information carriers across timesteps (Zenke & Vogels, 2021; Neftci et al., 2019). Standard LIF neurons accumulate membrane potential to retain temporal information and emit discrete spikes when the potential exceeds a threshold. However, this elementary integrateand-fire mechanism proves inadequate for processing large-scale video data with complex temporal dependencies. Additionally, Unlike ANNs employing temporal downsampling (Tran et al., 2015; Carreira & Zisserman, 2017), SNNs typically preserve original temporal resolution, potentially resulting in feature instability without appropriate temporal aggregation. Consequently, we suggest that intrinsic neuronal dynamics alone are insufficient for complex temporal information processing, necessitating the integration of explicit temporal modeling mechanisms to enhance the temporal processing capabilities of SNNs.
+
+Furthermore, we argue that effective temporal modeling should enhance consistency among features extracted across different timesteps. To illustrate this point, Figure 1(a) illustrates the evolution of feature consistency on UCF101(Soomro et al., 2012) as training progresses. The results demonstrate that as models converge, semantic extraction capability im
+
+Table 1: Summary of commonly used DVS and video datasets.
+
+<table><tr><td>#dataset</td><td>#classes</td><td>#object</td><td>#temporal</td><td>#scale</td></tr><tr><td>DVS-Guesture</td><td> $1.3K \times 10s$ </td><td>action</td><td>Real Scene</td><td>Small</td></tr><tr><td>CIFAR10-DVS</td><td> $10K \times 1.2s$ </td><td>images</td><td>Camera Shift</td><td>Small</td></tr><tr><td>N-Caltech101</td><td> $9K \times 0.3s$ </td><td>images</td><td>Camera Shift</td><td>Small</td></tr><tr><td>UCF101</td><td> $13K \times 4s$ </td><td>action</td><td>Real Scene</td><td>Medium</td></tr><tr><td>HMDB51</td><td> $6.7K \times 7s$ </td><td>action</td><td>Real Scene</td><td>Medium</td></tr><tr><td>miniKinetics</td><td> $80K \times 10s$ </td><td>action</td><td>Real Scene</td><td>Large</td></tr></table>
+
+proves significantly while feature distributions across timesteps become increasingly consistent. Ideally, as shown in Figure 1(b), high-consistency SNNs should extract stable high-level semantic features (action types, object categories) that remain invariant to temporal fluctuations(Pan et al., 2021; Han et al., 2020b). While directly constraining temporal consistency might seem intuitive, however, our experiments reveal that such enforced consistency constraints actually impair performance.
+
+Based on the preceding analysis, we propose PredNext, that explicitly models temporal relationships and enhances feature consistency in unsupervised spiking neural networks by predicting future features across contrastive views. As illustrated in Figure 2, PredNext operates as a plug-and-play module that seamlessly integrates with existing self-supervised learning algorithms. The framework comprises two complementary mechanisms: Step Prediction, which predicts representations at subsequent timesteps, and Clip Prediction, which predicts features from future temporal clips, while cross-view prediction enhances feature discrimination. PredNext is based on the hypothesis that by explicitly modeling temporal relationships both within and between clips, features with higher semantic density should better predict future representations while excluding low-level dynamic information, thus naturally improving cross-temporal feature consistency.
+
+Due to the scarcity of unsupervised methods for SNNs, we adapted established self-supervised approaches to SNN architectures as benchmarks and reproduced some video unsupervised learning methods. We conducted experiments using UCF101(Soomro et al., 2012) and MiniKinetics(Carreira & Zisserman, 2017) for pre-training, which offer greater scale and richer temporal dependencies than conventional DVS datasets(Li et al., 2017; Orchard et al., 2015)(as shown in Table 1). Results demonstrate that PredNext yields significant performance gains across self-supervised methods while substantially enhancing temporal consistency of extracted features. Our empirical study confirms that superior feature extraction capability corresponds to higher temporal feature consistency, while forcibly imposing consistency constraints degrades performance. Furthermore, experiments show that SNNs, like ANNs, benefit from larger-scale datasets in video processing tasks.
+
+## 2 METHODS
+
+## 2.1 SELF-SUPERVISED LEARNING IN SNNS
+
+![](images/c8e0b9b941250891cea6904d0c00d429e64ffff543906fb27f6f607b818c3dd3.jpg)  
+Figure 3: Implementation for self-supervised learning in SNNs, encompassing SimCLR, MoCo, SimSiam, BYOL, BarlowTwins. Temporal features are aggregated following SNN encoder.
+
+Given the absence of systematic investigations into self-supervised learning for deep spiking neural networks, we first adapted prevailing self-supervised methods to SNN architectures to establish comparative baselines for our proposed PredNext approach. As depicted in Figure 3, we implemented SNN variants of both contrastive methods (SimCLR(Chen et al., 2020), MoCo(He et al., 2020), BarlowTwins(Zbontar et al., 2021)) and negative-sample-free approaches (SimSiam(Chen & He, 2021), BYOL(Grill et al., 2020)).
+
+Formally, let $x \in D$ denote a clip of length t sampled from dataset D. Through data augmentation $H ( x )$ , we obtain two views $\ v x _ { i } ^ { t }$ and $\mathbf { \bar { \rho } } _ { x _ { j } ^ { t } }$ . These views, processed through feature extractors and MLP projection heads, yield representations $z _ { i } ^ { t }$ and $z _ { j } ^ { t }$ . Self-supervised learning aims to minimize distances between representations from different views of the same sample while maximizing distances between representations from different samples. For SNNs, we follow convention by computing the time-averaged representation $z _ { i } = \textstyle \sum _ { t = 1 } ^ { T } z _ { i } ^ { t } / T$ as the final feature. SimCLR and MoCo implementations utilize the InfoNCE loss function:
+
+$$
+L = - \log {\frac {\exp (s i m (z _ {i} , z _ {j}) / \tau)}{\sum_ {k = 1} ^ {N} \exp (s i m (z _ {i} , z _ {k}) / \tau)}}\tag{1}
+$$
+
+Here, $s i m ( \cdot , \cdot )$ denotes cosine similarity, τ represents the temperature parameter, and $N$ is the batch size. SimCLR utilizes in-batch samples as negative examples, whereas MoCo maintains a dynamic feature queue for negative samples with a momentum encoder. SimSiam and BYOL employ a predictor network h that maps representations between views while minimizing their distance:
+
+$$
+L = 1 - \frac {z _ {j}}{\| z _ {j} \| _ {2}} \cdot \frac {h (z _ {i})}{\| h (z _ {i}) \| _ {2}}\tag{2}
+$$
+
+where, BYOL employs a momentum encoder for target network updates, while SimSiam utilizes a weight-shared siamese network with stop-gradient operations to prevent collapse. BarlowTwins, conversely, minimizes feature redundancy using the following loss function:
+
+$$
+L = \sum_ {i} (1 - C _ {i i}) ^ {2} + \lambda \sum_ {i} \sum_ {j \neq i} C _ {i j} ^ {2}\tag{3}
+$$
+
+where C denotes the cross-correlation matrix of batch-normalized features, and λ is the hyperparameter balancing these competing objectives.
+
+Our SNN reproduction for self-supervised learning methods utilizes a SEW ResNet architecture (Fang et al., 2021a) for feature extraction. Across all experiments, we employ the AdamW optimizer (initial learning rate: 2e-3, weight decay: 1e-4) with cosine annealing scheduling and a batch size of $b = 2 5 6$ . For UCF101 and HMDB51, we use $1 2 8 \times 1 2 8$ crops with 200 training epochs, with extracted $T = 1 6$ frames with a stride of $\tau = 2 ;$ for MiniKinetics, $1 1 4 \times 1 1 4$ crops with 120 epochs. We extract $T = 8$ frames with a stride of $\tau = 8 .$ . Data augmentation follows protocols established in Feichtenhofer et al. (2021). Validation employs 3 clips per video for inference. Comprehensive architectural and hyperparameter details are provided in the appendix.
+
+<div class="mineru-algorithm" style="white-space: pre-wrap; font-family:monospace;">
+Algorithm 1 PredNext Training Procedure
+Require: Dataset D, data augmentation function H, feature extractor and projection head F, temporal prediction head  $P_{T}, P_{C}$ , self-supervised loss function  $L_{ssl}$ , weight coefficient  $\alpha$ 
+Ensure: Trained feature extractor F
+1: for each mini-batch do
+2: // Get features from two augmented views
+3:  $x_{i} = H(x), x_{j} = H(x)$ 
+4:  $z_{i}^{t} = F(x_{i}^{t}), z_{j}^{t} = F(x_{j}^{t})$  for  $t = 1...T$ 
+5: // Compute original self-supervised loss
+6:  $L_{ssl} = self-supervised loss based on z_{i}$  and  $z_{j}$ 
+7: // Compute PredNext predicted features
+8:  $p_{i}^{t} = P_{T}(z_{i}^{t}), p_{j}^{t} = P_{T}(z_{j}^{t})$  for  $t = 1...T - 1$ 
+9:  $c_{i} = P_{C}(z_{i}), c_{j} = P_{C}(z_{j})$ 
+10: // Compute PredNext loss
+11:  $L_{pred} = 0.25 \cdot (\sum_{t} (Q(p_{i}^{t}, z_{j}^{t+m}) + Q(p_{j}^{t}, z_{i}^{t+m})) + M(c_{i}, z_{j}^{*}) + M(c_{j}, z_{i}^{*}))$ 
+12: //Compute total loss and update parameters
+13:  $L = (1 - \alpha) \cdot L_{ssl} + \alpha \cdot L_{pred}$ 
+14: Update parameters of F and  $P_{T}, P_{C}$  to minimize L
+15: end for
+</div>
+
+## 2.2 PREDNEXT
+
+PredNext serves as a plug-and-play auxiliary module seamlessly integrable with diverse selfsupervised learning frameworks. As depicted in Figure 2, it introduces temporal prediction as an auxiliary objective while preserving the original self-supervised paradigm. Inspired by Predictive Coding theory(Huang & Rao, 2011; Spratling, 2017), PredNext explicitly models temporal relationships through future representation prediction. This approach operates on the principle that semantically rich features should accurately predict their next semantical feature, whereas features capturing only low-level dynamics cannot generate effective predictions.
+
+PredNext comprises three main components: an SNN feature extractor and a nonlinear MLP projection head (jointly denoted as F), alongside two temporal prediction heads $( P _ { T }$ and $P _ { C } )$ for nexttimestep and next-clip predictions. The Step Predictor $P _ { T }$ establishes mappings between current and future timestep features, while the Clip Predictor $P _ { C }$ models relationships between current and future clip representations. Both predictors employ two-layer MLPs with dimensions matching the projection head output. For augmented clips $\boldsymbol { x } _ { i } ^ { t }$ and $\ v x _ { j } ^ { t }$ , we obtain representations $z _ { i } ^ { t } = F ( x _ { i } ^ { t } )$ and $z _ { j } ^ { t } = F ( x _ { j } ^ { t } )$ that serve both the original self-supervised objective and generating predictions through $p _ { i } ^ { t } = \bar { P } _ { T } ( F ( x _ { i } ^ { t } ) ) , p _ { j } ^ { t } = P _ { T } ( F ( x _ { j } ^ { t } ) )$ and $\begin{array} { r } { c _ { i } = P _ { C } ( \frac { 1 } { T } \sum _ { t } F ( x _ { i } ^ { t } ) ) , c _ { j } = P _ { C } ( \frac { 1 } { T } \sum _ { t } F ( x _ { j } ^ { t } ) ) } \end{array}$ Step Predictor’s loss function minimizes the divergence between current features and cross-view future features:
+
+$$
+Q (p _ {i} ^ {t}, z _ {j} ^ {t + m}) = - \sum_ {t} \frac {p _ {i} ^ {t}}{| p _ {i} ^ {t} |} \cdot \frac {z _ {j} ^ {t + m}}{| z _ {j} ^ {t + m} |}\tag{4}
+$$
+
+where m denotes the prediction time step interval. While Clip Predictor’s loss function is defined as:
+
+$$
+M (c _ {i}, z _ {j} ^ {*}) = - \frac {c _ {i}}{| c _ {i} |} \cdot \frac {z _ {j} ^ {*}}{| z _ {j} ^ {*} |}\tag{5}
+$$
+
+Where $z _ { i } ^ { * }$ and $z _ { i } ^ { * }$ denote temporally aggregated features of the subsequently sampled clip. To enhance learning effectiveness, we employ a symmetric design, with the final loss function:
+
+$$
+L _ {p r e d} = \sum_ {t} (\frac {1}{2} Q (p _ {i} ^ {t}, z _ {j} ^ {t + m}) + \frac {1}{2} Q (p _ {j} ^ {t}, z _ {i} ^ {t + m})) + \frac {1}{2} M (c _ {i}, z _ {j} ^ {*}) + \frac {1}{2} M (c _ {j}, z _ {i} ^ {*})\tag{6}
+$$
+
+We employ cross-view prediction where features from one view $( p _ { i } ^ { t } , c _ { i } )$ predict future features of another view $( z _ { j } ^ { t + m } , z _ { j } ^ { \ast } )$ , with stop-gradient applied to the target features. This design enhances feature discrimination by requiring the model to disregard view-specific noise. Our ablation studies comparing same-view prediction $( p _ { i } ^ { t }$ predicting $z _ { i } ^ { t + \ o { m } } )$ against cross-view prediction demonstrate that the latter yields superior generalization performance. PredNext’s complete training procedure is outlined in Algorithm 1. The final optimization objective combines both learning targets:
+
+$$
+L = (1 - \alpha) \cdot L _ {s s l} + \alpha \cdot L _ {p r e d}\tag{7}
+$$
+
+Where weight coefficient α balances their relative importance.
+
+Base settings: As PredNext is model-agnostic and functions as a plug-and-play component across methods, we standardized its parameters throughout our experiments. Following SimSiam (Chen & He, 2021), the temporal prediction head $P _ { T }$ and $P _ { C }$ comprises a 2-layer MLP with batch normalization, using a 128-dimensional hidden layer while maintaining output dimensions consistent with $F ( x ) { \mathrm { : } } { \mathrm { s } }$ feature representation.
+
+## Comparison with Predictive Coding Methods:
+
+Table 2: Summary of commonly used DVS and video datasets.
+
+Predictive coding approaches have attracted considerable research interest, particularly for temporal data processing. DPC/MemDPC(Han et al., 2019; 2020a) implement dense predictions on video sequences and utilize dedicated temporal aggregator networks to process intermediate temporal variables. Lorre et al.(Lorre et al., 2020) developed a CPC-like
+
+<table><tr><td>methods</td><td>no additional module needed</td><td>step pred</td><td>clip pred</td></tr><tr><td>DPC</td><td>✗</td><td>√</td><td>✗</td></tr><tr><td>memDPC</td><td>✗</td><td>√</td><td>✗</td></tr><tr><td>CPC-like(Lorre&#x27;s)</td><td>✗</td><td>√</td><td>✗</td></tr><tr><td>PrredNext</td><td>√</td><td>√</td><td>√</td></tr></table>
+
+approach for future timestep feature prediction. As shown in Table 2, in contrast, PredNext employs cross-view prediction with a more streamlined architecture that eliminates the need for complex auxiliary structures, functioning as a modular component integrable with existing methodologies.
+
+## 3 EXPERIMENTS
+
+## 3.1 DATASET AND IMPLEMENTATION
+
+Datasets details In contrast to traditional DVS datasets, unsupervised learning paradigms necessitate large-scale datasets to extract meaningful representations. UCF101(Soomro et al., 2012) and HMDB51(Kuehne et al., 2011) are medium-scale video benchmarks widely adopted in action recognition research. UCF101 encompasses 13, 320 video clips across 101 action classes, while HMDB51 contains 6, 766 clips with 51 classes. miniKinetics(Carreira & Zisserman, 2017; Xie et al., 2018), an common subset of Kinetics-400, includes 200 classes with about 400 training and 25 validation instances per class, maintaining diversity and complexity while reducing computational requirements.
+
+Implementation details To ensure experimental rigor and comparative validity, we maintain configurations of PredNext aligned with established baselines. We employ SEW ResNet (Fang et al.,
+
+Table 3: Comparative results after fine-tuning under different self-supervised methods. Top-1 and Top-5 accuracies are reported. Models were trained using various pre-training datasets and evaluated on different fine-tuning datasets. \* indicates results reproduced according to our setup.
+
+<table><tr><td rowspan="2">method</td><td colspan="4">finetune datasets</td><td colspan="2">ucf101</td><td colspan="2">hmdb51</td><td colspan="2">miniKinetics</td></tr><tr><td colspan="4">Initial weights</td><td>top-1</td><td>top-5</td><td>top-1</td><td>top-5</td><td>top-1</td><td>top-5</td></tr><tr><td>Supervised</td><td colspan="4">random init</td><td>44.07</td><td>70.84</td><td>18.04</td><td>45.69</td><td>40.53</td><td>68.59</td></tr><tr><td>Supervised</td><td colspan="4">ImageNet init</td><td>64.42</td><td>87.36</td><td>34.31</td><td>67.84</td><td>50.48</td><td>76.53</td></tr><tr><td>Supervised</td><td colspan="4">ImageNet + miniKinetics init</td><td>70.02</td><td>91.62</td><td>44.97</td><td>78.37</td><td>-</td><td>-</td></tr><tr><td rowspan="2">pre-train finetune</td><td colspan="4">ucf101</td><td colspan="6">miniKinetics</td></tr><tr><td colspan="2">ucf101</td><td colspan="2">hmdb51</td><td colspan="2">ucf101</td><td colspan="2">hmdb51</td><td colspan="2">miniKinetics</td></tr><tr><td>method (Initial weights)</td><td>top-1</td><td>top-5</td><td>top-1</td><td>top-5</td><td>top-1</td><td>top-5</td><td>top-1</td><td>top-5</td><td>top-1</td><td>top-5</td></tr><tr><td>SimCLR</td><td>57.04</td><td>83.82</td><td>30.59</td><td>64.97</td><td>59.03</td><td>85.96</td><td>35.42</td><td>67.97</td><td>50.61</td><td>77.16</td></tr><tr><td>MoCo</td><td>49.70</td><td>79.70</td><td>28.04</td><td>62.22</td><td>45.63</td><td>76.55</td><td>20.72</td><td>46.86</td><td>42.65</td><td>70.23</td></tr><tr><td>BYOL</td><td>56.41</td><td>83.18</td><td>29.35</td><td>64.58</td><td>59.27</td><td>86.23</td><td>36.74</td><td>68.24</td><td>51.23</td><td>77.69</td></tr><tr><td>BarlowTwins</td><td>56.15</td><td>84.25</td><td>30.33</td><td>64.12</td><td>58.04</td><td>85.83</td><td>36.53</td><td>68.17</td><td>51.28</td><td>77.61</td></tr><tr><td>SimSiam</td><td>50.81</td><td>81.07</td><td>28.10</td><td>63.46</td><td>43.77</td><td>74.89</td><td>19.08</td><td>45.75</td><td>41.52</td><td>69.75</td></tr><tr><td>SimSiam (ImageNet)</td><td>70.32</td><td>91.56</td><td>39.65</td><td>74.35</td><td>68.70</td><td>91.91</td><td>36.67</td><td>73.53</td><td>-</td><td>-</td></tr><tr><td> $\rho$  SimSiam ( $\rho = 1$ )</td><td>52.05*</td><td>81.75*</td><td>28.56*</td><td>64.30*</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr><tr><td>CVRL(SimSiam-based)</td><td>52.81*</td><td>82.15*</td><td>29.22*</td><td>64.38*</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr><tr><td>PredNext $_{SimCLR}$ </td><td>59.47</td><td>85.28</td><td>31.58</td><td>66.19</td><td>61.06</td><td>87.21</td><td>36.80</td><td>68.37</td><td>53.61</td><td>78.59</td></tr><tr><td>PredNext $_{MoCo}$ </td><td>54.98</td><td>82.87</td><td>29.60</td><td>64.31</td><td>51.60</td><td>79.65</td><td>25.69</td><td>51.37</td><td>46.51</td><td>73.64</td></tr><tr><td>PredNext $_{BYOL}$ </td><td>58.58</td><td>83.82</td><td>31.57</td><td>64.51</td><td>62.01</td><td>88.26</td><td>37.25</td><td>69.28</td><td>54.37</td><td>79.61</td></tr><tr><td>PredNext $_{BarlowTwins}$ </td><td>59.76</td><td>84.85</td><td>31.18</td><td>66.01</td><td>62.75</td><td>88.66</td><td>37.65</td><td>69.35</td><td>54.68</td><td>79.85</td></tr><tr><td>PredNext $_{SimSiam}$ </td><td>54.93</td><td>82.77</td><td>30.00</td><td>64.37</td><td>50.65</td><td>79.01</td><td>25.03</td><td>51.04</td><td>46.31</td><td>73.68</td></tr><tr><td>PredNext $_{SimSiam}$ (ImageNet)</td><td>72.24</td><td>91.81</td><td>41.50</td><td>75.42</td><td>71.66</td><td>92.07</td><td>38.63</td><td>74.25</td><td>-</td><td>-</td></tr></table>
+
+2021a) as the feature extraction backbone across all experimental conditions. For UCF101 and HMDB51, we crop video frames at $1 2 8 \times 1 2 8$ resolution, sampling 16 frames with a stride of 2. MiniKinetics processing utilizes 112 × 112 resolution with 8 frames with a stride of 8. During evaluation, we perform inference on 3 uniformly sampled clips per test video. Optimizer hyperparameters remain consistent with baseline model configurations. More experimental parameters details are included in the appendix. While optical flow typically enhances performance in video understanding tasks(Han et al., 2020b; Carreira & Zisserman, 2017), we exclude this modality as our investigation primarily focuses on temporal feature consistency in SNNs under unsupervised learning paradigms, and we reserve multimodal integration for subsequent research endeavors.
+
+## 3.2 RESULTS OF UNSUPERVISED REPRESENTATION EVALUATION
+
+We first evaluated the performance of various self-supervised learning methods in baseline spiking neural network implementations, then incorporating PredNext as an auxiliary module to quantify performance enhancements. Following the experimental protocol established in (Han et al., 2019), we utilized UCF101 and MiniKinetics as pre-training datasets and report performance after finetuning on different target datasets.
+
+Table 3 presents performance across pretraining and fine-tuning configurations. Even basic SNN self-supervised methods achieve substantial results on action recognition tasks. PredNext consistently yields significant improvements across all methods, demonstrating its effectiveness in enhancing temporal representation learning. Notably, PredNext achieves performance comparable to ImageNet-pretrained supervised weights, through unsupervised training solely on UCF101. Moreover, models trained on larger pretraining datasets consistently show superior performance, confirming that SNNs, like ANNs, benefit significantly from data scale (without MoCo, SimSiam). Interestingly, even trained with same datasets, unsupervised models outperformed those trained with supervision (SimSiam on UCF101), highlighting the research significance of video unsupervised learning in providing stronger generalization. Furthermore, larger datasets provide more effective parameter initialization—models initialized with ImageNet weights and pre-trained solely on UCF101 achieve performance (SimSiam(ImageNet) on UCF101) comparable to supervised learning on MiniKinetics.
+
+We observe that SimSiam and MoCo exhibit relatively lower performance compared to the other three methods. We attribute this to the following reasons: SimSiam lacks negative samples compared to other approaches, leading to relatively unstable training, whereas BYOL enhances stability through a momentum encoder. On the other hand, MoCo requires maintaining a memory bank as a negative sample repository, which proves challenging for datasets like UCF101 to sustain a large and consistent bank for effective training.
+
+![](images/d3097e23bbf6b9da8d1795fcaa160ea9e800052f6d8aeb8ebc77d4c83b3e940f.jpg)  
+Figure 4: Analysis of temporal feature visualization. Top row: evolution of temporal consistency error during training across methods. Middle and bottom rows: UMAP visualizations of video features from baseline self-supervised methods and their PredNext-enhanced variants, respectively.
+
+## 3.3 CONSISTENCY CURVES AND MANIFOLD
+
+To examine PredNext’s influence on SNN temporal feature representations, we analyzed feature consistency across methods. Figure 4 illustrates the evolution of feature consistency during training. We define feature consistency error as the average cosine distance between representations from different time steps of the same video:
+
+$$
+E _ {c o n s i s t e n c y} = \frac {1}{N} \frac {1}{T (T - 1)} \sum_ {i = 1} ^ {N} \sum_ {t = 1} ^ {T} \sum_ {s = 1, s \neq t} ^ {T} \left(1 - \cos (f _ {i} ^ {t}, f _ {i} ^ {s})\right)\tag{8}
+$$
+
+where $f _ { i } ^ { t }$ represents video $i \gamma _ { \mathrm { s } }$ feature at time t, N denotes the sample count, and $T$ indicates time steps per video. Lower values indicate lower temporal feature consistency.
+
+Consistency Visualization As Figure 4(top row) demonstrates, consistency errors decrease during training across all methods, indicating progressive learning of stable temporal features before eventual saturation or deterioration. Methods incorporating PredNext maintain comparable earlystage convergence rates to
+
+Table 4: Comparative results of forced consistency constraint experiments. $\beta$ denotes constraint intensity; error represents temporal feature consistency deviation.
+
+<table><tr><td>UCF101</td><td>SimSiam (ImageNet)</td><td>SimSiam PredNext (ImageNet)</td><td colspan="3">Forced Consistency</td></tr><tr><td> $\beta$ </td><td>-</td><td>-</td><td>0.1</td><td>0.5</td><td>0.8</td></tr><tr><td rowspan="2">top-1 consistency</td><td>70.32</td><td> $72.24_{+1.92}$ </td><td> $70.45_{+0.13}$ </td><td> $65.69_{-4.63}$ </td><td> $60.35_{-9.97}$ </td></tr><tr><td>0.773</td><td> $0.819_{+0.046}$ </td><td> $0.803_{+0.03}$ </td><td> $0.852_{+0.08}$ </td><td> $0.884_{+0.11}$ </td></tr></table>
+
+baselines but avoid the post-saturation decline, ultimately achieving significantly lower consistency errors. This confirms our hypothesis that explicit temporal prediction modeling guides networks toward semantically richer, temporally consistent representations.
+
+To further visualize learned representations, we applied UMAP (McInnes et al., 2018) for dimensionality reduction on test set samples, as shown in Figure 4 (middle and bottom rows). Original self-supervised methods generate temporally dispersed features, with representations from different time steps often widely separated. In contrast, PredNext-enhanced methods significantly improve feature clustering, with same-video feature points exhibiting substantially tighter grouping.
+
+Table 5: Video retrieval performance comparison. R@1, 5, 10, 20 denote recall rates at corresponding rank thresholds. Evaluations performed on UCF101 and HMDB51 datasets. All models pretrained on UCF101 split 1.
+
+<table><tr><td>UCF101 pretrain</td><td colspan="4">UCF101</td><td colspan="4">HMDB51</td></tr><tr><td>methods</td><td>R@1</td><td>R@5</td><td>R@10</td><td>R@20</td><td>R@1</td><td>R@5</td><td>R@10</td><td>R@20</td></tr><tr><td>SimCLR</td><td>34.58</td><td>55.72</td><td>65.50</td><td>74.70</td><td>12.22</td><td>34.71</td><td>49.67</td><td>64.71</td></tr><tr><td> $SimCLR_{PredNext}$ </td><td>37.09</td><td>56.01</td><td>66.38</td><td>75.20</td><td>13.60</td><td>35.36</td><td>50.32</td><td>66.86</td></tr><tr><td>SimSiam</td><td>27.84</td><td>48.53</td><td>59.79</td><td>71.56</td><td>11.70</td><td>32.68</td><td>45.95</td><td>60.98</td></tr><tr><td> $SimSiam_{PredNext}$ </td><td>36.27</td><td>55.70</td><td>65.13</td><td>74.15</td><td>13.20</td><td>35.16</td><td>47.32</td><td>64.05</td></tr><tr><td> $SimSiam_{PredNext}$ (ImageNet)</td><td>53.19</td><td>69.39</td><td>76.53</td><td>83.11</td><td>15.95</td><td>40.46</td><td>53.53</td><td>68.43</td></tr></table>
+
+Forced Consistency Constraints Furthermore, we conducted a control experiment with forced consistency constraints by directly adding an explicit constraint to the loss function, compelling feature similarity across different time steps of the same video:
+
+$$
+L _ {f o r c e d} = L _ {s s l} + \beta \cdot \mathbb {E} _ {i, t, s} [ 1 - \cos (f _ {i} ^ {t}, f _ {i} ^ {s}) ]\tag{9}
+$$
+
+This approach diverges from PredNext by eliminating prediction heads and prediction processing. As shown in Table 4, this direct constraint indeed rapidly reduces consistency errors, even faster than PredNext. However, analysis of the relationship between feature consistency and downstream task performance reveals that despite generating more consistent features, forced constraints yield inferior fine-tuning performance compared to PredNext’s representations.
+
+Therefore, these findings demonstrate that superior feature extraction capability corresponds with higher temporal feature consistency and stability. However, simply enforcing consistency through constraints does not necessarily lead to better feature extraction capabilities. High-quality features capture semantic information in videos (such as action types, object categories), which should naturally remain relatively stable over time periods. Forced consistency constraints potentially suppress critical temporal dynamics, yielding oversimplified representations with low discriminative capacity.
+
+## 3.4 VIDEO RETRIEVAL
+
+![](images/5e008871ce10d4324735a44262707a53980440b4086f3248685bf39bba2b5d36.jpg)  
+Figure 5: Visualization of retrieval results. Query videos (in left) with corresponding Top-3 retrieval results. Results for three query samples shown, with one sample per row.
+
+Retrieval Results To further evaluate the semantic representation capabilities, we conducted video retrieval evaluations following (Han et al., 2019). Using UCF101’s split 1 validation set as queries and the corresponding training split as retrieval candidates, we uniformly sampled 10 frames per video and extracted temporally aggregated features from pretrained models. The retrieval process employed a Nearest Neighbor(NN) search. we identified the K closest videos to each query and calculated category matching performance (Recall@K). Table 5 presents video retrieval performance across self-supervised methods using Recall@1,5,10,20 metrics. Results demonstrate that PredNext integration yields significant improvements across all retrieval benchmarks, confirming its capacity to facilitate more precise semantic representations.
+
+NN Visualization Figure 5 provides visualization examples retrieval from PredNext’s features. Query (Figure 5 (left)) videos with their corresponding Top-3 retrieval results (Figure 5 (right)) illustrate that PredNext can retrieve semantically consistent videos despite significant visual variations in varied camera angles, player appearances, and visual contexts.
+
+![](images/7bed8cacce3805474625286fa87d6fca99465f8e128701795bde897ec67a1f3a.jpg)
+
+![](images/3e4a38a284b9895698609f63803a291655703b03ad6d1f53667d1708975b45db.jpg)
+
+![](images/a4665097936ed442ac4220a5f2493706b2287706686c950d486bf35fb6243574.jpg)  
+Figure 6: (a) Impact of prediction step length on model performance. (b) Influence of prediction head hidden layer dimensionality on model efficacy. (c) Effects of temporal length and sampling rate on model performance.
+
+Table 6: Ablation studies. Performance comparison following removal of step prediction and clip prediction components. Experiments conducted on SimSiam and SimCLR. All models pretrained on UCF101 split1.
+
+<table><tr><td colspan="2"></td><td colspan="4">SimSiam</td><td colspan="4">SimCLR</td></tr><tr><td rowspan="2">step prediction</td><td rowspan="2">clip prediction</td><td colspan="2">ucf101</td><td colspan="2">hmdb51</td><td colspan="2">ucf101</td><td colspan="2">hmdb51</td></tr><tr><td>top-1</td><td>top-5</td><td>top-1</td><td>top-5</td><td>top-1</td><td>top-5</td><td>top-1</td><td>top-5</td></tr><tr><td>×</td><td>×</td><td>50.81</td><td>81.07</td><td>28.10</td><td>63.46</td><td>57.04</td><td>83.82</td><td>30.59</td><td>64.97</td></tr><tr><td>√</td><td>×</td><td>51.33</td><td>81.26</td><td>28.76</td><td>63.73</td><td>57.86</td><td>84.14</td><td>30.65</td><td>65.03</td></tr><tr><td>×</td><td>√</td><td>54.40</td><td>82.37</td><td>29.54</td><td>64.12</td><td>59.21</td><td>84.96</td><td>31.18</td><td>66.01</td></tr><tr><td>√</td><td>√</td><td>54.93</td><td>82.77</td><td>30.00</td><td>64.37</td><td>59.48</td><td>85.28</td><td>31.57</td><td>66.34</td></tr></table>
+
+## 4 ABLATION STUDIES
+
+Impact of Prediction Head $P _ { T } , P _ { C }$ Table 6 illustrates the impact of Prediction Heads $P _ { T }$ and $P _ { C }$ on model performance. Both prediction components independently enhance performance, while their combination in PredNext yields further improvements. Clip prediction demonstrates more substantial effects than step prediction, which we attribute to its coverage of temporal information across a longer time range, facilitating acquisition of richer temporal representations.
+
+Impact of Prediction Step Length Prediction step length determines the temporal distance for feature prediction. Figure 6(a) illustrates performance across varying step lengths. Optimal performance typically occurs at step length 1, with declining performance at longer intervals. We analyze that when $m > 1$ , adjacent timesteps lose the ability to interact for prediction, as larger m values cause the model to skip nearby temporal moments, resulting in significantly sparser predictive interactions compared to m = 1 and consequently leading to performance degradation.
+
+Impact of Cross-view Prediction Table 7 compares four prediction strategies: cross-view prediction, same-view prediction, and their standalone implementations without original self-supervised objectives. Cross-view prediction consistently outperforms alternatives across all methods. By predicting features across different augmentations, models must isolate semantically meaningful features, while same-view-only prediction leads to representation collapse.
+
+Impact of Prediction Head Size Figure 6 (b) illustrates how prediction head $P _ { T } , P _ { C }$ hidden dimensionality affects model performance. Testing dimensions from 64 to 1024 reveals that performance improves with increasing dimensionality but stabilizes beyond 256 dimensions. This indicates that the prediction head re-
+
+Table 7: Comparative results between same-view and cross-view prediction. ”only” indicates training without original self-supervised objectives.
+
+<table><tr><td>dataset</td><td>cross-view</td><td>same-view</td><td>cross-view only</td><td>same-view only</td></tr><tr><td>UCF101</td><td>54.93</td><td> $53.66_{-1.27}$ </td><td> $52.37_{-2.56}$ </td><td> $5.03_{-49.90}$ </td></tr><tr><td>HMDB51</td><td>30.00</td><td> $29.67_{-0.33}$ </td><td> $29.41_{-0.59}$ </td><td> $3.07_{-26.93}$ </td></tr></table>
+
+quires sufficient representational capacity for effective temporal modeling but becomes parameterinefficient beyond certain thresholds. We selected 512 dimensions as the optimal configuration, balancing performance with computational efficiency. Notably, the prediction head introduces minimal additional parameters compared to the feature extraction backbone and is utilized exclusively during training, introducing no computational overhead during inference.
+
+Impact of Time Lengths and Sampling Stride Figure 6 (c) illustrates how clip length and sampling stride influence model performance. Evaluating combinations of sequence lengths (10, 16 frames) and sampling intervals (1, 2, 4) reveals consistent performance improvements with both increased sequence length and wider sampling intervals. This pattern suggests that sequences span-
+
+Table 9: Comparison with other SNN/ANN methods on UCF101. \* denotes stronger data augmentation. pretrain indicates whether ImageNet pretraining is used. Due to varying model capacities, the effectiveness of ImageNet pretrained weights differs. ANN indicates ANN-based models. † indicates results reported by unofficial split and size.
+
+<table><tr><td>method</td><td>Un-/Sup</td><td>model</td><td>pretrain</td><td>pretrain Acc in ImageNet</td><td>Top1</td><td>Top5</td></tr><tr><td>vanilla</td><td>supervised</td><td>ResNet 18(ANN)</td><td>✕</td><td>-</td><td>40.7</td><td>63.8</td></tr><tr><td>vanilla</td><td>supervised*</td><td>ResNet 18(ANN)</td><td>✕</td><td>-</td><td>53.2</td><td>78.3</td></tr><tr><td>vanilla</td><td>supervised*</td><td>ResNet 34(ANN)</td><td>✕</td><td>-</td><td>54.2</td><td>77.4</td></tr><tr><td>vanilla</td><td>supervised*</td><td>ResNet 50(ANN)</td><td>✕</td><td>-</td><td>54.3</td><td>77.5</td></tr><tr><td>ReSpike (Xiao et al. (2025))</td><td>supervised</td><td>ResNet 18(ANN)+MS-ResNet18</td><td>√</td><td>73.2</td><td>77.5</td><td>93.9</td></tr><tr><td>SVFormer-st (Yu et al. (2024))</td><td>supervised*</td><td>SVFormer-st</td><td>√</td><td>82.9</td><td>80.2</td><td>-</td></tr><tr><td>LSM+STDP(Panda &amp; Srinivasa (2018))</td><td>hand-crafted+supervised</td><td>LSM-16.2M</td><td>-</td><td>-</td><td>70.2†</td><td>-</td></tr><tr><td>STS ResNet(Samadzadeh et al. (2023))</td><td>supervised</td><td>STS ResNet</td><td>✕</td><td>-</td><td>42.1</td><td>-</td></tr><tr><td>SimSiam</td><td>unsupervised</td><td>ResNet 18(ANN)</td><td>✕</td><td>-</td><td>49.3</td><td>78.6</td></tr><tr><td> $SimSiam_{PredNext}$ </td><td>unsupervised</td><td>SEW ResNet18</td><td>✕</td><td>-</td><td>54.9</td><td>82.8</td></tr><tr><td> $SimCLR_{PredNext}$ </td><td>unsupervised</td><td>SEW ResNet18</td><td>✕</td><td>-</td><td>59.5</td><td>85.3</td></tr><tr><td> $SimSiam_{PredNext}$ </td><td>unsupervised</td><td>SEW ResNet18</td><td>√</td><td>63.2</td><td>72.2</td><td>91.8</td></tr><tr><td> $SimSiam_{PredNext}$ </td><td>unsupervised</td><td>SEW ResNet34</td><td>√</td><td>67.0</td><td>74.1</td><td>93.1</td></tr><tr><td> $SimSiam_{PredNext}$ </td><td>unsupervised</td><td>SEW ResNet50</td><td>√</td><td>67.8</td><td>74.2</td><td>93.1</td></tr></table>
+
+ning broader temporal ranges provide richer contextual information, enabling more comprehensive semantic understanding of actions.
+
+Impact of weighting coefficient α Since our method jointly optimizes the original self-supervised loss and prediction loss, we investigate the impact of varying weighting coefficients α. Table 8 presents the performance of
+
+Table 8: Comparative results between different weight coefficient α, where $\alpha = 0$ corresponds to the original SSL method and $\alpha = 1$ equals the cross-view only setting.
+
+<table><tr><td>methods</td><td>dataset</td><td>0</td><td>0.2</td><td>0.4</td><td>0.5</td><td>0.6</td><td>0.8</td><td>1.0</td></tr><tr><td> $\text{SimSiam}_{PredNext}$ </td><td>UCF101</td><td>50.8</td><td>52.4</td><td>53.4</td><td>54.9</td><td>53.8</td><td>52.2</td><td>52.4</td></tr><tr><td> $\text{SimCLR}_{PredNext}$ </td><td>UCF101</td><td>57.0</td><td>57.4</td><td>57.9</td><td>59.5</td><td>58.6</td><td>55.5</td><td>52.4</td></tr><tr><td> $\text{SimSiam}_{PredNext}$ </td><td>HMDB51</td><td>28.1</td><td>28.3</td><td>28.9</td><td>30.0</td><td>29.4</td><td>29.5</td><td>29.4</td></tr></table>
+
+PredNext on UCF101 and HMDB51 under different α values. Results shows increasing the prediction loss weight $( \alpha = 0 . 5 )$ yields significant performance improvements, excessively high prediction weights(α = 0.8), result in performance degradation, ultimately converging to the cross-view only setting at $\alpha = 1$ Complete reliance on the prediction task may overlook important information from the original self-supervised task. Given that $\alpha = 0 . 5$ consistently exhibits superior performance across all experiments, we adopt this value as the default setting throughout our study.
+
+Comparison with other SNN/ANN methods We compare PredNext with other SNN/ANN methods reporting results on UCF101. Table 9 presents the performance of different methods. We observe that model performance correlates significantly with pretrained weight effectiveness. Without ImageNet pretraining, PredNext even outperforms ANN-based supervised baselines (we find that weak augmentation causes ANN collapse on UCF101, thus we employ stronger augmentation than reported basic setting). With ImageNet pretraining, PredNext performs lower compared to methods with larger parameters and ANN supervision, which we contribute to SNN pretrained weights achieving lower performance (63.2% vs. 73.2%). Meanwhile, PredNext performance scales with model size, improving from SEW-ResNet18 to ResNet34. However, on SEW-ResNet50, marginal pretrained weight quality differences prevent further leveraging parameter scale advantages. Notably, PredNext without pretraining weight surpasses self-supervised ANN methods with identical architecture (ResNet-18), demonstrating advantages in SNN self-supervised learning performance.
+
+## 5 CONCLUSION
+
+We present PredNext, a method enhancing unsupervised spiking neural networks through future feature prediction that strengthens temporal consistency. Experimental evidence demonstrates that PredNext delivers significant performance improvements over unsupervised SNN methods while substantially enhancing temporal coherence in network representations.

@@ -1,0 +1,2859 @@
+[
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "ABSTRACT"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                450,
+                273,
+                547,
+                289
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Large language models (LLMs) acquire extensive prior knowledge through large-scale pretraining and can be further enhanced via supervised fine-tuning (SFT) or reinforcement learning (RL)-based post-training. A growing body of evidence has shown that RL fine-tuning improves the capability of LLMs beyond what SFT alone achieves. However, the underlying mechanisms why RL fine-tuning is able to enhance the capability of various LLMs with distinct intrinsic characteristics remain underexplored. In this study, we draw inspiration from prior work on edge attribution patching (EAP) to investigate the internal differences of LLMs before and after RL fine-tuning. Our analysis across multiple model families and mathematical datasets shows two robust effects of online RL post-training: (i) an overall increase in average activation intensity, indicating that more internal pathways are engaged and their signals become stronger, and (ii) greater diversity in activation patterns, reflected by higher entropy and less concentrated edge distributions. These changes suggest that RL reshapes information flow to be both more redundant and more flexible, which may explain its advantage in mathematical generalization. Notably, models fine-tuned with Direct Preference Optimization (DPO) deviate from these trends, exhibiting substantially weaker or inconsistent internal changes compared to PPO- and GRPO-based training. Together, our findings provide a unified view of how RL fine-tuning systematically alters the internal circuitry of LLMs and highlight the methodological distinctions between online RL and preference-based approaches. Our code is open source at https://github.com/tsinghua-fib-lab/llm_rl_probing_analysis."
+                    }
+                ]
+            },
+            "bbox": [
+                228,
+                304,
+                767,
+                613
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "1 INTRODUCTION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                174,
+                638,
+                338,
+                654
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Recent strides in large language models (LLMs) have shifted the developmental focus from pre-training to post-training (Kumar et al., 2025). A wide array of post-training strategies, ranging from supervised fine-tuning (SFT) (Dong et al., 2023) to reinforcement learning (RL) (Zhang et al., 2025b; Hao et al., 2025), has been developed to enhance model performance. Particularly, RL-based fine-tuning has witnessed rapid advancements, encompassing the development of reward models from Outcome Reward Models (ORM) (Lyu et al., 2025) to Process Reward Models (PRM) (Lightman et al., 2023; Yuan et al., 2024), alongside training algorithms like Proximal Policy Optimization (PPO) (Schulman et al., 2017) and Group Relative Policy Optimization (GRPO) (Shao et al., 2024). With such advancements, emerging empirical evidence indicates that RL-based fine-tuning can enhance the capability of LLMs beyond what is achieved by SFT alone (Chu et al., 2025), improving performance across a range of downstream tasks, including writing (Liao et al., 2025), reasoning (Guo et al., 2025; Xu et al., 2025), and coding (Guo et al., 2024)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                670,
+                826,
+                838
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Seeking to understand the role of different components within Large Language Models (LLMs) and the origins of their powerful capabilities, a growing body of research has focused on probing their internal structures. Initial studies revealed the working mechanisms of LLMs when solving mathematical problems by analyzing and statistically examining their internal weights (Shao et al., 2025). Subsequently, some research has analyzed patterns in LLM weights by training external neural probes, which are lightweight auxiliary models (Kim et al., 2025; Zheng et al., 2025). Recently, researchers have investigated the internal residual pathways of LLMs from a graph-theoretic perspective. They have developed methods such as Automated Circuit Discovery (ACDC) (Conmy et al., 2023) and Edge Attribution Patching (EAP) (Syed et al., 2023; Hanna et al., 2024), which assign importance scores to edges or sub-modules and reveal internal functional circuits that determine the capabilities of LLMs."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                843,
+                826,
+                887
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "equation_inline",
+                        "content": "^{1}"
+                    },
+                    {
+                        "type": "text",
+                        "content": " Honglin Zhang and Qianyue Hao contribute equally to this work."
+                    }
+                ]
+            },
+            "bbox": [
+                192,
+                895,
+                586,
+                910
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "equation_inline",
+                        "content": "^{2}"
+                    },
+                    {
+                        "type": "text",
+                        "content": " Yong Li is the corresponding author, email: liyong07@tsinghua.edu.cn"
+                    }
+                ]
+            },
+            "bbox": [
+                191,
+                910,
+                674,
+                924
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "1"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                826,
+                215
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Despite these advances, existing studies on RL-based post-training have predominantly focused on the external behavioral changes of LLMs, while the underlying internal mechanisms remain underexplored (Ren & Sutherland, 2024). Conversely, works that do investigate the internal mechanisms concentrate on given LLMs, but do not correlate the internal mechanisms to the RL-based post-training methodology with which the LLMs are commonly obtained (Hanna et al., 2024; Kim et al., 2025). As a result, the two lines of research, external evaluation of RL effects and internal mechanistic analysis, have largely progressed in parallel. This gap is partly due to the primary goal of RL post-training, namely enhancing the ability of LLMs to solve complex reasoning tasks, which makes it nontrivial to directly transfer analytical strategies developed on toy problems to the study of RL-induced improvements in real-world problem-solving capabilities."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                222,
+                826,
+                363
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To address this, we construct a framework for systematically analyzing the mechanisms through which RL fine-tuning affects LLMs. Specifically, we adopt an efficient Edge Attribution Patching (EAP) framework (Nanda, 2023), leveraging the cross-entropy computed from partially truncated generations on mathematical problem-solving tasks to estimate the contribution weights of internal edges. Based on these estimated importance weights, we analyze their distributions before and after RL fine-tuning to interpret changes in internal neuron activations and derive general conclusions regarding the structural effects of RL in the context of mathematical problem solving. Experiments across multiple LLM pairs on diverse mathematical datasets demonstrate that RL post-training strengthens the activation intensity of internal edge connections and diversifies activation patterns during problem-solving. Notably, these effects are not consistently observed under DPO training, highlighting differences between DPO and other RL paradigms, which aligns with prior observations in the literature (Xu et al., 2024)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                368,
+                826,
+                536
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Overall, the uncovered patterns hold across diverse LLM families, each with distinct characteristics such as architecture and training corpus, suggesting a set of common internal effects induced by RL fine-tuning on reasoning-heavy tasks. These findings provide new insights into how RL post-training reshapes the internal circuitry of LLMs, thereby bridging empirical performance gains with interpretable shifts in internal information pathways. In doing so, they offer guidance for the future development of both LLMs and post-training methodologies."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                541,
+                826,
+                627
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2 PRELIMINARIES"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                648,
+                341,
+                662
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2.1 LARGE LANGUAGE MODELS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                680,
+                415,
+                694
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Large language models (LLMs) are typically built upon the Transformer architecture, comprising a stack of L identical layers (Vaswani et al., 2017; Liu et al., 2024; Bai et al., 2023; Achiam et al., 2023). Each layer consists of two primary sub-structures: a multi-head self-attention mechanism and a position-wise feed-forward network (FFN), each surrounded by a residual connection. The mathematical formulation described below represents the most common architecture found in contemporary LLMs. Let   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf{H}^{(2\\ell)} \\in \\mathbb{R}^{B \\times P \\times d_{model}}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  denote the input hidden state to the   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "(\\ell + 1)"
+                    },
+                    {
+                        "type": "text",
+                        "content": " -th layer, where B is the batch size, P is the sequence length, and   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "d_{model}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  is the hidden dimension. Specifically, the raw input embeddings are denoted by   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf{X}_{\\mathrm{input}} = \\mathbf{H}^{(0)}"
+                    },
+                    {
+                        "type": "text",
+                        "content": " ."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                707,
+                826,
+                823
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The output of the   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\ell"
+                    },
+                    {
+                        "type": "text",
+                        "content": " -th layer,   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf{H}^{(2\\ell)}"
+                    },
+                    {
+                        "type": "text",
+                        "content": " , is computed via the sequential processing of the attention and FFN sub-structures. For the attention sub-structure, the input is first normalized as   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "X_{attn}^{\\ell} = LayerNorm\\left(\\mathbf{H}^{(2\\ell-2)}\\right)"
+                    },
+                    {
+                        "type": "text",
+                        "content": " . The attention mechanism is then applied:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                830,
+                823,
+                876
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\text { Attention } \\left(\\mathbf {X} _ {\\text { attn }} ^ {\\ell}\\right) = \\mathbf {O} _ {\\text { attn }} ^ {\\ell} = \\text { softmax } \\left(\\frac {\\left(\\mathbf {X} _ {\\text { attn }} ^ {\\ell} \\mathbf {W} _ {q} ^ {\\ell}\\right) \\left(\\mathbf {X} _ {\\text { attn }} ^ {\\ell} \\mathbf {W} _ {k} ^ {\\ell}\\right) ^ {T}}{\\sqrt {d _ {k}}}\\right) \\left(\\mathbf {X} _ {\\text { attn }} ^ {\\ell} \\mathbf {W} _ {v} ^ {\\ell}\\right) \\mathbf {W} _ {o} ^ {\\ell},\\tag{1}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/bf1c29337be26387a37f142477732a2793739e6232af6467f04f456ddc94d679.jpg"
+                }
+            },
+            "bbox": [
+                223,
+                886,
+                772,
+                926
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "2"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W_{q}^{\\ell}, W_{k}^{\\ell} \\in R^{d_{model} \\times d_{query}}, W_{v}^{\\ell} \\in R^{d_{model} \\times d_{attn}}, W_{o}^{\\ell} \\in R^{d_{attn} \\times d_{model}}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  are the query, key, value and output projection matrices, respectively. Here,   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "d_{query}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  is the dimensionality of the query and key vectors, and   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "d_{attn}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  represents the dimensionality of the value vectors within the attention computation. Positional embeddings are omitted for simplicity. The residual connection yields the intermediate state:   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf{H}^{(2\\ell-1)} = \\mathbf{H}^{(2\\ell-2)} + \\mathbf{O}_{\\mathrm{attn}}^{\\ell}"
+                    },
+                    {
+                        "type": "text",
+                        "content": " . The FFN sub-structure then processes   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf{H}^{(2\\ell-1)}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  after normalization:   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "X_{ffn}^{\\ell} = \\text{LayerNorm}\\left(\\mathbf{H}^{(2\\ell)}\\right)"
+                    },
+                    {
+                        "type": "text",
+                        "content": " . The FFN employs a gated mechanism with parallel pathways:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                102,
+                825,
+                193
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\operatorname{FFN} \\left(\\mathbf {X} _ {\\text { ffn }} ^ {\\ell}\\right) = \\mathbf {O} _ {\\text { ffn }} ^ {\\ell} = \\left(\\text { Activation } \\left(\\mathbf {X} _ {\\text { ffn }} ^ {\\ell} \\mathbf {W} _ {\\text { gate }} ^ {\\ell}\\right) \\odot \\left(\\mathbf {X} _ {\\text { ffn }} ^ {\\ell} \\mathbf {W} _ {\\text { up }} ^ {\\ell}\\right)\\right) \\mathbf {W} _ {\\text { down }} ^ {\\ell},\\tag{2}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/2f8d02b5bba79577c9b8ab3cd5b7f74f99eb5c2e648476d0cf9cbba9d13abe25.jpg"
+                }
+            },
+            "bbox": [
+                266,
+                195,
+                728,
+                215
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W_{gate}^{\\ell} \\in R^{d_{model} \\times d_{ff}}"
+                    },
+                    {
+                        "type": "text",
+                        "content": " ,   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W_{up}^{\\ell} \\in R^{d_{model} \\times d_{ff}}"
+                    },
+                    {
+                        "type": "text",
+                        "content": " , and   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W_{down}^{\\ell} \\in R^{d_{ff} \\times d_{model}}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  are learned weight matrices,   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\odot"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  denotes element-wise multiplication, and   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "d_{ff}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  is the expanded inner dimension of the FFN. The final output of the layer is obtained via another residual connection:   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf{H}^{(2\\ell)} = \\mathbf{H}^{(2\\ell-1)} + \\mathbf{O}_{\\mathrm{ffn}}^{\\ell}"
+                    },
+                    {
+                        "type": "text",
+                        "content": " . After processing by all L layers, the final hidden states   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf{H}^{(2L)}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  are projected to vocabulary logits via:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                218,
+                825,
+                280
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathbf {L} = \\mathbf {P} \\left(\\mathbf {H} ^ {(2 L)}\\right) = \\text { LayerNorm } \\left(\\mathbf {H} ^ {(2 L)}\\right) \\mathbf {W} _ {\\text { emb }} ^ {T},\\tag{3}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/66e1734cdeba02f1459a5cd9a1fd2fc2cdfdcc1497b0c5e07ac5bc8a270d7bde.jpg"
+                }
+            },
+            "bbox": [
+                334,
+                282,
+                660,
+                308
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W_{emb} \\in R^{V \\times d_{model}}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  is the output embedding matrix and V is the vocabulary size. The resulting tensor   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "L \\in R^{B \\times P \\times V}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  contains the unnormalized logits for each token position."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                311,
+                825,
+                342
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2.2 UNIFIED VIEW OF LLM POST-TRAINING"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                357,
+                500,
+                371
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Previous studies have shown that various post-training methods can be expressed within a unified framework (Shao et al., 2024), encompassing both supervised fine-tuning (SFT) and reinforcement learning (RL)-based approaches. Let  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi_{\\theta}"
+                    },
+                    {
+                        "type": "text",
+                        "content": " denote the current policy parameterized by  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\theta"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and let  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "(q, o)"
+                    },
+                    {
+                        "type": "text",
+                        "content": " represent a query-response pair. The update rule of a generic post-training algorithm  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal{A}"
+                    },
+                    {
+                        "type": "text",
+                        "content": " can then be written in gradient form as"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                382,
+                825,
+                454
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\nabla_ {\\theta} \\mathcal {J} _ {\\mathcal {A}} (\\theta) = \\mathbb {E} _ {(q, o) \\sim \\mathcal {D}} \\left[ \\frac {1}{| o |} \\sum_ {t = 1} ^ {| o |} G C _ {\\mathcal {A}} (q, o, t, \\pi_ {\\mathrm{rd}}, \\pi_ {\\mathrm{ref}}, \\pi_ {\\theta}) \\nabla_ {\\theta} \\log \\pi_ {\\theta} (o _ {t} \\mid q, o _ {<   t}) \\right],\\tag{4}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/5743355b0d68d8a6960498c8a3e107a42e26ad0a5d49238a27d1cdcc3fd81fef.jpg"
+                }
+            },
+            "bbox": [
+                227,
+                455,
+                767,
+                503
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where D specifies the sampling distribution that generates the training pairs   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "(q, o)"
+                    },
+                    {
+                        "type": "text",
+                        "content": " ,   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi_{rd}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  denotes the reward model or evaluation rule that produces the learning signal,   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi_{ref}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  is the reference policy used to anchor relative preference or advantage computations, and   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "GC_{A}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  represents the token-level weighting factor derived from these signals in algorithm A. This abstraction places different post-training approaches within a unified mathematical representation, enabling direct comparison between supervised and reinforcement-driven update mechanisms."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                507,
+                825,
+                593
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3 METHOD"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                611,
+                284,
+                627
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Our methodology is based on the Edge Attribution Patching (EAP) framework (Syed et al., 2023; Hanna et al., 2024; Nanda, 2023), which adopts a graph-theoretic view of LLMs via their residual pathways, reflecting a perspective that has long been present in prior research. While the original work focuses on automated circuit discovery, we adapt its core principle of deriving gradient-based attribution scores for edges to analyze internal information flow differences between models before and after reinforcement learning (RL) fine-tuning."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                641,
+                825,
+                727
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.1 GRAPH VIEW OF TRANSFORMER RESIDUAL COMPUTATION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                742,
+                627,
+                756
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Owing to the residual connections in Transformer layers, the input to any sub-module, whether an attention branch or an FFN branch, corresponds to the sum of all preceding sub-module outputs, including the original embedding input. For simplicity, let the attention branch transformation be denoted as   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf{O}_{\\mathrm{attn}}^{\\ell} = \\mathbf{A}^{\\ell}\\left(\\mathbf{H}^{(2\\ell)}\\right)"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  and the FFN transformation as   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf{O}_{\\mathrm{ffn}}^{\\ell} = \\mathbf{F}^{\\ell}\\left(\\mathbf{H}^{(2\\ell+1)}\\right)"
+                    },
+                    {
+                        "type": "text",
+                        "content": " . Within each attention block, the input is projected to compute queries, keys, and values. These projections can be viewed as three parallel computational paths. For clarity of exposition and ease of presentation, the attention block is treated as a single composite transformation and these internal branches are not explicitly expanded. Then the hidden states satisfy:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                767,
+                826,
+                882
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathbf {H} ^ {(2 \\ell)} = \\mathbf {H} ^ {(0)} + \\sum_ {i = 1} ^ {\\ell} \\mathbf {O} _ {\\mathrm{attn}} ^ {i} + \\sum_ {j = 1} ^ {\\ell} \\mathbf {O} _ {\\mathrm{ffn}} ^ {j}, \\quad \\mathbf {H} ^ {(2 \\ell + 1)} = \\mathbf {H} ^ {(0)} + \\sum_ {i = 1} ^ {\\ell + 1} \\mathbf {O} _ {\\mathrm{attn}} ^ {i} + \\sum_ {j = 1} ^ {\\ell} \\mathbf {O} _ {\\mathrm{ffn}} ^ {j}.\\tag{5}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/cda9b728b9c6d99c3fadbf6e7ee3027373d8a3b89175275a1ac58e723cd00348.jpg"
+                }
+            },
+            "bbox": [
+                228,
+                883,
+                767,
+                926
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "3"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/8a0c5326d8a0da38deaebf0bee301c494a03b8cb07987b668877e32f79eeadf1.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 1: Schematic of a two-layer simplified LLM. (a) Residual perspective, (b) graph perspective, and (c) edge importance estimation: above the dashed line, ACDC-style methods measure the loss change after edge ablation (② - ①), and below, EAP-style methods approximate this via backpropagated gradients (-③ ≈ ② - ①)."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                215,
+                106,
+                782,
+                263
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Consequently, each sub-module, namely any attention block   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "A^{\\ell}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  or feed-forward block   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "F^{\\ell}"
+                    },
+                    {
+                        "type": "text",
+                        "content": " , can be interpreted as a node in a directed graph. Let us define the set of nodes as"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                362,
+                823,
+                392
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {V} = \\left\\{\\mathbf {A} ^ {1}, \\mathbf {F} ^ {1}, \\mathbf {A} ^ {2}, \\mathbf {F} ^ {2}, \\dots , \\mathbf {A} ^ {L}, \\mathbf {F} ^ {L} \\right\\},\\tag{6}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/1e25e40eef2ebd58b15e6263c99c73b38ed749ea911dc882e7f1b61d4e4b914a.jpg"
+                }
+            },
+            "bbox": [
+                367,
+                396,
+                625,
+                416
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "H^{0}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  corresponds to the original embedding input. The directed edges, representing the flow of information from sub-module outputs to subsequent inputs, can be formalized as"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                422,
+                825,
+                453
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {E} = \\left\\{\\left(\\mathbf {H} ^ {(0)}, \\mathbf {H} ^ {(j)}\\right) \\mid 1 \\leq j \\leq 2 L \\right\\} \\cup \\left\\{\\left(\\mathbf {O} _ {\\text {attn}} ^ {i}, \\mathbf {H} ^ {(2 \\ell - 1)}\\right), \\left(\\mathbf {O} _ {\\text {ffn}} ^ {i}, \\mathbf {H} ^ {(2 \\ell)}\\right) \\mid 1 \\leq i \\leq \\ell \\leq L \\right\\}.\\tag{7}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/3362ce6c7cfc30fa6aecaa4fd9f2dd791e3a9e6f9fedb331b4d1720af4a65cae.jpg"
+                }
+            },
+            "bbox": [
+                176,
+                458,
+                792,
+                484
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Thus, the LLM can be represented as a directed acyclic graph (DAG)   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal{G} = (\\mathcal{V}, \\mathcal{E})"
+                    },
+                    {
+                        "type": "text",
+                        "content": " , in which nodes correspond to individual sub-modules and edges encode the residual information pathways. This graph-theoretic abstraction facilitates analysis of the model both from a network flow perspective and a circuit-based interpretability standpoint, and for a more intuitive comparison of the residual stream view and the graph view, see Fig. 1(a) and (b)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                500,
+                825,
+                570
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.2 EDGE-LEVEL ATTRIBUTION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                585,
+                411,
+                599
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To quantify the importance of individual residual edges, prior work like the Automated Circuit Discovery (ACDC) evaluates the change in loss when a given edge is removed (Conmy et al., 2023). Concretely, let   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "(\\mathbf{O}, \\mathbf{H}) \\in \\mathcal{E}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  denote a directed edge from output O of some sub-module to hidden representation H at a subsequent stage. ACDC defines the edge importance by the loss perturbation:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                611,
+                825,
+                669
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "I _ {\\mathrm{ACDC}} (\\mathbf {O}, \\mathbf {H}) = \\mathcal {L} \\left(\\mathbf {y}; \\mathbf {f} _ {\\backslash (\\mathbf {O}, \\mathbf {H})} (\\mathbf {x})\\right) - \\mathcal {L} \\left(\\mathbf {y}; \\mathbf {f} (\\mathbf {x})\\right),\\tag{8}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/d1b17e5637dcf15777fa0e6ad2f5c8963a4bef07f3738eba5999c7e9ad57403f.jpg"
+                }
+            },
+            "bbox": [
+                330,
+                674,
+                665,
+                691
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf{f}(\\mathbf{x})"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  is the model output under input x,   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal{L}(\\mathbf{y};\\cdot)"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  denotes the supervised loss relative to target y, and   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "f_{\\backslash(\\mathbf{O},\\mathbf{H})}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  represents the model with edge   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "(\\mathbf{O},\\mathbf{H})"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  ablated (i.e., setting the corresponding contribution to zero). While conceptually straightforward, this procedure requires two forward passes per edge, rendering it computationally infeasible for large-scale attribution."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                698,
+                825,
+                756
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "By contrast, the EAP framework proposes a gradient-based linearization that estimates the same loss perturbation more efficiently. Specifically, for a given edge   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "(\\mathbf{O}, \\mathbf{H})"
+                    },
+                    {
+                        "type": "text",
+                        "content": " , consider the ablation   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "H \\mapsto H - O"
+                    },
+                    {
+                        "type": "text",
+                        "content": " , which corresponds to removing O's contribution. A first-order Taylor expansion around H yields the following compact expression:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                761,
+                825,
+                818
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\Delta \\mathcal {L} (\\mathbf {O}, \\mathbf {H}) \\approx - \\left\\langle \\nabla_ {\\mathbf {H}} \\mathcal {L} (\\mathbf {y}; \\mathbf {f} (\\mathbf {x})), \\mathbf {O} \\right\\rangle \\equiv I _ {\\mathrm{EAP}} (\\mathbf {O}, \\mathbf {H}),\\tag{9}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/441b52c62f7014008a0ae229e598a4e01ad80753104cecf188a4d37e001a9a1a.jpg"
+                }
+            },
+            "bbox": [
+                310,
+                824,
+                684,
+                840
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\nabla_{\\mathbf{H}}\\mathcal{L}(\\mathbf{y};\\mathbf{f}(\\mathbf{x}))\\in\\mathbb{R}^{B\\times P\\times d_{\\mathrm{model}}}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  is the loss gradient with respect to the hidden state H, and   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\langle\\cdot,\\cdot\\rangle"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  denotes the Euclidean inner product."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                845,
+                825,
+                876
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Considering the computational cost of analyzing large-scale LLMs, we adopt   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "I_{EAP}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  to estimate edge-level importance. Importantly,   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "I_{EAP}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  can be computed for all edges simultaneously with a single forward and backward pass under the zeroing perturbation, as both the forward activations O and the backward gradients   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\nabla_{H}L"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  are available. This approach enables scalable, fine-grained circuit analysis without the need for separate per-edge ablations, making it tractable even for very large models. For a more intuitive comparison of ACDC-style ablation and EAP-style gradient-based attribution, see Fig. 1(c)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                882,
+                825,
+                924
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "4"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                826,
+                161
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.3 SAMPLE SELECTION AND TOKEN-LEVEL TRUNCATION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                176,
+                598,
+                191
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To ensure fair and tractable edge attribution analysis, we implement a systematic filtering and truncation procedure on model-generated token sequences. Let each model in a paired set generate a token sequence   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf{s}^{\\mathrm{base}} = (s_{1}^{\\mathrm{base}}, \\ldots, s_{T_{\\mathrm{base}}}^{\\mathrm{base}})"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  and   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf{s}^{\\mathrm{RL}} = (s_{1}^{\\mathrm{RL}}, \\ldots, s_{T_{\\mathrm{RL}}}^{\\mathrm{RL}})"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  for a given question, where   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T_{base}^{q}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  and   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T_{RL}^{q}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  are the respective sequence lengths."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                202,
+                825,
+                263
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Question Filtering. We first select only questions that are correctly answered by both models, and denote the resulting set as Q. To mitigate biases caused by extremely short or long answers, we compute the mean token length across all selected questions for a given model pair and dataset:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                275,
+                825,
+                319
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\bar {T} = \\frac {1}{| \\mathcal {Q} |} \\sum_ {q \\in \\mathcal {Q}} \\frac {T _ {\\text { base }} ^ {q} + T _ {\\text { RL }} ^ {q}}{2}.\\tag{10}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/5c64ee729cbb8018daa8ea69be3243e1c1643d7574ebbe355bbd221255e13e9c.jpg"
+                }
+            },
+            "bbox": [
+                406,
+                323,
+                588,
+                361
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We then define minimum and maximum allowable lengths,  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T_{\\mathrm{min}} = \\beta \\bar{T}"
+                    },
+                    {
+                        "type": "text",
+                        "content": ",  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T_{\\mathrm{max}} = \\gamma \\bar{T}"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and retain only questions satisfying  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T_{\\mathrm{min}} \\leq T_{\\mathrm{base}}^q"
+                    },
+                    {
+                        "type": "text",
+                        "content": " and  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T_{\\mathrm{RL}}^q \\leq T_{\\mathrm{max}}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                368,
+                823,
+                398
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Finally, to control for comparable sequence lengths between the base and RL models, we require"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                404,
+                808,
+                419
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\frac {| T _ {\\mathrm{base}} ^ {q} - T _ {\\mathrm{RL}} ^ {q} |}{(T _ {\\mathrm{base}} ^ {q} + T _ {\\mathrm{RL}} ^ {q}) / 2} <   \\delta ,\\tag{11}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/0b0fba17030edd95de9b04d02df33a73798190bb2ea62363cbbd4e3cff2fcc7e.jpg"
+                }
+            },
+            "bbox": [
+                424,
+                422,
+                573,
+                459
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\delta\\in(0,1)"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  is a balance coefficient. This ensures that the selected questions are comparable in length across both models, minimizing biases in edge importance estimates."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                462,
+                825,
+                493
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Token Truncation and Self-Entropy Computation. For the filtered set of questions, we define a truncation length  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T_{\\mathrm{cut}} = \\alpha \\bar{T}"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", where  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\alpha > 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": " is a scaling coefficient. Only the first  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T_{\\mathrm{cut}}"
+                    },
+                    {
+                        "type": "text",
+                        "content": " tokens of each sequence are used. Let  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf{L}_t \\in \\mathbb{R}^V"
+                    },
+                    {
+                        "type": "text",
+                        "content": " denote the model's logit output at token position  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "t"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and let  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "s_{1:T_{\\mathrm{cut}}}"
+                    },
+                    {
+                        "type": "text",
+                        "content": " be the sequence of generated tokens truncated to  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T_{\\mathrm{cut}}"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". We compute the self-entropy (cross-entropy of the model with respect to its own output) as"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                506,
+                825,
+                577
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {L} _ {\\text { trunc }} = - \\frac {1}{T _ {\\text { cut }}} \\sum_ {t = 1} ^ {T _ {\\text { cut }}} \\log \\frac {\\exp (\\mathbf {L} _ {t} [ s _ {t} ])}{\\sum_ {v = 1} ^ {V} \\exp (\\mathbf {L} _ {t} [ v ])},\\tag{12}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/8aadd73b498867dbf92f3d443361081953082693102c5d905ea07de086375600.jpg"
+                }
+            },
+            "bbox": [
+                357,
+                584,
+                638,
+                625
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "s_{t}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  denotes the token actually generated at position t by the model itself."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                628,
+                687,
+                643
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "This ensures that edge importance is computed based on each model's truncated output, maintaining comparability across sequences while avoiding excessive memory usage for overlong generations."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                648,
+                823,
+                679
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4 EXPERIMENT"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                698,
+                320,
+                713
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.1 EXPERIMENTAL SETTINGS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                729,
+                401,
+                744
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In our experiments, to ensure both reproducibility and the generality of the conclusions, we employed four pairs of open-source large language models (LLMs) of approximately 7B parameters, each consisting of a base model and its counterpart after post-training:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                755,
+                825,
+                799
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "- Deepseek-Math (Shao et al., 2024): Both deepseek-math-7b-instruct and deepseek-math-7b-rl are official DeepSeek models based on the LLaMA-style Transformer. deepseek-math-7b-instruct is instruction-tuned on mathematical datasets such as GSM8K, MATH, and MathInstruct, while deepseek-math-7b-rl is further trained from it with reinforcement learning on GSM8K and MATH using the Group Relative Policy Optimization (GRPO) algorithm."
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                808,
+                826,
+                878
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "- Mistral (Chaplot, 2023; Wang et al., 2023): mistral-7b-sft is a supervised fine-tuned version of the Mistral-7B model on the MetaMATH dataset, while math-shepherd-mistral-7b-rl is further optimized from it using step-by-step Proximal Policy Optimization (PPO) guided by the"
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                881,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "5"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/564d7c95ef94d40955a8919a9665d0b3c5f31569659566b8d1940c7dc73f20be.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 1: Comparison of four model pairs (SFT vs. RL) across three datasets, three evaluation metrics, and four hyperparameter settings. Missing values result from GPU memory overflow."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\">Dataset</td><td rowspan=\"2\">Metric</td><td rowspan=\"2\">Scale α</td><td colspan=\"2\">Deepseek-Math</td><td colspan=\"2\">Mistral</td><td colspan=\"2\">Distilled-Qwen</td><td colspan=\"2\">Qwen2.5</td></tr><tr><td>SFT</td><td>+GRPO</td><td>SFT</td><td>+PPO</td><td>SFT</td><td>+GRPO</td><td>SFT</td><td>+DPO</td></tr><tr><td rowspan=\"12\">MATH</td><td>Act.</td><td>0.03</td><td>2.29e-3</td><td>2.64e-3</td><td>9.47e-7</td><td>3.61e-6</td><td>6.18e-4</td><td>6.87e-4</td><td>1.11e-3</td><td>1.13e-3</td></tr><tr><td>Intens.</td><td>0.1</td><td>1.10e-3</td><td>1.31e-3</td><td>6.76e-4</td><td>7.71e-4</td><td>4.51e-4</td><td>5.59e-4</td><td>6.95e-4</td><td>6.90e-4</td></tr><tr><td rowspan=\"2\">↑</td><td>0.3</td><td>7.47e-4</td><td>7.77e-4</td><td>4.49e-4</td><td>4.92e-4</td><td>-</td><td>-</td><td>4.39e-4</td><td>4.21e-4</td></tr><tr><td>0.5</td><td>5.64e-4</td><td>6.02e-4</td><td>3.58e-4</td><td>4.05e-4</td><td>-</td><td>-</td><td>-</td><td>-</td></tr><tr><td>Info.</td><td>0.03</td><td>1.96e-1</td><td>2.01e-1</td><td>3.39e-2</td><td>1.58e-2</td><td>1.81e-1</td><td>2.30e-1</td><td>2.11e-1</td><td>1.74e-1</td></tr><tr><td>Complex.</td><td>0.1</td><td>1.72e-1</td><td>2.47e-1</td><td>1.41e-1</td><td>2.09e-1</td><td>1.11e-1</td><td>1.96e-1</td><td>1.60e-1</td><td>1.34e-1</td></tr><tr><td rowspan=\"2\">↑</td><td>0.3</td><td>2.64e-1</td><td>4.11e-1</td><td>4.13e-2</td><td>2.86e-1</td><td>-</td><td>-</td><td>1.10e-1</td><td>1.34e-1</td></tr><tr><td>0.5</td><td>2.71e-1</td><td>2.93e-1</td><td>4.52e-2</td><td>3.22e-1</td><td>-</td><td>-</td><td>-</td><td>-</td></tr><tr><td>Dist.</td><td>0.03</td><td>3.93e+2</td><td>2.53e+2</td><td>4.22e+2</td><td>5.28e+2</td><td>6.78e+2</td><td>5.03e+2</td><td>3.96e+2</td><td>3.62e+2</td></tr><tr><td>Kurt.</td><td>0.1</td><td>3.57e+2</td><td>2.23e+2</td><td>4.51e+2</td><td>3.07e+2</td><td>1.27e+3</td><td>9.20e+2</td><td>5.44e+2</td><td>4.83e+2</td></tr><tr><td rowspan=\"2\">↓</td><td>0.3</td><td>3.11e+2</td><td>1.89e+2</td><td>3.35e+2</td><td>2.65e+2</td><td>-</td><td>-</td><td>8.49e+2</td><td>7.61e+2</td></tr><tr><td>0.5</td><td>3.03e+2</td><td>1.89e+2</td><td>2.85e+2</td><td>2.20e+2</td><td>-</td><td>-</td><td>-</td><td>-</td></tr><tr><td rowspan=\"12\">College Math</td><td>Act.</td><td>0.03</td><td>2.36e-3</td><td>2.22e-3</td><td>1.77e-7</td><td>1.17e-6</td><td>7.08e-4</td><td>7.51e-4</td><td>1.20e-3</td><td>1.19e-3</td></tr><tr><td>Intens.</td><td>0.1</td><td>1.24e-3</td><td>1.21e-3</td><td>8.23e-4</td><td>9.06e-4</td><td>5.15e-4</td><td>5.76e-4</td><td>8.11e-4</td><td>8.10e-4</td></tr><tr><td rowspan=\"2\">↑</td><td>0.3</td><td>7.61e-4</td><td>7.57e-4</td><td>4.92e-4</td><td>5.32e-4</td><td>-</td><td>-</td><td>4.76e-4</td><td>4.69e-4</td></tr><tr><td>0.5</td><td>5.87e-4</td><td>5.99e-4</td><td>3.87e-4</td><td>4.47e-4</td><td>-</td><td>-</td><td>3.71e-4</td><td>3.53e-4</td></tr><tr><td>Info.</td><td>0.03</td><td>1.45e-1</td><td>1.96e-1</td><td>2.51e-2</td><td>1.14e-2</td><td>2.13e-1</td><td>2.35e-1</td><td>8.01e-2</td><td>2.17e-1</td></tr><tr><td>Complex.</td><td>0.1</td><td>2.08e-1</td><td>2.09e-1</td><td>1.65e-1</td><td>1.61e-1</td><td>1.32e-1</td><td>1.64e-1</td><td>1.34e-1</td><td>1.25e-1</td></tr><tr><td rowspan=\"2\">↑</td><td>0.3</td><td>2.20e-1</td><td>2.89e-1</td><td>3.29e-1</td><td>2.88e-1</td><td>-</td><td>-</td><td>1.23e-1</td><td>9.95e-2</td></tr><tr><td>0.5</td><td>2.53e-1</td><td>2.83e-1</td><td>2.68e-1</td><td>3.43e-1</td><td>-</td><td>-</td><td>1.11e-1</td><td>1.05e-1</td></tr><tr><td>Dist.</td><td>0.03</td><td>4.71e+2</td><td>2.75e+2</td><td>4.81e+2</td><td>8.60e+2</td><td>5.86e+2</td><td>5.08e+2</td><td>4.57e+2</td><td>3.89e+2</td></tr><tr><td>Kurt.</td><td>0.1</td><td>3.48e+2</td><td>2.88e+2</td><td>3.80e+2</td><td>2.64e+2</td><td>1.15e+3</td><td>8.88e+2</td><td>5.31e+2</td><td>4.60e+2</td></tr><tr><td rowspan=\"2\">↓</td><td>0.3</td><td>3.31e+2</td><td>2.19e+2</td><td>2.77e+2</td><td>2.08e+2</td><td>-</td><td>-</td><td>7.51e+2</td><td>6.51e+2</td></tr><tr><td>0.5</td><td>3.31e+2</td><td>2.12e+2</td><td>2.54e+2</td><td>2.22e+2</td><td>-</td><td>-</td><td>9.15e+2</td><td>7.48e+2</td></tr><tr><td rowspan=\"12\">GSM8K</td><td>Act.</td><td>0.03</td><td>3.08e-3</td><td>2.76e-3</td><td>4.83e-7</td><td>1.17e-6</td><td>1.06e-3</td><td>1.15e-3</td><td>2.13e-3</td><td>2.19e-3</td></tr><tr><td>Intens.</td><td>0.1</td><td>1.43e-3</td><td>1.50e-3</td><td>5.90e-4</td><td>6.59e-4</td><td>6.71e-4</td><td>7.72e-4</td><td>1.13e-3</td><td>1.13e-3</td></tr><tr><td rowspan=\"2\">↑</td><td>0.3</td><td>7.80e-4</td><td>8.52e-4</td><td>3.86e-4</td><td>4.44e-4</td><td>-</td><td>-</td><td>6.46e-4</td><td>6.49e-4</td></tr><tr><td>0.5</td><td>5.76e-4</td><td>6.52e-4</td><td>3.01e-4</td><td>3.60e-4</td><td>-</td><td>-</td><td>4.94e-4</td><td>4.90e-4</td></tr><tr><td>Info.</td><td>0.03</td><td>1.56e-1</td><td>1.56e-1</td><td>6.30e-2</td><td>4.00e-2</td><td>2.22e-1</td><td>3.33e-1</td><td>2.19e-1</td><td>2.53e-1</td></tr><tr><td>Complex.</td><td>0.1</td><td>1.50e-1</td><td>2.30e-1</td><td>8.43e-2</td><td>1.49e-1</td><td>1.60e-1</td><td>2.64e-1</td><td>1.64e-1</td><td>1.80e-1</td></tr><tr><td rowspan=\"2\">↑</td><td>0.3</td><td>1.71e-1</td><td>2.27e-1</td><td>1.48e-1</td><td>2.09e-1</td><td>-</td><td>-</td><td>1.09e-1</td><td>1.57e-1</td></tr><tr><td>0.5</td><td>1.37e-1</td><td>3.23e-1</td><td>1.69e-1</td><td>2.66e-1</td><td>-</td><td>-</td><td>1.14e-1</td><td>1.28e-1</td></tr><tr><td>Dist.</td><td>0.03</td><td>4.73e+2</td><td>3.05e+2</td><td>2.05e+2</td><td>2.18e+2</td><td>3.81e+2</td><td>3.44e+2</td><td>4.68e+2</td><td>3.95e+2</td></tr><tr><td>Kurt.</td><td>0.1</td><td>4.57e+2</td><td>2.79e+2</td><td>4.21e+2</td><td>3.07e+2</td><td>7.66e+2</td><td>5.60e+2</td><td>5.22e+2</td><td>4.53e+2</td></tr><tr><td rowspan=\"2\">↓</td><td>0.3</td><td>3.85e+2</td><td>2.48e+2</td><td>3.99e+2</td><td>2.48e+2</td><td>-</td><td>-</td><td>7.17e+2</td><td>5.88e+2</td></tr><tr><td>0.5</td><td>4.02e+2</td><td>2.49e+2</td><td>3.16e+2</td><td>2.18e+2</td><td>-</td><td>-</td><td>7.81e+2</td><td>6.73e+2</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                174,
+                142,
+                836,
+                622
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "MATH-SHEPHERD process reward model on GSM8K and MATH, leading to notable gains in mathematical reasoning accuracy."
+                    }
+                ]
+            },
+            "bbox": [
+                186,
+                648,
+                825,
+                678
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "- Distilled-Qwen (Guo et al., 2025; Chen et al., 2025): DeepSeek-R1-Distill-Qwen-7B is a Qwen2.5-based model distilled from DeepSeek-R1, trained via supervised distillation to inherit strong reasoning ability."
+                    }
+                ]
+            },
+            "bbox": [
+                174,
+                681,
+                826,
+                724
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "- Qwen2.5 (Qwen et al., 2025; Zhang et al., 2025a): Qwen2.5-7B-SFT is fine-tuned with supervised learning on the MATH and Numina-Math datasets, while Qwen2.5-7B-DPO is derived from that SFT model via iterative Direct Preference Optimization (DPO)."
+                    }
+                ]
+            },
+            "bbox": [
+                174,
+                727,
+                826,
+                771
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We conducted extensive analyses on three public mathematical benchmarks: GSM8K, MATH, and College Math. More detailed characteristics of the analyzed LLMs and implementation details are provided in the Appendix A and C. Thorough extensive evaluations on multiple benchmarks shown in Appendix D, the post-training generally improves the capability of different LLMs."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                781,
+                826,
+                839
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.2 METRICS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                854,
+                282,
+                869
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In our experiments, we quantify differences in LLM behavior before and after reinforcement learning (RL) fine-tuning by analyzing the internal edge-weight matrices obtained from the graph-based attribution procedure. Let   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf{W}^{(k)} \\in \\mathbb{R}^{n_{o} \\times n_{i}}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  denote the edge-weight matrix for sample k, with "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "k = 1, \\ldots, n"
+                    },
+                    {
+                        "type": "text",
+                        "content": " . Here,   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "n_{o}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  denotes the number of output nodes in the graph structure, and   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "n_{i}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  denotes the number of input nodes in the graph structure. The collection of all samples forms a tensor   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W \\in R^{n \\times n_{o} \\times n_{i}}"
+                    },
+                    {
+                        "type": "text",
+                        "content": " . Based on this input, we define three complementary metrics:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                880,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "6"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                825,
+                148
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Activation Intensity (Act.Intens.). This metric quantifies the average magnitude of all edge weights across every sample, output, and input, capturing both how many pathways in the LLM are activated and the strength of their activation:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                161,
+                826,
+                204
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\text { Act.Intens. } = \\frac {1}{n   n _ {o} n _ {i}} \\sum_ {k = 1} ^ {n} \\sum_ {o = 1} ^ {n _ {o}} \\sum_ {i = 1} ^ {n _ {i}} \\left| W _ {o i} ^ {(k)} \\right|.\\tag{13}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/e8e0f4defb32d0bf93c3bb8e48cdba323f804430282db20275fa4c5b713e259f.jpg"
+                }
+            },
+            "bbox": [
+                354,
+                210,
+                640,
+                251
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Information Complexity (Info.Complex.). To capture the heterogeneity and unpredictability of edge activations across the entire dataset, we compute a Shannon entropy over the absolute values of all edges from all samples, flattened into a single vector. Let   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p_{b}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  denote the normalized probability of bin b in a histogram of all   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "|W_{oi}^{(k)}|"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  values, with B bins and a small constant   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\epsilon"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  to prevent   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\log 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": ":"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                265,
+                826,
+                327
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\text { Info.Complex. } = - \\sum_ {b = 1} ^ {B} p _ {b} \\log (p _ {b} + \\epsilon).\\tag{14}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/d7dff12add837f1aaabfd2d58adb1aeb16cd00d38dac67a69342fd95bfb56348.jpg"
+                }
+            },
+            "bbox": [
+                366,
+                334,
+                627,
+                375
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Higher entropy values indicate more complex and less predictable distributions of edge activations, whereas lower values suggest concentrated or more regular patterns. This metric reflects the diversity of active information pathways within the LLM during inference and highlights how RL fine-tuning may alter the overall internal information structure."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                381,
+                825,
+                440
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Distribution Kurtosis (Dist.Kurt.). To quantify the overall shape and stability of edge-weight distributions, we first compute the kurtosis of each sample's edge-weight matrix and then average across all samples:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                454,
+                826,
+                497
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\text { Dist.Kurt. } = \\frac {1}{n} \\sum_ {k = 1} ^ {n} \\left[ \\frac {\\frac {1}{n _ {o} n _ {i}} \\sum_ {o , i} \\left(W _ {o i} ^ {(k)} - \\mu^ {(k)}\\right) ^ {4}}{\\left(\\frac {1}{n _ {o} n _ {i}} \\sum_ {o , i} \\left(W _ {o i} ^ {(k)} - \\mu^ {(k)}\\right) ^ {2}\\right) ^ {2}} - 3 \\right],\\tag{15}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/76fd69e9b2ea62a1a58c56dd97d9c3ffb122701c100f3880f95903b60ef97b49.jpg"
+                }
+            },
+            "bbox": [
+                292,
+                502,
+                702,
+                575
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu^{(k)}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  is the mean edge weight of sample k. Values approaching zero indicate that individual edge-weight distributions approximate a normal distribution. Conversely, significant positive or negative values reflect leptokurtic (heavy-tailed) or platykurtic (light-tailed) distributions, respectively. This metric serves to evaluate the impact of RL fine-tuning on the tail behavior and outlier characteristics of the overall activation distribution."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                583,
+                826,
+                655
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.3 RESULTS AND ANALYSIS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                671,
+                390,
+                686
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Our main experimental results are presented in Table 1. We observe that the three model families, Deepseek-Math, Mistral, and Distilled-Qwen, exhibit largely consistent changes in the metrics before and after RL fine-tuning. Specifically, Activation Intensity and Information Complexity tend to increase, while Distribution Kurtosis tends to decrease. Individual exceptions can be seen in some cases for Deepseek-Math and Mistral. However, as the scaling factor   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\alpha"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  controlling truncation length gradually increases, these exceptions diminish, and the observed patterns become largely consistent, indicating that the phenomenon is relatively robust. However, beyond these observations, we also find several differences in the experimental results of the Qwen2.5 series models trained with the DPO method. For instance, their activation strengths do not exhibit a clear increasing trend, and on the College Math dataset, as   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\alpha"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  grows to larger values, the Information Complexity metric of their internal pathways remains lower than that of the initial SFT model from which training began."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                696,
+                826,
+                851
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Taken together, the above observations suggest two key conclusions: (i) Online RL fine-tuning for mathematical reasoning increases the extent and intensity of active information edges in the model. (ii) Online RL fine-tuning diversifies the activation patterns across these information pathways. We next provide further analyses to substantiate these conclusions."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                856,
+                826,
+                914
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "7"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Pathway Engagement Induced by RL Fine-tuning. As shown in our main results (Table 1), RL fine-tuning consistently increases Act.Intens. and decreases Dist.Kurt., meaning that a substantial number of low-activation edges become more active, effectively engaging a larger set of pathways. This trend is observed across different models, datasets, and hyperparameter settings. Figure 2 illustrates this effect with a representative case: the Mistral model on the MATH dataset at   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\alpha = 0.5"
+                    },
+                    {
+                        "type": "text",
+                        "content": " . The relative change analysis highlights that many connections strengthen after PPO-based RL fine-tuning, confirming that reinforcement learning systematically enhances the propagation of internal signals."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                104,
+                550,
+                286
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/e83971dfba4449c3fc2931f6ef95892bf524db8ef35f9ae2466d6885d9790206.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 2: Relative change in edge activation strength after RL fine-tuning for the Mistral model on the MATH dataset with   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\alpha = 0.5"
+                    },
+                    {
+                        "type": "text",
+                        "content": " ."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                565,
+                109,
+                813,
+                279
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Diversity of Activation Patterns in Internal Representations. In parallel, we find that Info.Complex. generally increases and Dist.Kurt. decreases after RL fine-tuning as shown in Table 1, indicating that activation patterns become more diverse. We provide further visualization results relevant to this conclusion, as illustrated in"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                306,
+                550,
+                390
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Figure 3: panel (a) shows that across inference samples, the internal activation structures exhibit greater variability after RL, as quantified by an increase in one minus the mean correlation of edge-weight matrices between sample pairs, and panel (b) further demonstrates that output-edge entropy rises across most model–dataset–hyperparameter combinations. Together, these results indicate that RL enriches the connectivity structure of the internal circuitry, leading to more robust and flexible information flow essential for logical deduction. Furthermore, as shown in Figure 3, panel (a), the Qwen2.5 series models trained with the DPO algorithm also exhibit a certain degree of improvement in diversity. However, the magnitude of this improvement is relatively lower than that of models trained with other online RL methods."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                388,
+                826,
+                516
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/6d4233218f955d1a799054bbba9be8903a7866f45491c850fd94aea8e5e54344.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "(a)"
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                186,
+                539,
+                446,
+                707
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/dd8435ef33afbb827d68ba361bb92c34f23e71bd40e32f87bcb31beb11b933be.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "(b)"
+                    },
+                    {
+                        "type": "text",
+                        "content": "Figure 3: Comparison before and after RL fine-tuning: (a) diversity of activation patterns across inference samples, including data from all datasets and   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\alpha"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  values; (b) entropy of output edge patterns per node. In (b), data points are arranged sequentially by dataset (College Math, GSM8K, MATH), iterating over   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\alpha \\in \\{0.03, 0.1, 0.3, 0.5\\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  for each."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                491,
+                532,
+                808,
+                705
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Based on Equation (4), we can interpret the observed phenomena by analyzing the fundamental differences in the support of the sampling distribution D and the properties of the gradient coefficient   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "GC_{A}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  across SFT, Online RL, and DPO."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                819,
+                825,
+                862
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "For SFT, the data source is static, drawn from a fixed human-annotated distribution   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal{D}_{SFT} = \\{(q, o) \\sim P_{\\text{data}}\\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": " , with a constant gradient coefficient   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "GC_{SFT} = 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": " . Consequently, the model optimizes its internal representations to minimize cross-entropy on a narrow, predefined manifold of \"correct solutions.\" This drives the model to converge towards a low-entropy mode that mimics the training data, resulting in activations concentrated on a small number of outlier edges (high Distribution Kurtosis) and limited engagement of redundant pathways (low Activation Intensity)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                867,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "8"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                823,
+                133
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In contrast, Online RL algorithms like PPO and GRPO fundamentally alter the data source by introducing on-policy sampling, where outputs are dynamically generated by the evolving policy itself:   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal{D}_{RL} = \\left\\{(q, \\{o_i\\}_{i=1}^G) \\mid q \\sim P_{\\text{data}}, o_i \\sim \\pi_\\theta(\\cdot | q)\\right\\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": " . This mechanism significantly expands the stochastic support set of the training distribution beyond the SFT subspace, providing the LLM with a richer set of reasoning path samples for each query q. Mechanistically, to handle the expanded state space encountered during exploration, the network is compelled to activate and reinforce latent or \"dormant\" internal circuits that were underutilized during SFT. Furthermore, the gradient coefficient in online RL varies dynamically based on feedback from the reward model or rule. Taking GRPO as an example,   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "GC_{GRPO} = \\hat{A}_{i,t}(q, o, t, \\pi_{rd}) + \\beta \\left( \\frac{\\pi_{ref}(o_{i,t} | o_{i,<t})}{\\pi_\\theta(o_{i,t} | o_{i,<t})} - 1 \\right)"
+                    },
+                    {
+                        "type": "text",
+                        "content": " . To maximize expected reward, the model is driven to mobilize these less active internal circuits to master relatively \"harder\" problems, as correct responses to such instances typically yield significantly higher gradient coefficients. The observed increase in Activation Intensity and the simultaneous decrease in Distribution Kurtosis reflect this broader utilization of residual pathways. Moreover, as multiple distinct reasoning paths for the same question are reinforced, the entropy of the internal edge weight distribution increases."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                138,
+                826,
+                357
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Furthermore, from this unified perspective, we can elucidate why DPO exhibits distinct behaviors, particularly its failure to consistently enhance activation intensity and information complexity. Although DPO is mathematically derived from the RL objective, it operates as an offline (or semi-offline, where datasets are refreshed only periodically) algorithm. Its data source remains closer to a relatively more static distribution:   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal{D}_{DPO} = \\{(q, o^{+}, o^{-}) \\sim P_{\\text{data}}\\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": " , rather than the real-time policy   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi_{\\theta}"
+                    },
+                    {
+                        "type": "text",
+                        "content": " . Since DPO restricts optimization to the fixed support set of an offline dataset and effectively retains only two potentially stale contrasting samples for each query q, the mechanistic pressure to expand the network's functional capacity through stochastic sampling is significantly weaker. This explains why Activation Intensity and Information Complexity do not show a consistent upward trend compared to the SFT baseline. However, DPO does successfully reduce Distribution Kurtosis. This is because the preference optimization objective is driven by the gradient coefficient   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "GC_{DPO} = \\sigma \\left( \\beta \\log \\frac{\\pi_{\\theta}(o^{-}|q)}{\\pi_{ref}(o^{-}|q)} - \\beta \\log \\frac{\\pi_{\\theta}(o^{+}|q)}{\\pi_{ref}(o^{+}|q)} \\right)"
+                    },
+                    {
+                        "type": "text",
+                        "content": " . This soft margin mechanism relaxes the strict token-matching constraints of SFT, favoring a broader reward maximization landscape and thereby inhibiting the emergence of high-intensity activation edges to some extent, which can be intuitively understood as mitigating rote memorization. Thus, while DPO attenuates the model's reliance on a few high-intensity edges during inference (low kurtosis), it lacks the on-policy exploration dynamics inherent to Online RL, which are essential for driving the systematic enhancement of average internal activation intensity and diversity."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                363,
+                826,
+                623
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In summary, we posit that the sampling process is the core factor driving the fundamental internal differences between SFT, DPO, and various online-RL paradigms, which consequently leads to disparities in external performance. In Appendix B, we manipulated the sampling dynamics during online-RL by adjusting the training temperature and observed phenomena consistent with our expectations. These findings provide robust empirical support for our hypothesis."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                628,
+                826,
+                700
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5 RELATED WORKS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                723,
+                356,
+                739
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.1 INTERPRETABILITY OF REINFORCEMENT LEARNING"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                757,
+                580,
+                771
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The inherent opacity of deep reinforcement learning motivates studies on improving their explainability (Qing et al., 2022). Research in explainable RL can be generally categorized into pre-hoc and post-hoc techniques, where the former seeks to build inherently interpretable agents while the latter focuses on analyzing trained agents. Pre-hoc research direction focuses on creating inherently interpretable agents, such as neuro-symbolic systems that represent policies as mathematical expressions (Landajuela et al., 2021; Delfosse et al., 2023), ensuring transparency by design. On contrast, among post-hoc approaches, feature attribution methods are widely applied to generate saliency maps to highlight influential input features (Hao et al., 2022). Besides, another prominent post-hoc paradigm is policy distillation, where the behavior of a complex neural network is distilled into a simpler surrogate model, such as a decision tree, to provide a global summary of the agent's strategy (Li et al., 2021). Furthermore, counterfactual methods provide an alternative explanatory lens by answering “what if” questions, identifying the minimal state alterations that would have led to a different action (Puri et al., 2019; Huber et al., 2023)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                785,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "9"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                825,
+                147
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Collectively, these diverse approaches reflect a field moving from reactive explanation of opaque models towards transparent and trustworthy intelligent agents. However, these research mainly focus on lightweight RL agents for conventional decision-making tasks, while it remains unexplored how RL works in the emerging post-training applications, where LLMs are trained as the agent."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                152,
+                825,
+                210
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.2 INTERPRETABILITY OF LARGE LANGUAGE MODELS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                236,
+                576,
+                251
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Research into the interpretability of LLMs has largely progressed along two complementary paradigms: mechanistic interpretability and representation interpretability (Singh et al., 2024). Mechanistic interpretability aims to reverse-engineer the patterns learned by a model by analyzing its fundamental components, such as neurons and attention heads, which often employs causal tracing techniques (Gantla, 2025). For instance, one study traced numerical hallucinations to a “Benford’s Curse”, identifying a statistical bias learned from training data that was internalized by a small subset of feed-forward network (FFN) neurons, and then causally verified this by demonstrating that pruning these specific neurons corrected numerical errors (Shao et al., 2025). In contrast, representation interpretability mainly investigates what information is encoded in the model’s internal activation states via external probing models. A prominent line of work in this area uses lightweight probes varying from linear models (Kim et al., 2025) to graph models (Zheng et al., 2025), decoding concepts within the activation space of the model’s middle layers. These discovered representations are not merely correlational, but the learned probe weights can be repurposed as “steering vectors” to causally intervene on the activations during generation, thereby controlling the model’s output (Kim et al., 2025). While the former paradigm focuses on how a model computes, the latter reveals what knowledge it represents, together offering a more holistic understanding of these complex systems."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                266,
+                826,
+                489
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "While such studies offer valuable perspectives on LLM interpretability, they predominantly focus on analyzing given LLMs without integrating the training methodology with which the LLMs are obtained into the investigation. In particular, it remains unclear how RL, the widely adopted technique in post-training, is able to broadly enhance the capabilities of diverse LLMs with distinct architectural and functional characteristics."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                494,
+                826,
+                566
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "6 CONCLUSIONS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                595,
+                330,
+                611
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We presented a systematic analysis of how reinforcement learning (RL) fine-tuning reshapes the internal circuitry of large language models (LLMs). Using edge attribution patching, we identified two robust effects across multiple model families: stronger average activation intensity and greater diversity in activation patterns. These findings suggest that online RL enhances both the redundancy and flexibility of information flow, which may underlie its superior generalization ability in mathematical domains. In contrast, DPO fine-tuning produced weaker or inconsistent changes, emphasizing the methodological gap between static preference optimization and dynamic online RL. Our results provide a unified mechanistic perspective on RL post-training and offer guidance for the design of future post-training algorithms."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                633,
+                826,
+                760
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "7 LIMITATIONS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                789,
+                318,
+                804
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Our study acknowledges certain limitations that outline important directions for future research. While the consistency of our results suggests potential broader applicability, our empirical validation is currently confined to mathematical reasoning tasks. Verifying whether these internal circuit dynamics hold in domains with open-ended outputs, such as code generation, creative writing, open-ended dialogue and so on, remains a critical subject for future investigation. We also note the limitation regarding model scale, as the significant memory overhead required for granular internal state analysis prevented us from extending our experiments to models larger than 7B parameters."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                825,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "10"
+                    }
+                ]
+            },
+            "bbox": [
+                490,
+                948,
+                509,
+                960
+            ]
+        }
+    ]
+]

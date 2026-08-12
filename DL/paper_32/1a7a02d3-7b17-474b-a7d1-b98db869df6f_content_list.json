@@ -1,0 +1,1386 @@
+[
+    {
+        "type": "text",
+        "text": "ABSTRACT",
+        "text_level": 2,
+        "bbox": [
+            450,
+            276,
+            547,
+            292
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Neural vocoders have recently advanced waveform generation, yielding natural and expressive audio. Among these approaches, iSTFT-based vocoders have recently gained attention. They predict a complex-valued spectrogram and then synthesize the waveform via iSTFT, thereby avoiding learned upsampling stages that can increase computational cost. However, current approaches use real-valued networks that process the real and imaginary parts independently. This separation limits their ability to capture the inherent structure of complex spectrograms. We present ComVo, a Complex-valued neural Vocoder whose generator and discriminator use native complex arithmetic. This enables an adversarial training framework that provides structured feedback in complex-valued representations. To guide phase transformations in a structured manner, we introduce phase quantization, which discretizes phase values and regularizes the training process. Finally, we propose a block-matrix computation scheme to improve training efficiency by reducing redundant operations. Experiments demonstrate that ComVo achieves higher synthesis quality than comparable real-valued baselines, and that its block-matrix scheme reduces training time by 25%. Audio samples and code are available at https://hs-oh-prml.github.io/ComVo/.",
+        "bbox": [
+            230,
+            309,
+            767,
+            546
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "1 INTRODUCTION",
+        "text_level": 2,
+        "bbox": [
+            174,
+            575,
+            338,
+            590
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Deep learning-based vocoders have significantly advanced speech synthesis, producing more natural and expressive synthetic speech. Recent developments include models based on generative adversarial networks (GANs) (Kumar et al., 2019; Yamamoto et al., 2020; Kong et al., 2020; Lee et al., 2023), normalizing flow-based models (van den Oord et al., 2018; Ping et al., 2020; Lee et al., 2020), and diffusion-based models (Kong et al., 2021; Lee et al., 2022; Chen et al., 2021; Lee et al., 2025). Although these approaches achieve high-fidelity speech generation, some neural vocoders still rely on sequential sample prediction or learned upsampling, thereby increasing model complexity and inference latency.",
+        "bbox": [
+            169,
+            607,
+            826,
+            719
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "An alternative is to synthesize speech in the spectral domain using the inverse short-time Fourier transform (iSTFT). Operating directly on complex spectrograms (Oyamada et al., 2018; Neekhara et al., 2019; Gritsenko et al., 2020; Kaneko et al., 2022; 2023; Siuzdak, 2024; Yoneyama et al., 2024; Liu et al., 2025) avoids the need for sample-by-sample generation and learned upsampling. To our knowledge, current iSTFT-based vocoders rely on real-valued neural networks (RVNNs) that process real and imaginary parts as separate channels. This separation limits their ability to model the coupling between these components.",
+        "bbox": [
+            169,
+            724,
+            826,
+            824
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Complex-valued neural networks (CVNNs) extend standard neural networks to the complex domain by allowing both inputs and parameters to be complex-valued. Operating entirely in the complex domain enables these models to capture the intrinsic dependencies between the real and imaginary components. CVNNs have been applied in domains such as radar signal classification (Yang et al., 2022), MRI reconstruction (Vasudeva et al., 2022), and wireless communication (Xu et al., 2022), where measurements carry both magnitude and phase information and naturally form complexvalued data. In speech processing, CVNNs have been explored for tasks including speech enhancement (Nustede & Anemuller, 2024; Mamun & Hansen, 2023), speech recognition (Hayakawa et al.,¨ 2018), and even statistical parametric speech synthesis (Hu et al., 2016). These studies demonstrate the potential of CVNNs to better capture spectral structure.",
+        "bbox": [
+            169,
+            829,
+            826,
+            900
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_footnote",
+        "text": "<sup>∗</sup>Corresponding author",
+        "bbox": [
+            191,
+            910,
+            334,
+            924
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_number",
+        "text": "1",
+        "bbox": [
+            493,
+            948,
+            503,
+            959
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            104,
+            825,
+            175
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Although some recent vocoders produce complex spectrograms, they still use real-valued networks that handle each spectrogram channel independently. CVNNs, by jointly processing complex coefficients, could overcome this limitation. By treating each spectrogram coefficient as a unified complex entity, CVNN-based models can capture cross-component interactions that real-valued models miss. Motivated by this, we adopt CVNNs to better capture structure in the complex domain, yielding higher-quality synthesis.",
+        "bbox": [
+            169,
+            181,
+            826,
+            266
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "In this work, we propose ComVo, a Complex-valued neural Vocoder that performs iSTFT-based waveform generation entirely in the complex domain with a GAN-based architecture. The generator uses CVNN layers to jointly model the real and imaginary components of spectrograms, thereby better capturing their algebraic structure. We then design a complex multi-resolution discriminator (cMRD) that operates directly on complex spectrograms. Together, these components form a complex-domain adversarial training framework in which both the generator and discriminator operate on complex-valued representations. This design allows feedback that respects the structure of the complex domain. Inspired by recent studies on complex activation functions (Vasudeva et al., 2022), we introduce phase quantization, a nonlinear transformation that discretizes phase angles to serve as an inductive bias for stable learning. Finally, to reduce redundant computations in complexvalued operations, we develop a block-matrix computation scheme that improves overall training efficiency.",
+        "bbox": [
+            169,
+            271,
+            826,
+            439
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "• CVNN-based architecture with complex adversarial training: We introduce ComVo, which, to our knowledge, is the first iSTFT-based vocoder to employ complex-valued neural networks in both its generator and discriminator. We design the discriminator losses in the complex domain, thus establishing an adversarial framework that operates on complexvalued representations.",
+        "bbox": [
+            215,
+            450,
+            825,
+            522
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "• Structured nonlinear transformation: We propose phase quantization, a tailored nonlinear operation that discretizes phase angles and serves as an inductive bias.",
+        "bbox": [
+            215,
+            526,
+            823,
+            555
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "• Block-matrix computation scheme: We present an efficient implementation that fuses the four real-valued multiplications required for each complex operation into a single blockmatrix multiplication, reducing training time by 25%.",
+        "bbox": [
+            215,
+            559,
+            825,
+            602
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "• Improved synthesis performance: ComVo outperforms real-valued vocoders, as demonstrated in our experiments.",
+        "bbox": [
+            215,
+            606,
+            825,
+            633
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "2 RELATED WORKS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            655,
+            352,
+            671
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "2.1 COMPLEX-VALUED NEURAL NETWORKS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            686,
+            500,
+            700
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "CVNNs represent inputs, activations, and weights directly as complex numbers. They have been applied in a range of domains where signals are naturally expressed in the complex field, including radar classification (Yang et al., 2022), MRI reconstruction (Vasudeva et al., 2022), wireless communication (Xu et al., 2022), and audio analysis (Sarroff, 2018). Several studies report that CVNNs can exhibit favorable learning behavior or approximation properties compared to real-valued networks in various settings (Barrachina et al., 2021; Voigtlaender, 2023; Geuchen & Voigtlaender, 2023). This prior work suggests that complex-valued modeling can be a viable choice when dealing with data or transformations formulated in the complex domain.",
+        "bbox": [
+            169,
+            713,
+            826,
+            825
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "2.2 ISTFT-BASED VOCODER",
+        "text_level": 2,
+        "bbox": [
+            171,
+            840,
+            388,
+            856
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "The short-time Fourier transform (STFT) decomposes a waveform into overlapping frames of complex spectral coefficients. The iSTFT reconstructs the time-domain signal using the overlap-add method. This fully differentiable analysis-synthesis pipeline enables end-to-end training on framelevel spectra while generating sample-level waveforms in a single pass. This approach eliminates any explicit upsampling or autoregressive generation, thereby reducing latency. Early methods, such as the Griffin-Lim algorithm (Griffin & Lim, 1984), used iterative phase reconstruction but often yielded suboptimal coherence between magnitude and phase. GLA-Grad (Liu et al., 2024) later combined Griffin-Lim with neural diffusion models to improve phase accuracy.",
+        "bbox": [
+            169,
+            868,
+            826,
+            925
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "page_number",
+        "text": "2",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "chart",
+        "img_path": "images/beff7def15923d17f53f36223e8820e1c5f5b9a8d21b46bc073ff16a3a87bcde.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            214,
+            101,
+            403,
+            237
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "chart",
+        "img_path": "images/bbf515a2fdddf3feb3291c1e5e8dc2f99e720eee570721ab9d3371e553d5c9fa.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            405,
+            101,
+            594,
+            236
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "chart",
+        "img_path": "images/bd2c0e48ed1dc1fa9269f12e55ca4aee034c51716bce6d7fd3ea0532726d8d0b.jpg",
+        "content": "",
+        "chart_caption": [
+            "Figure 1: Ground-truth distribution compared with samples generated by RVNN and CVNN."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            596,
+            99,
+            785,
+            237
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            290,
+            825,
+            348
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "More recent neural iSTFT-based vocoders, such as iSTFTNet (Kaneko et al., 2022), iSTFTNet2 (Kaneko et al., 2023), APNet (Ai & Ling, 2023), APNet2 (Du et al., 2024), FreeV (Lv et al., 2024), Vocos (Siuzdak, 2024), and RFWave (Liu et al., 2025), employ diverse architectural designs for iSTFT-based waveform generation.",
+        "bbox": [
+            169,
+            352,
+            825,
+            409
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "In these systems, the STFT-domain coefficients are generated directly for frame-level synthesis, enabling efficient inference without waveform upsampling. Our work retains this benefit but additionally focuses on how this representation is modeled within the network. For this reason, we use complex-valued layers that operate directly in the complex domain rather than separating each coefficient into real and imaginary channels.",
+        "bbox": [
+            169,
+            414,
+            825,
+            486
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "3 PRELIMINARY ANALYSIS OF REAL- AND COMPLEX-VALUED NETWORKS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            516,
+            813,
+            532
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Recent work on complex-valued neural networks suggests that operating directly in the complex field can better capture interactions between a variable’s magnitude and phase than relying on realvalued parameterizations that treat the two components independently (Barrachina et al., 2021; Dou et al., 2025). Motivated by this perspective, we conduct a controlled generative experiment designed to isolate the effect of complex-domain modeling from architectural factors specific to waveform generation.",
+        "bbox": [
+            169,
+            555,
+            826,
+            640
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "We train a lightweight MLP-based GAN on a synthetic complex distribution and compare two models: RVNN, which represents complex numbers as two real channels, and CVNN, which pro cesses each coefficient as a single complex entity. Because the CVNN stores real and imaginary parameters separately, it requires roughly twice the memory for a given layer width; to match memory usage fairly, the RVNN is assigned twice the hidden dimension.",
+        "bbox": [
+            169,
+            645,
+            500,
+            785
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "table",
+        "img_path": "images/edb9d987eaca625e4c85e448b970d415ff080bba89d79c80a03ffdae61b17941.jpg",
+        "table_caption": [
+            "Table 1: JSD between the generated and ground-truth magnitude (mag.) and phase distributions for RVNN and CVNN."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Model</td><td>JSD (mag.)</td><td>JSD (phase)</td></tr><tr><td>RVNN</td><td> $0.018350 \\pm 0.014$ </td><td> $0.021110 \\pm 0.036$ </td></tr><tr><td>CVNN</td><td> $0.006548 \\pm 0.003$ </td><td> $0.003911 \\pm 0.002$ </td></tr></table>",
+        "bbox": [
+            509,
+            705,
+            820,
+            755
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Figure 1 presents sample visualizations across multiple training seeds, and Table 1 reports the Jensen–Shannon divergence (JSD) between the generated and target magnitude and phase distributions, computed using a kernel density–based estimator. Both models recover the broad structure of the target distribution, but the CVNN yields samples that adhere more closely to the underlying trajectory and exhibit lower JSD in both magnitude and phase.",
+        "bbox": [
+            169,
+            791,
+            825,
+            863
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "These observations provide a simple, controlled example in which modeling directly in the complex domain offers representational advantages when the data possess inherent real–imaginary dependencies. This motivates our use of CVNNs in the proposed method that follows. Extended analysis and additional visualizations are included in the Appendix B.",
+        "bbox": [
+            169,
+            868,
+            826,
+            925
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "page_number",
+        "text": "3",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "image",
+        "img_path": "images/b4823ad2aceeecf7195b3c53fa8e498304c47fd7970ae13221d8744185dda3dd.jpg",
+        "image_caption": [
+            "Figure 2: Overview of the ComVo architecture."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            181,
+            104,
+            810,
+            315
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "4 METHOD",
+        "text_level": 2,
+        "bbox": [
+            171,
+            354,
+            284,
+            369
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "We present ComVo, an iSTFT-based GAN vocoder whose generator and discriminator operate entirely in the complex domain, preserving real-imaginary interactions end to end. The model uses an iSTFT synthesis pipeline with adversarial training objectives. We also include a phase quantization layer as an inductive bias and adopt a block-matrix formulation for efficient complex-valued computation. Figure 2 provides an overview of the architecture.",
+        "bbox": [
+            169,
+            386,
+            826,
+            458
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "4.1 GENERATOR",
+        "text_level": 2,
+        "bbox": [
+            171,
+            474,
+            303,
+            489
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Figure 2(a) depicts our generator, which is adapted from the Vocos architecture (Siuzdak, 2024). We chose Vocos as our starting point because it synthesizes via frame-level iSTFT without requiring learned upsampling, features a compact feed-forward structure, and serves as a widely used baseline for comparison. All convolutions and normalizations in our generator are implemented in the complex domain. We use a split GELU activation (Hendrycks & Gimpel, 2016) to maintain the ConvNeXt-style block layout in the complex setting. After the initial complex convolution, a phase quantization layer discretizes phase values to stabilize training. Figure 2(b) details the complex ConvNeXt block used at each generator stage.",
+        "bbox": [
+            169,
+            500,
+            826,
+            614
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "4.2 DISCRIMINATOR",
+        "text_level": 2,
+        "bbox": [
+            171,
+            630,
+            331,
+            643
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "We propose a complex multi-resolution discriminator (cMRD), as shown in Figure 2(c). Prior work on spectrogram-based discriminators typically used either only magnitude spectra or concatenated the real and imaginary spectrogram channels as independent inputs to a real-valued network (Jang et al., 2021; Siuzdak, 2024). In contrast, cMRD uses complex-valued layers and operates directly on complex spectrogram inputs. It comprises multiple sub-discriminators, each operating at a different STFT resolution. During training, we apply the adversarial loss separately to the real and imaginary parts. We also include a multi-period discriminator (MPD), shown in Figure 2(d), which consists of multiple sub-discriminators operating over different periods and processing reshaped waveform segments (Kong et al., 2020). Because the MPD operates at the waveform level, it remains a realvalued network. The overall training objective combines the adversarial losses from cMRD and MPD, along with feature matching and reconstruction losses. Full loss definitions and weights are provided in Appendix C.",
+        "bbox": [
+            169,
+            656,
+            826,
+            825
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "4.3 PHASE QUANTIZATION LAYER",
+        "text_level": 2,
+        "bbox": [
+            171,
+            840,
+            429,
+            856
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Complex-valued networks remain largely unexplored in terms of nonlinear transformations since any nonlinearity must jointly handle the real and imaginary components. We represent each Melspectrogram as a complex value by initializing the imaginary part to zero. We then introduce a phase quantization layer that discretizes phase angles into a fixed set of levels. This provides a structured nonlinearity that preserves relative phase relationships and mitigates phase drift during training. For a complex feature $z \\ = \\ r e ^ { i \\theta }$ , where $r \\geq 0$ denotes the magnitude and $\\theta \\in ( - \\pi , \\pi ]$ denotes the principal phase, the quantized phase is defined as:",
+        "bbox": [
+            169,
+            867,
+            826,
+            925
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "page_number",
+        "text": "4",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            104,
+            825,
+            148
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\theta_ {q} = \\frac {2 \\pi}{N _ {q}} \\cdot \\text { round } \\left(\\frac {N _ {q}}{2 \\pi} \\theta\\right),\\tag{1}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            405,
+            162,
+            589,
+            196
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "where $N _ { q }$ is the number of quantization levels. The quantized complex value is reconstructed as",
+        "bbox": [
+            169,
+            199,
+            803,
+            214
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\nz _ {q} = r e ^ {i \\theta_ {q}}.\\tag{2}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            457,
+            220,
+            537,
+            239
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Quantizing the phase by mapping continuous angles to a fixed set of levels introduces inherent discontinuities that would normally block gradient propagation. To preserve end-to-end differentiability, we adopt the straight-through estimator (STE) (Bengio, 2013), in which the quantization operation is applied in the forward pass, while its gradient is approximated by an identity function during backpropagation. This preserves gradient propagation through the phase quantization layer and improves optimization stability in practice. Furthermore, by restricting phase values to a discrete set, phase quantization acts as a form of regularization: it limits unwarranted phase variability in intermediate representations and guides the network toward learning more coherent and structured phase patterns.",
+        "bbox": [
+            169,
+            253,
+            826,
+            381
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "4.4 OPTIMIZING COMPLEX COMPUTATION WITH BLOCK MATRICES",
+        "text_level": 2,
+        "bbox": [
+            171,
+            397,
+            658,
+            411
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "To improve efficiency in both the forward and backward passes, we reformulate CVNN operations as real-valued block-matrix multiplications. In many autodifferentiation systems, complex-valued layers are implemented by explicitly tracking real and imaginary components as separate real-valued tensors. This leads to redundant operations and inefficient memory access during both the forward and backward passes. We address this by adopting a block-wise formulation that represents complex values as structured pairs of real values and processes them jointly through unified matrix operations. This approach reduces component-wise operations and enhances parallelism on modern GPU architectures by enabling matrix-based execution throughout the computational graph. The forward complex operation can be expressed as:",
+        "bbox": [
+            169,
+            422,
+            826,
+            549
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\left[ \\begin{array}{c} \\mathrm{Re} (z ^ {\\prime}) \\\\ \\mathrm{Im} (z ^ {\\prime}) \\end{array} \\right] = \\left[ \\begin{array}{c c} W _ {r} & - W _ {i} \\\\ W _ {i} & W _ {r} \\end{array} \\right] \\left[ \\begin{array}{c} x \\\\ y \\end{array} \\right],\\tag{3}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            392,
+            554,
+            606,
+            589
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "where $z = x + i y$ (with x and y denoting the real and imaginary input vectors), $W = W _ { r } + i W _ { i }$ is the complex weight matrix (with $W _ { r } , \\ W _ { i }$ its real and imaginary parts), and $z ^ { \\prime }$ is the resulting complex output. The backward gradient computation uses the same block matrix structure:",
+        "bbox": [
+            169,
+            595,
+            825,
+            638
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\left[ \\begin{array}{c} \\frac {\\partial L}{\\partial x} \\\\ \\frac {\\partial L}{\\partial y} \\end{array} \\right] = \\left[ \\begin{array}{c c} W _ {r} & - W _ {i} \\\\ W _ {i} & W _ {r} \\end{array} \\right] ^ {\\top} \\left[ \\begin{array}{c} g _ {r} \\\\ g _ {i} \\end{array} \\right],\\tag{4}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            395,
+            643,
+            602,
+            686
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "where $g _ { r }$ and $g _ { i }$ are the real and imaginary components of the gradient from the next layer. This unified formulation is implemented for all parameterized CVNN layers via custom autograd functions. It reduces the number of separate operations and improves parallelism on GPUs by replacing four independent real-valued multiplies with a single block-matrix multiply, thereby eliminating redundant computation and allowing more efficient gradient evaluation.",
+        "bbox": [
+            169,
+            693,
+            825,
+            763
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "5 RESULTS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            782,
+            284,
+            799
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "5.1 EXPERIMENTAL SETUP",
+        "text_level": 2,
+        "bbox": [
+            171,
+            814,
+            377,
+            829
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "We train our model on the LibriTTS corpus (Zen et al., 2019), using the train-clean-100, train-clean-360, and train-other-500 subsets for training, and evaluating on test-clean and test-other sets. All audio is sampled at 24 kHz. The STFT uses an FFT size of 1024, hop size of 256, and Hann window of length 1024. Mel-spectrograms are computed with 100 Mel-bins and a maximum frequency of 12 kHz. We compare ComVo against several representative vocoders: HiFi-GAN (v1) (Kong et al., 2020), iSTFTNet (Kaneko et al., 2022), BigVGAN (base) (Lee et al., 2023), and Vocos (Siuzdak, 2024). For iSTFTNet, we use an open-source reimplementation, while the other models are trained using official code with recommended settings. We evaluate using both subjective and objective metrics. Subjective quality is assessed via mean opinion score (MOS), similarity MOS (SMOS), and comparison MOS (CMOS). Objective metrics include UTMOS (Saeki et al., 2022), PESQ (Rix et al., 2001), multi-resolution STFT (MR-STFT) error (Yamamoto et al., 2020), periodicity RMSE, and V/UV F1 score (Morrison et al., 2022). Detailed explanations are provided in Appendix K and Appendix L.",
+        "bbox": [
+            169,
+            840,
+            826,
+            925
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "page_number",
+        "text": "5",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "table",
+        "img_path": "images/c6b5d7952242b0dadf78f4696dfb6f2253d18cb206840baf33f4c179b977ea49.jpg",
+        "table_caption": [
+            "Table 2: Objective and subjective evaluation on the LibriTTS dataset."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Model</td><td>UTMOS ↑</td><td>MR-STFT ↓</td><td>PESQ ↑</td><td>Periodicity ↓</td><td>V/UV F1 ↑</td><td>MOS ↑</td><td>CMOS ↑</td></tr><tr><td>GT</td><td>3.8712</td><td>-</td><td>-</td><td>-</td><td>-</td><td>4.08 ± 0.04</td><td>0.14</td></tr><tr><td>HiFi-GAN</td><td>3.3453</td><td>1.0455</td><td>2.9360</td><td>0.1554</td><td>0.9174</td><td>4.00 ± 0.05</td><td>-0.09</td></tr><tr><td>iSTFTNet</td><td>3.3591</td><td>1.1046</td><td>2.8136</td><td>0.1476</td><td>0.9243</td><td>3.98 ± 0.05</td><td>-0.04</td></tr><tr><td>BigVGAN</td><td>3.5197</td><td>0.8994</td><td>3.6122</td><td>0.1181</td><td>0.9418</td><td>4.05 ± 0.05</td><td>-0.05</td></tr><tr><td>Vocos</td><td>3.6025</td><td>0.8856</td><td>3.6266</td><td>0.1061</td><td>0.9522</td><td>4.05 ± 0.05</td><td>-0.02</td></tr><tr><td>ComVo</td><td>3.6901</td><td>0.8439</td><td>3.8239</td><td>0.0903</td><td>0.9609</td><td>4.07 ± 0.05</td><td>0</td></tr></table>",
+        "bbox": [
+            189,
+            128,
+            803,
+            227
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "table",
+        "img_path": "images/b7d9aa0935894668b15b9b1131f9139c2a6f0d4cecf2893098dc7303d5314f2f.jpg",
+        "table_caption": [
+            "Table 3: Objective evaluation on the MUSDB18-HQ."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Model</td><td>MR-STFT ↓</td><td>PESQ ↑</td><td>Periodicity ↓</td><td>V/UV F1 ↑</td></tr><tr><td>HiFi-GAN</td><td>1.1909</td><td>2.3592</td><td>0.1804</td><td>0.9004</td></tr><tr><td>iSTFTNet</td><td>1.2388</td><td>2.2357</td><td>0.1815</td><td>0.9102</td></tr><tr><td>BigVGAN</td><td>0.9658</td><td>3.2391</td><td>0.1388</td><td>0.9340</td></tr><tr><td>Vocos</td><td>0.9307</td><td>3.2785</td><td>0.1369</td><td>0.9361</td></tr><tr><td>ComVo</td><td>0.8776</td><td>3.5220</td><td>0.1304</td><td>0.9384</td></tr></table>",
+        "bbox": [
+            303,
+            270,
+            696,
+            353
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "table",
+        "img_path": "images/e42b6108a7175c508d4fa09ac8d7a03e64bbcd7deab326b49422be23abd702eb.jpg",
+        "table_caption": [
+            "Table 4: Subjective evaluation on the MUSDB18-HQ."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Model</td><td>Vocals</td><td>Drums</td><td>Bass</td><td>Others</td><td>Mixture</td><td>Average</td></tr><tr><td>GT</td><td>4.31 ± 0.11</td><td>4.25 ± 0.12</td><td>4.26 ± 0.12</td><td>4.29 ± 0.11</td><td>4.37 ± 0.11</td><td>4.29 ± 0.11</td></tr><tr><td>HiFi-GAN</td><td>3.83 ± 0.14</td><td>3.93 ± 0.13</td><td>3.43 ± 0.19</td><td>3.21 ± 0.19</td><td>3.60 ± 0.16</td><td>3.61 ± 0.16</td></tr><tr><td>iSTFTNet</td><td>3.82 ± 0.14</td><td>4.03 ± 0.13</td><td>3.37 ± 0.18</td><td>3.17 ± 0.19</td><td>3.52 ± 0.17</td><td>3.59 ± 0.17</td></tr><tr><td>BigVGAN</td><td>4.07 ± 0.12</td><td>4.19 ± 0.12</td><td>3.59 ± 0.17</td><td>3.57 ± 0.15</td><td>3.96 ± 0.12</td><td>3.88 ± 0.14</td></tr><tr><td>Vocos</td><td>4.04 ± 0.12</td><td>4.10 ± 0.13</td><td>3.58 ± 0.16</td><td>3.52 ± 0.17</td><td>3.87 ± 0.13</td><td>3.82 ± 0.14</td></tr><tr><td>ComVo</td><td>4.05 ± 0.12</td><td>4.14 ± 0.12</td><td>3.60 ± 0.17</td><td>3.68 ± 0.16</td><td>3.98 ± 0.13</td><td>3.89 ± 0.14</td></tr></table>",
+        "bbox": [
+            210,
+            396,
+            787,
+            498
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            526,
+            826,
+            625
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "5.2 COMPARATIVE EVALUATION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            642,
+            415,
+            657
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Table 2 reports results on LibriTTS: ComVo achieves the highest objective scores among the baselines, and the corresponding MOS and CMOS are comparable to those of strong baseline systems. Tables 3 and 4 report results on MUSDB18-HQ (Rafii et al., 2019), an out-of-distribution audio dataset: ComVo achieves higher scores across all objective measures than the other models, and the corresponding subjective evaluations are comparable to strong baselines. The SMOS evaluation shows that ComVo delivers competitive perceptual quality across individual source stems and mixture tracks, with its average scores typically at or near the top. Taken together, these results indicate that an iSTFT-based model with complex-valued modeling consistently improves performance while maintaining the standard pipeline.",
+        "bbox": [
+            169,
+            669,
+            826,
+            796
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "5.3 IMPACT OF COMPLEX-VALUED MODELING",
+        "text_level": 2,
+        "bbox": [
+            171,
+            813,
+            513,
+            828
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "We assess the contribution of each discriminator component individually. The MPD and MRD provide complementary forms of supervision: the MPD emphasizes periodic structure, while the MRD supplies multi-resolution spectral constraints. To understand how each behaves on its own, we evaluate MPD-only, MRD-only, and cMRD-only configurations. The MPD-only variant lacks spectral guidance and exhibits higher MR-STFT error. The MRD-only variant attains low STFT-based errors but produces a lower UTMOS score, indicating that spectral constraints alone do not fully capture perceptual quality. The cMRD-only model improves over the MRD-only baseline across all objective metrics, showing that the complex-valued discriminator provides a more effective constraint than its real-valued counterpart even when used alone.",
+        "bbox": [
+            169,
+            839,
+            826,
+            925
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "page_number",
+        "text": "6",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "image",
+        "img_path": "images/c4f45886f042fa79eb7b94f0fd36e146c500abd38878d74b725f0553aec06915.jpg",
+        "image_caption": [
+            "Figure 3: Grad-CAM comparison across generator-discriminator configurations. Each row corresponds to a cMRD sub-discriminator operating at a different STFT resolution (i, ii, iii)."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            174,
+            102,
+            820,
+            481
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            595,
+            825,
+            638
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "We then extend the analysis to the full generator–discriminator combinations: $G _ { R } D _ { R } , G _ { C } D _ { R }$ $G _ { R } D _ { C }$ , and $G _ { C } D _ { C }$ , where $G _ { R }$ and $G _ { C }$ denote real-valued and complex-valued generators, and $D _ { R }$ and $D _ { C }$ denote real-valued and complex-valued discriminators. To isolate the effect of complexvalued modeling, the phase-quantization layer is disabled for all configurations, and the MPD branch is kept active without modification.",
+        "bbox": [
+            171,
+            645,
+            823,
+            715
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Replacing only the generator $( G _ { R } D _ { R } \\to G _ { C } D _ { R } )$ consistently improves all objective metrics. Replacing only the discriminator $( G _ { R } D _ { R }  G _ { R } D _ { C } )$ also yields measurable gains, particularly in MR-STFT error and PESQ. The best performance is achieved when both the generator and discriminator operate in the complex domain $( G _ { C } D _ { C } )$ , confirming the effectiveness of complex-domain modeling for iSTFT-based waveform generation.",
+        "bbox": [
+            169,
+            722,
+            825,
+            792
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "For qualitative analysis, we visualize Grad-CAM (Selvaraju et al., 2017) activations of the discriminator in Figure 3. Each row in the figure corresponds to a sub-discriminator index (i, ii, iii), and each column corresponds to one of the generator-discriminator configurations. In the configurations with a real-valued MRD $( G _ { R } D _ { R }$ and $G _ { C } D _ { R } )$ , the attention maps are diffuse and poorly aligned with speech-relevant spectral structures. In contrast, in the configurations with a cMRD $( G _ { R } D _ { C }$ and $\\bar { G } _ { C } D _ { C } )$ ), the highlighted regions consistently trace structured spectral patterns across all sub-discriminators. These results indicate that complex-valued discriminators provide more precise spectral feedback to the generator, helping it better match perceptually important features and ultimately improving synthesis quality, as also reflected in the ablation metrics.",
+        "bbox": [
+            169,
+            799,
+            826,
+            925
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "page_number",
+        "text": "7",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "table",
+        "img_path": "images/746ab7bd64f8e395dc1d8f161b770e3dd26ea99a86cf28bd02b2523fd53125e3.jpg",
+        "table_caption": [
+            "Table 5: Ablation study comparing real-valued and complex-valued architectures.",
+            "Table 6: Ablation on phase quantization levels. $N _ { q }$ denotes the number of quantization levels."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Model</td><td>UTMOS ↑</td><td>MR-STFT ↓</td><td>PESQ ↑</td><td>Periodicity ↓</td><td>V/UV F1 ↑</td></tr><tr><td>MPD only</td><td>3.6357</td><td>0.8522</td><td>3.7670</td><td>0.0942</td><td>0.9613</td></tr><tr><td>MRD only</td><td>2.8338</td><td>0.8442</td><td>3.9868</td><td>0.0870</td><td>0.9610</td></tr><tr><td>cMRD only</td><td>2.9285</td><td>0.8398</td><td>4.0149</td><td>0.0859</td><td>0.9635</td></tr><tr><td> $G_R D_R$ </td><td>3.6025</td><td>0.8856</td><td>3.6266</td><td>0.1061</td><td>0.9522</td></tr><tr><td> $G_R D_C$ </td><td>3.5930</td><td>0.8679</td><td>3.6399</td><td>0.1060</td><td>0.9497</td></tr><tr><td> $G_C D_R$ </td><td>3.6452</td><td>0.8597</td><td>3.7375</td><td>0.0978</td><td>0.9567</td></tr><tr><td> $G_C D_C$ </td><td>3.6646</td><td>0.8435</td><td>3.7756</td><td>0.0915</td><td>0.9625</td></tr></table>",
+        "bbox": [
+            261,
+            128,
+            730,
+            238
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "table",
+        "img_path": "images/565f548e14ac6de13e8f3b57d420fbdfb914247b33c0e1d16f30f64c8a515a00.jpg",
+        "table_caption": [],
+        "table_footnote": [],
+        "table_body": "<table><tr><td> $N_q$  Quantization</td><td>UTMOS ↑</td><td>MR-STFT ↓</td><td>PESQ ↑</td><td>Periodicity ↓</td><td>V/UV F1 ↑</td></tr><tr><td>0</td><td>3.6646</td><td>0.8435</td><td>3.7756</td><td>0.0915</td><td>0.9625</td></tr><tr><td>128</td><td>3.6901</td><td>0.8439</td><td>3.8239</td><td>0.0903</td><td>0.9609</td></tr><tr><td>256</td><td>3.6423</td><td>0.8466</td><td>3.8127</td><td>0.0926</td><td>0.9597</td></tr><tr><td>512</td><td>3.6412</td><td>0.8489</td><td>3.8248</td><td>0.0896</td><td>0.9613</td></tr></table>",
+        "bbox": [
+            243,
+            272,
+            754,
+            349
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "table",
+        "img_path": "images/4ba934475a631e51e81136dfec912db4f75d9ab8002165ccfc29edef41e6bad4.jpg",
+        "table_caption": [
+            "Table 7: Comparison of standard PyTorch and refined implementations."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Implementation</td><td>MR-STFT ↓</td><td>GPU xRT ↑</td><td>Training Time</td><td>Nodes (Gen / cMRD)</td></tr><tr><td>Native PyTorch</td><td>0.8465</td><td>702.26</td><td>183 hrs</td><td>5686 / 4248</td></tr><tr><td>Block-matrix</td><td>0.8435</td><td>696.91</td><td>138 hrs</td><td>2547 / 1404</td></tr></table>",
+        "bbox": [
+            236,
+            392,
+            753,
+            440
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "5.4 EFFECT OF PHASE QUANTIZATION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            459,
+            457,
+            474
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Table 6 shows that adding a phase quantization layer yields clear benefits in perceptual quality, despite only a minor trade-off in reconstruction fidelity. The model without phase quantization $( N _ { q } ~ = ~ 0 )$ achieves the lowest MR-STFT error, but a moderate quantization level $( \\bar { N } _ { q } ~ = ~ 1 2 8 )$ smooths out phase fluctuations, resulting in higher UTMOS and PESQ scores and fewer periodicity artifacts, with only a small increase in MR-STFT error. Using finer quantization (e.g., $N _ { q } = 2 5 6 .$ $N _ { q } = 5 1 2 )$ can further boost perceptual metrics, but with diminishing returns and a slight degradation in reconstruction accuracy. Overall, phase quantization acts as an effective regularizer: it enhances listening quality while only modestly affecting spectral fidelity, with $N _ { q } = 1 2 8$ providing the best trade-off in our setup.",
+        "bbox": [
+            169,
+            484,
+            826,
+            612
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "5.5 BLOCK-MATRIX COMPUTATION SCHEME",
+        "text_level": 2,
+        "bbox": [
+            171,
+            628,
+            500,
+            643
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "In this section, we evaluate the efficiency and graph-complexity benefits of our block-matrix computation scheme. Table 7 reports the comparative results. It shows that our block-matrix implementation achieves performance comparable to PyTorch’s native complex operations in terms of MR-STFT reconstruction error. While PyTorch’s optimized complex kernels yield slightly faster forward-pass throughput, our overall training time is substantially shorter. Specifically, we reduce the number of backward graph nodes in the generator by over 55% and in the discriminator’s cMRD by nearly 67%, resulting in a 25% reduction in training time. This improvement arises primarily from the backward pass: examining the gradient computation graphs reveals that our method dramatically lowers the node count compared to PyTorch’s default approach of separately tracking real and imaginary components. By replacing four independent real-valued multiplications with a simple channel concatenation and a single matrix multiplication, we eliminate redundant operations and significantly accelerate gradient computation, all without sacrificing model fidelity.",
+        "bbox": [
+            169,
+            655,
+            826,
+            824
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "5.6 EVALUATION IN TEXT-TO-SPEECH PIPELINE",
+        "text_level": 2,
+        "bbox": [
+            171,
+            840,
+            522,
+            856
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "We further evaluate each model in a text-to-speech (TTS) pipeline by pairing it with an acoustic model. In particular, we use Matcha-TTS (Mehta et al., 2024) as the acoustic model to generate Mel-spectrograms from text, then pass those spectrograms to each model. Matcha-TTS is trained on LibriTTS, and each model is trained independently on LibriTTS and connected to the Matcha-",
+        "bbox": [
+            169,
+            868,
+            826,
+            925
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "page_number",
+        "text": "8",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "table",
+        "img_path": "images/fcbaa378d7b7dd2bc0ee2a811a115f14ce935c286d604dfa6eefe8c889397cf3.jpg",
+        "table_caption": [
+            "Table 8: UTMOS, MOS, and CMOS comparison in the TTS pipeline."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Model</td><td>UTMOS ↑</td><td>MOS ↑</td><td>CMOS ↑</td></tr><tr><td>HiFi-GAN</td><td>3.2233</td><td> $3.85 \\pm 0.05$ </td><td>-0.22</td></tr><tr><td>iSTFTNet</td><td>3.2951</td><td> $3.89 \\pm 0.05$ </td><td>-0.15</td></tr><tr><td>BigVGAN</td><td>3.3022</td><td> $3.92 \\pm 0.05$ </td><td>-0.06</td></tr><tr><td>Vocos</td><td>3.4357</td><td> $3.91 \\pm 0.05$ </td><td>-0.06</td></tr><tr><td>ComVo</td><td>3.4403</td><td> $3.92 \\pm 0.05$ </td><td>0</td></tr></table>",
+        "bbox": [
+            174,
+            142,
+            465,
+            220
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "table",
+        "img_path": "images/ca24a6ab9e87276bdad179920a7fb2c26212176931f82e5f61baa488d02838d9.jpg",
+        "table_caption": [
+            "Table 9: Comparison of computational cost and inference latency."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Model</td><td>Param (M)</td><td>Memory (MB)</td><td>GPU xRT ↑</td></tr><tr><td>HiFi-GAN</td><td>14.00</td><td>53.40</td><td>259.08</td></tr><tr><td>iSTFTNet</td><td>13.33</td><td>50.83</td><td>402.21</td></tr><tr><td>BigVGAN</td><td>14.02</td><td>53.46</td><td>158.07</td></tr><tr><td>Vocos</td><td>13.54</td><td>51.62</td><td>4657.65</td></tr><tr><td>ComVo</td><td>13.28</td><td>101.24</td><td>819.02</td></tr></table>",
+        "bbox": [
+            498,
+            141,
+            818,
+            220
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "table",
+        "img_path": "images/c326d6696345bcfade75067335820e0f7b75e11afb9c128cae04497378a975a8.jpg",
+        "table_caption": [
+            "Table 10: Objective evaluation and cost comparison: complex modeling vs. parameter scaling."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Model</td><td>Params. (M)</td><td>Memory (MB)</td><td>UTMOS ↑</td><td>MR-STFT ↓</td><td>PESQ ↑</td><td>Periodicity ↓</td><td>V/UV F1 ↑</td></tr><tr><td> $G_R D_R$ </td><td>13.54</td><td>51.62</td><td>3.6025</td><td>0.8856</td><td>3.6266</td><td>0.1061</td><td>0.9522</td></tr><tr><td> $G_R D_R 2 \\times$ </td><td>27.05</td><td>103.19</td><td>3.6164</td><td>0.8622</td><td>3.6336</td><td>0.1055</td><td>0.9524</td></tr><tr><td> $G_C D_R$ </td><td>13.28</td><td>101.24</td><td>3.6452</td><td>0.8597</td><td>3.7375</td><td>0.0978</td><td>0.9567</td></tr></table>",
+        "bbox": [
+            173,
+            265,
+            818,
+            323
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "TTS outputs without additional fine-tuning. Table 8 reports the MOS, UTMOS, and CMOS for the TTS pipeline evaluation. ComVo achieves a MOS that matches the top score among the compared models, and it attains the highest UTMOS. This indicates that ComVo reliably converts the predicted spectrograms into high-quality waveforms within the TTS setting.",
+        "bbox": [
+            169,
+            353,
+            826,
+            411
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "5.7 COMPUTATIONAL ANALYSIS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            429,
+            413,
+            444
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Table 9 compares the inference throughput and memory usage of each model under a common setup (batch size 1, no hardware-specific optimizations). HiFi-GAN and BigVGAN are upsampling-based models, whereas iSTFTNet, Vocos, and ComVo synthesize via frame-level iSTFT. The upsamplingbased models exhibit the lowest throughput (lower xRT, indicating slower generation), while the iSTFT-based models run significantly faster. Among them, Vocos achieves the highest throughput. ComVo’s throughput (xRT) lies within the range of the other iSTFT-based models. However, its memory footprint is higher than the real-valued iSTFT baselines: with a complex type, each weight is stored as a real–imaginary pair, so at the same precision the per-parameter memory is roughly doubled for a fixed parameter count.",
+        "bbox": [
+            169,
+            457,
+            826,
+            583
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "To test whether the improvements stem merely from the larger memory footprint of complex types, we trained a real-valued model with twice the parameter count to match the complex model’s memory and compared cost–quality trade-offs. The results are reported in Table 10. We compare three settings: the baseline real-valued model $( G _ { R } D _ { R } )$ , a widened real-valued model with roughly 2× parameters (denoted $G _ { R } D _ { R } 2 \\times )$ , and a complex-valued model $( G _ { C } D _ { R } )$ . The discriminator is identical across all settings. $G _ { C } D _ { R }$ and $G _ { R } D _ { R } \\ : 2 \\times$ have comparable memory footprints. As expected, $G _ { R } D _ { R } \\ 2 \\times$ improves objective metrics relative to $G _ { R } D _ { R } .$ . In fact, $G _ { C } D _ { R }$ exceeds the widened model across all metrics despite a similar memory cost. Taken together, Tables 9 and 10 indicate that modeling real–imaginary correlations with CVNNs provides larger quality gains than simply scaling real-valued models.",
+        "bbox": [
+            169,
+            589,
+            826,
+            729
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "6 LIMITATIONS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            752,
+            318,
+            767
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "ComVo integrates complex-valued networks into an iSTFT-based vocoder. To keep the implementation straightforward, we adopt split-style designs. Concretely, we apply component-wise hinge losses to the real and imaginary outputs of cMRD, and we use split GELU within the ConvNeXt backbone. We will explore more advanced designs for these components in future work. The blockmatrix formulation accelerates training, but computational overhead remains high because complex layers store and process paired real and imaginary values. Empirically, multi-GPU Distributed Data Parallel experiments showed under-optimized performance for complex parameters in our current training setup and occasional numerical issues; accordingly, we report single-GPU results. With better multi-GPU optimization and broader design exploration, larger-scale studies should be feasible and can further catalyze research on CVNNs for speech generation.",
+        "bbox": [
+            169,
+            785,
+            826,
+            925
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "page_number",
+        "text": "9",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "7 CONCLUSION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            102,
+            321,
+            118
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "We presented ComVo, a vocoder that integrates CVNNs into both the generator and the discriminator, establishing a complex-domain adversarial framework for iSTFT-based waveform generation. By modeling the real and imaginary components jointly, our method addresses the structural mismatches in conventional real-valued processing of complex spectrograms. We also introduced a phase quantization layer as an inductive bias and a block-matrix formulation that simplifies computation graphs and accelerates training. ComVo delivered higher synthesis quality than comparable real-valued baselines. In addition, the block-matrix formulation reduced training time by approximately 25%. Future work will extend this framework beyond adversarial training to other generative paradigms (e.g., diffusion or flow-matching) and explore richer complex-domain activations and losses.",
+        "bbox": [
+            169,
+            133,
+            826,
+            273
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "ACKNOWLEDGMENTS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            295,
+            357,
+            310
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "This work was partly supported by Institute of Information & communications Technology Planning & Evaluation(IITP) grant funded by the Korea government(MSIT) (No. RS-2019-II190079, Artificial Intelligence Graduate School Program (Korea University), IITP-2026-RS-2025-02304828, Artificial Intelligence Star Fellowship Support Program to nurture the best talents and No. RS-2024- 00457882, AI Research Hub Project).",
+        "bbox": [
+            169,
+            325,
+            825,
+            397
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "REFERENCES",
+        "text_level": 2,
+        "bbox": [
+            173,
+            417,
+            287,
+            433
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "ref_text",
+        "text": "Yang Ai and Zhen-Hua Ling. Apnet: An all-frame-level neural vocoder incorporating direct prediction of amplitude and phase spectra. IEEE/ACM Transactions on Audio, Speech, and Language Processing, 31:2145–2157, 2023. doi: 10.1109/TASLP.2023.3277276.",
+        "bbox": [
+            174,
+            441,
+            823,
+            484
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "ref_text",
+        "text": "J. A. Barrachina, C. Ren, C. Morisseau, G. Vieillard, and J.-P. Ovarlez. Complex-valued vs. realvalued neural networks for classification perspectives: An example on non-circular data. In ICASSP 2021 - 2021 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP), pp. 2990–2994, 2021. doi: 10.1109/ICASSP39728.2021.9413814.",
+        "bbox": [
+            173,
+            494,
+            823,
+            550
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "ref_text",
+        "text": "Yoshua Bengio. Estimating or propagating gradients through stochastic neurons. arXiv preprint arXiv:1305.2982, 2013.",
+        "bbox": [
+            174,
+            561,
+            823,
+            589
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "ref_text",
+        "text": "Nanxin Chen, Yu Zhang, Heiga Zen, Ron J Weiss, Mohammad Norouzi, and William Chan. Wavegrad: Estimating gradients for waveform generation. In The Ninth International Conference on Learning Representations, 2021.",
+        "bbox": [
+            174,
+            599,
+            823,
+            643
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "ref_text",
+        "text": "Jiazhen Dou, Qiming An, Xiaosong Liu, Yujian Mai, Liyun Zhong, Jianglei Di, and Yuwen Qin. Enhanced phase recovery in in-line holography with self-supervised complex-valued neural networks. Optics and Lasers in Engineering, 184:108685, 2025. ISSN 0143-8166. doi: https://doi.org/10.1016/j.optlaseng.2024.108685. URL https://www.sciencedirect. com/science/article/pii/S0143816624006638.",
+        "bbox": [
+            174,
+            654,
+            823,
+            723
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "ref_text",
+        "text": "Hui-Peng Du, Ye-Xin Lu, Yang Ai, and Zhen-Hua Ling. Apnet2: High-quality and high-efficiency neural vocoder with direct prediction of amplitude and phase spectra. In Jia Jia, Zhenhua Ling, Xie Chen, Ya Li, and Zixing Zhang (eds.), Man-Machine Speech Communication, pp. 66–80, Singapore, 2024. Springer Nature Singapore. ISBN 978-981-97-0601-3.",
+        "bbox": [
+            174,
+            734,
+            823,
+            790
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "ref_text",
+        "text": "Paul Geuchen and Felix Voigtlaender. Optimal approximation using complex-valued neural networks. In A. Oh, T. Naumann, A. Globerson, K. Saenko, M. Hardt, and S. Levine (eds.), Advances in Neural Information Processing Systems, volume 36, pp. 1681–1737. Curran Associates, Inc., 2023. URL https://proceedings.neurips.cc/paper\\_files/paper/2023/ file/05b69cc4c8ff6e24c5de1ecd27223d37-Paper-Conference.pdf.",
+        "bbox": [
+            174,
+            801,
+            823,
+            871
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "ref_text",
+        "text": "D. Griffin and Jae Lim. Signal estimation from modified short-time fourier transform. IEEE Transactions on Acoustics, Speech, and Signal Processing, 32(2):236–243, 1984. doi: 10.1109/TASSP. 1984.1164317.",
+        "bbox": [
+            174,
+            882,
+            823,
+            922
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "page_number",
+        "text": "10",
+        "bbox": [
+            490,
+            948,
+            509,
+            959
+        ],
+        "page_idx": 9
+    }
+]

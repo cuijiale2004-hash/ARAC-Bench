@@ -1,0 +1,1259 @@
+[
+    {
+        "type": "text",
+        "text": "ABSTRACT",
+        "text_level": 2,
+        "bbox": [
+            450,
+            287,
+            547,
+            304
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Conditional Semantic Textual Similarity (C-STS) measures the semantic proximity between text segments under a specific condition, thereby overcoming the ambiguity inherent in traditional STS. However, existing methods are largely confined to discriminative models, failing to fully leverage recent breakthroughs in the NLP community involving Large Language Models (LLMs) and Reinforcement Learning (RL). RL is a particularly well-suited paradigm for this task, as it can directly optimize the non-differentiable Spearman ranking metric and guide the reasoning process required by C-STS. Nevertheless, we find that naively applying listwise RL fails to produce meaningful improvements, as the model struggles with complex, coarse-grained reward signals, leading to optimization difficulties. To address this challenge, we introduce PoLi-RL, a novel Point-to-List Reinforcement Learning framework. PoLi-RL employs a two-stage curriculum: it first trains the model with a simple pointwise reward to establish fundamental scoring capabilities, then transitions to a hybrid reward that combines pointwise, pairwise, and listwise objectives to refine the model’s ability to discern subtle semantic distinctions. Crucially, we propose an innovative Parallel Slice Ranking Reward (PSRR) mechanism that computes ranking rewards in parallel slices, where each slice consists of completions with the same index from different samples. This provides a precise, differentiated learning signal for each individual completion, enabling granular credit assignment and effective optimization. On the official C-STS benchmark, PoLi-RL achieves a Spearman correlation coefficient of 48.18, establishing a new SOTA for the cross-encoder architecture. Furthermore, PoLi-RL also maintains SOTA status on the re-annotated C-STS dataset, confirming its robust generalization capabilities. As the first work to successfully apply RL to C-STS, our study introduces a powerful paradigm for aligning LLMs for complex, ranking-based conditional judgment tasks. Our code and checkpoints are available at https://github.com/ZBWpro/PoLi-RL.",
+        "bbox": [
+            228,
+            320,
+            767,
+            698
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "1 INTRODUCTION",
+        "text_level": 2,
+        "bbox": [
+            173,
+            726,
+            338,
+            741
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "As a core research area in Computational Linguistics, Semantic Textual Similarity (STS) finds extensive applications across diverse scenarios, including topic modeling, dialogue systems, text summarization, and agent memory (Tang et al., 2025; Zhang et al., 2024b; 2025a). However, traditional STS tasks exhibit inherent ambiguity because similarity definitions are often susceptible to subjective bias. To address this limitation, the Conditional Semantic Textual Similarity (C-STS) task was developed (Deshpande et al., 2023). By incorporating an explicit natural language condition, C-STS enables more precise and objective similarity judgments, yet simultaneously imposes higher demands on a model’s reasoning capabilities. For instance, consider the following two text fragments: “A player is shooting from beyond the three-point line” and “A player is taking a free throw”. Under the condition “The activity of the player”, their similarity is high. However, under the condition “The player’s distance from the basket”, their similarity is low.",
+        "bbox": [
+            169,
+            758,
+            826,
+            885
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_footnote",
+        "text": "<sup>∗</sup>Equal contribution. Work done during the internship at Tencent Youtu Lab.",
+        "bbox": [
+            191,
+            896,
+            643,
+            910
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_footnote",
+        "text": "<sup>†</sup>Corresponding author.",
+        "bbox": [
+            192,
+            910,
+            338,
+            924
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_number",
+        "text": "1",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            104,
+            825,
+            133
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Research on this nascent task has yielded three primary paradigms: Bi-encoder (Liu et al., 2025), Tri-encoder (Lin et al., 2024), and Cross-encoder (Li et al., 2024). The Cross-encoder architecture, which processes the text pair and the guiding condition simultaneously, is inherently compatible with modern generative pre-trained models. Despite this, the integration of C-STS with LLMs remains in its early stages. Current LLM applications are limited to two main approaches: direct inference via few-shot prompting, where even state-of-the-art models struggle to achieve satisfactory results (Deshpande et al., 2023); and utilizing them as feature extractors for generating text embeddings (Yamada & Zhang, 2025), which is an extension of the discriminative paradigm. To the best of our knowledge, no prior work has implemented an end-to-end LLM-based cross-encoder for the C-STS task, nor has any integrated it with advanced training techniques like reinforcement learning (RL), leaving a significant research gap.",
+        "bbox": [
+            169,
+            138,
+            826,
+            294
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "This paper aims to fill this gap. We argue that incorporating RL into an LLM-based cross-encoder paradigm is a natural fit. This is reflected in two key aspects: First, C-STS requires sophisticated, scenario-based reasoning. For example, in the basketball case described earlier, to correctly assess similarity under the “distance” condition, the model must transcend surface-level semantics to identify the underlying spatial relationship between ‘beyond the three-point line’ and ‘at the free throw line’, a process demanding strong abstraction and inference. RL, through its explicit reward signals, can more effectively guide the reasoning process of LLMs (Guo et al., 2025). Second, from an optimization standpoint, RL aligns closely with the task’s evaluation criteria. The Spearman correlation coefficient (Zar, 2005), a core evaluation metric of C-STS, is a non-differentiable measure of ranking quality. Traditional SFT methods can only indirectly and approximately optimize this objective through loss functions like Mean Squared Error (MSE) (Zhang & Li, 2024b). In contrast, RL allows for the direct optimization of ranking-based reward functions designed to correlate strongly with the final Spearman metric, aligning the training objective more closely with the evaluation criteria.",
+        "bbox": [
+            169,
+            299,
+            826,
+            482
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "However, a naive application of RL to this task presents significant challenges. As illustrated in Figure 1, our preliminary experiments indicate that directly applying a listwise ranking reward (e.g., Spearman’s correlation coefficient) across an entire batch of completions does not show any advantages compared to the few-shot method. This approach suffers from two fundamental problems. First, the ranking objective is too complex for a model that has not yet grasped the task’s fundamental scoring rules, often leading to training collapse. Second, a single reward computed across the entire batch is too coarse to provide precise credit assignment, as a few poor completions can unfairly penalize other good ones.",
+        "bbox": [
+            169,
+            486,
+            826,
+            599
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "chart",
+        "img_path": "images/d5e1ead129a1f0bee18c332bb4b417a760976d4bc211f07bb2ced9331b29c254.jpg",
+        "content": "",
+        "chart_caption": [
+            "Figure 1: Performance comparison of different strategies on the C-STS task. Directly applying a listwise ranking reward for RL does not significantly outperform the few-shot baseline. In contrast, both stages of our method (PoLi-RL) achieve substantial improvements, validating its effectiveness."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            251,
+            613,
+            740,
+            809
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "To address these challenges, we propose PoLi-RL, a two-stage Point-to-List Reinforcement Learning framework. PoLi-RL features a two-stage curriculum to manage the complexity of the learning task. In the first stage, we use a simple pointwise reward to ground the model in the basic scoring rules of the task. Building on this foundation, the second stage introduces a richer, hybrid reward signal that combines a robust pointwise anchor with more nuanced pairwise and listwise ranking rewards, enabling the model to discern subtle semantic differences.",
+        "bbox": [
+            169,
+            881,
+            826,
+            925
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "page_number",
+        "text": "2",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            104,
+            825,
+            148
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Furthermore, to resolve the problem of coarse-grained reward signals that arises from ranking all completions in a batch together, we innovatively introduce a Parallel Slice Ranking Reward (PSRR) mechanism, which employs a two-level decomposition. First, for a batch of N input samples, the model generates G completions for each. We then form G “parallel slices”, where the i-th slice is composed of the i-th completion from every sample. Second, and more importantly, within each slice, rather than assigning a single reward, we compute the rank difference for each individual completion against its ideal rank. This two-level decomposition allows each of the $N \\times G$ completions to receive a unique and precise reward that reflects its quality, thereby enabling granular credit assignment and more effective optimization.",
+        "bbox": [
+            169,
+            152,
+            826,
+            280
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "The primary contributions of this paper are outlined as follows:",
+        "bbox": [
+            171,
+            285,
+            589,
+            301
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "• To the best of our knowledge, this is the first work to propose an end-to-end, LLM-based cross-encoder for the C-STS task, and also represents the first application of reinforcement learning in this domain.",
+        "bbox": [
+            215,
+            313,
+            825,
+            356
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "• We design and implement PoLi-RL, a novel two-stage training curriculum that overcomes the optimization difficulties of direct rank-based learning by progressing from a basic pointwise objective to a comprehensive hybrid reward.",
+        "bbox": [
+            215,
+            363,
+            825,
+            406
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "• We propose the Parallel Slice Ranking Reward (PSRR) mechanism, which delivers precise and differentiated learning signals by computing ranking rewards within independent ‘parallel slices.’ This mechanism offers a generalizable strategy for other ranking tasks involving multiple candidate generations.",
+        "bbox": [
+            215,
+            412,
+            825,
+            470
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "• On the official C-STS benchmark, PoLi-RL achieves a Spearman’s correlation coefficient of 48.18, establishing a new SOTA for the cross-encoder architecture and surpassing strong proprietary models, including GPT-4o (44.23) and Deepseek-R1 (42.85). Furthermore, achieving SOTA on the re-annotated dataset and our qualitative analysis jointly confirm the model’s superior capability in nuanced conditional reasoning.",
+        "bbox": [
+            215,
+            476,
+            825,
+            547
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "2 METHODOLOGY",
+        "text_level": 2,
+        "bbox": [
+            173,
+            570,
+            343,
+            585
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "This section details our proposed strategy. We begin by formulating the C-STS task within an endto-end, LLM-based cross-encoder paradigm in subsection 2.1. Then, in subsection 2.2, we map this task onto the mathematical framework of Reinforcement Learning and specify its optimization objective. Finally, in subsection 2.3, we provide a comprehensive description of our PoLi-RL framework, including its two-stage design and the innovative PSRR mechanism.",
+        "bbox": [
+            169,
+            604,
+            826,
+            675
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "2.1 PROBLEM FORMULATION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            694,
+            393,
+            709
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "The core objective of C-STS is to learn a scoring function that accurately reflects the semantic similarity between two text segments under a specific condition. Formally, each C-STS data sample is defined as a pair (x, y), where the input $\\boldsymbol { x } = ( t _ { 1 } , t _ { 2 } , c )$ consists of two text segments and a natural language condition, and the label $y \\in [ 1 , 5 ]$ is the human-annotated similarity judgment on the Likert scale (Likert, 1932). Specifically, the label y corresponds to a fine-grained set of semantic criteria. According to the C-STS annotation guidelines (Deshpande et al., 2023), the scores represent: (1) Completely dissimilar; (2) Thematically related but dissimilar; (3) Roughly equivalent, but with some important information differences; (4) Mostly equivalent, differing only in unimportant details; (5) Completely equivalent. This level of granularity demands that the model perform fine-grained reasoning beyond surface-level semantics, posing a significant challenge to its capabilities.",
+        "bbox": [
+            169,
+            722,
+            826,
+            863
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "A distinctive feature of the C-STS dataset is its paired structure: samples are organized in adjacent pairs that share the same text segments $( t _ { 1 } , t _ { 2 } )$ but feature different conditions and maintain a strict ordinal relationship between their labels, $\\mathrm { i . e . , } y _ { \\mathrm { h i g h } } \\geq y _ { \\mathrm { l o w } }$ . This structure provides a solid foundation for our pairwise reward design, as detailed in subsection 2.3.",
+        "bbox": [
+            169,
+            868,
+            826,
+            925
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "page_number",
+        "text": "3",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Our task is to train a scoring model $\\pi _ { \\theta }$ , parameterized by θ. For each sample, the model takes a unified prompt $p = [ \\mathcal { I } , \\mathcal { E } , x ]$ (detailed in Appendix $\\mathbf { A } . 2 )$ as input, consisting of the instruction I, K few-shot demonstrations $\\mathcal { E } = \\{ ( x _ { k } , y _ { k } ) \\} _ { k = 1 } ^ { K ^ { \\ast } }$ , and the query input x, to generate an output sequence $o = \\pi _ { \\theta } ( p )$ ). From this sequence, we parse the final predicted score, $\\tilde { y } = \\mathrm { P a r s e } ( o )$ The overall training objective is to maximize the ranking consistency between the set of predicted scores $\\{ \\tilde { y } _ { i } \\} _ { i = 1 } ^ { N }$ and the ground-truth scores $\\{ y _ { i } \\} _ { i = 1 } ^ { N }$ by optimizing the policy $\\pi _ { \\theta } ,$ , a process primarily quantified by Spearman’s correlation coefficient. Since this metric is rank-based and non-differentiable, RL emerges as a more promising optimization paradigm than traditional supervised fine-tuning.",
+        "bbox": [
+            169,
+            104,
+            825,
+            219
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "2.2 REINFORCEMENT LEARNING FOR C-STS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            233,
+            501,
+            247
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "We formulate the C-STS task as a Markov Decision Process (MDP), defined by a tuple $\\mathcal { M } =$ $( S , { \\mathcal { A } } , { \\mathcal { T } } , { \\mathcal { R } } , { \\gamma } )$ ), where the agent is the LLM policy $\\pi _ { \\theta } .$ . The generation process is formulated as a sequential decision-making process, where each step involves generating a single token. A state $s _ { t } \\in S$ at timestep t is the sequence of tokens generated so far, conditioned on the initial prompt, i.e., $\\boldsymbol { s } _ { t } = \\left( p , o _ { < t } \\right)$ . An action $a _ { t } \\in \\mathcal A$ is the selection of the next token $o _ { t }$ from the model’s vocabulary, governed by the policy $\\pi _ { \\boldsymbol { \\theta } } \\big ( a _ { t } | \\boldsymbol { s } _ { t } \\big )$ , which provides a probability distribution over all possible tokens. The transition function T is deterministic, where the next state $s _ { t + 1 }$ is formed by appending the selected token $a _ { t } \\ 1 0 \\ s _ { t } .$ . We employ a terminal reward setting, where a reward $\\mathcal { R } _ { T } = \\mathcal { R } ( x , y , o )$ is given only after the entire sequence o has been generated. Finally, the discount factor γ is set to 1 to ensure that the terminal reward is backpropagated without decay to all actions that contributed to the final output. Based on this framework, the objective is to find the optimal parameters $\\theta ^ { * }$ that maximize the expected reward over the data distribution D:",
+        "bbox": [
+            169,
+            258,
+            825,
+            426
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\theta^ {*} = \\arg \\max _ {\\theta} \\mathbb {E} _ {(x, y) \\sim \\mathcal {D}, o \\sim \\pi_ {\\theta} (p)} [ R (x, y, o) ]\\tag{1}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            354,
+            428,
+            640,
+            453
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "To optimize this objective, we employ Decoupled Clip and Dynamic Sampling Policy Optimization (DAPO) (Yu et al., 2025), an extension of GRPO (Shao et al., 2024) that introduces several key techniques for effective RL. For each sample x, the policy model generates a set of G completions $\\{ o _ { i } \\} _ { i = 1 } ^ { G }$ . A scalar reward $r _ { i } = R ( x , y , o _ { i } )$ is computed for each completion. The advantage $\\hat { A } _ { i }$ for each completion is then calculated by normalizing its reward against the statistics of the group rewards via Z-score normalization:",
+        "bbox": [
+            169,
+            463,
+            825,
+            549
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\hat {A} _ {i} = \\frac {r _ {i} - \\operatorname{mean} (\\{r _ {i} \\} _ {i = 1} ^ {G})}{\\operatorname{std} (\\{r _ {i} \\} _ {i = 1} ^ {G}) + \\epsilon}\\tag{2}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            406,
+            550,
+            586,
+            584
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Since we adopt an on-policy training approach, completions are sampled directly from the current policy $\\pi _ { \\theta }$ being optimized. The objective function for updating the model parameters θ is:",
+        "bbox": [
+            169,
+            594,
+            825,
+            625
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathcal {J} _ {\\mathrm{DAPO}} (\\theta) = \\mathbb {E} _ {(x, y) \\sim \\mathcal {D}, \\{o _ {i} \\} _ {i = 1} ^ {G} \\sim \\pi_ {\\theta} (\\cdot | p)} \\left[ \\frac {1}{\\sum_ {i = 1} ^ {G} | o _ {i} |} \\sum_ {i = 1} ^ {G} \\sum_ {t = 1} ^ {| o _ {i} |} \\left(\\frac {\\pi_ {\\theta} (o _ {i , t} | p , o _ {i , <   t})}{[ \\pi_ {\\theta} (o _ {i , t} | p , o _ {i , <   t}) ] _ {\\text {nograd}}} \\hat {A} _ {i}\\right) \\right]\\tag{3}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            194,
+            627,
+            779,
+            672
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "where $[ \\cdot ] _ { \\mathrm { n o g r a d } }$ stops gradient flow through the denominator, ensuring only the numerator is updated.",
+        "bbox": [
+            171,
+            676,
+            823,
+            693
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "2.3 POLI-RL: A TWO-STAGE REINFORCEMENT LEARNING FRAMEWORK",
+        "text_level": 2,
+        "bbox": [
+            171,
+            708,
+            697,
+            723
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "To optimize effectively, we propose PoLi-RL, a framework built on a two-stage progressive reward curriculum. This subsection elaborates our pipeline and its reward mechanisms (Figure 2).",
+        "bbox": [
+            169,
+            734,
+            825,
+            763
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Stage I: Foundational Skill Acquisition. The goal of Stage I is to ground the model in the fundamental scoring rules of the C-STS task. For each input sample, the LLM policy generates G completions, from which we parse a set of predicted scores $\\{ \\tilde { y } _ { j } \\}$ . The total reward for Stage I, $R _ { S 1 }$ is a weighted sum of three components:",
+        "bbox": [
+            169,
+            776,
+            823,
+            833
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\nR _ {S 1} = \\lambda_ {1} R _ {\\mathrm{pointwise}} + \\lambda_ {2} R _ {\\mathrm{binary}} + \\lambda_ {3} R _ {\\mathrm{format}}\\tag{4}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            354,
+            835,
+            643,
+            853
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "The Pointwise Accuracy Reward $( R _ { \\mathrm { p o i n t w i s e } } )$ is the primary component in Stage I. It measures the normalized distance between the predicted score $\\tilde { y } _ { j }$ and the ground-truth score $y _ { j }$ :",
+        "bbox": [
+            169,
+            862,
+            823,
+            892
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\nR _ {\\text { pointwise }} = 1 - \\frac {| \\tilde {y} _ {j} - y _ {j} |}{\\max (Y) - \\min (Y)}\\tag{5}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            375,
+            896,
+            620,
+            928
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "page_number",
+        "text": "4",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "image",
+        "img_path": "images/ff668cf3306110039bcc0756806b7934737e40d1ef19208a121b4260f6bb2a88.jpg",
+        "image_caption": [
+            "Figure 2: An overview of the PoLi-RL framework. It employs a two-stage curriculum, progressing from Stage I, where the model learns foundational scoring rules, to Stage II, which refines the model’s ability to discern fine-grained semantic differences. The core of our method is the PSRR mechanism in Stage II, where pairwise and listwise ranking rewards are computed vertically within slices of the same-indexed completions to provide precise, differentiated learning signals."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            179,
+            99,
+            813,
+            311
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "where max $ ( Y ) = 5$ and min $( Y ) = 1$ are the bounds of the label space.",
+        "bbox": [
+            171,
+            417,
+            643,
+            433
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "To mitigate the model’s tendency to converge to safe, intermediate scores, we introduce a Binary Judgment Reward $( R _ { \\mathrm { b i n a r y } } )$ . According to the C-STS guideline that scores $\\geq 3$ indicate similarity, while scores $\\leq 2$ indicate dissimilarity, this reward encourages the model to first master this basic binary classification:",
+        "bbox": [
+            169,
+            439,
+            825,
+            496
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\nR _ {\\text { binary }} = \\left\\{ \\begin{array}{l l} 1 & \\text { if } (\\tilde {y} _ {j} \\geq 3 \\land y _ {j} \\geq 3) \\lor (\\tilde {y} _ {j} <   3 \\land y _ {j} <   3) \\\\ 0 & \\text { otherwise } \\end{array} \\right.\\tag{6}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            308,
+            500,
+            687,
+            532
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Finally, a simple Format Reward $( R _ { \\mathrm { f o r m a t } } )$ ensures the output adheres to the required structure, which consists of a binary judgment $( ^ {  } \\mathbf { y } \\mathbf { e s } ^ { \\prime \\prime } \\mathbf { o r } \\ ^ {  } \\mathbf { n } \\mathbf { o } ^ { \\prime \\prime } )$ followed by the numerical score in parentheses.",
+        "bbox": [
+            169,
+            544,
+            823,
+            574
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Stage II: Fine-Grained Semantic Distinction. Building on the foundational scoring abilities from Stage I, Stage II refines the model’s capacity for nuanced semantic distinctions. This is achieved through a hybrid reward signal that incorporates both pairwise and listwise ranking objectives, both of which are enabled by our proposed Parallel Slice Ranking Reward (PSRR) mechanism.",
+        "bbox": [
+            169,
+            587,
+            825,
+            645
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "PARALLEL SLICE RANKING REWARD MECHANISM. A primary challenge in directly optimizing ranking metrics is that a single, batch-level reward signal is too coarse to assign credit precisely. To address this, we propose the Parallel Slice Ranking Reward (PSRR) mechanism. The core idea of PSRR is to restructure the generated outputs to enable more granular reward computation. For a batch of $N$ samples, we begin by having the policy generate $\\breve { G }$ completions $\\{ o _ { i , 1 } , \\dotsc , o _ { i , G } \\}$ for each sample. From each completion $o _ { i , j }$ , we then parse the predicted score $\\tilde { y } _ { i , j }$ . Instead of treating the completions as a single flat list, we organize these $N \\stackrel { - } { \\times } G$ predicted scores into $G$ “parallel slices”. Each slice, denoted as $Y _ { \\mathrm { p r e d } } ^ { j } ,$ is defined as the collection of the j-th predicted score from all N samples in the batch: $Y _ { \\mathrm { p r e d } } ^ { j } = \\{ \\tilde { y } _ { 1 , j } , \\tilde { y } _ { 2 , j } , . . . , \\tilde { y } _ { N , j } \\}$ , where $j \\in \\{ 1 , \\ldots , G \\}$ . This slicing architecture forms the foundation of our ranking rewards, ensuring each completion receives a specific learning signal based on its relative performance within its independent slice.",
+        "bbox": [
+            169,
+            657,
+            825,
+            821
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "A sufficiently large batch size N is crucial for a stable and meaningful ranking signal. To make this computationally feasible with limited GPU memory, we employ gradient accumulation strategy. Specifically, we first generate the full set of $N \\times G$ completions and organize them into parallel slices to compute rewards and advantages globally. Subsequently, we process smaller sub-batches sequentially to compute losses and accumulate gradients over multiple backward passes before executing a single optimizer step. This strategy enables the model to learn from a rich ranking signal without incurring prohibitive memory costs.",
+        "bbox": [
+            169,
+            825,
+            826,
+            925
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "page_number",
+        "text": "5",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "PAIRWISE RANKING REWARD. Computed within each parallel slice $Y _ { \\mathrm { p r e d } } ^ { j } .$ , this reward leverages the paired structure of the C-STS dataset to provide a local ranking signal. It is applied only to adjacent input samples that form a valid pair. We define the predicted difference as $\\Delta _ { \\mathrm { p r e d } } = \\tilde { y } _ { i , j } -$ $\\tilde { y } _ { i + 1 , j }$ and the true difference as $\\Delta _ { \\mathrm { t r u e } } = y _ { i } - y _ { i + 1 }$ . To accommodate cases where paired samples share identical ground-truth scores $( \\Delta _ { \\mathrm { t r u e } } = 0 )$ , we distinguish them from strictly ordered pairs. The reward $R _ { i , j } ^ { \\mathrm { p a i r w i s e } }$ is formulated as:",
+        "bbox": [
+            169,
+            103,
+            825,
+            194
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "equation",
+        "text": "$$\nR _ {i, j} ^ {\\text {pairwise}} = \\left\\{ \\begin{array}{l l} 1 - \\frac {| \\Delta_ {\\text {pred}} |}{D _ {\\max}} & \\text {if} \\Delta_ {\\text {true}} = 0 \\\\ R _ {\\text {base}} + (1 - R _ {\\text {base}}) \\cdot \\left(1 - \\frac {| \\Delta_ {\\text {pred}} - \\Delta_ {\\text {true}} |}{D _ {\\max}}\\right) & \\text {if} \\operatorname{sgn} (\\Delta_ {\\text {pred}}) = \\operatorname{sgn} (\\Delta_ {\\text {true}}) \\\\ 0 & \\text {otherwise} \\end{array} \\right.\\tag{7}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            225,
+            204,
+            767,
+            260
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "where $D _ { \\mathrm { m a x } }$ represents the maximum possible score difference (i.e., 4 for the 1-5 scale). For strictly ordered pairs $( \\Delta _ { \\mathrm { t r u e } } \\neq 0 )$ , the model receives a base reward $R _ { \\mathrm { b a s e } }$ for correct ordinality, with an additional penalty for prediction error magnitude. For tied pairs $( \\Delta _ { \\mathrm { t r u e } } \\ : = \\ : 0 )$ , the reward simply minimizes the absolute prediction difference.",
+        "bbox": [
+            169,
+            271,
+            825,
+            329
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "LISTWISE RANKING REWARD. While the pairwise reward focuses on local comparisons, the listwise reward provides a more global ranking perspective within each slice. It is calculated as the normalized difference between a completion’s predicted rank and its ground-truth rank:",
+        "bbox": [
+            169,
+            344,
+            825,
+            388
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "equation",
+        "text": "$$\nR _ {i, j} ^ {\\text { listwise }} = 1 - \\frac {| \\operatorname{Rank} (\\tilde {y} _ {i , j} , Y _ {\\text { pred }} ^ {j}) - \\operatorname{Rank} (y _ {i} , Y _ {\\text { true }}) |}{N - 1}\\tag{8}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            328,
+            396,
+            666,
+            429
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "where $Y _ { \\mathrm { t r u e } } ~ = ~ \\{ y _ { 1 } , \\dots , y _ { N } \\}$ is the set of ground-truth labels for the current batch, the function $\\operatorname { R a n k } ( v , S )$ returns the rank of element v within the set S (from 1 to $N )$ , and the division by $N - 1$ normalizes the rank error to the range [0, 1].",
+        "bbox": [
+            169,
+            438,
+            823,
+            482
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "The final reward for Stage II, $R _ { S 2 }$ , combines the robust Pointwise Reward from Stage I as an anchor with the ranking-based rewards enabled by PSRR. The total reward is a weighted combination of these three components:",
+        "bbox": [
+            169,
+            487,
+            826,
+            531
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "equation",
+        "text": "$$\nR _ {S 2} = \\mu_ {1} R _ {\\text { pointwise }} + \\mu_ {2} R _ {\\text { pairwise }} + \\mu_ {3} R _ {\\text { listwise }}\\tag{9}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            344,
+            539,
+            651,
+            556
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "3 EXPERIMENTS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            575,
+            328,
+            592
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "3.1 EXPERIMENTAL SETUP",
+        "text_level": 2,
+        "bbox": [
+            171,
+            608,
+            377,
+            623
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "We build PoLi-RL upon the Qwen3 (Yang et al., 2025) model family (0.6B, 4B, and 8B) using the ms-swift framework (Zhao et al., 2024) for RL training. Detailed hyperparameter configurations are provided in Appendix A.3. All experiments are conducted on the official C-STS dataset (Deshpande et al., 2023). Following prior work, we use Spearman correlation as the primary metric and Pearson as the secondary. We compare our method against three baseline categories: First, discriminative models in the cross-encoder setting, such as SimCSE (Gao et al., 2022). Second, state-of-the-art proprietary and open-source reasoning models, including Deepseek-R1 (Guo et al., 2025), GPT-4 (Achiam et al., 2023), GPT-4o, Flan-T5 (Chung et al., 2024) , Tk-Instruct (Wang et al., 2022), etc. Finally, our own SFT and few-shot implementations on Qwen3 backbones for direct comparison.",
+        "bbox": [
+            169,
+            633,
+            826,
+            762
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "3.2 MAIN RESULTS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            777,
+            325,
+            792
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Table 1 summarizes the performance of PoLi-RL. Our framework establishes a new state-of-the-art (SOTA) for the cross-encoder architecture, with the 8B model achieving a Spearman correlation of 48.18. The significance of this achievement is underscored by several key observations:",
+        "bbox": [
+            169,
+            805,
+            826,
+            849
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Superiority over Strong Baselines. PoLi-RL significantly outperforms the previous cross-encoder SOTA, SEAVER (Li et al., 2024), by a margin of 4.35 points. Compared to standard SFT, our method yields consistent gains across all model sizes. Notably, on Qwen3-0.6B, it yields substantial absolute improvements of 19.09 points over few-shot inference and 8.75 points over standard SFT, showcasing the substantial benefits of our progressive, multi-component reward optimization.",
+        "bbox": [
+            169,
+            854,
+            826,
+            925
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "page_number",
+        "text": "6",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Efficacy Across Model Scales. A striking finding is the efficacy of PoLi-RL on smaller architectures. As shown in the results for Qwen3-0.6B and 4B, our framework enables compact models to perform significantly beyond their scale. Remarkably, our 0.6B model (44.34) not only outperforms the proprietary giant GPT-4 (43.6) but also surpasses the previous SOTA SEAVER (43.83). This demonstrates that the performance gains stem from aligning the reasoning process with ranking objectives, rather than relying solely on parameter scaling.",
+        "bbox": [
+            169,
+            104,
+            826,
+            189
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Advantage over Proprietary Models. Benchmarking against state-of-the-art reasoning models, our 8B model outperforms GPT-4o by 3.95 points and DeepSeek-R1 by 5.33 points. This suggests that while proprietary models possess strong general reasoning capabilities, they struggle to strictly align with the fine-grained quantization standards of C-STS in a few-shot setting. PoLi-RL bridges this gap by explicitly optimizing this alignment via RL, proving that a specialized, smaller model can surpass general-purpose giants on complex conditional ranking tasks.",
+        "bbox": [
+            169,
+            194,
+            826,
+            280
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Beyond standard benchmarks, we conduct rigorous validation to ensure the robustness of our claims. Comparisons with differentiable ranking objectives (Appendix A.4) confirm the superiority of RL over regression-based approaches. Furthermore, evaluation on the re-annotated C-STS dataset (Appendix A.5) validates PoLi-RL’s SOTA performance, demonstrating that its gains stem from genuine reasoning improvements rather than overfitting to label noise.",
+        "bbox": [
+            169,
+            285,
+            826,
+            357
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "table",
+        "img_path": "images/40e34e652f26a8b39d11bec53f28242210a586942b6bd15f2953afc2fb288d6c.jpg",
+        "table_caption": [
+            "Table 1: Main results on the official C-STS benchmark. All scores are reported as Spearman/Pearson correlation coefficients multiplied by 100. Results marked with † are obtained from (Deshpande et al., 2023), while ‡ denotes results from (Li et al., 2024)."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Methods</td><td>Training Paradigm</td><td>Parameters</td><td>Spearman ↑</td><td>Pearson ↑</td></tr><tr><td colspan=\"5\">Discriminative Model Baselines (Cross-Encoder Architecture)</td></tr><tr><td>RoBERTaLARGE†</td><td>SFT</td><td>355M</td><td>40.7</td><td>40.8</td></tr><tr><td>SimCSELARGE†</td><td>SFT</td><td>355M</td><td>43.2</td><td>43.2</td></tr><tr><td>SEAVER SimCSELARGE‡</td><td>SFT</td><td>355M</td><td>43.83</td><td>43.81</td></tr><tr><td colspan=\"5\">Generative Large Language Model Baselines</td></tr><tr><td>Flan-T5XXL†</td><td>Few-shot</td><td>11B</td><td>30.6</td><td>-</td></tr><tr><td>Flan-UL2†</td><td>Few-shot</td><td>20B</td><td>23.5</td><td>-</td></tr><tr><td>Tk-Instruct†</td><td>Few-shot</td><td>11B</td><td>17.8</td><td>-</td></tr><tr><td>GPT-3.5†</td><td>Few-shot</td><td>175B</td><td>15.3</td><td>-</td></tr><tr><td>DeepSeek-R1</td><td>Few-shot</td><td>-</td><td>42.85</td><td>42.36</td></tr><tr><td>GPT-4†</td><td>Few-shot</td><td>-</td><td>43.6</td><td>-</td></tr><tr><td>GPT-4o</td><td>Few-shot</td><td>-</td><td>44.23</td><td>44.07</td></tr><tr><td colspan=\"5\">Our Implementation on Qwen3-0.6B</td></tr><tr><td>Qwen3-0.6B</td><td>Few-shot</td><td>0.6B</td><td>25.25</td><td>25.19</td></tr><tr><td>Qwen3-0.6B</td><td>SFT</td><td>0.6B</td><td>35.59</td><td>36.83</td></tr><tr><td>PoLi-RL (Qwen3-0.6B)</td><td>RL</td><td>0.6B</td><td>44.34</td><td>44.36</td></tr><tr><td colspan=\"5\">Our Implementation on Qwen3-4B</td></tr><tr><td>Qwen3-4B</td><td>Few-shot</td><td>4B</td><td>37.97</td><td>38.48</td></tr><tr><td>Qwen3-4B</td><td>SFT</td><td>4B</td><td>38.41</td><td>39.45</td></tr><tr><td>PoLi-RL (Qwen3-4B)</td><td>RL</td><td>4B</td><td>46.23</td><td>46.19</td></tr><tr><td colspan=\"5\">Our Implementation on Qwen3-8B</td></tr><tr><td>Qwen3-8B</td><td>Few-shot</td><td>8B</td><td>37.9</td><td>38.54</td></tr><tr><td>Qwen3-8B</td><td>SFT</td><td>8B</td><td>40.42</td><td>40.83</td></tr><tr><td>PoLi-RL (Qwen3-8B)</td><td>RL</td><td>8B</td><td>48.18</td><td>48.27</td></tr></table>",
+        "bbox": [
+            181,
+            422,
+            815,
+            814
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "3.3 ABLATION STUDIES",
+        "text_level": 2,
+        "bbox": [
+            171,
+            842,
+            357,
+            856
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Effectiveness of the Two-Stage Curriculum and Reward Components. Table 2 dissects the effectiveness of our progressive training schedule. We observe that a Naive RL approach (Row 2), which relies solely on a batch-level listwise objective, yields negligible improvement over the fewshot baseline (Row 1), highlighting the necessity of the progressive curriculum. Our PoLi-RL Stage",
+        "bbox": [
+            169,
+            867,
+            826,
+            925
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "page_number",
+        "text": "7",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "I (Row 3) addresses this by building a robust foundation, substantially outperforming the few-shot baseline by 6.87 points. Within this stage, ablating the binary reward (Row 4) leads to a discernible dip in performance, validating its role in grounding the model in the task’s basic binary judgment.",
+        "bbox": [
+            169,
+            104,
+            826,
+            148
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Building upon this, the full PoLi-RL model (Row 5) further boosts performance by another 3.41 points (Row 5). Deconstructing the success of this final stage reveals that both ranking signals are vital: removing the listwise reward (Row 6) incurs the most significant penalty, while removing the pairwise reward (Row 7) also hinders performance. These findings confirm that both the two-stage curriculum and each of its constituent reward signals are essential for achieving optimal results, with the listwise signal being the most critical component in the final refinement stage.",
+        "bbox": [
+            169,
+            152,
+            826,
+            239
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "table",
+        "img_path": "images/5494e91d109c991a9f5cb4aea9927453560c561f71f79bb313cf19fac284aaea.jpg",
+        "table_caption": [
+            "Table 2: Ablation study on PoLi-RL’s two-stage training design and its reward components. The ∆ column shows the absolute improvement in Spearman correlation over the indicated baseline."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Method</td><td>Reward Component(s)</td><td>Spearman ↑</td><td>Pearson ↑</td><td>Δ (Spearman)</td></tr><tr><td>(1) Few-shot Inference</td><td>-</td><td>37.9</td><td>38.54</td><td>-</td></tr><tr><td>(2) Naive RL</td><td>Listwise</td><td>38.19</td><td>38.34</td><td>+0.29 vs. (1)</td></tr><tr><td>(3) PoLi-RL (Stage I)</td><td>Pointwise + Binary</td><td>44.77</td><td>44.45</td><td>+6.87 vs. (1)</td></tr><tr><td>(4) - w/o Binary</td><td>Pointwise</td><td>44.19</td><td>43.54</td><td>-0.58 vs. (3)</td></tr><tr><td>(5) PoLi-RL (Full)</td><td>Pointwise + Pairwise + Listwise</td><td>48.18</td><td>48.27</td><td>+3.41 vs. (3)</td></tr><tr><td>(6) - w/o Listwise</td><td>Pointwise + Pairwise</td><td>46.71</td><td>46.37</td><td>-1.47 vs. (5)</td></tr><tr><td>(7) - w/o Pairwise</td><td>Pointwise + Listwise</td><td>47.6</td><td>47.59</td><td>-0.58 vs. (5)</td></tr></table>",
+        "bbox": [
+            174,
+            290,
+            823,
+            452
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Sensitivity to Hyperparameters. We analyze the framework’s robustness to key hyperparameters across both training stages. Regarding reward weights, Table 3 shows that Stage II is robust to weight variations, with peak performance achieved by moderately increasing the pairwise weight to 1.5. The model performs strongly even with the default equidistant weights (1:1:1), and shows considerable tolerance to pairwise signal, as halving its weight to 0.5 results in only a marginal performance drop to 47.77. Similarly, for the pointwise and listwise weights, deviations from their baseline of 1.0 result in only minor fluctuations. Crucially, the framework exhibits stable convergence across all configurations without training collapse. This confirms that our hybrid reward design effectively resolves the optimization difficulties encountered by naive listwise approaches.",
+        "bbox": [
+            169,
+            481,
+            826,
+            609
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "table",
+        "img_path": "images/f7291568191db049518c71a2e702c482df1a98c695730e8db2584f1f2445e43c.jpg",
+        "table_caption": [
+            "Table 3: Ablation study on the reward weights $( \\mu _ { 1 } , \\mu _ { 2 } , \\mu _ { 3 } )$ in PoLi-RL’s Stage II."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Method</td><td> $\\mu_1$  (Pointwise)</td><td> $\\mu_2$  (Pairwise)</td><td> $\\mu_3$  (Listwise)</td><td>Spearman ↑</td><td>Pearson ↑</td></tr><tr><td rowspan=\"7\">PoLi-RL (Stage II)</td><td>1.0</td><td>1.0</td><td>1.0</td><td>47.83</td><td>47.83</td></tr><tr><td>1.0</td><td>1.5</td><td>1.0</td><td>48.18</td><td>48.27</td></tr><tr><td>1.5</td><td>1.0</td><td>1.0</td><td>47.3</td><td>47.23</td></tr><tr><td>1.0</td><td>1.0</td><td>1.5</td><td>47.46</td><td>47.48</td></tr><tr><td>1.0</td><td>0.5</td><td>1.0</td><td>47.77</td><td>47.31</td></tr><tr><td>0.5</td><td>1.0</td><td>1.0</td><td>47.36</td><td>47.18</td></tr><tr><td>1.0</td><td>1.0</td><td>0.5</td><td>47.39</td><td>47.27</td></tr></table>",
+        "bbox": [
+            217,
+            646,
+            777,
+            770
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "To determine the optimal configuration for our PSRR mechanism, we study the impact of the slice size N, with results presented in Table 4. The empirical results reveal a clear trend: performance peaks at an intermediate slice size of N = 24 and degrades as the size deviates in either direction. This suggests that an optimal balance is required for the ranking signal. A slice that is too small may provide a less stable ranking signal, while one that is too large makes the ranking task overly complex for the model to learn effectively. This finding validates the design principle behind our PSRR mechanism: a carefully-sized, localized ranking signal is more effective than a purely global or an overly-restricted one. Further sensitivity analyses on the binary reward weights, pairwise base reward $( R _ { \\mathrm { b a s e } } )$ , and generation multiplicity (G) are provided in Appendix A.3, consistently validating the robustness of our default configurations.",
+        "bbox": [
+            169,
+            784,
+            826,
+            925
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "page_number",
+        "text": "8",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "table",
+        "img_path": "images/6b0cafdb104663dd68c3cb2e2ce84d27e9ba1d07b814c939447add6009e53110.jpg",
+        "table_caption": [
+            "Table 4: Analysis on the impact of the parallel slice size (N) in Stage II. N represents the number of samples used for listwise ranking reward computation in each slice."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Method</td><td>N (Slice Size)</td><td>Spearman ↑</td><td>Pearson ↑</td></tr><tr><td rowspan=\"5\">PoLi-RL(Stage II)</td><td>16</td><td>47.16</td><td>46.96</td></tr><tr><td>24</td><td>48.18</td><td>48.27</td></tr><tr><td>32</td><td>47.44</td><td>47.19</td></tr><tr><td>40</td><td>47.18</td><td>47.32</td></tr><tr><td>48</td><td>46.78</td><td>46.84</td></tr></table>",
+        "bbox": [
+            292,
+            142,
+            702,
+            229
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "3.4 GENERALIZABILITY OF PSRR MECHANISM",
+        "text_level": 2,
+        "bbox": [
+            171,
+            257,
+            521,
+            271
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "To empirically validate the generalizability of our framework beyond the C-STS domain, we extend our evaluation of PoLi-RL to the WMT-QE 2020 task (Fomicheva et al., 2020). While this task shares the overarching goal of optimizing global Spearman correlation, it diverges fundamentally from C-STS across three dimensions: (1) Domain: multilingual translation quality estimation, (2) Label Scale: continuous scores from 0 to 100, and (3) Data Structure: independent samples lacking the deterministic paired ordinality of C-STS.",
+        "bbox": [
+            169,
+            282,
+            826,
+            368
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "For this experiment, we employ a minimalist configuration of PoLi-RL by disabling the C-STSspecific pairwise and binary rewards. We relied solely on the pointwise reward (Stage I) and the PSRR-based listwise ranking reward (Stage II), with prompt settings adapted from Sato et al. (2024).",
+        "bbox": [
+            169,
+            373,
+            825,
+            417
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "As shown in Table 5, even with this simplified setup, PoLi-RL achieves a Spearman correlation of 54.33, yielding a substantial 3.43 point gain over the strong SFT baseline (50.90). Furthermore, the progression from Stage I (51.72) to Stage II explicitly highlights the added value of the listwise ranking objective. These results confirm that the PSRR mechanism is not merely a task-specific optimization for C-STS, but a transferable solution for aligning LLMs with listwise ranking objectives across domains and label scales.",
+        "bbox": [
+            169,
+            422,
+            826,
+            507
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "table",
+        "img_path": "images/36d3d51c963f45f8dc69bb1b94000556773a76902afc311ea90de0dd44a10417.jpg",
+        "table_caption": [
+            "Table 5: Generalization performance on WMT-QE 2020 task (en-zh subset) using only the core PSRR mechanism, excluding C-STS-specific reward components."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Methods</td><td>Training Paradigm</td><td>Spearman ↑</td><td>Pearson ↑</td></tr><tr><td>Qwen3-8B</td><td>Few-shot</td><td>45.03</td><td>44.18</td></tr><tr><td>Qwen3-8B</td><td>SFT</td><td>50.90</td><td>51.09</td></tr><tr><td>PoLi-RL (Stage I)</td><td>RL</td><td>51.72</td><td>50.58</td></tr><tr><td>PoLi-RL (Stage II)</td><td>RL</td><td>54.33</td><td>51.09</td></tr></table>",
+        "bbox": [
+            254,
+            556,
+            743,
+            638
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "4 ANALYSIS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            670,
+            294,
+            686
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "4.1 ANALYSIS OF PREDICTION ERROR DISTRIBUTION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            700,
+            563,
+            715
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Figure 3 visualizes the distribution of absolute prediction errors on the C-STS validation set. The plot reveals several key insights into the models’ behaviors. While an error of 1 is the most frequent outcome for all models, likely reflecting the inherent nuances of the C-STS scale, a clear progression of improvement is evident. Compared to the few-shot and SFT model, PoLi-RL demonstrates a more favorable error distribution. It not only achieves the highest density of perfect predictions (error=0) but, more importantly, effectively suppresses the probability of high-error predictions (errors ≥ 2). This indicates that our method significantly reduces the frequency of large, unreliable deviations, yielding a model that is more precise against severe misjudgments.",
+        "bbox": [
+            169,
+            727,
+            826,
+            840
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "4.2 QUALITATIVE ANALYSIS: A CASE STUDY ON NUANCED REASONING",
+        "text_level": 2,
+        "bbox": [
+            171,
+            856,
+            694,
+            871
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "To qualitatively analyze our framework’s nuanced reasoning ability, we present a case study in Figure 4 on the challenging condition “The person’s connection with the ground”. The baseline models show clear deficiencies: the few-shot model exhibits a brittle, literal interpretation, fixating on the preposition ‘on’ while ignoring the physical context, leading to an incorrect prediction. The SFT Baseline, while closer to the target, lacks the reasoning depth to make the necessary fine-grained distinction. In contrast, PoLi-RL applies world knowledge to infer that both “jumping” and “doing a flip” result in the same “not connected” state, arriving at the accurate score of 4 by identifying the differing actions leading to the state as unimportant details. This case study demonstrates that PoLi-RL cultivates the contextual inference ability required for complex conditional judgments.",
+        "bbox": [
+            169,
+            882,
+            826,
+            925
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "page_number",
+        "text": "9",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "chart",
+        "img_path": "images/3cc8011726f10bdb778d6a304dadd30d85f9df5cd7e172a07c6586fe8fc9d696.jpg",
+        "content": "",
+        "chart_caption": [
+            "Figure 3: Distribution of absolute prediction errors for the raw model, SFT model, and PoLi-RL. The x-axis represents the absolute error (|Predicted − True|), and the y-axis is the probability density."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            238,
+            103,
+            754,
+            227
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            301,
+            826,
+            388
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "image",
+        "img_path": "images/22db4ab75998382e2f336c75ade3be77726cbefd99f123eebf8cb1d84cf9de90.jpg",
+        "image_caption": [
+            "Figure 4: A detailed case study comparing the reasoning processes and final outputs of the Few-shot, SFT baselines, and PoLi-RL on a C-STS sample that requires nuanced reasoning."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            173,
+            404,
+            823,
+            708
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "5 CONCLUSION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            791,
+            321,
+            806
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "We introduce PoLi-RL, a two-stage reinforcement learning framework that resolves the coarsegrained credit assignment problem associated with listwise objectives in C-STS through a progressive curriculum and an innovative Parallel-Slice Ranking Reward (PSRR) mechanism. Our method establishes a new state-of-the-art for the cross-encoder architecture, significantly outperforming SFT baselines and even proprietary reasoning models like GPT-4o. As the first successful application of reinforcement learning to this task, our study validates a powerful paradigm for aligning LLMs with complex ranking objectives, demonstrating the framework’s potential to other ranking-based tasks.",
+        "bbox": [
+            169,
+            825,
+            826,
+            926
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "page_number",
+        "text": "10",
+        "bbox": [
+            490,
+            948,
+            509,
+            960
+        ],
+        "page_idx": 9
+    }
+]

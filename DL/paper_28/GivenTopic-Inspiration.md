@@ -1,0 +1,8 @@
+Given Topic: High-dimensional data visualization aims to project complex data into two or three dimensions while preserving structural relationships. Mainstream non-linear dimensionality reduction methods require extensive hyper-parameter tuning for each dataset, and their unsupervised nature complicates parameter optimization. Additionally, these methods necessitate iterative re-optimization for every new dataset, incurring substantial computational overhead. Existing parametric approaches further suffer from poor cross-domain and cross-dimension generalization, as they tend to overfit to training distributions and fail to leverage historical low-dimensional representations effectively. The core problem is to establish a generalizable, end-to-end paradigm that eliminates dataset-specific hyper-parameter selection and retraining while adapting to varying feature dimensions and domains.
+
+Given Inspiration:
+1. Historical meta-learning: Learning visualization mappings from diverse past datasets and their optimal embeddings to build transferable priors for new data.
+2. Structural graph abstraction: Representing datasets as multi-scale similarity graphs to decouple visualization from original feature spaces and handle varying dimensionality.
+3. Spectral node characterization: Deriving intrinsic node features from graph spectral properties to encode structural positions without external attributes.
+4. Geometric distribution alignment: Matching pairwise relational distributions rather than absolute coordinates to accommodate inherent isometric ambiguities in embeddings.
+5. Cross-domain structural commonality: Exploiting the observation that geometric manifold structures are often shared across different application domains.

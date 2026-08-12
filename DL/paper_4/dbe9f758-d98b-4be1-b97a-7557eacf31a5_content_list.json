@@ -1,0 +1,1640 @@
+[
+    {
+        "type": "text",
+        "text": "ABSTRACT",
+        "text_level": 2,
+        "bbox": [
+            450,
+            284,
+            547,
+            300
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Topological neural networks (TNNs) enable leveraging high-order structures on graphs (e.g., cycles and cliques) to boost the expressive power of message-passing neural networks. In turn, however, these structures are typically identified a priori through an unsupervised graph lifting operation. Notwithstanding, this choice is crucial and may have a drastic impact on a TNN’s performance on downstream tasks. To circumvent this issue, we propose ∂lift (DiffLift), a general framework for learning graph liftings to hypergraphs and cellular- and simplicial complexes in an end-to-end fashion. In particular, our approach leverages learned vertex-level latent representations to identify and parameterize distributions over candidate higher-order cells for inclusion. This results in a scalable model which can be readily integrated into any TNN. Our experiments show that ∂lift outperforms existing lifting methods on multiple benchmarks for graph and node classification across different TNN architectures. Notably, our approach leads to gains of up to 45% over static liftings, including both connectivity- and feature-based ones.",
+        "bbox": [
+            230,
+            316,
+            767,
+            513
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "1 INTRODUCTION",
+        "text_level": 2,
+        "bbox": [
+            174,
+            545,
+            338,
+            560
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Topological neural networks (TNNs) (Papillon et al., 2023b; Bodnar et al., 2021a; Verma et al., 2024) have recently emerged as a prominent class of models for learning on topological domains, such as hy pergraphs and simplicial complexes, with many researchers arguing they represent the new frontier for relational learning (Papamarkou et al., 2024). Akin to graph neural networks (GNNs) (Scarselli et al., 2009; Gilmer et al., 2017), typical TNNs employ message-passing layers where each element of the input (e.g., nodes or cells) updates its representation (features) based on those of its topological neigh bors. Thus, these models generalize convolution-like operations on graphs to higher-order relational objects. Importantly, the primary application of TNNs has been to enhance the capabilities of graph based models, particularly in terms of expressivity (Bodnar et al., 2021a;b). In this context, the input graphs must first be transformed to the domain on which a TNN operates — a process known as lifting.",
+        "bbox": [
+            169,
+            575,
+            828,
+            715
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Lifting methods explore graph connectivity and features to create higherorder relational structures. For instance, clique lifting (Bodnar et al., 2021b) produces a simplicial complex by leveraging cliques in the input graph while cycle lifting (Hajij et al., 2022) detects cycles to create a cell complex. In general, there are many lifting procedures for each topological domain — c.f. Tab. 3 in Telyatnikov et al. (2025).",
+        "bbox": [
+            171,
+            722,
+            429,
+            876
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "chart",
+        "img_path": "images/a1bb2d6b51d7aadce687d0c79e3dd5a4d398290cfa1724bf0f7b73ce8831c4f2.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            450,
+            722,
+            630,
+            821
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "chart",
+        "img_path": "images/fec6e5fd82246d4da3e3d19a0e6fa53bf8eb00ec792166a2581a89d5a8664877.jpg",
+        "content": "",
+        "chart_caption": [
+            "Figure 1: [Left] Lifting to different domains can lead to disparate performances. Accuracies taken from the best TNNs in (Telyatnikov et al., 2025). [Right] Performances of liftings to the same domain (hypergraph) vary greatly. Values taken from Table 4."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            637,
+            718,
+            807,
+            820
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Not surprisingly, the optimal choice of topological domain and lifting procedure for each task is nonobvious, and its impact on performance is highly data-dependent. Figure 1 compares TNNs on differ ent domains, showing opposite behaviors depending on data, even within the same topological domain.",
+        "bbox": [
+            169,
+            882,
+            828,
+            925
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_number",
+        "text": "1",
+        "bbox": [
+            493,
+            949,
+            503,
+            959
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "image",
+        "img_path": "images/33fffc30d402c91badbe3031b913bbc5ef5ef25f232c5656ab501d4180b21a58.jpg",
+        "image_caption": [
+            "Figure 2: Overview of ∂lift. For a given input graph, we first compute node embeddings using GNNs. Then, we use these embeddings to select cells/hyperedges. Cell-level embeddings run through MLPs responsible for returning acceptance probabilities. For hierarchical domains (e.g., cell complexes), cells are generated in increasing dimensionality. From the accepted cells, we form a relational object that is sent to an off-the-shelf TNN for graph/node-level predictions. The model is trained end-to-end."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            181,
+            99,
+            823,
+            224
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Strikingly, despite the high impact of the lifting operation on TNNs, most lifting methods are not supervised and thus not informed by the task at hand (Hajij et al., 2022; Telyatnikov et al., 2025), which may lead to suboptimal architectures. To date, differentiable lifting has only been explored in the context of cell complexes (Battiloro et al., 2024).",
+        "bbox": [
+            169,
+            333,
+            826,
+            390
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "This work proposes ∂lift (DiffLift) – a general, differentiable lifting framework applicable to various domains, including hypergraphs and simplicial/cell complexes. Our method uses a probabilistic approach to sample candidate cells of adaptive sizes. Specifically, we parameterize distributions over cells using node embeddings derived from arbitrary graph models (e.g., GNNs or Graph Transformers (Rampášek et al., 2022)). For each candidate cell, we compute its embedding and use a multilayer perceptron (MLP) to estimate the probability of accepting or rejecting the cell — that is, determining whether it should be included in the output structure. Figure 2 provides a schematic overview of ∂lift.",
+        "bbox": [
+            169,
+            396,
+            826,
+            494
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "To model the typical hierarchical structure of topological objects, we propose an iterative sampling procedure, where cells are generated in increasing order of dimensionality: samples of dimension i are used to inform the sampling of dimension (i + 1)-cells. Notably, our approach generalizes across multiple topological domains and can be seamlessly integrated into standard TNN pipelines.",
+        "bbox": [
+            169,
+            500,
+            826,
+            558
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "We evaluate ∂lift on 12 datasets spanning graph and node classification tasks using four different TNN models. Our results show that ∂lift consistently outperforms unsupervised lifting methods in nearly all graph-level classification benchmarks — achieving superior performance in 22 out of 24 experiments, often by a substantial margin. These gains are robust across all TNN architectures. For example, when using CW Networks (Bodnar et al., 2021a), ∂lift yields performance gains of up to 45%. For node classification, ∂lift achieves competitive performance relative to static lifting methods and outperforms DCM (Battiloro et al., 2024) (a differentiable lifting baseline) overall. Additionally, we analyze the sensitivity of ∂lift to the choice of its GNN component, highlighting that while this choice often impacts the overall performance, our design is robust and produces strong empirical results even when adopting simple GNNs (e.g., graph isomorphism networks (Xu et al., 2019)).",
+        "bbox": [
+            169,
+            563,
+            826,
+            704
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "2 BACKGROUND",
+        "text_level": 2,
+        "bbox": [
+            171,
+            724,
+            328,
+            739
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "This section overviews the main types of relational structures and respective neighborhood notions, message-passing networks for relational data, and graph lifting methods. In the following, we assume readers are familiar with basic notions in topology; see (Munkres, 2000) for reference.",
+        "bbox": [
+            169,
+            756,
+            826,
+            800
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Graphs and hypergraphs. We denote an undirected graph as a tuple $G = ( V , E )$ where V is a set of vertices (or nodes) and E is a set of unordered vertex pairs, i.e., edges. The set of neighbors of a node v in G is denoted by $\\mathcal { N } ^ { G } ( v ) = \\{ u \\in V : \\{ v , u \\} \\stackrel { \\cdot } { \\in } E \\}$ . Hypergraphs generalize graphs by allowing edges to connect multiple nodes. Formally, a hypergraph on a nonempty set V is a pair $( V , K )$ , where $K \\subseteq 2 ^ { V } \\setminus ( \\mathbb { Z }$ ∅ and its elements are called hyperedges.",
+        "bbox": [
+            169,
+            805,
+            826,
+            876
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Simplicial complexes are topological spaces comprised of simple mathematical objects called simplices (points (0-simplices), line segments (1-simplices), triangles (2-simplices), and their higher-dimensional analogues). In particular, an abstract simplicial complex (ASC) over a vertex set V is a set K of subsets of V (the simplices) such that, for every $\\sigma \\in K$ and every non-empty $\\tau \\subset \\sigma .$ we have that $\\tau \\in K$ . Thus, we can define ${ \\bf A S C s }$ as a family of subsets $K \\subseteq { \\mathsf { \\bar { 2 } } } ^ { V }$ of $V$ that is closed under taking subsets. The dimension of a simplex is equal to its cardinality minus 1, and the dimension of an ASC is the maximal dimension of its simplices. We say τ is on the boundary of a simplex $\\sigma _ { : }$ , denoted by $\\tau \\prec \\sigma , \\operatorname { i f f } \\tau \\subset \\sigma$ and there is no δ such that $\\tau \\subset \\delta \\subset \\sigma , \\mathsf { i . e . , \\prec }$ defines the boundary relation of $\\dot { K }$ . We note that undirected graphs correspond to 1-dimensional ASCs.",
+        "bbox": [
+            169,
+            882,
+            826,
+            925
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "page_number",
+        "text": "2",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "image",
+        "img_path": "images/71ca33acc7afea18bf29b5d51a1cdc1caba9aab4e2019293545b90a5e2ba722c.jpg",
+        "image_caption": [
+            "Figure 3: Examples of topological domains."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            174,
+            99,
+            821,
+            184
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            171,
+            215,
+            825,
+            301
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Cell complexes. A regular cell complex (Hansen and Ghrist, 2019) is a topological space X with a partition $\\{ X _ { \\sigma } \\} _ { \\sigma \\in P _ { X } }$ of subspaces $\\bar { X _ { \\sigma } }$ of X called cells such that",
+        "bbox": [
+            171,
+            306,
+            825,
+            337
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "1. For each $x \\in X$ , there is an open neighborhood of x that intersects finitely many cells;",
+        "bbox": [
+            184,
+            340,
+            774,
+            356
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "2. For all $\\sigma , \\tau \\in P _ { X } , X _ { \\tau } \\cap \\overline { { X _ { \\sigma } } } \\neq \\emptyset$ only if $X _ { \\tau } \\subseteq { \\overline { { X _ { \\sigma } } } }$ , where $\\overline { { X _ { \\sigma } } }$ denotes the closure of $X _ { \\sigma }$ (the intersection of all closed sets containing $X _ { \\sigma } ) ;$",
+        "bbox": [
+            184,
+            356,
+            823,
+            383
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "3. Every cell $X _ { \\sigma }$ is homeomorphic to $\\mathbb { R } ^ { D _ { \\sigma } ^ { - } }$ for some $D _ { \\sigma }$ which we call $X _ { \\sigma } { \\mathrm {  ~ \\overrightarrow ~ { ~ s ~ } ~ } }$ dimension;",
+        "bbox": [
+            184,
+            383,
+            769,
+            398
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "4. For all $\\sigma \\in P _ { X }$ , there is a homeomorphism $\\phi$ of a closed ball in $\\mathbb R ^ { \\tilde { D } _ { \\sigma } }$ to $\\overline { { X _ { \\sigma } } }$ such that the restriction of ϕ to the interior of the ball is a homeomorphism onto $X _ { \\sigma }$",
+        "bbox": [
+            184,
+            398,
+            823,
+            426
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Importantly, the conditions (2) and (4) impose a poset structure $\\tau \\leq \\sigma \\iff X _ { \\tau } \\subseteq { \\overline { { X _ { \\sigma } } } }$ which fully characterizes the topology of the underlying cell complex X. This topological information can be described by the boundary relation ≺ between two cells: $\\sigma \\prec \\tau \\operatorname { i f f } \\sigma < \\tau$ and there is no cell $\\delta$ such that $\\sigma < \\delta < \\tau$ , where $<$ denotes the strict version of the partial order $\\leq$ above. We note that the class of cell complexes subsumes simplicial complexes. For more details on cell complexes, we refer to Hatcher (2002); Bodnar et al. (2021a).",
+        "bbox": [
+            169,
+            431,
+            825,
+            517
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Combinatorial complexes. A combinatorial complex (CC) (Hajij et al., 2022) is a tuple $( V , K , \\operatorname { r k } )$ where V is a finite set, $K \\subseteq 2 ^ { V } \\backslash \\emptyset$ comprises a set of cells, and rk : $\\mathrm { \\bar { \\cal K } } \\to \\mathbb { Z } _ { \\geq 0 }$ is a ranking function s.t.",
+        "bbox": [
+            171,
+            523,
+            825,
+            551
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "1. For all $v \\in V , \\{ v \\} \\in K ;$",
+        "bbox": [
+            184,
+            558,
+            367,
+            571
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "2. For all $\\sigma , \\sigma ^ { \\prime } \\in \\dot { K } , \\sigma \\subseteq \\sigma ^ { \\prime } \\implies \\operatorname { r k } ( \\sigma ) \\leq \\operatorname { r k } ( \\sigma ^ { \\prime } )$",
+        "bbox": [
+            184,
+            571,
+            524,
+            587
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "The idea of CCs is to generalize hierarchical structures (e.g., simplicial complexes) by imposing mild relationships between cells via ranking functions — CCs only require the order-preserving property in condition (2) — while being flexible to accommodate non-hierarchical structures such as hypergraphs. Figure 3 depicts the most popular relational structures in topological deep learning.",
+        "bbox": [
+            169,
+            594,
+            825,
+            652
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Neighborhood structures. We can exploit boundary relations (or rank functions) to specify local neighbors for each cell. In particular, Bodnar et al. (2021b) introduce four neighborhood structures:",
+        "bbox": [
+            171,
+            656,
+            825,
+            686
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "• Boundary and co-boundary: $\\mathcal { N } _ { B } ( \\sigma ) = \\{ \\tau : \\tau \\prec \\sigma \\}$ and $\\mathcal { N } _ { C } ( \\sigma ) = \\{ \\tau : \\sigma \\prec \\tau \\}$ , respectively",
+        "bbox": [
+            184,
+            691,
+            808,
+            705
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "• Upper/lower adjacency: $\\mathcal { N } _ { \\uparrow } ( \\sigma ) = \\{ \\tau : \\exists \\delta \\mathrm { s t } \\tau \\prec \\delta , \\sigma \\prec \\delta \\}$ and $\\mathcal { N } _ { \\downarrow } ( \\sigma ) = \\{ \\tau : \\exists \\delta \\mathrm { s t } \\delta \\prec \\tau , \\delta \\prec \\sigma \\}$",
+        "bbox": [
+            184,
+            705,
+            823,
+            720
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Analogs of these neighborhoods can also be obtained via ranking functions (Hajij et al., 2022).",
+        "bbox": [
+            171,
+            727,
+            792,
+            742
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Features / signals. In this work, we consider relational structures equipped with features. Let $K$ be a set of cells or hyperedges of a relational domain. Its attributed counterpart is a tuple $( K , x )$ where $x : K \\to \\mathbb { R } ^ { d }$ assigns a feature vector $x ( \\sigma )$ to each cell σ. Hereafter, we denote the features of σ by $x _ { \\sigma }$",
+        "bbox": [
+            171,
+            748,
+            825,
+            792
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Topological neural networks (TNNs). Most TNNs use message-passing mechanisms to obtain celllevel representations (Papillon et al., 2023b). In particular, let $\\breve { \\mathscr { N } _ { i } }$ be a finite sequence of neighborhood structures, $\\mathcal { N } _ { C } ( \\sigma , \\tau ) = \\dot { \\mathcal { N } } _ { C } ( \\sigma ) \\cap \\mathcal { N } _ { C } ( \\tau )$ , and $\\mathcal { N } _ { B } ( \\sigma , \\tau ) = \\mathcal { N } _ { B } ( \\sigma ) \\cap \\mathcal { N } _ { B } ( \\dot { \\tau } )$ . In its general form, starting from $h _ { \\sigma } ^ { 0 } = x _ { \\sigma }$ for all $\\sigma ,$ a message-passing TNN (Bodnar et al., 2021a) recursively computes",
+        "bbox": [
+            171,
+            797,
+            826,
+            840
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            173,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "page_number",
+        "text": "3",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            171,
+            103,
+            825,
+            119
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\nm _ {i, \\sigma} ^ {\\ell} = \\left\\{ \\begin{array}{l} \\{\\{\\phi_ {\\ell , i} (h _ {\\tau} ^ {\\ell}, h _ {\\sigma} ^ {\\ell}, h _ {\\delta} ^ {\\ell}): \\tau \\in \\mathcal {N} _ {i} (\\sigma), \\delta \\in \\mathcal {N} _ {B} (\\sigma , \\tau) \\} \\}, \\text {if} \\mathcal {N} _ {i} = \\mathcal {N} _ {\\downarrow} \\\\ \\{\\{\\phi_ {\\ell , i} (h _ {\\tau} ^ {\\ell}, h _ {\\sigma} ^ {\\ell}, h _ {\\delta} ^ {\\ell}): \\tau \\in \\mathcal {N} _ {i} (\\sigma), \\delta \\in \\mathcal {N} _ {C} (\\sigma , \\tau) \\} \\}, \\text {if} \\mathcal {N} _ {i} = \\mathcal {N} _ {\\uparrow} \\\\ \\{\\{\\phi_ {\\ell , i} (h _ {\\tau} ^ {\\ell}, h _ {\\sigma} ^ {\\ell}): \\tau \\in \\mathcal {N} _ {i} (\\sigma) \\}, \\text {otherwise.} \\end{array} \\right.\\tag{1}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            254,
+            125,
+            723,
+            176
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\nh _ {\\sigma} ^ {\\ell + 1} = \\varphi \\left(h _ {\\sigma} ^ {\\ell}, \\bigotimes_ {i} \\mathrm{Agg} _ {\\ell} \\left(m _ {i, \\sigma} ^ {\\ell}\\right)\\right)\\tag{2}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            254,
+            179,
+            490,
+            219
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "where $h _ { \\sigma } ^ { \\ell }$ is the embedding of σ at layer $\\ell , \\otimes$ and $\\operatorname { A g g } _ { \\ell }$ are inter- and intra-neighborhood aggregation functions, respectively, and $\\varphi$ is an update function (e.g., MLP).",
+        "bbox": [
+            169,
+            224,
+            825,
+            255
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Graph lifting. A graph lifting is a map lift : $\\mathbb { G } \\to \\mathbb { T }$ from the space of attributed graphs, G, to a target domain, T, such that $G \\cong _ { \\mathbb { G } } G ^ { \\prime } \\overset { \\cdot } { \\Longrightarrow } \\operatorname { l i f t } ( G ) \\cong _ { \\mathbb { T } } \\operatorname { l i f t } ( G ^ { \\prime } )$ , where $\\cong _ { \\mathbb { T } }$ denotes the isomorphism relation in domain T. One of the most widely used methods for lifting graphs to cell complexes is cycle lifting (Bodnar et al., 2021a). This is a static (non-learnable) approach that constructs 2-cells by identifying basic cycles (elements of a cycle basis) or chordless cycles (Bodnar et al., 2021a) in input graphs. Specifically, the vertices involved in a basic cycle are grouped to form a 2-cell in the resulting cell complex. A cycle basis of a graph G is a minimal set of cycles such that any other cycle in G can be expressed as a modulo-2 sum of cycles from this set.",
+        "bbox": [
+            169,
+            260,
+            826,
+            375
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3 DIFFERENTIABLE LIFTING",
+        "text_level": 2,
+        "bbox": [
+            171,
+            391,
+            428,
+            407
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "In this section, we introduce ∂lift (read DiffLift), a general framework for learning graph lifting functions. Section 3.1 provides an iterative description of our method, allowing for learning structures of increasingly higher order — when the target domain is hierarchically structured. Section 3.2 and Section 3.3 instantiate ∂lift for graph-to-hypergraph and graph-to-cell-complex liftings, respectively. Moreover, we formulate our approach for simplicial- and combinatorial complexes in Appendix A.",
+        "bbox": [
+            169,
+            422,
+            826,
+            494
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3.1 GENERAL FORMULATION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            508,
+            392,
+            523
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Lifting consists of determining which higher-order cells should be added to an input graph G, satisfying the constraints of the target domain. To do so, we propose the following recipe.",
+        "bbox": [
+            169,
+            534,
+            826,
+            565
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "∂lift : general recipe for differentiable graph liftings",
+        "bbox": [
+            197,
+            573,
+            565,
+            589
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Input: Attributed graph $G = ( V , E , x )$ , target domain T, and maximum dimension $D _ { \\mathrm { m a x } } .$",
+        "bbox": [
+            196,
+            601,
+            785,
+            619
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Step 1: Compute node embeddings. Use an arbitrary GNN to compute a vector representation (embedding) $z _ { v }$ for each node ${ \\bar { \\boldsymbol { v } } } \\in V .$ This GNN component can be either a pre-trained model or learned end-to-end. Set the current domain dimension to $D = 1$",
+        "bbox": [
+            194,
+            626,
+            803,
+            670
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Step 2: Elicit candidate cells. Given the node embeddings $\\{ z _ { v } \\} _ { v \\in V }$ , define a set of candidate cells ${ \\mathcal { C } } \\subseteq 2 ^ { V }$ of dimension D. For each cell $C \\in { \\mathcal { C } } ,$ , compute an embedding $z _ { C } = \\oplus _ { v \\in C } z _ { v }$ , where L is an arbitrary permutation-invariant aggregation function. Note that the exact procedure for defining candidate cells depends on the target domain T, as candidates must respect possible hierarchical constraints.",
+        "bbox": [
+            194,
+            676,
+            800,
+            750
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Step 3: Accept/reject candidate cells. Apply a neural network ϕ (e.g., an MLP) that defines an acceptance probability $\\phi ( z _ { C } )$ for each candidate cell C. Finally, draw a sample $y _ { C }$ from a Bernoulli distribution with parameter $\\phi ( z _ { C } )$ indicating whether cell C is accepted or not. The resulting domain is then given by $V \\cup { \\dot { E } } \\cup \\{ C \\in { \\mathcal { C } } : y _ { C } = 1$ with $y _ { C } \\sim \\bar { \\bf B e r } ( \\phi ( z _ { C } ) ) \\}$",
+        "bbox": [
+            194,
+            756,
+            800,
+            815
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Step 4: Termination check. If $D = D _ { \\operatorname* { m a x } }$ , halt; otherwise, $D \\gets D + 1$ and return to Step 2.",
+        "bbox": [
+            194,
+            821,
+            802,
+            839
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Importantly, ∂lift is learned in an end-to-end fashion, using the straight-through estimator (Bengio et al., 2013) to propagate gradients through samples at Step 3. For hypergraphs, we assume hyperedges have dimension one, causing ∂lift to stop once it reaches Step 4. We note that Steps 2 and 3 are the only domain-dependent ingredients of our algorithm. Next, we explain how these steps can be adapted to specific domains.",
+        "bbox": [
+            169,
+            854,
+            825,
+            925
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "page_number",
+        "text": "4",
+        "bbox": [
+            491,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "image",
+        "img_path": "images/227ece39c3e8e0af2dbf22b3f35088b63a05f53dfcf91596a8bd76dcb8bd1542.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            171,
+            99,
+            825,
+            203
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Figure 4: Two iterations of ∂lift for cell complexes. At the first iteration, we leverage each node u’s GNN embedding $z _ { u }$ to delineate candidate 1-dim cells. Specifically, we consider cell-equivalent of edges linking u to each of its $k _ { u }$ NNs in embedding space, where $k _ { u }$ is a random variable parameterized by $z _ { u }$ . We use a set function over the embedding of nodes within each cell to compute their acceptance probabilities. At the second iteration onwards, we use cycle lifting in our augmented cell com plex to elicit candidate cells, whose acceptance probabilities are computed similarly to the first step.",
+        "bbox": [
+            169,
+            218,
+            826,
+            304
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "3.2 GRAPH-TO-HYPERGRAPH LIFTING",
+        "text_level": 2,
+        "bbox": [
+            171,
+            311,
+            454,
+            324
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "$\\Rightarrow [ \\mathrm { S t e p } 2 ]$ For notational convenience, suppose we wish to learn up to one hyperedge per node. For each node v, we define a candidate hyperedge $C ( v )$ using the $k _ { v }$ nearest neighbors of v in the embedding space:",
+        "bbox": [
+            169,
+            337,
+            826,
+            378
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\nC (v) = \\{S \\subset V: | S | = k _ {v} \\text {   and   } w \\notin S \\implies \\operatorname{dist} (z _ {w}, z _ {v}) \\geq \\max _ {u \\in S} \\operatorname{dist} (z _ {u}, z _ {v}) \\},\\tag{3}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            232,
+            386,
+            763,
+            407
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "where dist(·, ·) denotes a dissimilarity metric. Here, we consider the Euclidean distance.",
+        "bbox": [
+            169,
+            417,
+            754,
+            431
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "To allow for adaptive hyperedge sizes, we sample $k _ { v }$ according to a probability distribution parameterized by (a function of) $v { \\mathrm { s } }$ embedding $z _ { v }$ . More specifically, we define the $( k _ { \\operatorname* { m a x } } - k _ { \\operatorname* { m i n } } + 1 )$ dimensional probability vector $\\pi _ { v } \\propto \\exp \\circ \\mathrm { M L P } ( z _ { v } )$ and draw $k _ { v } \\sim$ Categorica $\\lfloor ( \\pi _ { v } )$ , where $k _ { \\mathrm { m i n } }$ and $k _ { \\mathrm { m a x } }$ are lower- and upper-bounds on $k _ { v }$ .",
+        "bbox": [
+            169,
+            438,
+            825,
+            496
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "$\\Rightarrow [ \\mathrm { S t e p } 3 ]$ We define the probability of acceptance $( \\mathrm { i . e . }$ , of $b _ { v } = 1 )$ for $C ( v )$ as a function of the (multiset of embeddings of) nodes in $\\dot { C } ( v )$ . More specifically, we define $b _ { v }$ as",
+        "bbox": [
+            171,
+            501,
+            823,
+            530
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\nb _ {v} \\sim \\mathrm{Ber} (\\Psi (\\{\\{z _ {u}: u \\in C (v) \\} \\})),\\tag{4}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            385,
+            537,
+            609,
+            554
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "where Ψ is learned and maps from multisets (i.e., Ψ is order-invariant) of elements in $\\mathbb { R } ^ { d } \\mathrm { t o } \\left( 0 , 1 \\right)$",
+        "bbox": [
+            171,
+            561,
+            813,
+            575
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Feature lifting. Each accepted hyperedge $C ( v )$ receives a feature vector $x _ { C ( v ) }$ computed as a multiset operation over $\\{ x _ { u } : u \\in C ( v ) \\}$ }. Specifically, we employ a scaled sum projection:",
+        "bbox": [
+            171,
+            583,
+            825,
+            614
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\nx _ {C (v)} = \\frac {1}{k _ {v}} \\sum_ {u \\in C (v)} x _ {u}, \\quad \\forall v \\text {   such   that   } b _ {v} = 1.\\tag{5}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            343,
+            619,
+            651,
+            657
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "3.3 GRAPH-TO-CELL-COMPLEX LIFTING",
+        "text_level": 2,
+        "bbox": [
+            171,
+            675,
+            468,
+            689
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "For computational reasons, we split the lifting procedure for cell complexes into two cases. We provide an overview of our proposed graph-to-cell-complex lifting in Figure 4.",
+        "bbox": [
+            169,
+            700,
+            823,
+            731
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Case D = 1: Learning edges",
+        "text_level": 2,
+        "bbox": [
+            171,
+            736,
+            377,
+            752
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "⇒[Step 2] Similarly to Step 2 of graph-to-hypergraph lifting, for each node $v ,$ we sample a neighborhood size $k _ { v }$ and define a set ${ \\bar { C } } ( { \\bar { v } } ) \\subseteq V { \\bar { \\backslash } } \\{ v \\}$ containing the nodes associated with the $k _ { v }$ nearest neighbors of v in the embedding space, excluding v itself.",
+        "bbox": [
+            171,
+            758,
+            823,
+            800
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "$\\Rightarrow [ \\mathrm { S t e p } 3 ]$ Next, we construct candidate edges (1-cells) by considering each pair $( \\boldsymbol { v } , \\boldsymbol { v } ^ { \\prime } )$ and define their probability of acceptance (i.e., of $b _ { v , v ^ { \\prime } } = 1 )$ as a function of the embeddings of v and $v ^ { \\prime } .$ Specifically, we set $b _ { v , v ^ { \\prime } } \\sim$ Ber $\\left( \\Psi ( \\left\\{ \\left\\{ z _ { v } , z _ { v ^ { \\prime } } \\right\\} \\right\\} ) \\right)$ , where Ψ is an order-invariant function.",
+        "bbox": [
+            171,
+            806,
+            825,
+            849
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "At end of this iteration, the obtained cell complex is given by:",
+        "bbox": [
+            171,
+            854,
+            580,
+            869
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\nK ^ {1} = V \\cup E \\cup \\{\\{v, v ^ {\\prime} \\}: v \\in V, v ^ {\\prime} \\in C (v) \\text { with } b _ {v, v ^ {\\prime}} = 1 \\}.\\tag{6}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            297,
+            877,
+            697,
+            893
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Regardingfeature lifting, we apply scaled sum projection, identically to the hypergraph case.",
+        "bbox": [
+            171,
+            909,
+            782,
+            925
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "page_number",
+        "text": "5",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Case $D \\geq 2 :$ Learning D-cells",
+        "text_level": 2,
+        "bbox": [
+            171,
+            104,
+            388,
+            119
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "To select candidate cells of arbitrary dimension, we need the notion of n-cycles of a cell complex. Let $C _ { n } ( K )$ denote the n-chains of the cell complex K equipped with $\\mathbb { Z } / 2 \\dot { \\mathbb { Z } } .$ -vector space structure. Also let $\\partial _ { n } : C _ { n } ( K ) \\to C _ { n - 1 } ( K )$ be the boundary linear map on K. Then, the n-cycles of K are given by $Z _ { n } ( K ) = \\ker ( \\partial _ { n } )$ . We provide further details in the supplementary material.",
+        "bbox": [
+            169,
+            125,
+            826,
+            183
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "$\\Rightarrow [ \\mathrm { S t e p } 2 ]$ Let $K ^ { D - 1 }$ be the cell complex at the end of iteration D − 1. We select a basis for $( D - 1 )$ -set of cycles $Z _ { D - 1 } ( K ^ { D - 1 } )$ in $K ^ { D ^ { \\bullet } - 1 }$ to serve as candidate cells. Recall a basis for cycles is a minimal collection of cycles such that any cycle can be written as a modulo-2 sum of cycles in the basis. We note that we can also employ chordless cycles to define the 2-cells, as in (Bodnar et al., 2021a).",
+        "bbox": [
+            169,
+            186,
+            826,
+            244
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "$\\Rightarrow [ \\mathrm { S t e p } 3 ]$ Let C be the set of candidate $( D - 1 )$ -cycles from Step 2. We define the probability of accepting $C \\in \\mathcal { C } \\mathrm { ~ ( i . e . }$ ., setting $b _ { C } = 1 )$ using a DeepSet model (Zaheer et al., 2017) over the multiset of embeddings $\\big \\{ \\{ z _ { v } \\} \\big \\} _ { v \\in C }$ of all nodes v in C. The output complex at this iteration is then",
+        "bbox": [
+            169,
+            251,
+            825,
+            294
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "equation",
+        "text": "$$\nK ^ {D} = K ^ {D - 1} \\cup \\{C \\in \\mathcal {C}: b _ {C} = 1 \\}.\\tag{7}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            377,
+            300,
+            617,
+            318
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "For simplicity, again, the features of D-cells are obtained via sum projection lifting.",
+        "bbox": [
+            169,
+            325,
+            723,
+            342
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Remark 1 Despite the generality of∂lift, in the experiments we only consider 2-dimensional cell complexes $( D _ { m a x } \\ = \\ 2 )$ and use the algorithm in (Paton, 1969) (available at the toolbox NetworkX (Hagberg et al., 2008)) to identify basic 1-cycles in graphs. This is mainly due to the fact that current implementations ofTNNsfor cell complexes only support 2-dimensional objects — for instance, see TopoBench (Telyatnikov et al., 2025).",
+        "bbox": [
+            168,
+            354,
+            826,
+            425
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Remark 2 We can obtain a deterministic version of ∂lift using a probability threshold, i.e., we simply set $b _ { C } = \\mathbb { 1 } [ \\Psi ( \\cdot ) > \\gamma ]$ with, $e . g . , \\gamma = 0 . 5 ,$ for all candidate cells C.",
+        "bbox": [
+            169,
+            436,
+            825,
+            465
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Experiments regarding the deterministic version can be found in the Appendix E.2.",
+        "bbox": [
+            171,
+            478,
+            718,
+            494
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "4 RELATED WORKS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            513,
+            356,
+            529
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Topological deep learning. Traditional graph deep learning methods are limited to modeling only pairwise interactions, making them unsuitable for capturing higher-order dependencies involving multiple nodes (Hajij et al., 2022; Papillon et al., 2023a). To address this limitation, a variety of deep topological learning methods have been developed for hypergraphs (Bai et al., 2021; Yadati et al., 2019), simplicial complexes (Hajij et al., 2021; Goh et al., 2022; Maggs et al., 2024; Yang et al., 2022), and cell complexes (Hajij et al., 2022; 2020), the works that are based on the topological signal processing field (Barbarossa and Sardellitti, 2020; Schaub et al., 2021; Roddenberry et al., 2022; Sardellitti et al., 2021). Papillon et al. (2025) also use GNNs to enhance TDL, where the lifted topological domain is transformed into augmented Hasse graphs. These methods have demonstrated their effectiveness across several practical applications, including action recognition (Wang et al., 2022; Hao et al., 2021), bioinformatics (Liu et al., 2022), and neuroscience (Wang et al., 2023).",
+        "bbox": [
+            169,
+            545,
+            826,
+            700
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Liftings to topological domains. Most relational datasets and benchmarks are defined on discrete structures such as graphs. To apply topological deep learning methods to these datasets, a transformation process known as lifting is required, which maps discrete data into topological domains (Telyatnikov et al., 2025; Hajij et al., 2022; Bernárdez et al., 2024). This lifting process can be either predefined – e.g., based on structural features like node proximity or the presence of cycles – or learned directly from the data (Battiloro et al., 2024; Kazi et al., 2022). Graph structure learning methods (Qian et al., 2024; Kazi et al., 2022; Franceschi et al., 2019; Topping et al., 2022; Sun et al., 2023; Chen et al., 2020; Jin et al., 2020) are closely related to the graph lifting literature and can be interpreted as instances of graph lifting to graph domain. Our approach represents the most general form of learnable lifting proposed so far and empirically outperforms the aforementioned methods in many benchmarks.",
+        "bbox": [
+            169,
+            713,
+            826,
+            854
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Static liftings. To the best of our knowledge, Bodnar et al. (2021b;a) were the first to combine static liftings and high-order message passing, focusing on simplicial- and cell complexes. These static liftings embed a graph into a topological domain by, e.g., aggregating each node’s n-hop neighborhood or by tracing its cycles. The repertoire of static liftings was later broadened by the ICML TDL challenge (Bernárdez et al., 2024), which added methods based on kNN, Voronoi decompositions, and random walks. Our work proposes a more flexible, data-driven approach to defining liftings, which offers benefits across a range of tasks.",
+        "bbox": [
+            169,
+            867,
+            826,
+            925
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "page_number",
+        "text": "6",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            103,
+            825,
+            148
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "5 EXPERIMENTS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            178,
+            328,
+            193
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "In this section, we evaluate ∂lift on two complementary tasks: graph classification and node classification. We compare it against broadly used lifting schemes for both hypergraphs and cell complexes. We also report results across different TNNs within each of these domains. We run experiments using PyTorch (Paszke et al., 2017) and PyTorch Geometric (Fey and Lenssen, 2019); our code is anonymously available at https://github.com/JorgeLuizFranco/difflifting.",
+        "bbox": [
+            169,
+            215,
+            826,
+            287
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "5.1 GRAPH CLASSIFICATION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            314,
+            385,
+            328
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Datasets. We evaluate model performance on six widely used graph-level benchmark datasets for molecular property prediction: NCI1, NCI109, MUTAG, MOLHIV, PROTEINS, and ZINC (Kersting et al., 2016; Dwivedi et al., 2023; Hu et al., 2020). These datasets are standard benchmarks in the literature for assessing the effectiveness of graph-based models (Dwivedi et al., 2023; Telyatnikov et al., 2025). All tasks are binary classification problems, with the exception of ZINC, which is a regression task. We provide more details regarding datasets in the Appendix.",
+        "bbox": [
+            169,
+            344,
+            826,
+            430
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Baselines. We compare ∂lift with four existing graph lifting methods: cycle lifting, k-hop lifting, k-nearest-neighbor (k-NN) lifting, and kernel lifting. Among these, cycle lifting is the most widely adopted strategy for graph-to-cell-complex liftings and has become the defacto standard in most of TNNs operating on cell complexes (Telyatnikov et al., 2025). Similarly, k-hop lifting is the predominant approach for constructing hypergraphs from graphs and is often the sole method considered in recent benchmarks such as (Telyatnikov et al., 2025). We also consider k-NN lifting as it shares similar ities with our approach due to the use of k-NN. Finally, we consider kernel lifting, one of the most successful approaches in the ICML TDL challenge (Bernárdez et al., 2024). Notably, our choice of base lines covers lifting methods based on connectivity (cycle and k-hop liftings), features (k-NN lifting), and both connectivity and features (kernel lifting). We provide formulations for the baseline liftings in Appendix B. We consider the following TNNs: CWN, CIN (Bodnar et al., 2021b) and CXN (Hajij et al., 2020) for cell complexes, and UniGCNII and UniGIN (Huang and Yang, 2021) for hypergraphs.",
+        "bbox": [
+            169,
+            435,
+            828,
+            604
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Evaluation setup. For ZINC and MOLHIV, we use the publicly available train/val/test data splits; for the remaining datasets, we use a random 80/10/10% split. We optimize the hyper-parameters of the lifting methods and take the optimal hyperparameter values from (Telyatnikov et al., 2025) whenever available; otherwise, we select optimal values based on the optimal results using cycle or k-hop lifting. We provide further details on the choice of hyperparameters and model selection in the supplementary material. We compute the mean and standard deviation of the performance metrics (MAE ↓ for ZINC, AUC ↑ for MOLHIV, and accuracy ↑ for all other datasets) over three independent runs.",
+        "bbox": [
+            169,
+            609,
+            826,
+            708
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Results. Table 1 shows that ∂lift is the best-performing lifting method in over 90% of the TNN/dataset combinations, both for cell complexes and hypergraphs. Notably, ∂lift resulted in an improvement in average accuracy of up to ≈ 45% compared to static liftings using the same TNN. For CWN, CIN, and UniGCNII, our method outperforms static liftings on all datasets. On NCI109 and ZINC, ∂lift is consistently better than the static liftings across all TNN backbones. We also observe that TNNs perform better than GNNs in this setup with ∂lift. Overall, these results validate the effectiveness of ∂lift.",
+        "bbox": [
+            169,
+            713,
+            826,
+            797
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Impact of GNN choice on performance. We aim to assess how sensitive our approach is to the choice of GNN. We report results using GIN (Xu et al., 2019) and GPS (Rampášek et al., 2022).",
+        "bbox": [
+            169,
+            803,
+            825,
+            833
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Table 2 indicates that choosing GNNs that are able to generate richer and more informative latent node representations leads to better results in ∂lift. In particular, GPS performs better than GIN in most datasets. A possible explanation for this observation is the greater expressivity of GPS, which benefits from the incorporation of positional encodings. Notably, on cell complexes and ZINC dataset, GPS allows reducing the MAE from 0.46 to 0.17.",
+        "bbox": [
+            169,
+            839,
+            826,
+            910
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "page_number",
+        "text": "7",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "table",
+        "img_path": "images/231ab7474124f35c2097ba48802ae83237ef299211f754ec4a435ad7477681b6.jpg",
+        "table_caption": [
+            "Table 1: Graph classification: ∂lift vs static liftings. We denote the best-performing model for each dataset/TNN in bold. For any fixed TNN and dataset, ∂lift is better than static liftings in 90% of cases, offering a performance improvement of up to 45%."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Domain</td><td>TNN</td><td>Lifting</td><td>NCI1↑</td><td>NCI109 ↑</td><td>MOLHIV↑</td><td>MUTAG↑</td><td>Proteins↑</td><td>ZINC↓</td></tr><tr><td rowspan=\"2\">Graph</td><td>GCN</td><td>-</td><td>74.45±1.05</td><td>76.46±1.03</td><td>74.99±1.09</td><td>64.91±4.96</td><td>70.18±1.35</td><td>0.64±0.04</td></tr><tr><td>GIN</td><td>-</td><td>76.89±1.75</td><td>76.90±0.80</td><td>70.76±2.46</td><td>80.70±2.48</td><td>72.50±2.31</td><td>0.59±0.03</td></tr><tr><td rowspan=\"6\">Cellular</td><td rowspan=\"2\">CWN</td><td>Cycle</td><td>76.93±1.18</td><td>76.71±1.34</td><td>70.15±3.98</td><td>66.67±12.41</td><td>69.05±2.95</td><td>0.46±0.01</td></tr><tr><td> $\\partial lift$ </td><td>79.81±0.40</td><td>80.55±0.50</td><td>75.37±0.80</td><td>85.96±4.96</td><td>70.54±3.34</td><td>0.17±0.00</td></tr><tr><td rowspan=\"2\">CXN</td><td>Cycle</td><td>72.02±1.69</td><td>75.01±0.62</td><td>69.17±1.20</td><td>61.40±2.48</td><td>70.83±1.52</td><td>0.79±0.02</td></tr><tr><td> $\\partial lift$ </td><td>82.08±1.50</td><td>82.57±0.40</td><td>74.83±1.96</td><td>84.21±4.30</td><td>69.94±2.10</td><td>0.17±0.01</td></tr><tr><td rowspan=\"2\">CIN</td><td>Cycle</td><td>75.91±1.11</td><td>76.11±1.09</td><td>68.46±2.16</td><td>66.96±1.46</td><td>67.86±0.89</td><td>0.42±0.01</td></tr><tr><td> $\\partial lift$ </td><td>79.59±1.50</td><td>81.06±0.40</td><td>72.37±1.65</td><td>88.72±4.30</td><td>72.43±2.10</td><td>0.20±0.01</td></tr><tr><td rowspan=\"8\">Hypergraph</td><td rowspan=\"4\">UniGCN2</td><td>k-hop</td><td>72.70±0.52</td><td>72.01±1.55</td><td>50.72±1.06</td><td>61.40±2.48</td><td>72.92±1.11</td><td>0.66±0.02</td></tr><tr><td>k-NN</td><td>71.78±0.20</td><td>68.60±0.93</td><td>57.73±6.84</td><td>64.91±2.48</td><td>73.51±0.42</td><td>1.10±0.01</td></tr><tr><td>kernel</td><td>73.80±0.94</td><td>72.64±0.40</td><td>57.07±10.32</td><td>63.16±8.59</td><td>73.21±0.73</td><td>0.79±0.02</td></tr><tr><td> $\\partial lift$ </td><td>77.45±1.88</td><td>75.30±1.10</td><td>69.32±1.62</td><td>89.47±4.30</td><td>73.51±0.84</td><td>0.56±0.03</td></tr><tr><td rowspan=\"4\">UniGIN</td><td>k-hop</td><td>65.50±1.99</td><td>66.97±7.25</td><td>63.49±9.55</td><td>64.91±2.48</td><td>71.43±0.73</td><td>1.15±0.01</td></tr><tr><td>k-NN</td><td>72.83±1.09</td><td>70.14±1.48</td><td>52.34±3.21</td><td>59.65±4.96</td><td>72.62±1.52</td><td>1.10±0.02</td></tr><tr><td>kernel</td><td>60.50±1.26</td><td>66.59±1.49</td><td>49.60±0.07</td><td>57.89±4.30</td><td>66.67±1.83</td><td>1.45±0.02</td></tr><tr><td> $\\partial lift$ </td><td>64.88±1.09</td><td>79.74±0.23</td><td>72.04±0.88</td><td>66.67±6.56</td><td>73.81±1.52</td><td>0.92±0.05</td></tr></table>",
+        "bbox": [
+            176,
+            157,
+            821,
+            383
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "table",
+        "img_path": "images/ee5e5e78d1d72de1952bdc29dc626c054eb2fac3b6d7c9ad3989c535184c9bfe.jpg",
+        "table_caption": [
+            "Table 2: Effect of GNN backbone on the performance of ∂lift. The results suggest that the expressive power of backbone GNNs have a direct impact in $\\partial \\mathrm { l i f t } ^ { \\cdot } \\mathrm { s }$ performance. Except for MOLHIV and NCI1, GPS leads to better performance than GIN overall."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>TNN</td><td>GNN</td><td>NCI1↑</td><td>NCI109 ↑</td><td>MOLHIV ↑</td><td>MUTAG↑</td><td>Proteins↑</td><td>ZINC↓</td></tr><tr><td rowspan=\"2\">CWN</td><td>GPS</td><td>79.81±0.40</td><td>80.55±0.50</td><td>64.31±5.32</td><td>87.72±2.48</td><td>70.54±3.34</td><td>0.17±0.00</td></tr><tr><td>GIN</td><td>81.59±0.80</td><td>78.69±1.43</td><td>75.37±0.80</td><td>82.46±2.48</td><td>71.13±2.76</td><td>0.46±0.00</td></tr><tr><td rowspan=\"2\">CXN</td><td>GPS</td><td>79.97±0.61</td><td>82.57±0.40</td><td>65.58±4.42</td><td>84.21±4.30</td><td>69.94±2.10</td><td>0.17±0.01</td></tr><tr><td>GIN</td><td>81.35±2.29</td><td>79.98±1.01</td><td>72.25±3.23</td><td>77.19±2.48</td><td>67.86±2.19</td><td>0.43±0.01</td></tr><tr><td rowspan=\"2\">UniGCN2</td><td>GPS</td><td>78.67±1.46</td><td>74.50±1.16</td><td>68.22±2.38</td><td>89.47±4.30</td><td>73.81±0.42</td><td>0.56±0.03</td></tr><tr><td>GIN</td><td>75.38±1.39</td><td>74.98±1.12</td><td>68.73±2.05</td><td>64.91±6.56</td><td>73.51±0.84</td><td>0.63±0.01</td></tr><tr><td rowspan=\"2\">UniGIN</td><td>GPS</td><td>66.42±1.79</td><td>79.74±0.23</td><td>68.32±3.12</td><td>66.67±6.56</td><td>72.32±0.73</td><td>1.01±0.05</td></tr><tr><td>GIN</td><td>64.40±0.41</td><td>78.53±0.69</td><td>68.86±3.05</td><td>70.18±6.56</td><td>72.02±3.74</td><td>1.12±0.26</td></tr></table>",
+        "bbox": [
+            176,
+            459,
+            820,
+            607
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "5.2 NODE CLASSIFICATION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            635,
+            377,
+            648
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Datasets. For node classification, we evaluate ∂lift on four datasets: Cora, Citeseer (Yang et al., 2016), Texas, and Wisconsin (Rozemberczki et al., 2021). Within these datasets, two are knowingly homophilic (Cora and Citeseer) and two are heterophilic datasets (Texas and Wisconsin). Dataset statistics can be found in Appendix D.",
+        "bbox": [
+            169,
+            665,
+            826,
+            723
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Baselines. We also compare our method (for cell domains) against the learnable approach in (Battiloro et al., 2024), called Differentiable Cell Complex Module (DCM), which was originally evaluated on node classification tasks. To do so, we consider ∂lift combined with CWN and TopoTune (Papillon et al., 2025). We also include results of them with cycle lifting. We consider the same hypergraph TNN baselines as in Section 5.1.",
+        "bbox": [
+            169,
+            728,
+            826,
+            800
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Evaluation setup. For all datasets, we use random train/val/test data split with 60/20/20% split. Similarly to the experiments for graph classification, we optimize the hyper-parameters of the lifting methods and take the optimal TNN hyperparameters from Telyatnikov et al. (2025) when available. Otherwise, we choose them to maximize the validation accuracy using k-hop lifting. For more details, please refer to the supplementary material. We report the average accuracy and standard deviation over three independent runs.",
+        "bbox": [
+            169,
+            805,
+            828,
+            890
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Results. Table 3 compares ∂lift against DCM and cycle lifting. Notably, ∂lift is the best-performing method in all datasets except for Wisconsin, in which it achieves the second-best performance. It is also worth mentioning that ∂lift (with either CWN or TopoTune) outperforms DCM for all datasets, sometimes by a large margin — c.f., Texas and Cora.",
+        "bbox": [
+            169,
+            895,
+            826,
+            924
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "page_number",
+        "text": "8",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            103,
+            826,
+            133
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "table",
+        "img_path": "images/1d155067a1d1e0df9954862a085c5d32716f5b1244ac70708577361fabb94b6f.jpg",
+        "table_caption": [
+            "Table 3: Comparison of DCM and ∂lift on node classification. ∂lift achieves the highest average performance across all datasets (rhs) and significantly outperforms DCM on heterophilic datasets.",
+            "Table 4 reports results of lifting methods for hypergraph neural networks. Compared to k-hop, our approach is better on heterophilic datasets but worse on homophilic ones for UniGCN2. Additionally, Table 4 shows that ∂lift leads to better average accuracy than other static liftings."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>TNN</td><td>Lifting</td><td>Cora</td><td>Citeseer</td><td>Texas</td><td>Wisconsin</td><td>Avg</td></tr><tr><td>GCN</td><td>-</td><td>85.64 ± 0.51</td><td>70.43 ± 0.71</td><td>58.91 ± 0.76</td><td>49.14 ± 0.66</td><td>66.03</td></tr><tr><td>GAT</td><td>-</td><td>86.17 ± 0.33</td><td>73.82 ± 0.45</td><td>58.38 ± 1.05</td><td>49.41 ± 0.95</td><td>66.95</td></tr><tr><td>GIN</td><td>-</td><td>85.50 ± 0.54</td><td>72.20 ± 0.60</td><td>59.10 ± 0.80</td><td>48.50 ± 0.70</td><td>66.33</td></tr><tr><td>DCM</td><td>-</td><td>80.73 ± 0.33</td><td>77.90 ± 0.80</td><td>56.76 ± 6.62</td><td>73.86 ± 1.85</td><td>72.31</td></tr><tr><td>CWN</td><td>Cycle</td><td>74.80 ± 0.08</td><td>75.83 ± 0.90</td><td>63.06 ± 7.75</td><td>80.39 ± 4.24</td><td>73.52</td></tr><tr><td>CWN</td><td> $\\partial$ Lift</td><td>80.17 ± 1.59</td><td>72.83 ± 2.15</td><td>80.18 ± 3.37</td><td>77.78 ± 3.70</td><td>77.74</td></tr><tr><td>TopoTune</td><td>Cycle</td><td>69.03 ± 0.88</td><td>72.90 ± 0.85</td><td>71.56 ± 1.27</td><td>70.16 ± 1.85</td><td>70.91</td></tr><tr><td>TopoTune</td><td> $\\partial$ Lift</td><td>86.82 ± 0.75</td><td>78.23 ± 1.08</td><td>72.97 ± 0.00</td><td>65.36 ± 2.45</td><td>75.84</td></tr></table>",
+        "bbox": [
+            189,
+            188,
+            800,
+            325
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "table",
+        "img_path": "images/c9bbfb54c4b2ba3e02ea43e205d3674315283bdd043c142172f41cf72a30bb68.jpg",
+        "table_caption": [
+            "Table 4: Comparison of ∂lift and static lifting baselines for hypergraphs on node classification. Our method outperforms all static liftings on average across the selected node classification datasets."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>TNN</td><td>Lifting</td><td>Cora</td><td>Citeseer</td><td>Texas</td><td>Wisconsin</td><td>Avg</td></tr><tr><td rowspan=\"4\">UniGCN2</td><td>k-hop</td><td>86.03 ± 0.63</td><td>78.40 ± 0.36</td><td>66.67 ± 6.74</td><td>69.28 ± 5.62</td><td>75.09</td></tr><tr><td>k-NN</td><td>74.00 ± 0.65</td><td>18.17 ± 0.05</td><td>70.27 ± 3.82</td><td>79.74 ± 2.45</td><td>60.54</td></tr><tr><td>kernel</td><td>29.93 ± 1.33</td><td>18.07 ± 0.21</td><td>57.66 ± 7.75</td><td>57.52 ± 10.42</td><td>40.79</td></tr><tr><td>∂Lift</td><td>81.93 ± 1.11</td><td>78.03 ± 0.91</td><td>69.37 ± 2.55</td><td>73.20 ± 5.62</td><td>75.63</td></tr><tr><td rowspan=\"4\">UniGIN</td><td>k-hop</td><td>78.73 ± 0.66</td><td>74.47 ± 1.72</td><td>65.77 ± 9.19</td><td>58.82 ± 5.77</td><td>69.44</td></tr><tr><td>k-NN</td><td>62.00 ± 1.08</td><td>19.33 ± 0.48</td><td>65.77 ± 1.27</td><td>73.20 ± 4.03</td><td>55.07</td></tr><tr><td>kernel</td><td>40.93 ± 2.52</td><td>18.53 ± 0.61</td><td>58.56 ± 7.09</td><td>51.63 ± 4.03</td><td>42.41</td></tr><tr><td>∂Lift</td><td>84.23 ± 0.53</td><td>77.97 ± 0.45</td><td>63.96 ± 6.37</td><td>63.40 ± 4.03</td><td>72.39</td></tr></table>",
+        "bbox": [
+            187,
+            436,
+            800,
+            575
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "6 CONCLUSION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            604,
+            321,
+            622
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Topological neural networks (TNNs) are receiving increasing attention in the graph machine learning community. Yet, their effectiveness depends crucially on the choice of graph lifting procedure. Despite its central role, lifting has remained largely unsupervised and task-agnostic, which can lead to the construction of suboptimal topological representations for downstream learning.",
+        "bbox": [
+            169,
+            637,
+            826,
+            695
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "To address this limitation, we introduced ∂lift, a general-purpose, differentiable lifting framework that is compatible with multiple topological domains. Across a broad set of benchmarks and TNN architectures, ∂lift consistently outperformed traditional unsupervised lifting methods, demonstrating the benefit of making the lifting process learnable and task-informed.",
+        "bbox": [
+            169,
+            700,
+            826,
+            758
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Limitations. For hypergraph domains, ∂lift can create candidate hyper-edges and decide whether to keep them in an embarrassingly parallel fashion — rendering ∂lift especially compute-efficient for this domain. However, for cell complexes, we need to compute a cycle basis to elicit candidate cells, which may come at a cubic cost with respect to the number of nodes in the input graph. In this case, we may reduce the number of candidate cells by, for instance, regularizing the $k _ { v }$ variables or shifting their distribution towards zero. Nonetheless, devising more efficient algorithms for candidate identification in hierarchical domains is a clear direction of improvement for future works.",
+        "bbox": [
+            169,
+            763,
+            826,
+            863
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Future work. Our method can be extended to other topological domains, such as point clouds, making it applicable to 3D mapping tasks. Additionally, future work could focus on addressing the computational challenges of DiffLift and scaling it to handle larger graphs. Another promising direction is to explore differentiable lifting in dynamic or temporal graphs, where topological structures evolve over time. Moreover, integrating ∂lift with pretraining strategies could yield generalizable topological priors across tasks.",
+        "bbox": [
+            169,
+            867,
+            826,
+            926
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "page_number",
+        "text": "9",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            104,
+            825,
+            133
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "We also believe that formally analyzing the impact of enriching topological structures with learnable liftings on mitigating oversmoothing and oversquashing in TNNs is an interesting research direction. For instance, in scenarios where long and narrow paths connect dense substructures, static liftings are limited to adding cycles within each local region, leaving information between communities to traverse the original bottleneck. In contrast, ∂lift can learn to introduce 2-cells that effectively create shortcuts across such bridges, reducing the effective distance between distant nodes and improving information flow. While a full theoretical treatment is left for future work, this adaptive ability provides a plausible mechanism for mitigating oversquashing.",
+        "bbox": [
+            169,
+            138,
+            826,
+            253
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "Ethics Statement. We do not identify any immediate, direct societal harms from the technical contributions presented in this work. Our method operates on standard, non-sensitive benchmarks and does not require or expose personally identifiable information.",
+        "bbox": [
+            169,
+            257,
+            825,
+            301
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "Reproducibility Statement. The repository containing the code is available at https://github.com/JorgeLuizFranco/difflifting. We provide further details on used datasets and implementation details (e.g., parameter selection) in Appendices D and C.",
+        "bbox": [
+            171,
+            306,
+            826,
+            349
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "ACKNOWLEDGMENTS",
+        "text_level": 2,
+        "bbox": [
+            173,
+            369,
+            357,
+            385
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "We acknowledge the support by the Coordenação de Aperfeiçoamento de Pessoal de Nível Superior (CAPES) (88887.176396/2025-00), Fundação Carlos Chagas Filho de Amparo à Pesquisa do Estado do Rio de Janeiro (FAPERJ) (SEI-260003/020348/2025, SEI-260003/020694/2025) and the Conselho Nacional de Desenvolvimento Científico e Tecnológico (CNPq) (404336/2023-0, 305692/2025- 9, 315158/2023-9, 163868/2023-9, 408974/2025-7, 312068/2025-5). We also acknowledge the computational resources provided by the Aalto Science-IT Project.",
+        "bbox": [
+            169,
+            401,
+            826,
+            487
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "REFERENCES",
+        "text_level": 2,
+        "bbox": [
+            171,
+            505,
+            287,
+            521
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "ref_text",
+        "text": "Song Bai, Feihu Zhang, and Philip HS Torr. Hypergraph convolution and hypergraph attention. Pattern Recognition, 110:107637, 2021.",
+        "bbox": [
+            173,
+            527,
+            823,
+            555
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "ref_text",
+        "text": "Sergio Barbarossa and Stefania Sardellitti. Topological signal processing over simplicial complexes. IEEE Transactions on Signal Processing, 68:2992–3007, 2020.",
+        "bbox": [
+            174,
+            565,
+            823,
+            590
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "ref_text",
+        "text": "Claudio Battiloro, Indro Spinelli, Lev Telyatnikov, Michael M. Bronstein, Simone Scardapane, and Paolo Di Lorenzo. From latent graph to latent topology inference: Differentiable cell complex module. In International Conference on Learning Representations (ICLR), 2024. URL https://openreview. net/forum?id=0JsRZEGZ7L.",
+        "bbox": [
+            174,
+            601,
+            825,
+            652
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "ref_text",
+        "text": "Yoshua Bengio, Nicholas Léonard, and Aaron Courville. Estimating or propagating gradients through stochastic neurons for conditional computation. ArXiv e-prints, 2013.",
+        "bbox": [
+            174,
+            662,
+            823,
+            689
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "ref_text",
+        "text": "Guillermo Bernárdez, Lev Telyatnikov, Marco Montagna, Federica Baccini, Mathilde Papillon, Miquel Ferriol-Galmés, Mustafa Hajij, Theodore Papamarkou, Maria Sofia Bucarelli, Olga Zaghen, et al. ICML topological deep learning challenge 2024: Beyond the graph domain. In Proceedings of the Geometrygrounded Representation Learning and Generative Modeling Workshop (GRaM) at ICML 2024, volume 251 of Proceedings of Machine Learning Research, pages 420–428. PMLR, 2024. URL https: //proceedings.mlr.press/v251/bernardez24a.html.",
+        "bbox": [
+            174,
+            699,
+            826,
+            776
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "ref_text",
+        "text": "Cristian Bodnar, Fabrizio Frasca, Nina Otter, Yuguang Wang, Pietro Liò, Guido F Montufar, and Michael Bronstein. Weisfeiler and lehman go cellular: CW networks. In Advances in Neural Information Processing Systems (NeurIPS), 2021a.",
+        "bbox": [
+            173,
+            786,
+            823,
+            825
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "ref_text",
+        "text": "Cristian Bodnar, Fabrizio Frasca, Yuguang Wang, Nina Otter, Guido F Montufar, Pietro Lio, and Michael Bronstein. Weisfeiler and lehman go topological: Message passing simplicial networks. In International Conference on Machine Learning (ICML), 2021b.",
+        "bbox": [
+            173,
+            835,
+            823,
+            875
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "ref_text",
+        "text": "Viacheslav Borovitskiy, Iskander Azangulov, Alexander Terenin, Peter Mostowsky, Marc Deisenroth, and Nicolas Durrande. Matérn gaussian processes on graphs. In International Conference on Artificial Intelligence and Statistics, pages 2593–2601. PMLR, 2021.",
+        "bbox": [
+            174,
+            885,
+            825,
+            922
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "page_number",
+        "text": "10",
+        "bbox": [
+            488,
+            948,
+            509,
+            959
+        ],
+        "page_idx": 9
+    }
+]

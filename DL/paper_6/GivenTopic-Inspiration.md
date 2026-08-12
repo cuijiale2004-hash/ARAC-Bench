@@ -1,0 +1,13 @@
+Given Topic: Learning-based approaches to Boolean Satisfiability (SAT) have gained prominence as alternatives to manually engineered heuristics in classical solvers. Graph-based neural architectures are widely adopted in this domain due to the natural graphical representations of propositional formulas. However, the expressive capabilities of these architectures are fundamentally constrained by theoretical bounds on graph distinguishability, raising concerns about whether such models can capture critical structural properties of Boolean formulas. Existing methods largely overlook the theoretical limits of architectural expressivity when applied to satisfiability reasoning, particularly regarding the discrimination between satisfiable and unsatisfiable instances. This work addresses the core question of whether graph-based learning architectures possess sufficient representational capacity to reason about SAT, and how expressivity bottlenecks manifest across diverse formula families including highly symmetric, industrial, and randomized instances.
+
+Given Inspiration:
+1. Theoretical hierarchies bounding the expressive power of message-passing architectures on graph structures.
+2. The natural correspondence between Boolean formulas and bipartite graphs, which maps satisfiability reasoning onto graph representation learning problems.
+3. Classical constructions in graph isomorphism demonstrating that non-isomorphic structures can remain indistinguishable under powerful combinatorial refinement.
+4. Empirical evidence from SAT competitions that randomly generated and industrial application instances exhibit markedly different structural characteristics and community organizations.
+5. Principles from proof complexity suggesting that global logical inconsistencies may evade detection by purely local aggregation mechanisms.
+6. The sequential variable assignment paradigm in traditional solvers, which raises questions about whether progressive partial assignments can overcome inherent expressivity limitations.
+7. Structural graph theory indicating that restricted graphical families admit complete identification under bounded expressivity, motivating the study of formula subclasses.
+8. Probabilistic analysis of random graph ensembles suggesting that generic instances are typically distinguishable through elementary neighborhood refinement.
+9. The role of symmetry and regularity in combinatorial structures, where uniform degree distributions and local patterns create fundamental ambiguities for graph-based learners.
+10. The decoupling of computational hardness from structural distinguishability, questioning whether NP-completeness necessarily implies difficulty for graph-theoretic representation architectures.

@@ -1,0 +1,1489 @@
+[
+    {
+        "type": "text",
+        "text": "ABSTRACT",
+        "text_level": 2,
+        "bbox": [
+            450,
+            309,
+            547,
+            325
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Reinforcement Learning (RL) has proven highly effective for autoregressive language models, but adapting these methods to diffusion large language models (dLLMs) presents fundamental challenges. The core difficulty lies in likelihood approximation: while autoregressive models naturally provide token-level conditional probabilities essential for token-level RL objectives (e.g., GRPO), dLLMs generate sequences through iterative non-autoregressive denoising steps that lack this factorization. To address this fundamental mismatch, we propose ELBObased Sequence-level Policy Optimization (ESPO), a principled RL framework that treats entire sequence generation as a single action and uses the ELBO as a tractable sequence-level likelihood proxy. Our method incorporates per-token normalization of importance ratios and robust KL-divergence estimation to ensure stable large-scale training. Extensive experiments on mathematical reasoning, coding, and planning tasks demonstrate that ESPO significantly outperforms token-level baselines, achieving dramatic improvements of 20-40 points on the Countdown task, while maintaining consistent gains on math and coding benchmarks. Our approach establishes sequence-level optimization as a principled and empirically effective paradigm for RL in dLLMs. Our code is available at https://github.com/ML-GSAI/ESPO.",
+        "bbox": [
+            230,
+            343,
+            767,
+            595
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "1 INTRODUCTION",
+        "text_level": 2,
+        "bbox": [
+            174,
+            626,
+            338,
+            641
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Large language models (LLMs) (OpenAI, 2023) have become a cornerstone of modern natural language processing, achieving remarkable progress across math (Guo et al., 2025), coding (Hui et al., 2024), and planning tasks (Yao et al., 2023). While autoregressive (AR) modeling has long dominated this field, recent advances in diffusion large language models (dLLMs) have demonstrated strong potential as an alternative formulation (Ou et al., 2024; Shi et al., 2024; Sahoo et al., 2024; Nie et al., 2025; Ye et al., 2025). By modeling language generation as an iterative denoising process, dLLMs bypass the left-to-right dependency of AR models and offer advantages in long context (Liu et al., 2025b), multimodal (Yang et al., 2025; You et al., 2025a; Li et al., 2025; Yu et al., 2025) and fast inference (Inception Labs et al., 2025; DeepMind, 2025; Song et al., 2025).",
+        "bbox": [
+            169,
+            659,
+            826,
+            785
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "With the advent of powerful pretrained dLLMs, the next frontier lies in post-training (Ouyang et al., 2022) to further enhance their capabilities. Among various post-training paradigms, reinforcement learning (RL) has emerged as a powerful approach that enables test-time scaling (Snell et al., 2025) through verifiable rewards (Guo et al., 2025). It has yielded substantial gains on reasoning tasks in recent AR models (OpenAI, 2024), such as math (Cobbe et al., 2021b), coding (Chen et al., 2021), and reasoning (Liu et al., 2023b). Motivated by this success, a natural question arises: how can we extend reinforcement learning to dLLMs?",
+        "bbox": [
+            169,
+            791,
+            826,
+            888
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Applying RL to dLLMs, however, is nontrivial. Mainstream RL algorithms in language modeling (e.g., GRPO (Shao et al., 2024)) assume a left-to-right factorization of the sequence likelihood and rely on token-level importance ratios $\\frac { \\pi _ { \\theta } ( y ^ { k } | x , y ^ { < k } ) } { \\pi _ { \\theta _ { \\mathrm { o l d } } } ( y ^ { k } | x , y ^ { < k } ) }$ . In contrast, dLLMs generate sequences non-autoregressively, making such token-level conditionals either ill-defined or computationally expensive. Prior attempts to address this discrepancy have resorted to heuristic approximations—such as mean-field surrogates (Zhao et al., 2025) or token-level ELBO contributions (Yang et al., 2025; Gong et al., 2025)—or else computationally heavy trajectory-level formulations (Huang et al., 2025). None of these approaches fully resolves the mismatch between autoregressive RL objectives and the holistic generation process of dLLMs.",
+        "bbox": [
+            171,
+            895,
+            826,
+            924
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_number",
+        "text": "1",
+        "bbox": [
+            493,
+            948,
+            503,
+            959
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            103,
+            825,
+            209
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "In this work, we address this fundamental conflict by introducing ELBO-based Sequence-level Policy Optimization (ESPO), a sequence-level reinforcement learning framework tailored for dLLMs. Our key insight is that dLLMs should not be forced into an autoregressive token-level action space. Instead, we treat the generation of an entire sequence as a single action, leveraging the ELBO as a tractable proxy for the intractable sequence log-likelihood. We further incorporate stabilization techniques essential for large-scale training, including per-token normalization of the ELBO ratio and robust KL-regularization. Our method eliminates the inconsistencies introduced by heuristic token-level approximations and enables stable, computationally efficient training.",
+        "bbox": [
+            169,
+            214,
+            826,
+            327
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Empirically, we validate the effectiveness of our design through extensive ablation studies, which confirm that combining sequence-level optimization with the ELBO objective provides a stable and principled foundation for reinforcement learning in dLLMs. Beyond ablations, we further evaluate our method on mainstream tasks spanning mathematics, coding, and planning. Across both LLaDA (Nie et al., 2025) and Dream (Ye et al., 2025), our approach consistently outperforms prior dLLM-RL baselines such as d1 (Zhao et al., 2025) and wd1 (Tang et al., 2025), with particularly strong gains on planning tasks that require global consistency.",
+        "bbox": [
+            169,
+            332,
+            826,
+            431
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "In summary, we make the following contributions:",
+        "bbox": [
+            171,
+            436,
+            506,
+            452
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "• We provide a systematic analysis of why standard autoregressive RL objectives are incompatible with the non-autoregressive dLLMs, clarifying the limitations of existing heuristic approaches.",
+        "bbox": [
+            176,
+            460,
+            825,
+            489
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "• We propose ESPO, a principled sequence-level RL framework that leverages the ELBO as a tractable proxy for sequence likelihood and introduces stabilized ratio and KL estimators for robust large-scale training.",
+        "bbox": [
+            176,
+            493,
+            825,
+            536
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "• We demonstrate through comprehensive experiments and ablation studies that ESPO yields stable optimization and consistent improvements across math, coding, and planning benchmarks, surpassing prior dLLM-RL methods.",
+        "bbox": [
+            176,
+            539,
+            825,
+            582
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "2 BACKGROUND",
+        "text_level": 2,
+        "bbox": [
+            171,
+            601,
+            328,
+            617
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "2.1 DIFFUSION LARGE LANGUAGE MODELS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            631,
+            496,
+            646
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Diffusion Large Language Models (dLLMs), or more specifically Masked Diffusion Models (MDMs), define a forward process that gradually corrupts the clean input by replacing tokens with the mask token M. Given the prompt x and the clean completions $y ,$ the forward process $q _ { t } ( y _ { t } \\mid y , x )$ at time t is defined as follows:",
+        "bbox": [
+            169,
+            657,
+            825,
+            714
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "equation",
+        "text": "$$\nq _ {t} (y _ {t} | y, x) = \\prod_ {i = 1} ^ {L} q _ {t} (y _ {t} ^ {i} | y ^ {i}, x) \\quad \\text { and } \\quad q _ {t} (y _ {t} ^ {i} | y ^ {i}, x) = \\left\\{ \\begin{array}{l l} 1 - t, & y _ {t} ^ {i} = y ^ {i}, \\\\ t, & y _ {t} ^ {i} = \\mathbf {M}. \\end{array} \\right.\\tag{1}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            261,
+            715,
+            732,
+            755
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Unlike autoregressive models, the exact log-likelihood log $\\pi _ { \\boldsymbol { \\theta } } ( y | \\boldsymbol { x } )$ in dLLMs is typically approximated via the evidence lower bound (ELBO) (Ou et al., 2024; Shi et al., 2024; Sahoo et al., 2024):",
+        "bbox": [
+            171,
+            758,
+            823,
+            787
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathcal {L} _ {\\theta} (y | x) \\triangleq \\mathbb {E} _ {t \\sim \\mathcal {U} [ 0, 1 ]} \\mathbb {E} _ {y _ {t} \\sim q _ {t} (y _ {t} | y, x)} \\left[ \\frac {1}{t} \\sum_ {i = 1} ^ {L} \\mathbf {1} [ y _ {t} ^ {i} = \\mathbf {M} ] \\log p _ {\\theta} (y ^ {i} | y _ {t}, x) \\right] \\leq \\log \\pi_ {\\theta} (y | x).\\tag{2}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            214,
+            792,
+            781,
+            834
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "As noted in Ou et al. (2024); Nie et al. (2025); Zhu et al. (2025), Eq. (2) has an equivalent, lowervariance variant that replaces the continuous masking ratio t with a discrete number of masked tokens l:",
+        "bbox": [
+            171,
+            843,
+            825,
+            883
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathcal {L} _ {\\theta} ^ {\\prime} (y | x) \\triangleq \\mathbb {E} _ {l \\sim \\mathcal {U} (\\{1, 2, \\dots , L \\})} \\mathbb {E} _ {y _ {l} \\sim q _ {l} (y _ {l} | y, x)} \\left[ \\frac {L}{l} \\sum_ {i = 1} ^ {L} \\mathbf {1} [ y _ {l} ^ {i} = \\mathbf {M} ] \\log p _ {\\theta} (y ^ {i} | y _ {l}, x) \\right],\\tag{3}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            238,
+            886,
+            756,
+            928
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "page_number",
+        "text": "2",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "where l denotes the number of tokens masked (sampled uniformly), and y represents the corrupted sequence obtained by masking l tokens without replacement. While Eq. (2) and Eq. (3) only provide a bound, the ELBO has been empirically shown to be a tight and practically effective surrogate for the intractable exact likelihood. This holds true for both likelihood-based evaluation (e.g., perplexity (Lou et al., 2024)) and training (e.g., DPO variants (Zhu et al., 2025)).",
+        "bbox": [
+            169,
+            104,
+            826,
+            175
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "2.2 REINFORCEMENT LEARNING",
+        "text_level": 2,
+        "bbox": [
+            171,
+            190,
+            418,
+            204
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Policy gradient methods have been shown to be highly effective for post-training LLMs (Ouyang et al., 2022). Among them, Group Relative Policy Optimization (GRPO) (Shao et al., 2024) is widely adopted as it eliminates this need for a value model (Schulman et al., 2017) by replacing it with a simpler Monte Carlo estimation: Given a prompt x, GRPO samples a group of G candidate completions $\\{ \\boldsymbol { y } ^ { ( i ) } \\} _ { i = 1 } ^ { G }$ from the old policy $\\pi _ { \\theta _ { \\mathrm { o l d } } }$ . Instead of estimating the baseline with a learned value function, it computes the relative advantage of each sample as its reward minus the group mean reward (Liu et al., 2025d). Incorporating a KL penalty, the resulting optimization objective is:",
+        "bbox": [
+            169,
+            215,
+            826,
+            316
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\begin{array}{l} \\mathcal {J} _ {\\mathrm{GRPO}} (\\pi_ {\\theta}) = \\mathbb {E} _ {x \\sim \\mathcal {D}, y ^ {(1)}, \\dots , y ^ {(G)} \\sim \\pi_ {\\theta_ {\\mathrm{old}}} (\\cdot | x)} \\\\ \\left[ \\frac {1}{G} \\sum_ {i = 1} ^ {G} \\frac {1}{| y ^ {(i)} |} \\sum_ {k = 1} ^ {| y ^ {(i)} |} \\min (\\rho^ {k, (i)} \\hat {A} ^ {(i)}, \\operatorname{clip} (\\rho^ {k, (i)}, 1 - \\epsilon , 1 + \\epsilon) \\hat {A} ^ {(i)}) - \\beta D _ {\\mathrm{KL}} (\\pi_ {\\theta}, \\pi_ {\\mathrm{ref}}) \\right], \\end{array}\\tag{4}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            183,
+            320,
+            792,
+            386
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "where $\\begin{array} { r l r } { \\rho ^ { k , ( i ) } } & { { } = } & { \\frac { \\pi _ { \\theta } ( y ^ { k , ( i ) } \\vert x , y ^ { < k , ( i ) } ) } { \\pi _ { \\theta _ { \\mathrm { o l d } } } ( y ^ { k , ( i ) } \\vert x , y ^ { < k , ( i ) } ) } } \\end{array}$ is the token-level importance ratio between policies, and old $\\begin{array} { r } { \\hat { A } ^ { ( i ) } = R ( x , y ^ { ( i ) } ) - \\frac { 1 } { G } \\sum _ { j = 1 } ^ { G } R ( x , y ^ { ( j ) } ) } \\end{array}$ ) denotes the group-relative advantage. A more comprehensive introduction to reinforcement learning is provided in Appendix B.1.",
+        "bbox": [
+            169,
+            392,
+            825,
+            450
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "3 THE CHALLENGE OF THE TOKEN-LEVEL PERSPECTIVE IN DLLMS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            468,
+            761,
+            484
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "The core challenge in applying reinforcement learning to dLLMs stems from a fundamental mismatch between the dLLMs’ probabilistic modeling and the assumptions inherent in standard RL algorithms. Mainstream policy gradient algorithms, including GRPO as formulated in Eq. (4), are intrinsically designed for autoregressive models that factorize the sequence likelihood into a product of conditional probabilities as $\\begin{array} { r } { \\pi _ { \\theta } ( y | x ) = \\prod _ { k = 1 } ^ { L } \\pi _ { \\theta } ( y ^ { k } | x , y ^ { < k } ) } \\end{array}$ . This factorization naturally defines a sequence of actions, allowing the objective to assign rewards at the token level via the importance ratio $\\frac { \\pi _ { \\theta } ( y ^ { k } | x , y ^ { < k } ) } { \\pi _ { \\theta _ { \\mathrm { o l d } } } ( y ^ { k } | x , y ^ { < k } ) }$ . However, dLLMs generate text non-autoregressively, refining a complete sequence over iterative denoising steps. Consequently, the autoregressive conditional probability $\\pi _ { \\boldsymbol { \\theta } } \\dot { ( } y ^ { k } | x , y ^ { < k } )$ is ill-defined or hard to compute (see Appendix B.2 for detailed discussions), forcing existing methods to rely on heuristic proxies to bridge this gap.",
+        "bbox": [
+            169,
+            500,
+            826,
+            650
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Early attempts to resolve this incompatibility focused on finding a suitable token-level substitute for the AR conditional probability $\\pi _ { \\boldsymbol { \\theta } } \\big ( y ^ { k } | x , \\dot { y } ^ { < k } \\big )$ . For instance, d1 (Zhao et al., 2025) employed a mean-field approximation log $p _ { \\theta } \\dot { ( } y ^ { k } \\vert x )$ as a proxy for log $\\pi _ { \\boldsymbol { \\theta } } ( y ^ { k } | x , y ^ { < k } )$ . This approach is inaccurate as it ignores the context provided by other tokens in the sequence y. Recognizing this limitation, subsequent work such as UniGRPO (Yang et al., 2025) and Coupled-GRPO (Gong et al., 2025) proposed a more sophisticated proxy: the token’s contribution to the ELBO, $\\mathcal { L } _ { \\theta } ^ { k } ( y | x ) ^ { \\widetilde { 1 } }$",
+        "bbox": [
+            169,
+            655,
+            825,
+            742
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathcal {L} _ {\\theta} ^ {k} (y | x) \\triangleq \\mathbb {E} _ {t \\sim \\mathcal {U} [ 0, 1 ]} \\mathbb {E} _ {y _ {t} \\sim q _ {t} (y _ {t} | y, x)} \\left[ \\frac {1}{t} \\mathbf {1} [ y _ {t} ^ {k} = \\mathbf {M} ] \\log p _ {\\theta} (y ^ {k} | y _ {t}, x) \\right].\\tag{5}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            274,
+            756,
+            723,
+            791
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "The $\\mathcal { L } _ { \\theta } ^ { k } ( y | x )$ is better aligned with the nature of dLLM generation, since its computation involves predicting a masked token given both x and the surrounding unmasked context from y. However, the ELBO, $\\begin{array} { r } { \\mathcal { L } _ { \\theta } ( y \\vert x ) = \\sum _ { k = 1 } ^ { L } \\mathcal { L } _ { \\theta } ^ { k } ( y \\vert x ) } \\end{array}$ , is only valid on sequence level as lowerbound of log $\\pi _ { \\boldsymbol { \\theta } } ( y | \\boldsymbol { x } )$ . An individual component $\\mathcal { L } _ { \\theta } ^ { k } ( y | x )$ has no formal probabilistic interpretation as a conditional likelihood. Therefore, the decomposition of ELBO at the token level and its heuristic substitution into the GRPO objective (Eq. (4)) introduces an unknown inconsistency.",
+        "bbox": [
+            169,
+            799,
+            825,
+            890
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "page_footnote",
+        "text": "1一t",
+        "bbox": [
+            668,
+            897,
+            679,
+            912
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "page_footnote",
+        "text": "<sup>1</sup>Implementations may vary; for instance, UniGRPO’s ELBO-like term omits the <sup>1</sup><sub>t</sub> coefficient from Eq. (5), akin to the simplified objective in DDPM (Ho et al., 2020).",
+        "bbox": [
+            169,
+            896,
+            823,
+            924
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "page_number",
+        "text": "3",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "As analyzed above, the core issue is not merely about finding a better token-level proxy, but that the token-level decomposition itself fundamentally does not fit for dLLMs. Forcing a dLLM into a token-level AR framework rests on an improper assumption. This motivates our approach: instead of adapting the dLLM model to fit the algorithm, we must adapt the algorithm to respect the holistic, sequence-level nature of the dLLM model.",
+        "bbox": [
+            169,
+            104,
+            826,
+            175
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "4 A PRINCIPLED SEQUENCE-LEVEL RL FRAMEWORK FOR DLLMS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            195,
+            748,
+            210
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Motivated by analysis in Section 3, we propose ELBO-based Sequence-level Policy Optimization (ESPO) algorithm, which is tailored for dLLMs. Our approach is built on a sequence-level action space, uses the ELBO as a tractable proxy for the sequence log-likelihood, and incorporates crucial stabilization techniques for both the policy gradient objective and the KL-divergence regularizer.",
+        "bbox": [
+            169,
+            228,
+            825,
+            286
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "4.1 THE SEQUENCE-LEVEL POLICY OBJECTIVE WITH ELBO APPROXIMATION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            301,
+            735,
+            316
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "We begin by reformulating the RL objective to align with the nature of dLLM generation.",
+        "bbox": [
+            171,
+            329,
+            761,
+            345
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Sequence-Level Objective. Instead of viewing each token as an independent action, we treat the generation of the entire sequence y as a single, atomic action. This naturally leads to a sequence-level adaptation of the GRPO framework (Eq. (4)), where the token-level summation is removed. The objective now depends on a sequence-level importance ratio $\\frac { \\pi _ { \\theta } ( y ^ { ( i ) } | x ) } { \\pi _ { \\theta _ { \\mathrm { o l d } } } ( y ^ { ( i ) } | x ) }$ . By substituting the intractable log-likelihood log π $( y ^ { ( i ) } | x )$ with its ELBO approximation $\\mathcal { L } ( y ^ { ( i ) } | x )$ , we obtain the sequence-level ratio for dLLM:",
+        "bbox": [
+            169,
+            359,
+            826,
+            457
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\rho_ {\\mathrm{seq}} ^ {(i)} = \\frac {\\exp \\mathcal {L} _ {\\theta} (y ^ {(i)} | x)}{\\exp \\mathcal {L} _ {\\theta_ {\\mathrm{old}}} (y ^ {(i)} | x)} = \\exp (\\mathcal {L} _ {\\theta} (y ^ {(i)} | x) - \\mathcal {L} _ {\\theta_ {\\mathrm{old}}} (y ^ {(i)} | x))\\tag{6}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            299,
+            464,
+            694,
+            497
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Plugging this into the GRPO objective gives us a vanilla sequence-level objective<sup>2</sup> :",
+        "bbox": [
+            171,
+            513,
+            720,
+            529
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathcal {J} _ {\\mathrm{seq}} (\\pi_ {\\theta}) = \\mathbb {E} _ {x \\sim \\mathcal {D}, y ^ {(1)}, \\dots , y ^ {(G)} \\sim \\pi_ {\\theta_ {\\mathrm{old}}} (\\cdot | x)} \\left[ \\frac {1}{G} \\sum_ {i = 1} ^ {G} \\min \\left(\\rho_ {\\mathrm{seq}} ^ {(i)} \\hat {A} ^ {(i)}, \\operatorname{clip} \\left(\\rho_ {\\mathrm{seq}} ^ {(i)}, 1 - \\epsilon , 1 + \\epsilon\\right) \\hat {A} ^ {(i)}\\right) \\right],\\tag{7}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            187,
+            537,
+            787,
+            580
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "While this sequence-level formulation correctly avoids the pitfall of splitting the ELBO at the token level, we found this vanilla formulation to be practically unusable. The magnitude of the raw ELBO difference, $\\mathcal { L } _ { \\theta } ( y ^ { ( i ) } | x ) - \\mathcal { L } _ { \\theta _ { \\mathrm { o l d } } } ( y ^ { ( i ) } | x )$ , typically scales linearly with the sequence length L. The subsequent exponentiation results in astronomically large or infinitesimally small ratios, causing unstable optimization.",
+        "bbox": [
+            169,
+            595,
+            825,
+            667
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "To address this instability, we draw inspiration from GSPO (Zheng et al., 2025) and normalize the log-ratio by the sequence length L. This transforms the unstable, raw log-likelihood difference into a stable, per-token scale. Our final, stabilized importance ratio is:",
+        "bbox": [
+            169,
+            672,
+            825,
+            717
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\rho_ {\\mathrm{seq}} ^ {(i)} = \\exp \\left(\\frac {1}{L} (\\mathcal {L} _ {\\theta} (y ^ {(i)} | x) - \\mathcal {L} _ {\\theta_ {\\mathrm{old}}} (y ^ {(i)} | x))\\right) = \\exp \\left(\\frac {1}{L} \\sum_ {k = 1} ^ {L} (\\mathcal {L} _ {\\theta} ^ {k} (y ^ {(i)} | x) - \\mathcal {L} _ {\\theta_ {\\mathrm{old}}} ^ {k} (y ^ {(i)} | x))\\right)\\tag{8}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            181,
+            724,
+            785,
+            766
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Plugging this stabilized ratio into the sequence-level objective (Eq. (7)) enables effective training.",
+        "bbox": [
+            171,
+            782,
+            812,
+            797
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Empirical Validation. To validate our design choices of using a sequence-level action space with an ELBO approximation, we conduct a complete ablation study on the Sudoku benchmark. We compare four variants: token-level actions with a mean-field likelihood, token-level with ELBO, sequence-level with mean-field, and our proposed sequence-level with ELBO. The precise mathematical formulations are detailed in Appendix C.1. As shown in Fig. 1, the results provide strong empirical support for our analysis:",
+        "bbox": [
+            169,
+            813,
+            826,
+            898
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "page_footnote",
+        "text": "<sup>2</sup>The KL term is omitted here for simplicity; a detailed discussion is provided later in Section 4.2.",
+        "bbox": [
+            189,
+            909,
+            769,
+            924
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "page_number",
+        "text": "4",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "chart",
+        "img_path": "images/11b49fcdf9a258a0c7e6e2292bf88d3ca503f56b061c91e77cb7ca865e2f2bc6.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            176,
+            104,
+            490,
+            247
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "chart",
+        "img_path": "images/b672d439ba620c116025f608cddc1ca2c7f1422845753bee6e16bd5a61ea92d6.jpg",
+        "content": "",
+        "chart_caption": [
+            "Figure 1: Training performance on the Sudoku task under different action space (Token-level vs. Sequence-level) and likelihood approximations (Mean-field vs. ELBO). Our method (blue) combines a sequence-level action space with an ELBO approximation, yielding the most stable and highest performance.",
+            "Figure 2: Training performance on the Sudoku task with different KL-divergence estimators. The $k _ { 2 }$ estimator (blue) achieves stable and superior performance. The $k _ { 1 }$ estimator (orange) is highly unstable and collapses, while the $k _ { 3 }$ estimator (green) stagnates."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            504,
+            104,
+            820,
+            246
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "• Mean-field is a poor proxy. Both mean-field variants (orange and green curve) fail to learn effectively, confirming that this approximation is fundamentally misaligned with the conditional denoising process.",
+        "bbox": [
+            176,
+            388,
+            825,
+            431
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "• Token-level ELBO is unstable. The Token-level + ELBO approach (red curve), while initially promising, suffers from high instability and eventual collapse. This highlights the inconsistency of breaking the ELBO’s integrity across tokens.",
+        "bbox": [
+            176,
+            434,
+            825,
+            479
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "• Sequence-level ELBO is superior. Our proposed method (blue curve) is the only one to achieve fast, stable learning that converges to the highest reward, validating that the sequence-level action space paired with the holistic ELBO proxy is the correct and most effective approach.",
+        "bbox": [
+            176,
+            482,
+            825,
+            526
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "4.2 STABLE KL-DIVERGENCE ESTIMATION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            547,
+            491,
+            561
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "The complete GRPO objective includes a KL-divergence term to regularize policy updates against a reference policy. A common choice for token-level autoregressive models is the $k _ { 3 }$ estimator (Schulman, 2017). However, a direct application of the $k _ { 3 }$ estimator to our sequence-level objective is highly problematic. Its formulation, when approximating log-likelihoods with the ELBO, is:",
+        "bbox": [
+            169,
+            571,
+            826,
+            631
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\widehat {\\mathbb {K L}} _ {\\mathrm{k} 3} = \\exp \\left(\\mathcal {L} _ {\\text { ref }} (y ^ {(i)} | x) - \\mathcal {L} _ {\\theta} (y ^ {(i)} | x)\\right) - 1 - \\left(\\mathcal {L} _ {\\text { ref }} (y ^ {(i)} | x) - \\mathcal {L} _ {\\theta} (y ^ {(i)} | x)\\right).\\tag{9}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            241,
+            637,
+            753,
+            662
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "As the formula shows, the $k _ { 3 }$ estimator contains an exponential term, which reintroduces the unstable problem similar to Eq. (6) at the sequence level. To circumvent this exponential instability, we adopt the more robust $k _ { 2 }$ estimator (Schulman, 2017), which is known to yield a correct gradient for KL optimization (Tang & Munos, 2025b). Our practical and stable KL estimate becomes:",
+        "bbox": [
+            169,
+            670,
+            825,
+            727
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\widehat {\\mathbb {K L}} _ {\\mathrm{k} 2} = \\frac {1}{2} \\left(\\mathcal {L} _ {\\theta} (y ^ {(i)} | x) - \\mathcal {L} _ {\\text { ref }} (y ^ {(i)} | x)\\right) ^ {2}.\\tag{10}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            362,
+            733,
+            633,
+            761
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Unlike the $k _ { 3 }$ estimator, the $k _ { 2 }$ estimator is a simple quadratic function of the ELBO difference. This polynomial form avoids the exponential term entirely, ensuring that the gradient signal from the KL regularizer remains stable and well-behaved, even for long sequences.",
+        "bbox": [
+            169,
+            768,
+            825,
+            811
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Empirical Validation. To demonstrate the critical impact of the KL estimator, we conduct an ablation study on the Sudoku task comparing the performance of the $k _ { 1 } , k _ { 2 } .$ , and k<sub>3</sub> estimators. More details can be referenced in Appendices C.2 and G.3. As shown in Fig. 2, the choice of estimator is crucial for stable learning. The $k _ { 3 }$ estimator (green) fails to learn, with rewards stagnating at a low level, which is consistent with our analysis of its unstable property. The $k _ { 1 }$ estimator (orange) is also highly unstable; while it shows some initial progress, its performance violently fluctuates before collapsing to zero midway through training. In stark contrast, the $k _ { 2 }$ estimator (blue) enables stable and efficient learning, consistently improving and ultimately converging to the highest reward. This result empirically validates that the $k _ { 2 }$ estimator is the most robust and effective choice for our sequence-level framework.",
+        "bbox": [
+            169,
+            825,
+            826,
+            925
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "page_number",
+        "text": "5",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "table",
+        "img_path": "images/3292ef9bb66d5a70328d9fec79352e53e6ca557a22db507e4b4b13930edf33d8.jpg",
+        "table_caption": [
+            "Table 1: Model performance on mathematics and planning benchmarks. For each task, we train a separate model. Countdown results with <sup>†</sup> for LLaDA, diffu-GRPO, and wd1 are from Zhao et al. (2025); Tang et al. (2025), while other results are reproduced as detailed in Section 5.1. ∆ denotes the improvement of ESPO over LLaDA or Dream model without reinforcement post-training."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td rowspan=\"2\">Model / Seq Len</td><td colspan=\"4\">GSM8K(0)</td><td colspan=\"4\">MATH(0)</td><td colspan=\"4\">Countdown</td><td colspan=\"4\">Sudoku</td></tr><tr><td>128</td><td>256</td><td>512</td><td>Avg.</td><td>128</td><td>256</td><td>512</td><td>Avg.</td><td>128</td><td>256</td><td>512</td><td>Avg.</td><td>128</td><td>256</td><td>512</td><td>Avg.</td></tr><tr><td>LLaDA</td><td>71.3</td><td>76.2</td><td>80.2</td><td>75.9</td><td>34.4</td><td>35.2</td><td>41.4</td><td>37.0</td><td> $20.7^†$ </td><td> $19.5^†$ </td><td> $16.0^†$ </td><td> $18.7^†$ </td><td>24.8</td><td>16.2</td><td>6.0</td><td>15.7</td></tr><tr><td>+ diffu-GRPO(d1)</td><td>74.6</td><td>78.1</td><td>81.2</td><td>78.0</td><td>34.9</td><td>36.6</td><td>41.7</td><td>37.7</td><td> $33.2^†$ </td><td> $31.3^†$ </td><td> $37.1^†$ </td><td> $33.9^†$ </td><td>26.7</td><td>24.1</td><td>15.9</td><td>22.2</td></tr><tr><td>+ wd1</td><td>77.2</td><td>80.8</td><td>82.3</td><td>80.1</td><td>33.3</td><td>37.7</td><td>39.8</td><td>36.9</td><td>47.7</td><td> $51.2^†$ </td><td> $46.1^†$ </td><td>48.3</td><td>22.6</td><td>22.0</td><td>24.6</td><td>23.1</td></tr><tr><td>+ ESPO (ours)</td><td>80.0</td><td>82.3</td><td>83.7</td><td>82.0</td><td>36.0</td><td>39.0</td><td>43.4</td><td>39.5</td><td>81.6</td><td>82.0</td><td>79.3</td><td>81.0</td><td>92.7</td><td>84.7</td><td>80.5</td><td>86.0</td></tr><tr><td>Δ</td><td>+8.7</td><td>+6.1</td><td>+3.5</td><td>+6.1</td><td>+1.6</td><td>+3.8</td><td>+2.0</td><td>+2.5</td><td>+60.9</td><td>+62.5</td><td>+63.3</td><td>+62.3</td><td>+67.9</td><td>+68.5</td><td>+74.5</td><td>+70.3</td></tr><tr><td>Dream</td><td>75.8</td><td>81.3</td><td>80.7</td><td>79.3</td><td>38.2</td><td>45.7</td><td>48.0</td><td>44.0</td><td>8.5</td><td>7.8</td><td>17.4</td><td>11.2</td><td>9.3</td><td>2.1</td><td>14.0</td><td>8.5</td></tr><tr><td>+ diffu-GRPO(d1)</td><td>77.0</td><td>81.9</td><td>81.7</td><td>80.2</td><td>39.4</td><td>46.9</td><td>48.9</td><td>45.1</td><td>27.3</td><td>27.7</td><td>37.5</td><td>30.8</td><td>64.4</td><td>69.7</td><td>51.1</td><td>61.7</td></tr><tr><td>+ wd1</td><td>76.3</td><td>82.4</td><td>82.9</td><td>80.5</td><td>39.5</td><td>47.4</td><td>50.5</td><td>45.8</td><td>28.9</td><td>37.9</td><td>42.2</td><td>36.3</td><td>29.5</td><td>39.2</td><td>30.3</td><td>33.0</td></tr><tr><td>+ ESPO (ours)</td><td>79.6</td><td>82.3</td><td>82.0</td><td>81.3</td><td>40.3</td><td>47.4</td><td>50.3</td><td>46.0</td><td>68.8</td><td>66.8</td><td>64.8</td><td>66.8</td><td>71.7</td><td>72.3</td><td>71.3</td><td>71.8</td></tr><tr><td>Δ</td><td>+3.8</td><td>+1.0</td><td>+1.3</td><td>+2.0</td><td>+2.1</td><td>+1.7</td><td>+2.3</td><td>+2.0</td><td>+60.3</td><td>+59.0</td><td>+47.4</td><td>+55.6</td><td>+62.4</td><td>+70.2</td><td>+57.3</td><td>+63.3</td></tr></table>",
+        "bbox": [
+            183,
+            176,
+            826,
+            304
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            334,
+            825,
+            377
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "5 EXPERIMENT",
+        "text_level": 2,
+        "bbox": [
+            171,
+            400,
+            320,
+            415
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "5.1 EXPERIMENTAL SETUP",
+        "text_level": 2,
+        "bbox": [
+            171,
+            434,
+            377,
+            448
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Models & Tasks We apply our ESPO algorithm to two open-source dLLMs: LLaDA-8B-Instruct (Nie et al., 2025) and Dream-7B-Instruct (Ye et al., 2025). For reference, we also report evaluation results on LLaDA-1.5 for comparison. Following prior work (Zhao et al., 2025; Tang et al., 2025), we focus on three categories of reasoning tasks: (i) Mathematics: GSM8K (Cobbe et al., 2021a) and MATH (Hendrycks et al., 2021), (ii) Coding: HumanEval (Chen et al., 2021) and MBPP (Austin et al., 2021b), EvalPlus (HumanEval+ and MBPP+) (Liu et al., 2023a) and (iii) Planning: Countdown and Sudoku (Ye et al., 2024). For mathematical tasks, we train on the official training split of each dataset. For coding tasks, we follow Gong et al. (2025) and train on a subset of AceCoder-87K (Zeng et al., 2025). For planning tasks (Countdown and Sudoku), we train on synthetic training data following Zhao et al. (2025).",
+        "bbox": [
+            169,
+            460,
+            826,
+            602
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Training To evaluate ESPO’s effectiveness, we apply it directly to the models without additional task-specific SFT. For stable training, we adopt two standard variance reduction techniques: following Zhu et al. (2025), we use antithetic sampling, which shares the same noise level and mask positions when estimating ELBO differences; and, inspired by Gong et al. (2025), we employ a coupled-sampling scheme. All experiments use 2 Monte Carlo samples and a policy update value of µ = 8. Additional details on variance-reduction strategies are provided in Appendix D, while further training configurations and extended results can be found in Appendices E and G.",
+        "bbox": [
+            169,
+            619,
+            826,
+            719
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Evaluation Following d1, we evaluate all benchmarks at generation lengths of 128, 256, and 512. For mathematics and coding tasks, we use the official evaluation scripts provided by the LLaDA and Dream repositories, respectively. For planning tasks, we use the evaluation code based on d1. To ensure fair comparison, we re-run those baselines whose reported settings differ from ours or whose results are missing for specific lengths (e.g., when length-128 results were not originally reported).",
+        "bbox": [
+            169,
+            736,
+            826,
+            808
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "5.2 BENCHMARK RESULTS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            825,
+            377,
+            840
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "As shown in Table 1 and Table 2, our sequence-level RL algorithm, ESPO, consistently and significantly outperforms both the original models and prior token-level RL baselines like diffu-GRPO (Zhao et al., 2025) and wd1 (Tang et al., 2025), while achieving performance on coding tasks that is comparable to LLaDA-1.5. Notably, although our models are trained only on the sequence length of 256, the improvements generalize effectively to other lengths.",
+        "bbox": [
+            169,
+            854,
+            826,
+            925
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "page_number",
+        "text": "6",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "table",
+        "img_path": "images/4525600abe57ed8a0f0ac9a13ff3b52993399516fd469439b6cbcac633a9b7c6.jpg",
+        "table_caption": [
+            "Table 2: Model performance on coding benchmarks. We train a single model and evaluate it across multiple coding benchmarks (HumanEval and MBPP) at different sequence lengths. ∆ denotes the improvement of ESPO over LLaDA model without reinforcement post-training. ESPO consistently enhances the performance while even achieving competitive results compared with LLaDA-1.5, which was trained on a privately collected dataset at a significantly larger scale."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td rowspan=\"3\">Model / Seq Len</td><td colspan=\"8\">HumanEval(0)</td><td colspan=\"8\">MBPP(3)</td></tr><tr><td colspan=\"4\">-</td><td colspan=\"4\">Plus</td><td colspan=\"4\">-</td><td colspan=\"4\">Plus</td></tr><tr><td>128</td><td>256</td><td>512</td><td>Avg.</td><td>128</td><td>256</td><td>512</td><td>Avg.</td><td>128</td><td>256</td><td>512</td><td>Avg.</td><td>128</td><td>256</td><td>512</td><td>Avg.</td></tr><tr><td>LLaDA</td><td>26.8</td><td>37.8</td><td>48.8</td><td>37.8</td><td>23.2</td><td>30.5</td><td>41.5</td><td>31.7</td><td>38.2</td><td>37.0</td><td>38.2</td><td>37.8</td><td>36.8</td><td>36.8</td><td>37.8</td><td>37.1</td></tr><tr><td>+ diffu-GRPO(d1)</td><td>25.6</td><td>36.0</td><td>50.0</td><td>37.2</td><td>22.0</td><td>29.9</td><td>37.2</td><td>29.7</td><td>34.8</td><td>36.6</td><td>38.0</td><td>36.5</td><td>31.8</td><td>34.8</td><td>39.4</td><td>35.3</td></tr><tr><td>+ wd1</td><td>34.7</td><td>38.4</td><td>38.4</td><td>37.2</td><td>29.9</td><td>29.9</td><td>32.9</td><td>30.9</td><td>38.0</td><td>37.2</td><td>34.4</td><td>36.5</td><td>31.8</td><td>32.8</td><td>35.6</td><td>33.4</td></tr><tr><td>+ ESPO (ours)</td><td>28.1</td><td>42.1</td><td>50.0</td><td>40.1</td><td>24.4</td><td>36.6</td><td>42.7</td><td>34.6</td><td>47.4</td><td>44.6</td><td>44.2</td><td>45.4</td><td>38.9</td><td>41.6</td><td>42.6</td><td>41.0</td></tr><tr><td>Δ</td><td>+1.3</td><td>+4.3</td><td>+1.2</td><td>+2.3</td><td>+1.2</td><td>+6.1</td><td>+1.2</td><td>+2.9</td><td>+9.2</td><td>+7.6</td><td>+6.0</td><td>+7.6</td><td>+2.1</td><td>+4.8</td><td>+4.8</td><td>+3.9</td></tr><tr><td>LLaDA-1.5</td><td>29.3</td><td>39.6</td><td>51.9</td><td>40.3</td><td>23.2</td><td>32.3</td><td>45.1</td><td>33.5</td><td>39.6</td><td>39.9</td><td>38.8</td><td>39.4</td><td>38.8</td><td>40.4</td><td>37.3</td><td>38.8</td></tr></table>",
+        "bbox": [
+            183,
+            188,
+            830,
+            292
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "chart",
+        "img_path": "images/f33d210dcfd3da4a476343fab18531c18072a0327c523a3a217cd9e74ed743b8.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            176,
+            309,
+            485,
+            448
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "chart",
+        "img_path": "images/c903ce8ea63bb5e9fe976a8a6c03504ed1bb03c0af28d204e3a78192faf214d2.jpg",
+        "content": "",
+        "chart_caption": [
+            "Figure 3: Training dynamics with different methods for Countdown and Sudoku tasks on LLaDA-8b-Instruct."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            513,
+            309,
+            818,
+            448
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Dominant Performance on Planning Tasks. The most dramatic improvements remain in planning tasks. On Countdown, ESPO consistently outperforms the strongest baselines by 20–40 absolute points, while on the Sudoku tasks, the gains are up to over 60 points depending on the sequence length. This strongly validates our core hypothesis: a sequence-level objective is superior for tasks requiring holistic consistency, a property that token-level optimization fails to capture effectively.",
+        "bbox": [
+            169,
+            516,
+            826,
+            589
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Consistent Gains on Mathematics and Coding. On established mathematics and coding benchmarks, the gains are more modest but still consistently positive. Note that the pre-existing knowledge of the base models acts as a performance ceiling, limiting the maximum achievable gains through RL fine-tuning alone. Despite this, our method reliably enhances performance, surpassing all previous token-level dLLM-RL methods averaged over sequence lengths, and comparable with LLaDA-1.5. This demonstrates the broad effectiveness of our approach even on knowledge-intensive tasks.",
+        "bbox": [
+            169,
+            601,
+            826,
+            686
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "5.3 TRAINING DYNAMICS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            702,
+            370,
+            715
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Fig. 3 shows the training reward dynamics on Countdown and Sudoku, highlighting our method’s superior performance. The difference is most pronounced on Sudoku, where our sequence-level method rapidly converges to a near-optimal policy, while the token-level d1 and wd1 baselines completely stagnate at low rewards. Similar trends can be observed on the Countdown task.",
+        "bbox": [
+            169,
+            727,
+            826,
+            785
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "5.4 ABLATION EXPERIMENTS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            800,
+            397,
+            815
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Number of Monte Carlo Samples We investigate the impact of the number of Monte Carlo (MC) samples used to estimate the ELBO. For this ablation, all other hyperparameters match those in our main experiments. As shown in Fig. 4, increasing the number of MC samples consistently improves training stability, but the magnitude of the effect varies by task. For signal-rich tasks such as Sudoku, using more MC samples substantially accelerates convergence—MC=1 converges slowly, while MC=2 or MC=4 leads to noticeably faster progress. In contrast, for sparse-reward tasks such as Countdown, the benefits of additional MC samples are much smaller.",
+        "bbox": [
+            169,
+            825,
+            826,
+            925
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "page_number",
+        "text": "7",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "chart",
+        "img_path": "images/411b145d86d92d045144320136ba519fba51ff1adbe5ee20d2b3dbb62c0468bc.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            176,
+            103,
+            483,
+            244
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "chart",
+        "img_path": "images/d5614e5dbf22036b55cf49138b05586d646bc1f3b8bcd4da9adb3317029bb0bd.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            513,
+            103,
+            820,
+            244
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "chart",
+        "img_path": "images/a5ab5ee6ed8348538a29114810ef4fbd35160c5b8c1bd332e2c248c0b24f359f.jpg",
+        "content": "",
+        "chart_caption": [
+            "Figure 4: Ablation study on the number of Monte Carlo samples for Countdown and Sudoku. We evaluate training performance with different MC sample counts (1, 2, 4), showing the effect of increased sampling on reward optimization."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            176,
+            320,
+            483,
+            460
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "chart",
+        "img_path": "images/f04ad4865086c52679eb31c168b7024610d9f3fc39d7a4a6bd95510d74e87769.jpg",
+        "content": "",
+        "chart_caption": [
+            "Figure 5: Ablation study on the policy update values $( \\mu )$ for Countdown and Sudoku. The reward curves illustrate performance across a range of $\\mu$ values. While smaller values $\\left( \\mathrm { e . g . , \\ 8 , } \\right.$ 12) lead to faster initial convergence on Sudoku, the method is robust and achieves similarly high rewards across all settings for Countdown and Sudoku tasks."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            513,
+            320,
+            821,
+            460
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Number of different policy update values $\\mu$ In these experiments, we varied $\\mu$ while keeping all other settings identical to our main setup. Our method demonstrates remarkable robustness to the number of policy updates (µ) per data collection phase, as shown in Fig. 5. On both Countdown and Sudoku, our approach successfully scales to large $\\mu$ values, converging to a similarly high reward across all settings, though smaller values (e.g., 8, 12) exhibit faster initial convergence on Sudoku. We hypothesize that this robustness is linked to task complexity. While the policy for relatively simple planning tasks can be updated aggressively, more complex domains like mathematics and coding may have more brittle reward landscapes. In such cases, a large $\\mu$ could lead to instability, making smaller, more conservative update frequencies a safer and more effective choice.",
+        "bbox": [
+            169,
+            559,
+            826,
+            686
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "5.5 DISCUSSION OF TRAINING EFFICIENCY",
+        "text_level": 2,
+        "bbox": [
+            171,
+            702,
+            490,
+            717
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "In reinforcement learning for dLLMs, the total training time can be roughly decomposed into two components: data generation (sampling) and policy updates (training). For dLLMs, the generation phase typically dominates: each step requires non-autoregressive denoising over the full sequence, preventing extensive reuse of KV cache. In contrast, the number of Monte Carlo samples M used for ELBO estimation only affects the policy update phase, which is less computationally intensive.",
+        "bbox": [
+            169,
+            728,
+            826,
+            800
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "To quantify the computational cost, we use FLOPs as a hardware-agnostic proxy. For a model with N parameters and sequence length $D ,$ the forward and backward passes approximately require $C _ { \\mathrm { f o r w a r d } } = 2 N D$ and $C _ { \\mathrm { b a c k w a r d } } = 4 N D$ FLOPs (Kaplan et al., 2020), respectively. We obtain the total FLOPS per sample with coupled sampling as $2 \\bar { N } D ( K + 6 \\mu M )$ (see Appendix F for details), where K is the sampling step, $\\mu$ is the policy update values, and M is the number of MC samples.",
+        "bbox": [
+            169,
+            805,
+            826,
+            876
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "We further validate this analysis on coding tasks using the same training configuration as in Section 5.1, except that the number of MC samples M is varied from 1, 2, and 4. The resulting theoretical FLOPs and empirical wall-clock training time are summarized in Table 3.",
+        "bbox": [
+            169,
+            882,
+            825,
+            924
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "page_number",
+        "text": "8",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "table",
+        "img_path": "images/cb81e340066140351fd59c3c13979a864f740efc49723a34d14995e5e2e58cbc.jpg",
+        "table_caption": [
+            "Table 3: Training cost under different numbers of Monte Carlo (MC) samples for 100 steps on the coding task. Following the setting in Section 5.1, the training parameters are set as denoising steps K = 256 and policy updates value $\\mu = 8$ . Experiments are conducted under H200 GPUs."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>MC Samples (M)</td><td>1</td><td>2</td><td>4</td></tr><tr><td>Wall-clock Time (hrs)</td><td>5.61 (100%)</td><td>6.78 (121%)</td><td>9.06 (161%)</td></tr><tr><td>Theoretical FLOPs</td><td>608ND (100%)</td><td>704ND (116%)</td><td>896ND (147%)</td></tr></table>",
+        "bbox": [
+            227,
+            161,
+            771,
+            217
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "First, we observe that the theoretical FLOPs capture the overall trend of wall-clock time, consistent with the fact that dLLM inference is a compute-bound process. The small discrepancy may be attributed to factors such as GPU utilization, memory bandwidth, and communication overhead.",
+        "bbox": [
+            169,
+            247,
+            825,
+            291
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Second, focusing on the relative growth as M increases, our approach shows a much more moderate increase in training cost. Since generation costs are fixed (dominated by K), increasing M only adds to the policy update term, which is minor when M is within a proper range. For example, increasing M from 1 to 4 raises the total FLOPs by only about 47% in our case, consistent with the observed wall-clock time. In contrast, for ELBO-based DPO algorithms such as VRPO (Zhu et al., 2025), their training time scales almost linearly with M (e.g., a 4× increase from M = 1 to M = 4).",
+        "bbox": [
+            169,
+            296,
+            826,
+            383
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "6 RELATED WORK",
+        "text_level": 2,
+        "bbox": [
+            171,
+            404,
+            343,
+            420
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Diffusion language models. dLLMs have recently emerged as a powerful approach for sequence modeling, leveraging discrete diffusion (Austin et al., 2021a; Campbell et al., 2022; Meng et al., 2023; Lou et al., 2024; Zhao et al., 2024), or in particular masked diffusion models (Ou et al., 2024; Sahoo et al., 2024; Shi et al., 2024). Distinct from autoregressive models (OpenAI, 2023) that heavily rely on the left-to-right causal factorization of the sequence, dLLMs instead operate directly on the sequence-level for each diffusion step and enable flexible order sampling (Kim et al., 2025) and parallel decoding (Arriola et al., 2025). While they have shown great promise in various domains (Kwon et al., 2025; Ma et al., 2025; Liu et al., 2025c; Wu et al., 2025; Hu et al., 2025; You et al., 2025b) when scaled up (Nie et al., 2024; Prabhudesai et al., 2025; Ni & the team, 2025), and their adaptation to downstream tasks with specific reward signals still has room for exploration.",
+        "bbox": [
+            169,
+            436,
+            826,
+            579
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "RL for language models. Reinforcement learning (Schulman et al., 2017) has proven effective in enhancing language model performance, particularly when rewards can be obtained via automated verifiers, a paradigm known as reinforcement learning with verifiable rewards (RLVR) (OpenAI, 2024). Methods such as GRPO (Shao et al., 2024; Guo et al., 2025) and related works (Luo et al., 2025) have improved reasoning capabilities and achieved strong performance across diverse tasks. However, directly applying these techniques to dLLMs is challenging, primarily due to the difficulty of likelihood computation.",
+        "bbox": [
+            169,
+            584,
+            826,
+            683
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "RL for diffusion language models. Except for continuous diffusion models (Wallace et al., 2024; Black et al., 2024; Liu et al., 2025a; McAllister et al., 2025), several works have explored leveraging RL to enhance the performance of diffusion language models. For general discrete diffusion models, Zhang et al. (2025) proposes a framework by target concrete score matching,Venkatraman et al. (2024) proposes Relative Trajectory Balance to achieve unbiased sampling of posterior distribution, and Zekri & Boulle (2025) proposes score entropy policy optimization. For masked diffusion mod-´ els, LLadou (Huang et al., 2025) uses RL and trains an additional module to predict the position for decoding. It models each denoising step as an action, stores the entire trajectory, and optimizes the conditional probability of each intermediate state. However, in offline settings, optimizing over multi-step trajectories requires repeated forward and backward passes growing linearly with the number of denoising steps, which is prohibitive for large-scale models. Various works (Zhao et al., 2025; Tang et al., 2025) have proposed mean-field surrogates of the likelihood that are efficient to compute to enhance efficiency. Yet, the approximations significantly trade off with quality and hinder the multi-step generation capability of the model. Our work instead develops a discrete diffusion RL objective from a principled sequence-level likelihood evaluation via efficient MC estimate, different from Yang et al. (2025); Gong et al. (2025) that evaluates the likelihood on the token-level heuristics.",
+        "bbox": [
+            169,
+            686,
+            826,
+            925
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "page_number",
+        "text": "9",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "7 CONCLUSION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            102,
+            321,
+            118
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "In this work, we identified the fundamental incompatibility between autoregressive RL objectives and the non-autoregressive nature of dLLMs, and proposed ESPO, a principled sequence-level reinforcement learning framework that leverages the ELBO as a tractable proxy for sequence likelihood. By treating sequence generation as a single action and introducing stabilized importance ratios and KL regularization, ESPO eliminates inconsistencies in prior token-level approaches and enables robust and efficient large-scale training. Extensive experiments on math, coding, and planning benchmarks demonstrate that our method consistently outperforms existing dLLM-RL baselines. Our results establish sequence-level optimization as a principled and empirically effective paradigm for RL in diffusion language models.",
+        "bbox": [
+            169,
+            133,
+            826,
+            260
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "ACKNOWLEDGMENTS",
+        "text_level": 2,
+        "bbox": [
+            173,
+            280,
+            357,
+            294
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "This work was supported by the Beijing Major Science and Technology Project under Contract no. Z251100008425002; the National Natural Science Foundation of China (Nos. 62522609, 92470118); the Beijing Natural Science Foundation (No. L247030); and the fund for building world-class universities (disciplines) of Renmin University of China.",
+        "bbox": [
+            169,
+            310,
+            825,
+            367
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "Personally, we thank Jiajun Liu and Shusheng Xu for their generous assistance throughout this project.",
+        "bbox": [
+            169,
+            375,
+            825,
+            402
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "ETHICS STATEMENT",
+        "text_level": 2,
+        "bbox": [
+            171,
+            422,
+            344,
+            438
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "This work is purely methodological and does not involve human subjects or sensitive data. Experiments are conducted on publicly available benchmarks, and results are reported in aggregate. We highlight that while our techniques improve efficiency and accuracy, they should be applied responsibly to avoid potential misuse.",
+        "bbox": [
+            169,
+            454,
+            825,
+            511
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "REPRODUCIBILITY STATEMENT",
+        "text_level": 2,
+        "bbox": [
+            173,
+            530,
+            437,
+            545
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "We have open-sourced our code in https://github.com/ML-GSAI/ESPO. Comprehensive explanation and details of our theory and experiments can be found in Appendices C to E.",
+        "bbox": [
+            169,
+            561,
+            825,
+            590
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "REFERENCES",
+        "text_level": 2,
+        "bbox": [
+            173,
+            609,
+            287,
+            626
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "ref_text",
+        "text": "Marianne Arriola, Aaron Gokaslan, Justin T Chiu, Zhihan Yang, Zhixuan Qi, Jiaqi Han, Subham Sekhar Sahoo, and Volodymyr Kuleshov. Block diffusion: Interpolating between autoregressive and diffusion language models. In The Thirteenth International Conference on Learning Representations, 2025.",
+        "bbox": [
+            174,
+            633,
+            823,
+            689
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "ref_text",
+        "text": "Jacob Austin, Daniel D. Johnson, Jonathan Ho, Daniel Tarlow, and Rianne van den Berg. Structured denoising diffusion models in discrete state-spaces. In Marc’Aurelio Ranzato, Alina Beygelzimer, Yann N. Dauphin, Percy Liang, and Jennifer Wortman Vaughan (eds.), Advances in Neural Information Processing Systems 34: Annual Conference on Neural Information Processing Systems 2021, NeurIPS 2021, December 6-14, 2021, virtual, pp. 17981–17993, 2021a.",
+        "bbox": [
+            174,
+            700,
+            823,
+            768
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "ref_text",
+        "text": "Jacob Austin, Augustus Odena, Maxwell Nye, Maarten Bosma, Henryk Michalewski, David Dohan, Ellen Jiang, Carrie Cai, Michael Terry, Quoc Le, et al. Program synthesis with large language models. ArXiv preprint, abs/2108.07732, 2021b.",
+        "bbox": [
+            174,
+            779,
+            823,
+            820
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "ref_text",
+        "text": "Kevin Black, Michael Janner, Yilun Du, Ilya Kostrikov, and Sergey Levine. Training diffusion models with reinforcement learning. In The Twelfth International Conference on Learning Representations, ICLR 2024, Vienna, Austria, May 7-11, 2024. OpenReview.net, 2024.",
+        "bbox": [
+            174,
+            830,
+            823,
+            872
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "ref_text",
+        "text": "Andrew Campbell, Joe Benton, Valentin De Bortoli, Tom Rainforth, George Deligiannidis, and A. Doucet. A continuous time framework for discrete denoising models. In Advances in Neural Information Processing Systems, 2022.",
+        "bbox": [
+            174,
+            882,
+            823,
+            922
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "page_number",
+        "text": "10",
+        "bbox": [
+            490,
+            948,
+            509,
+            959
+        ],
+        "page_idx": 9
+    }
+]

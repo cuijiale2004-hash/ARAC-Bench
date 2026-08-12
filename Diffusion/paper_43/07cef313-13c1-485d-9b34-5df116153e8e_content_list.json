@@ -1,0 +1,1528 @@
+[
+    {
+        "type": "text",
+        "text": "ABSTRACT",
+        "text_level": 2,
+        "bbox": [
+            450,
+            270,
+            547,
+            286
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Feature caching approaches accelerate diffusion transformers (DiTs) by storing the output features of computationally expensive modules at certain timesteps, and exploiting them for subsequent steps to reduce redundant computations. Recent forecasting-based caching approaches employ temporal extrapolation techniques to approximate the output features with cached ones. Although effective, relying exclusively on temporal extrapolation still suffers from significant prediction errors, leading to performance degradation. Through a detailed analysis, we find that 1) these errors stem from the irregular magnitude of changes in the output features, and 2) an input feature of a module is strongly correlated with the corresponding output. Based on this, we propose relational feature caching (RFC), a novel framework that leverages the input-output relationship to enhance the accuracy of the feature prediction. Specifically, we introduce relational feature estimation (RFE) to estimate the magnitude of changes in the output features from the inputs, enabling more accurate feature predictions. We also present relational cache scheduling (RCS), which estimates the prediction errors using the input features and performs full computations only when the errors are expected to be substantial. Extensive experiments across various DiT models demonstrate that RFC consistently outperforms prior approaches significantly. Project page is available at https://cvlab.yonsei.ac.kr/projects/RFC",
+        "bbox": [
+            230,
+            301,
+            767,
+            568
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "1 INTRODUCTION",
+        "text_level": 2,
+        "bbox": [
+            174,
+            595,
+            336,
+            609
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Diffusion models (Ho et al., 2020; Song & Ermon, 2019) have recently achieved remarkable success in generative tasks, such as text-to-image generation (Rombach et al., 2022; Saharia et al., 2022), and video generation (Blattmann et al., 2023a;b). While early approaches (Ho et al., 2020; Dhariwal & Nichol, 2021) relied on U-Net architectures (Ronneberger et al., 2015), recent works have shifted toward diffusion transformers (DiTs) (Peebles & Xie, 2023), which demonstrate superior performance, particularly when model and data scales increase. However, such gains come with significant computational costs, since DiTs require performing expensive forward passes over numerous denoising timesteps, which hinders their practical application. To address this, feature caching approaches (Ma et al., 2024; Wimbauer et al., 2024; Liu et al., 2025b) have emerged, offering a promising solution for reducing redundant computation in DiTs. These methods are based on the observation that the intermediate features in DiTs are highly similar across adjacent timesteps. Specifically, they perform full computations at certain timesteps, cache the output features of computationally expensive modules (e.g., attention and MLP), and exploit the cached features at subsequent timesteps to reduce redundant computations.",
+        "bbox": [
+            169,
+            627,
+            826,
+            823
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Early caching approaches (Ma et al., 2024; Selvaraju et al., 2024) typically reuse cached features directly without adaptation. While this improves efficiency, the discrepancy between cached and fully computed features accumulates over timesteps, which in turn degrades the generation quality. To alleviate this, recent works have proposed forecasting-based methods, that predict features through temporal extrapolation techniques, with an assumption that features evolve smoothly over timesteps. For instance, FasterCache (Lv et al., 2025) and GOC (Qiu et al., 2025) perform a linear extrapolation technique based on features from the two most recent full-compute steps, while TaylorSeer (Liu et al., 2025b) leverages the Taylor expansion to estimate feature changes along timesteps. However, our observations reveal that the magnitude of changes in the output features differs significantly across timesteps (Fig. 1(a)), leading to substantial prediction errors (Fig. 1(c)). Specifically, TaylorSeer achieves slight reductions in prediction error compared to FORA (Selvaraju et al., 2024), which reuses features without adaptation. This degrades the generation quality severely, especially when employing large temporal intervals between full computations (i.e., lower FLOPs in Fig. 1(d)).",
+        "bbox": [
+            169,
+            829,
+            826,
+            887
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_footnote",
+        "text": "<sup>∗</sup>Equal contribution.",
+        "bbox": [
+            192,
+            896,
+            318,
+            909
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_footnote",
+        "text": "<sup>†</sup>Correspondence author.",
+        "bbox": [
+            192,
+            909,
+            343,
+            924
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_number",
+        "text": "1",
+        "bbox": [
+            493,
+            948,
+            503,
+            959
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "chart",
+        "img_path": "images/e5619dcae72d96474e87d903007759bc5528c23f485553b5b693e37f0c2437b0.jpg",
+        "content": "",
+        "chart_caption": [
+            "(a) Output difference."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            178,
+            102,
+            338,
+            196
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "chart",
+        "img_path": "images/ce5b97ea4ffa0c4c0be20bb9a91c7d599880099ead98994ecb07562d047e67e4.jpg",
+        "content": "",
+        "chart_caption": [
+            "(b) Input difference."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            341,
+            103,
+            493,
+            196
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "chart",
+        "img_path": "images/3b40870e8e1a2ac3799a7d0ebec809c127ad2ae746486c3820b38992053b6f30.jpg",
+        "content": "",
+        "chart_caption": [
+            "(c) Prediction error."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            496,
+            104,
+            656,
+            196
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "chart",
+        "img_path": "images/b36d82d5773e25c766f45f3b12bf96bc083e79c3648c33d934dd82553c2e584f.jpg",
+        "content": "",
+        "chart_caption": [
+            "(d) Performance.",
+            "Figure 1: Feature analysis and comparison between existing approaches (FORA (Selvaraju et al., 2024), TaylorSeer (Liu et al., 2025b)), and our method (RFC) using DiT-XL/2 (Peebles & Xie, 2023). (a-b) Min-max normalized $L _ { 2 }$ distances of output and input features, measured between consecutive timesteps. While the variations of feature changes are irregular, those of input and output remain closely aligned with each other. (c) The prediction errors across different modules. We measure the relative $L _ { 1 }$ error between output features with and without applying caching methods and average the values over the timesteps. (d) Quantitative results on ImageNet (Deng et al., 2009) evaluated in terms of FLOPs and sFID (Nash et al., 2021)."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            661,
+            99,
+            820,
+            196
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            340,
+            826,
+            468
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "To address this limitation, we propose relational feature caching (RFC), a simple yet effective framework that leverages the relationship between the input and output features of modules (e.g., attention and MLP), rather than relying solely on temporal extrapolation techniques. To this end, we propose relational feature estimation (RFE), which estimates the magnitude of changes in the output feature by exploiting the differences in input features. RFE is based on the observation that the magnitude of changes in the output features is highly correlated with that of the input features (Figs. 1(a-b)), enhancing the accuracy of the feature estimation. We also introduce relational cache scheduling (RCS), a dynamic caching strategy that determines when to perform full computations based on estimated output errors. Since directly measuring output errors requires full computations, we instead employ errors in the input prediction as an efficient proxy, leveraging the relationship between the input and output features. Extensive experiments show that our proposed RFC consistently outperforms previous caching methods across a variety of DiT models, demonstrating the effectiveness of our method. We summarize our contributions as follows:",
+        "bbox": [
+            169,
+            473,
+            826,
+            655
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "• We propose RFE, a forecasting method that leverages input feature variations to more accurately estimate output features.",
+        "bbox": [
+            215,
+            664,
+            823,
+            694
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "• We propose RCS, a dynamic strategy that performs full computations adaptively by estimating the prediction error of the output features from that of input features.",
+        "bbox": [
+            215,
+            696,
+            825,
+            724
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "• Extensive experiments across various DiT models demonstrate that using RFE and RCS consistently outperforms existing caching methods in terms of both the generation quality and computational efficiency.",
+        "bbox": [
+            215,
+            729,
+            825,
+            772
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "2 RELATED WORK",
+        "text_level": 2,
+        "bbox": [
+            171,
+            794,
+            346,
+            810
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "In this section, we review representative works related to accelerating diffusion models.",
+        "bbox": [
+            171,
+            825,
+            746,
+            840
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "2.1 TIMESTEP REDUCTION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            856,
+            377,
+            869
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "The iterative generation process of diffusion models (Ho et al., 2020; Song & Ermon, 2019) leads to a slow inference and high computational costs, as each sample requires hundreds or even thousands of denoising steps. To mitigate this, many works attempt to reduce the number of timesteps.",
+        "bbox": [
+            169,
+            882,
+            826,
+            925
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "page_number",
+        "text": "2",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "DDIM (Song et al., 2020) introduces a non-Markovian deterministic sampler that preserves the DDPM (Ho et al., 2020) training objective, while skipping intermediate timesteps. DPM-Solver (Lu et al., 2022) extends this idea with higher-order ODE solvers, approximating nonlinear terms through the Taylor expansion. While these approaches achieve a faster sampling, their performance degrades significantly when the number of steps becomes extremely small.",
+        "bbox": [
+            169,
+            104,
+            826,
+            175
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Another group of methods distill a pretrained diffusion model into a student model that generates comparable results with only a few denoising steps. Progressive distillation (Salimans & Ho, 2022) iteratively trains a student model, which then becomes the teacher for the next stage with fewer steps. Consistency models (Song et al., 2023) learn direct mappings from noisy images at arbitrary timesteps to noise-free images, enabling skipping intermediate denoising steps. Although these approaches generate high-quality images with limited timesteps, they typically incur a significant training overhead.",
+        "bbox": [
+            169,
+            180,
+            826,
+            279
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "2.2 FEATURE CACHING",
+        "text_level": 2,
+        "bbox": [
+            171,
+            295,
+            352,
+            309
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Feature caching methods aim to reduce the computational cost across timesteps by storing fully computed features at certain timesteps and exploiting them for subsequent steps to avoid redundant computations. Early approaches (Ma et al., 2024; Selvaraju et al., 2024; So et al., 2024) use uniform intervals for full computations, but this ignores the fact that cache errors can vary significantly across timesteps. To address this, CacheMe (Wimbauer et al., 2024) sets a schedule for the full computation before the denoising process based on the cache error, but this predetermined schedule does not consider varying cache errors across samples. To mitigate this, TeaCache (Liu et al., 2025a) caches input features at full-compute steps and adaptively triggers full computations when the current input feature deviates significantly from the last cached feature. It however requires an additional calibration step to predict output cache errors from input differences. Furthermore, all the aforementioned caching approaches reuse the cached features directly without an adaptation, which can cause substantial cache errors, particularly under long intervals between successive full computations. The works of (Zou et al., 2025; 2024) aim to reduce cache errors of important tokens by selectively performing full computations on them, while still relying on cached features for the majority of other tokens.",
+        "bbox": [
+            169,
+            321,
+            826,
+            530
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "More recent works address the cache error by predicting features from cached ones rather than reusing them directly. FasterCache (Lv et al., 2025) observes that the change in the output features is directionally consistent, and uses a linear extrapolation technique to predict subsequent features. GOC (Qiu et al., 2025) also adopts a linear extrapolation technique, while reusing the cached features for timesteps where the extrapolation is less accurate. TaylorSeer (Liu et al., 2025b) leverages the higher-order Taylor expansions to better capture nonlinear feature dynamics, providing more accurate predictions than the linear extrapolation and improving the generation quality.",
+        "bbox": [
+            169,
+            536,
+            826,
+            635
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "3 METHOD",
+        "text_level": 2,
+        "bbox": [
+            171,
+            654,
+            284,
+            669
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "In this section, we describe diffusion models and feature caching in DiTs (Sec. 3.1). We then introduce our RFC framework in detail (Sec. 3.2).",
+        "bbox": [
+            169,
+            685,
+            823,
+            714
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "3.1 PRELIMINARIES",
+        "text_level": 2,
+        "bbox": [
+            171,
+            729,
+            328,
+            744
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Diffusion models. Diffusion models consist of a forward and a reverse process. In the forward process, Gaussian noise ϵ, sampled from a normal distribution $\\mathcal { N } ( 0 , 1 )$ , is added to the input image $x _ { 0 }$ over a sequence of timesteps. Specifically, at a given timestep t, the noisy image $x _ { t }$ is defined as:",
+        "bbox": [
+            169,
+            756,
+            825,
+            799
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\nx _ {t} = \\sqrt {\\alpha_ {t}} x _ {0} + \\sqrt {1 - \\alpha_ {t}} \\epsilon , \\quad \\epsilon \\sim \\mathcal {N} (0, I),\\tag{1}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            356,
+            805,
+            638,
+            821
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "where $\\alpha _ { t }$ denotes a predefined noise schedule at timestep t. The reverse process recovers the original image $x _ { 0 }$ from the noisy input by iteratively denoising it through a series of steps. At each timestep t, the model predicts the noise component, which is then used to compute the denoised image for the previous timestep $x _ { t - 1 }$ . For instance, DDIM sampler (Song et al., 2020) defines the reverse process as follows:",
+        "bbox": [
+            169,
+            828,
+            825,
+            896
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\nx _ {t - 1} = \\sqrt {\\alpha_ {t - 1}} \\left(\\frac {x _ {t} - \\sqrt {1 - \\alpha_ {t}} \\epsilon_ {\\theta} (x _ {t} , t)}{\\sqrt {\\alpha_ {t}}}\\right) + \\sqrt {1 - \\alpha_ {t - 1}} \\epsilon_ {\\theta} (x _ {t}, t),\\tag{2}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            276,
+            893,
+            718,
+            928
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "page_number",
+        "text": "3",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "chart",
+        "img_path": "images/adcf7da944ef10b2fc259ae490182dc9b4c40aac5b3e2f509a0cb481d083c153.jpg",
+        "content": "",
+        "chart_caption": [
+            "(a) Variation of $s _ { k } .$ ."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            256,
+            99,
+            475,
+            232
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "chart",
+        "img_path": "images/3772ed46c06f6b1b8c7fe01f233dae088865a9d38fff88e68d70bc74406a5168.jpg",
+        "content": "",
+        "chart_caption": [
+            "(b) Relation between $\\varepsilon _ { O }$ and $\\mathcal { E } _ { I }$ .",
+            "Figure 2: Empirical analyses in DiT-XL/2 (Peebles & Xie, 2023). (a) RSD of $s _ { k } ( t - k )$ with varying t. (b) Relative $L _ { 1 }$ errors of the output and input features, i.e., $\\mathcal { E } _ { O } ( t )$ and $\\mathcal { E } _ { I } ( t )$ , respectively. Please see the text for details."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            517,
+            102,
+            740,
+            231
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "where $\\epsilon _ { \\theta }$ is the noise prediction model parameterized by θ. While early diffusion models (Ho et al., 2020; Dhariwal & Nichol, 2021) adopt U-Net architectures (Ronneberger et al., 2015), DiTs (Peebles & Xie, 2023) instead parameterize $\\epsilon _ { \\theta }$ with transformers. DiTs have been shown to be effective for large-scale generation tasks, but at the cost of a substantial computational overhead.",
+        "bbox": [
+            169,
+            325,
+            825,
+            383
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "TaylorSeer (Liu et al., 2025b). TaylorSeer reduces cache errors in diffusion transformers by predicting output features through the Taylor expansion around the last fully computed timestep t. Given a cache interval N, the m-th order prediction of the output feature for the l-th module at timestep $t - k \\left( 0 < k < N \\right)$ ) is computed as follows:",
+        "bbox": [
+            169,
+            397,
+            825,
+            454
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\nO _ {\\text { Taylor }} ^ {l} (t - k) = O ^ {l} (t) + \\sum_ {i = 1} ^ {m} \\frac {k ^ {i}}{i !} \\frac {\\Delta_ {N} ^ {i} O ^ {l} (t)}{N ^ {i}},\\tag{3}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            352,
+            459,
+            643,
+            500
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "where $O ^ { l } ( t )$ is the output feature of the l-th module at timestep t, and $\\Delta _ { N } ^ { i }$ denotes the i-th order finite difference operator with the stride N defined recursively as:",
+        "bbox": [
+            171,
+            506,
+            825,
+            536
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\Delta_ {N} ^ {i} O ^ {l} (t) = \\left\\{ \\begin{array}{l l} O ^ {l} (t) - O ^ {l} (t + N), & i = 1, \\\\ \\Delta_ {N} ^ {i - 1} O ^ {l} (t) - \\Delta_ {N} ^ {i - 1} O ^ {l} (t + N), & i > 1. \\end{array} \\right.\\tag{4}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            315,
+            542,
+            678,
+            577
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "For the clarity and convenience of notation, we omit the superscript i for first-order differences and the module index l in the remainder of this paper.",
+        "bbox": [
+            169,
+            583,
+            825,
+            612
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3.2 RELATIONAL FEATURE CACHING",
+        "text_level": 2,
+        "bbox": [
+            171,
+            628,
+            447,
+            642
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "While TaylorSeer (Liu et al., 2025b) achieves the state-of-the-art performance over previous caching approaches, it still shows considerable prediction errors (Fig. 1(c)). This is because the magnitude of the feature changes is irregular across the timesteps (Fig. 1(a)), making it difficult to accurately estimate the subsequent features based only on temporal extrapolation techniques. To this end, we propose RFC, a framework that enhances feature prediction by leveraging the relationship between input and output features through two complementary components, RFE and RCS. RFE estimates the magnitude of changes in the output features, while RCS identifies when predictions become unreliable and performs full computation accordingly.",
+        "bbox": [
+            169,
+            654,
+            826,
+            767
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Relational feature estimation (RFE). We have observed in Fig. 1(a-b) that the magnitudes of changes in the input and output features for the same module are highly correlated, suggesting that differences in input features can serve as effective predictors of the output variations. To quantify this relationship, we define the ratio between the magnitudes of changes in output and input features as follows:",
+        "bbox": [
+            169,
+            780,
+            826,
+            849
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\ns _ {k} (t - k) = \\frac {\\| \\Delta_ {k} O (t - k) \\| _ {2}}{\\| \\Delta_ {k} I (t - k) \\| _ {2}},\\tag{5}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            395,
+            845,
+            599,
+            878
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "where $O ( t - k )$ and $I ( t - k )$ denote the output and input features of the same module, respectively, at timestep t−k, and $\\Delta _ { k }$ is the first-order difference with stride k in Eq. (4). To evaluate the consistency of the ratio, we compute $s _ { k } ( t - k )$ for $k \\in [ 1 , 9 ]$ , and measure the relative standard deviation (RSD)",
+        "bbox": [
+            169,
+            882,
+            825,
+            925
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "page_number",
+        "text": "4",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "over the resulting values. We can see from Fig. 2(a) that the RSD values remain consistently low (typically around 2%), indicating that $s _ { k } ( t - k )$ is highly consistent across timesteps. To support the empirical consistency of $s _ { k } ( t - k )$ , we present the following proposition:",
+        "bbox": [
+            169,
+            104,
+            825,
+            147
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Proposition 1. Assume that the mapping from input to output features is locally linear, and the direction of the difference vector $\\Delta _ { k } I ( t - k )$ remains constant for $1 \\le k \\le N$ , where N is an interval between full computations. Then, the ratio $s _ { k } ( t - k )$ is approximately invariant w.r.t. k.",
+        "bbox": [
+            169,
+            148,
+            825,
+            191
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Proof. Suppose the output feature O(t) is a locally linear to the input feature $I ( t ) , i . e .$ •,",
+        "bbox": [
+            171,
+            205,
+            741,
+            220
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\nO (t) = A I (t) + b,\\tag{6}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            433,
+            220,
+            563,
+            237
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "where A and b denote the weight matrix and bias vector of the linear transformation, respectively. Then, the change in output features over the temporal offset k can be written as:",
+        "bbox": [
+            169,
+            246,
+            823,
+            275
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\Delta_ {k} O (t - k) = O (t - k) - O (t)\\tag{7}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            380,
+            276,
+            601,
+            292
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\n= A (I (t - k) - I (t))\\tag{8}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            467,
+            294,
+            614,
+            310
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\n= A \\Delta_ {k} I (t - k).\\tag{9}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            467,
+            311,
+            581,
+            328
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Taking the $L _ { 2 ^ { - } }$ -norm of both sides gives:",
+        "bbox": [
+            171,
+            335,
+            439,
+            351
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\| \\Delta_ {k} O (t - k) \\| _ {2} = \\| A \\Delta_ {k} I (t - k) \\| _ {2}\\tag{10}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            328,
+            352,
+            576,
+            369
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\n= \\| A u _ {k} (t - k) \\| _ {2} \\| \\Delta_ {k} I (t - k) \\| _ {2},\\tag{11}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            442,
+            369,
+            666,
+            387
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "where $u _ { k } ( t - k )$ is the normalized direction of the input change defined as:",
+        "bbox": [
+            171,
+            388,
+            668,
+            402
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\nu _ {k} (t - k) = \\frac {\\Delta_ {k} I (t - k)}{\\| \\Delta_ {k} I (t - k) \\| _ {2}}.\\tag{12}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            397,
+            405,
+            598,
+            438
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "By dividing both sides of Eq. (11) with $\\| \\Delta _ { k } I ( t - k ) \\| _ { 2 }$ , we have the following:",
+        "bbox": [
+            171,
+            446,
+            694,
+            460
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\ns _ {k} (t - k) = \\frac {\\| \\Delta_ {k} O (t - k) \\| _ {2}}{\\| \\Delta_ {k} I (t - k) \\| _ {2}} = \\| A u _ {k} (t - k) \\| _ {2}.\\tag{13}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            334,
+            463,
+            661,
+            496
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "By the assumption that $u _ { k } ( t - k )$ remains constant for $1 \\leq k \\leq N$ , the ratio $s _ { k } ( t - k )$ is invariant w.r.t. k. □",
+        "bbox": [
+            169,
+            503,
+            825,
+            532
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Note that the two assumptions in Proposition 1 are commonly observed in diffusion models. First, changes in input features are usually small (Ma et al., 2024; Selvaraju et al., 2024; So et al., 2024), which allows for the output features to be locally approximated using Taylor’s theorem. Second, the works of (Lv et al., 2025; Qiu et al., 2025) show that the direction of feature changes remains largely consistent across timesteps. We provide empirical validation of the assumptions in Sec. A.",
+        "bbox": [
+            169,
+            547,
+            825,
+            619
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Based on the above finding, we propose RFE, a simple yet effective method that estimates the magnitude of changes in output features $\\lVert \\Delta _ { k } O ( t - k ) \\rVert _ { 2 }$ by leveraging the changes in input features $\\| \\Delta _ { k } I ( t - k ) \\| _ { 2 } ^ { - } .$ . Specifically, we can rewrite Eq. (5) as follows:",
+        "bbox": [
+            171,
+            625,
+            825,
+            667
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\left\\| \\Delta_ {k} O (t - k) \\right\\| _ {2} = s _ {k} (t - k) \\left\\| \\Delta_ {k} I (t - k) \\right\\| _ {2}.\\tag{14}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            348,
+            667,
+            648,
+            684
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Given the consistency of $s _ { k } ( t - k )$ across timesteps, we can approximate Eq. (14) as follows:",
+        "bbox": [
+            171,
+            693,
+            787,
+            708
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\| \\Delta_ {k} O (t - k) \\| _ {2} \\approx s _ {N} (t) \\| \\Delta_ {k} I (t - k) \\| _ {2},\\tag{15}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            359,
+            710,
+            637,
+            724
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "where $s _ { N } ( t )$ is the ratio computed between the two most recent full computations with the interval of N. Note that obtaining an input feature $I ( t - k )$ is efficient, since it only requires lightweight operations (e.g., LayerNorm (Ba et al., 2016), scaling, and shifting). Consequently, RFE refines the predicted magnitude of feature changes in Eq. (3) as follows:",
+        "bbox": [
+            169,
+            734,
+            825,
+            792
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\nO _ {\\mathrm{RFE}} (t - k) = O (t) + (s _ {N} (t) \\| \\Delta_ {k} I (t - k) \\| _ {2}) g \\left(\\sum_ {i = 1} ^ {m} \\frac {k ^ {i}}{i !} \\frac {\\Delta_ {N} ^ {i} O (t)}{N ^ {i}}\\right),\\tag{16}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            267,
+            792,
+            728,
+            833
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "where $g ( \\cdot )$ is an $L _ { 2 }$ normalization function as follows:",
+        "bbox": [
+            171,
+            840,
+            532,
+            857
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\ng (x) = \\frac {x}{\\| x \\| _ {2}}.\\tag{17}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            447,
+            858,
+            547,
+            888
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "RFE can capture irregular dynamics of feature changes, reducing the error of feature prediction, efficiently and effectively.",
+        "bbox": [
+            169,
+            895,
+            823,
+            924
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "page_number",
+        "text": "5",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Relational cache scheduling (RCS). Although RFE significantly improves the accuracy of the feature prediction, estimation errors are unavoidable and tend to fluctuate over timesteps, making a fixed caching interval N suboptimal. To address this, we propose RCS, a dynamic scheduling strategy that determines when to perform a full computation based on the estimated prediction error. To this end, we define the error of the output prediction at timestep $t - k$ as follows:",
+        "bbox": [
+            169,
+            104,
+            826,
+            175
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "equation",
+        "text": "$$\nE _ {O} (t - k) = O (t - k) - O _ {\\mathrm{RFE}} (t - k).\\tag{18}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            364,
+            181,
+            630,
+            196
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "However, computing $E _ { O } ( t - k )$ is not feasible during sampling, since it depends on $O ( t - k )$ , which requires a costly computation $( e . g .$ , attention or MLP). Instead, we propose to estimate this error using the error of the input prediction $E _ { I } ( t - k )$ as a proxy:",
+        "bbox": [
+            169,
+            204,
+            826,
+            247
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "equation",
+        "text": "$$\nE _ {I} (t - k) = I (t - k) - I _ {\\text { Taylor }} (t - k),\\tag{19}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            367,
+            252,
+            627,
+            268
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "where the predicted input feature $I _ { \\mathrm { T a y l o r } } ( t - k )$ is computed with the Taylor expansion as follows<sup>1</sup>:",
+        "bbox": [
+            169,
+            277,
+            820,
+            292
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "equation",
+        "text": "$$\nI _ {\\mathrm{Taylor}} (t - k) = I (t) + \\sum_ {i = 1} ^ {m} \\frac {k ^ {i}}{i !} \\frac {\\Delta_ {N} ^ {i} I (t)}{N ^ {i}}.\\tag{20}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            364,
+            300,
+            630,
+            340
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Our intuition is that prediction errors in the output tend to increase when the feature changes abruptly, and such changes are highly correlated with the variations in the corresponding input (Figs. 1(a-b) and 2(a)). Therefore, errors in the output prediction are likely to be correlated with those in the input prediction. To support this, we compare the relative $L _ { 1 }$ error of the output and input features, which is defined as follows:",
+        "bbox": [
+            169,
+            345,
+            826,
+            417
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathcal {E} _ {O} (t - k) = \\frac {\\| E _ {O} (t - k) \\| _ {1}}{\\| O (t - k) \\| _ {1}}, \\quad \\mathcal {E} _ {I} (t - k) = \\frac {\\| E _ {I} (t - k) \\| _ {1}}{\\| I (t - k) \\| _ {1}}.\\tag{21}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            295,
+            422,
+            697,
+            457
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "As shown in Fig. 2(b), the trends of the input and output errors closely align across timesteps. Based on this, we aim to estimate the accumulated errors in the output prediction during the sampling process by tracking the relative $L _ { 1 }$ error of the input prediction for the first module. We then perform a full computation when the accumulated error exceeds a predefined threshold τ as follows:",
+        "bbox": [
+            169,
+            469,
+            826,
+            526
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\sum_ {j = 1} ^ {k} \\mathcal {E} _ {I} (t - j) > \\tau .\\tag{22}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            431,
+            532,
+            563,
+            575
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "The left term in Eq. (22) effectively reflects the accumulation of errors in the output prediction. By adjusting τ, RCS controls the trade-off between the generation quality and efficiency. RCS performs full computations more frequently at timesteps, where the accumulated errors are large, reducing the cache error and improving the generation quality.",
+        "bbox": [
+            169,
+            582,
+            826,
+            640
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "4 EXPERIMENTS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            659,
+            328,
+            674
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "In this section, we first describe our implementation details (Sec. 4.1). We then provide quantitative and qualitative comparisons of RFC with state-of-the-art methods (Sec. 4.2), and present an in-depth analysis of RFC (Sec. 4.3). More experimental results and a discussion on the limitation of our work can be found in Appendix.",
+        "bbox": [
+            169,
+            689,
+            826,
+            747
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "4.1 IMPLEMENTATION DETAILS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            763,
+            406,
+            777
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Datasets and models. We apply RFC to various DiT models and perform extensive experiments on standard benchmarks for the class-conditional, text-to-image, and text-to-video generation tasks. For class-conditional generation, we perform experiments using the DiT-XL/2 (Peebles & Xie, 2023) model trained on ImageNet (Deng et al., 2009). We use FLUX.1 dev (Batifol et al., 2025) for text-toimage generation and HunyuanVideo (Kong et al., 2024) for text-to-video generation, and evaluate them on DrawBench (Saharia et al., 2022) and VBench (Huang et al., 2024), respectively. We use the DDIM sampler (Song et al., 2020) with 50 steps for DiT-X ${ \\mathcal { A } } ,$ , while using the Rectified Flow sampler (Liu et al., 2023) for FLUX.1 dev and HunyuanVideo with the same number of steps.",
+        "bbox": [
+            169,
+            789,
+            826,
+            902
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "page_footnote",
+        "text": "<sup>1</sup>RFE is not applied to input prediction, as it is defined to exploit input–output relationships.",
+        "bbox": [
+            191,
+            909,
+            738,
+            925
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "page_number",
+        "text": "6",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "table",
+        "img_path": "images/6008301d054490a3a2beb784814d17b9cef86da7c8eacf27ed729f3c5f1b88d2.jpg",
+        "table_caption": [
+            "Table 1: Quantitative comparisons on class-conditional image generation for DiT-XL/2 (Peebles & Xie, 2023) on ImageNet (Deng et al., 2009). Numbers in bold indicate the best performance, while underscored ones are the second best among similar computational costs. N is the interval between full computations, and m refers to the order of the Taylor expansion."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Methods</td><td>NFC</td><td>FLOPs (T)↓</td><td>Latency (s)↓</td><td>FID↓</td><td>sFID↓</td><td>FID2FC↓</td><td>sFID2FC↓</td><td>IS↑</td></tr><tr><td>Full-Compute</td><td>50</td><td>23.74</td><td>7.61</td><td>2.32</td><td>4.32</td><td>-</td><td>-</td><td>241.25</td></tr><tr><td>FORA (N=4) (Selvaraju et al., 2024)</td><td>14</td><td>6.66</td><td>2.37</td><td>4.33</td><td>7.38</td><td>1.90</td><td>6.32</td><td>215.33</td></tr><tr><td>ToCa (N=4) (Zou et al., 2025)</td><td>17</td><td>8.73</td><td>3.64</td><td>3.03</td><td>5.02</td><td>0.86</td><td>3.56</td><td>229.01</td></tr><tr><td>DuCa (N=4) (Zou et al., 2024)</td><td>17</td><td>7.66</td><td>2.94</td><td>3.39</td><td>4.95</td><td>1.19</td><td>4.22</td><td>224.03</td></tr><tr><td>TaylorSeer (N=4, m=2) (Liu et al., 2025b)</td><td>14</td><td>6.66</td><td>2.84</td><td>2.55</td><td>5.30</td><td>0.44</td><td>2.17</td><td>232.26</td></tr><tr><td>RFC (m=2)</td><td>14.01</td><td>6.67</td><td>2.86</td><td>2.52</td><td>4.60</td><td>0.30</td><td>1.33</td><td>231.00</td></tr><tr><td>FORA (N=5) (Selvaraju et al., 2024)</td><td>11</td><td>5.24</td><td>2.03</td><td>6.12</td><td>10.51</td><td>3.57</td><td>10.19</td><td>196.04</td></tr><tr><td>ToCa (N=5) (Zou et al., 2025)</td><td>14</td><td>7.43</td><td>3.35</td><td>3.53</td><td>5.36</td><td>1.28</td><td>4.50</td><td>224.07</td></tr><tr><td>DuCa (N=5) (Zou et al., 2024)</td><td>14</td><td>6.32</td><td>2.57</td><td>6.02</td><td>6.71</td><td>4.19</td><td>8.18</td><td>196.96</td></tr><tr><td>TaylorSeer (N=5, m=2) (Liu et al., 2025b)</td><td>11</td><td>5.24</td><td>2.52</td><td>2.70</td><td>5.45</td><td>0.56</td><td>2.74</td><td>228.76</td></tr><tr><td>RFC (m=2)</td><td>11.01</td><td>5.24</td><td>2.52</td><td>2.71</td><td>4.80</td><td>0.48</td><td>2.14</td><td>227.72</td></tr><tr><td>FORA (N=6) (Selvaraju et al., 2024))</td><td>10</td><td>4.76</td><td>1.82</td><td>8.12</td><td>12.94</td><td>5.32</td><td>12.87</td><td>179.11</td></tr><tr><td>ToCa (N=6) (Zou et al., 2025)</td><td>13</td><td>7.01</td><td>3.27</td><td>3.54</td><td>5.54</td><td>1.44</td><td>5.18</td><td>226.32</td></tr><tr><td>DuCa (N=6) (Zou et al., 2024)</td><td>13</td><td>5.86</td><td>2.53</td><td>6.37</td><td>6.74</td><td>4.51</td><td>7.86</td><td>187.74</td></tr><tr><td>TaylorSeer (N=6, m=2) (Liu et al., 2025b)</td><td>10</td><td>4.76</td><td>2.27</td><td>3.10</td><td>6.47</td><td>1.00</td><td>4.63</td><td>222.85</td></tr><tr><td>RFC (m=2)</td><td>10.04</td><td>4.78</td><td>2.46</td><td>2.75</td><td>5.02</td><td>0.54</td><td>2.43</td><td>226.93</td></tr><tr><td>FORA (N=7) (Selvaraju et al., 2024)</td><td>8</td><td>3.35</td><td>1.73</td><td>12.63</td><td>18.49</td><td>9.66</td><td>19.11</td><td>147.06</td></tr><tr><td>ToCa (N=7) (Zou et al., 2025)</td><td>14</td><td>6.25</td><td>2.90</td><td>4.04</td><td>5.72</td><td>1.62</td><td>4.72</td><td>214.25</td></tr><tr><td>DuCa (N=7) (Zou et al., 2024)</td><td>14</td><td>4.96</td><td>2.24</td><td>7.76</td><td>7.77</td><td>5.45</td><td>8.80</td><td>181.50</td></tr><tr><td>TaylorSeer (N=7, m=2) (Liu et al., 2025b)</td><td>8</td><td>3.82</td><td>2.02</td><td>3.46</td><td>6.97</td><td>1.30</td><td>5.61</td><td>217.18</td></tr><tr><td>RFC (m=2)</td><td>8.02</td><td>3.83</td><td>2.15</td><td>3.12</td><td>5.07</td><td>0.81</td><td>3.10</td><td>219.20</td></tr><tr><td>TaylorSeer (N=9, m=2) (Liu et al., 2025b)</td><td>7</td><td>3.35</td><td>1.89</td><td>4.90</td><td>7.92</td><td>2.33</td><td>7.35</td><td>198.46</td></tr><tr><td>RFC (m=2)</td><td>7.04</td><td>3.37</td><td>1.99</td><td>3.40</td><td>5.21</td><td>1.03</td><td>3.66</td><td>215.39</td></tr></table>",
+        "bbox": [
+            178,
+            169,
+            818,
+            465
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Evaluation and metric. Following the previous approaches (Zou et al., 2025; Liu et al., 2025b), we evaluate 50K images of size 256×256 for class-conditional generation using standard metrics, including Frechet Inception Distance (FID) (Heusel et al., 2017), sFID (Nash et al., 2021), and In-´ ception Score (IS) (Salimans et al., 2016). In addition, we introduce FID2FC and sFID2FC, which quantify the degradation introduced by caching through measuring the FID and sFID scores, respectively, between the images obtained from full computations and feature caching methods. For the text-to-image generation task, we generate 200 images of size 1000×1000 from DrawBench prompts (Saharia et al., 2022) and evaluate the image quality and text-to-image alignment using ImageReward (Xu et al., 2023) and the CLIP score (Hessel et al., 2021), respectively. We also evaluate PSNR, SSIM (Wang et al., 2004), and LPIPS (Zhang et al., 2018) computed between images generated by full computations and caching approaches. For text-to-video generation, we produce 2,838 videos by generating three videos for each of the 946 prompts. We evaluate the generated videos with the VBench score (Huang et al., 2024), as well as PSNR, SSIM, and LPIPS. For all tasks, we report FLOPs and latency to evaluate the computational efficiency. For a fair comparison, we reproduce the results of state-of-the-art methods using the official source codes, and adjust the threshold τ in Eq. (22) to ensure that the average number of full computations (NFC) matches that of other methods.",
+        "bbox": [
+            168,
+            498,
+            826,
+            736
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "4.2 RESULTS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            757,
+            281,
+            771
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Quantitative results. We show in Tables 1-3 quantitative comparisons of RFC and state-of-theart methods (Selvaraju et al., 2024; Zou et al., 2025; 2024; Liu et al., 2025b) for class-conditional image, text-to-image, and text-to-video generation tasks, respectively. We summarize our findings as follows: (1) RFC outperforms existing caching approaches across various generative tasks, by a large margin. For example, we can see from Table 1 that RFC with 3.37 TFLOPs outperforms TaylorSeer (Liu et al., 2025b) with 4.76 TFLOPs by 1.26 in terms of sFID. We can also see that the improvement is significant for metrics that compare the quality of generated images from full computations and caching approaches (e.g., FID2FC, sFID2FC, PSNR, SSIM (Wang et al., 2004), and LPIPS (Zhang et al., 2018)), suggesting that RFC can accurately estimate output features by leveraging the relationship with the corresponding input features. (2) RFC performs particularly well under limited computational budgets. In such cases, prior approaches suffer from large errors in feature prediction, mainly due to irregular changes of features across timesteps, which degrades the performance. Even with limited computation, RFC accurately estimates the output features with RFE and effectively performs full computations with RCS, preserving the generation quality. (3) With a similar NFC, the overhead of RFC compared to TaylorSeer (Liu et al., 2025b) is minimal. This is because computing the input features in RFC only requires lightweight operations such as LayerNorm (Ba et al., 2016), shifting, and scaling, which adds negligible computational costs, while improving the generation quality significantly.",
+        "bbox": [
+            169,
+            784,
+            826,
+            926
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "page_number",
+        "text": "7",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "table",
+        "img_path": "images/0d8fd49960cd027ee7028614e377faed37e9b141edea5f7a0196ef54cc83c83a.jpg",
+        "table_caption": [
+            "Table 2: Quantitative comparisons on text-to-image generation for FLUX.1 dev (Batifol et al., 2025) on DrawBench (Saharia et al., 2022). Numbers in bold indicate the best performance, while underscored ones are the second best among similar computational costs. N is the interval between full computations, and m refers to the order of the Taylor expansion."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Methods</td><td>NFC</td><td>FLOPs (T)↓</td><td>Latency (s)↓</td><td>PSNR↑</td><td>SSIM↑</td><td>LPIPS↓</td><td>IR↑</td><td>CLIP↑</td></tr><tr><td>Full-Compute</td><td>50</td><td>2813.50</td><td>26.210</td><td>-</td><td>-</td><td>-</td><td>0.9655</td><td>17.0720</td></tr><tr><td>FORA (N = 3) (Selvaraju et al., 2024)</td><td>17</td><td>957.33</td><td>10.489</td><td>17.4967</td><td>0.7236</td><td>0.4209</td><td>0.9111</td><td>16.9515</td></tr><tr><td>ToCa (N = 5) (Zou et al., 2025)</td><td>14</td><td>1056.26</td><td>18.591</td><td>18.0333</td><td>0.7269</td><td>0.3490</td><td>0.9457</td><td>17.0063</td></tr><tr><td>TaylorSeer (N = 4, m = 1) (Liu et al., 2025b)</td><td>14</td><td>788.59</td><td>8.863</td><td>19.5722</td><td>0.7695</td><td>0.3226</td><td>0.9204</td><td>17.0659</td></tr><tr><td>TaylorSeer (N = 4, m = 2)</td><td>14</td><td>788.59</td><td>8.985</td><td>19.7733</td><td>0.7706</td><td>0.3175</td><td>0.9407</td><td>17.0527</td></tr><tr><td>RFC (m = 1)</td><td>14.02</td><td>789.82</td><td>9.148</td><td>20.2707</td><td>0.7905</td><td>0.2934</td><td>0.9448</td><td>17.0288</td></tr><tr><td>RFC (m = 2)</td><td>13.80</td><td>777.44</td><td>9.364</td><td>20.3524</td><td>0.7930</td><td>0.2952</td><td>0.9499</td><td>17.0394</td></tr><tr><td>FORA (N = 7) (Selvaraju et al., 2024)</td><td>8</td><td>451.10</td><td>6.065</td><td>15.8656</td><td>0.6692</td><td>0.5557</td><td>0.6121</td><td>16.8531</td></tr><tr><td>ToCa (N = 12) (Zou et al., 2025)</td><td>5</td><td>673.88</td><td>11.504</td><td>16.2240</td><td>0.6479</td><td>0.5512</td><td>0.6238</td><td>16.9020</td></tr><tr><td>TaylorSeer (N = 9, m = 1) (Liu et al., 2025b)</td><td>8</td><td>451.10</td><td>6.382</td><td>16.1346</td><td>0.6736</td><td>0.5261</td><td>0.7602</td><td>17.0769</td></tr><tr><td>TaylorSeer (N = 9, m = 2)</td><td>8</td><td>451.10</td><td>6.796</td><td>16.5492</td><td>0.6563</td><td>0.5328</td><td>0.7996</td><td>17.0534</td></tr><tr><td>RFC (m = 1)</td><td>8.00</td><td>451.23</td><td>6.407</td><td>16.7952</td><td>0.6979</td><td>0.4645</td><td>0.9142</td><td>17.0165</td></tr><tr><td>RFC (m = 2)</td><td>8.03</td><td>452.91</td><td>6.849</td><td>16.9188</td><td>0.6936</td><td>0.4708</td><td>0.9189</td><td>16.9641</td></tr></table>",
+        "bbox": [
+            178,
+            169,
+            816,
+            344
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "table",
+        "img_path": "images/4b61ff34258ef46ef908c214634bee9d962ab07cdb63139b2ecabadb8911f02b.jpg",
+        "table_caption": [
+            "Table 3: Quantitative comparisons on text-to-video generation for HunyuanVideo (Kong et al., 2024) on VBench (Huang et al., 2024). Numbers in bold indicate the best performance among similar computational costs. N is the interval between full computations, and m refers to the order of the Taylor expansion."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Methods</td><td>NFC</td><td>FLOPs (T)↓</td><td>Latency (s)↓</td><td>PSNR↑</td><td>SSIM↑</td><td>LPIPS↓</td><td>VBench↑</td></tr><tr><td>Full-Compute</td><td>50</td><td>7520.00</td><td>263.480</td><td>-</td><td>-</td><td>-</td><td>81.40</td></tr><tr><td>FORA (N=6) (Selvaraju et al., 2024)</td><td>9</td><td>1359.19</td><td>55.339</td><td>15.5221</td><td>0.4349</td><td>0.2743</td><td>78.51</td></tr><tr><td>TaylorSeer (N=5, m=1) (Liu et al., 2025b)</td><td>10</td><td>1510.21</td><td>60.051</td><td>16.3606</td><td>0.5126</td><td>0.1985</td><td>80.77</td></tr><tr><td>TaylorSeer (N=6, m=1)</td><td>9</td><td>1359.19</td><td>55.872</td><td>15.5321</td><td>0.4606</td><td>0.2448</td><td>79.52</td></tr><tr><td>RFC (m=1)</td><td>8.96</td><td>1354.65</td><td>57.786</td><td>18.5408</td><td>0.6352</td><td>0.1329</td><td>80.83</td></tr><tr><td>FORA (N=8) (Selvaraju et al., 2024)</td><td>7</td><td>1058.45</td><td>48.340</td><td>14.8878</td><td>0.4114</td><td>0.2959</td><td>77.50</td></tr><tr><td>TaylorSeer (Liu et al., 2025b) (N=8, m=1)</td><td>7</td><td>1058.45</td><td>48.736</td><td>15.1999</td><td>0.4408</td><td>0.2624</td><td>79.59</td></tr><tr><td>RFC (m=1)</td><td>7.09</td><td>1072.65</td><td>49.684</td><td>18.2521</td><td>0.6155</td><td>0.1436</td><td>80.49</td></tr></table>",
+        "bbox": [
+            178,
+            428,
+            816,
+            556
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            585,
+            826,
+            699
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Qualitative results. We show in Fig. 3 the qualitative comparisons of images generated using DiT-XL/2 (Peebles & Xie, 2023) and FLUX.1 dev (Batifol et al., 2025). We observe that RFC produces more realistic images that are visually closer to those generated by full computations. For example, in the first row of Fig. 3(right), RFC better preserves the brick structure compared to the prior approaches (Selvaraju et al., 2024; Liu et al., 2025b), closely matching the image generated by full computations, indicating that RFC effectively minimizes the prediction errors in the output features. We also show in Fig. 4 generated videos using HunyuanVideo (Kong et al., 2024). We can see that RFC produces high-quality videos that are similar to those generated by full computations, demonstrating the effectiveness of RFC once more. Please see Appendix for more results.",
+        "bbox": [
+            169,
+            712,
+            826,
+            840
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "4.3 DISCUSSION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            854,
+            305,
+            869
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Ablations. We show in Table 4 the ablation study for each component of RFC. We can see that applying either RFE or RCS alone already outperforms TaylorSeer (Liu et al., 2025b) regardless of NFC. For instance, when NFC is 11, applying RFE and RCS to TaylorSeer reduces the sFID from 5.85 to 5.22 and 5.21, respectively. This indicates that both RFE and RCS can effectively improve feature prediction by leveraging the input–output feature relationship. Moreover, combining both components (i.e., RFC) further reduces the sFID to 4.88, suggesting that RFE and RCS are complementary to each other.",
+        "bbox": [
+            169,
+            881,
+            826,
+            925
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "page_number",
+        "text": "8",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "image",
+        "img_path": "images/d43b254de9e42982b23e2f0fef5fbcc7bb03e07f4a4f08773deef27d8b1fedb3.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            184,
+            101,
+            823,
+            263
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "image",
+        "img_path": "images/d1bab04b6e999333c816dea500603e0ded94b919f09bce5413cd65af8689bb17.jpg",
+        "image_caption": [
+            "Figure 3: Qualitative comparisons of (left) class-conditional image generation for DiT-XL/2 (Peebles & Xie, 2023) on ImageNet (Deng et al., 2009), and (right) text-to-image generation for FLUX.1 dev (Batifol et al., 2025) on DrawBench (Saharia et al., 2022).",
+            "Figure 4: Qualitative comparisons of text-to-video generation for HunyuanVideo (Kong et al., 2024) on VBench (Huang et al., 2024). Please see the supplementary material for the actual video clips."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            181,
+            342,
+            823,
+            516
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            587,
+            825,
+            645
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Relational feature estimation (RFE). Feature forecasting methods based on linear extrapolation techniques (Lv et al., 2025; Qiu et al., 2025) can be formulated as:",
+        "bbox": [
+            169,
+            657,
+            825,
+            688
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "equation",
+        "text": "$$\nO _ {\\mathrm{pred}} (t - k) = O (t) + \\frac {k}{N} w (t) \\Delta_ {N} O (t)\\tag{23}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            364,
+            693,
+            632,
+            723
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "where $O _ { \\mathrm { p r e d } } ( t - k )$ is the predicted output feature at timestep $t - k , \\Delta _ { N } O ( t )$ is the difference between features from the two latest full-compute steps, N is the interval between the full computations, and w(t) is a scaling factor at the timestep t. Existing approaches differ in how $w ( t )$ is determined. For instance, FasterCache (Lv et al., 2025) linearly increases w(t) from zero to one as t increases, while GOC (Qiu et al., 2025) employs a fixed hyperparameter for w(t). We show in Table 5 quantitative comparisons between RFE and these strategies. We can see that RFE consistently outperforms all the others significantly. This suggests that a simple linear extrapolation fails to capture the irregular changes in the output features, while RFE improves the prediction by leveraging the input–output relationship.",
+        "bbox": [
+            169,
+            727,
+            826,
+            854
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Relational cache scheduling (RCS) RCS performs full computations based on the prediction error in input features of the first module. To evaluate the effectiveness of RCS, we provide in Table 6 quantitative results of various scheduling strategies on ImageNet (Deng et al., 2009). First, we adopt a distance-based strategy (Liu et al., 2025a) and schedule full computations based on the distance between the current and the latest cached input features, instead of exploiting the prediction error. We can see that RCS achieves stronger performance, suggesting that the prediction error is more reliable for forecasting-based methods than the simple distance measure. Second, we add the input prediction errors of all modules rather than using the first module only. RCS remains comparable to this variant, indicating that using the error from the first module is sufficient.",
+        "bbox": [
+            169,
+            867,
+            826,
+            925
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "page_number",
+        "text": "9",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "table",
+        "img_path": "images/cffb27446ec8acec4adeaee694a41c3fc2afe071f5a883f16c1b4d6808cc99a1.jpg",
+        "table_caption": [
+            "Table 4: Quantitative comparison of different components for DiT-XL/2 (Peebles & Xie, 2023) on ImageNet (Deng et al., 2009). All results are obtained using the first-order approximation (m = 1)."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Methods</td><td>NFC</td><td>FID↓</td><td>sFID↓</td><td>FID2FC↓</td><td>sFID2FC↓</td></tr><tr><td>TaylorSeer (Liu et al., 2025b)</td><td>14</td><td>2.65</td><td>5.60</td><td>0.57</td><td>2.77</td></tr><tr><td>RFE</td><td>14</td><td>2.52</td><td>5.18</td><td>0.43</td><td>2.02</td></tr><tr><td>RCS</td><td>14</td><td>2.52</td><td>4.76</td><td>0.36</td><td>1.88</td></tr><tr><td>RFC (RFE + RCS)</td><td>14</td><td>2.51</td><td>4.66</td><td>0.31</td><td>1.41</td></tr><tr><td>TaylorSeer (Liu et al., 2025b)</td><td>11</td><td>2.87</td><td>5.85</td><td>0.73</td><td>3.53</td></tr><tr><td>RFE</td><td>11</td><td>2.69</td><td>5.22</td><td>0.55</td><td>2.55</td></tr><tr><td>RCS</td><td>11</td><td>2.77</td><td>5.21</td><td>0.62</td><td>3.09</td></tr><tr><td>RFC (RFE + RCS)</td><td>11</td><td>2.71</td><td>4.88</td><td>0.51</td><td>2.30</td></tr></table>",
+        "bbox": [
+            238,
+            141,
+            759,
+            275
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "table",
+        "img_path": "images/cdbf981310cd795d1072806af4df4400446be555b6413beca105029835544cde.jpg",
+        "table_caption": [
+            "Table 5: Quantitative comparison of different strategies for estimating the change in output features for DiT-XL/2 (Peebles & Xie, 2023) on ImageNet (Deng et al., 2009). All results are obtained using the first-order approximation (m = 1)."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Methods</td><td>NFC</td><td>FID2FC↓</td><td>sFID2FC↓</td><td>Latency (s)↓</td></tr><tr><td>Linear</td><td>14</td><td>0.73</td><td>3.40</td><td>2.85</td></tr><tr><td>w(t) = 0.8</td><td>14</td><td>0.73</td><td>3.36</td><td>2.84</td></tr><tr><td>w(t) = 1.0</td><td>14</td><td>0.57</td><td>2.77</td><td>2.84</td></tr><tr><td>w(t) = 1.2</td><td>14</td><td>0.52</td><td>2.51</td><td>2.84</td></tr><tr><td>RFE</td><td>14</td><td>0.43</td><td>2.02</td><td>2.86</td></tr><tr><td>Linear</td><td>11</td><td>0.93</td><td>4.08</td><td>2.52</td></tr><tr><td>w(t) = 0.8</td><td>11</td><td>0.94</td><td>4.17</td><td>2.51</td></tr><tr><td>w(t) = 1.0</td><td>11</td><td>0.73</td><td>3.53</td><td>2.51</td></tr><tr><td>w(t) = 1.2</td><td>11</td><td>0.67</td><td>3.24</td><td>2.52</td></tr><tr><td>RFE</td><td>11</td><td>0.55</td><td>2.55</td><td>2.52</td></tr></table>",
+        "bbox": [
+            299,
+            345,
+            699,
+            503
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "table",
+        "img_path": "images/705e001dc5fe2c8789c70ac843af034e405acae5a1eeebe56e521e883c49def7.jpg",
+        "table_caption": [
+            "Table 6: Quantitative comparison of different strategies for the cache scheduling using DiT-XL/2 (Peebles & Xie, 2023) on ImageNet (Deng et al., 2009). All results are obtained using the first-order approximation (m = 1)."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Methods</td><td>NFC</td><td>FID2FC↓</td><td>sFID2FC↓</td><td>Latency (s)↓</td></tr><tr><td>Input distance</td><td>14.03</td><td>0.50</td><td>2.53</td><td>2.62</td></tr><tr><td>All modules</td><td>14.02</td><td>0.37</td><td>1.85</td><td>2.79</td></tr><tr><td>RCS</td><td>14.00</td><td>0.36</td><td>1.88</td><td>2.63</td></tr><tr><td>Input distance</td><td>11.15</td><td>0.72</td><td>3.47</td><td>2.23</td></tr><tr><td>All modules</td><td>11.00</td><td>0.61</td><td>3.03</td><td>2.41</td></tr><tr><td>RCS</td><td>11.01</td><td>0.62</td><td>3.09</td><td>2.26</td></tr></table>",
+        "bbox": [
+            305,
+            574,
+            691,
+            683
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            715,
+            826,
+            787
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "5 CONCLUSION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            808,
+            321,
+            824
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "We have shown that output feature changes in DiTs are highly irregular across timesteps, while still maintaining a strong correlation with their corresponding inputs. Based on this, we have introduced a new caching framework, dubbed RFC, that leverages the input-output relationship for accurate feature prediction, consisting of two novel components, RFE and RCS. We have demonstrated that RFC achieves the state of the art on standard benchmarks, and further validated the effectiveness of each component through a detailed analysis.",
+        "bbox": [
+            169,
+            840,
+            826,
+            925
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "page_number",
+        "text": "10",
+        "bbox": [
+            490,
+            946,
+            509,
+            960
+        ],
+        "page_idx": 9
+    }
+]

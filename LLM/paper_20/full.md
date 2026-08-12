@@ -1,0 +1,233 @@
+## ABSTRACT
+
+Large language models (LLMs) have achieved impressive performance on knowledge-intensive tasks, yet they often struggle with multi-step reasoning due to the unstructured nature of retrieved context. While retrieval-augmented generation (RAG) methods provide external information, the lack of explicit organization among retrieved passages limits their effectiveness, leading to brittle reasoning pathways. Recent interpretability studies highlighting the importance of structured intermediate reasoning further align with this perspective. We propose Retrieval And-Structuring (RAS), a framework that dynamically constructs question-specific knowledge graphs through iterative retrieval and structured knowledge building. RAS interleaves targeted retrieval planning with incremental graph construction, enabling models to assemble and reason over evolving knowledge structures tailored to each query. On seven knowledge-intensive benchmarks, RAS consistently outperforms strong baselines, achieving up to 8.7% and 7.0% gains with proprietary and open-source LLMs, respectively. Our results demonstrate that dynamic, question-specific knowledge structuring offers a robust path to improving reasoning accuracy and robustness in language model generation.
+
+## 1 INTRODUCTION
+
+Complex reasoning tasks such as scientific analysis or multi-hop question answering demand both comprehensive knowledge and structured logical thinking (Yang et al., 2018). While large language models (LLMs) have achieved remarkable performance across a wide range of natural language processing tasks (Devlin et al., 2018; Brown et al., 2020), they often struggle with knowledgeintensive reasoning due to the absence of precise, logically organized information (Rae et al., 2021; Ling et al., 2024). This limitation has motivated growing research into augmenting LLMs with structured knowledge to enhance their reasoning capabilities (Wang et al., 2021).
+
+Retrieval-augmented generation (RAG) approaches provide LLMs with additional context from retrieved passages (Guu et al., 2020; Lewis et al., 2020; Izacard & Grave, 2021; He et al., 2024), but often face hallucination challenges (Maynez et al., 2020; Zhang et al., 2023b), where generated content deviates from retrieved information. This issue stems from the unstructured nature of passages, which forces the model to implicitly bridge logical gaps. Briefly, interpretability analyses have suggested that LLMs attempt to chain facts across context internally, and failures in these implicit reasoning chains correlate with hallucinations (Lindsey et al., 2025). These findings reinforce the need for explicitly structured intermediate knowledge to guide reasoning.
+
+Recent efforts have integrated knowledge graphs (KGs) with LLMs (Sun et al., 2019; Yu et al., 2022; He et al., 2024; Edge et al., 2024), providing compact relational representations that support more interpretable reasoning (Hogan et al., 2021; Jiang et al., 2024; Sun et al., 2023). However, existing approaches typically rely on static, corpus-wide graphs. This design introduces two limitations. First, global KGs are costly to build and maintain: indexing a corpus like Wikipedia 2018 can require millions of LLM calls and cost tens of thousands to millions of USD (see Appendix G). Second, global graphs often blend evidence from many documents, leading to ambiguous or even contradictory relations. For example, a global KG might simultaneously encode that Geoffrey Hinton is linked to deep learning, to cognitive neuroscience, and to critiques of large models—without clarifying which aspect is relevant to user query’s focus. Similarly, biomedical KGs may contain both positive and negative associations between a drug and a disease, reflecting conflicting studies. In contrast, a question-specific KG built from targeted documents resolves these conflicts by grounding relations in a coherent, query-relevant context.
+
+These limitations highlight the need for knowledge graphs that are constructed on demand, tailored to the query, and structured to support reasoning. To this end, we propose Retrieval-And-Structuring (RAS), a framework that dynamically constructs and reasons over question-specific knowledge graphs through iterative retrieval and structured knowledge building. The RAS process unfolds in three steps: (1) a planning step that identifies knowledge gaps and generates targeted sub-queries, (2) a retrieval-and-structuring step that extracts factual triples from retrieved passages and incrementally builds a question-specific graph, and (3) a knowledge-augmented answering step that produces final outputs conditioned on the accumulated structured knowledge.
+
+RAS addresses several limitations of prior methods. Unlike traditional RAG, which performs single pass retrieval (Guu et al., 2020; Lewis et al., 2020; Izacard & Grave, 2021), RAS iteratively plans and fills knowledge gaps at inference. In contrast to static KG-based approaches (He et al., 2024; Edge et al., 2024), RAS dynamically constructs question-specific graphs tailored to each question, capturing only task-relevant information. This design avoids both the inefficiency of offline indexing and the noise of global graphs, enabling precise and robust reasoning.
+
+Through extensive evaluations across seven benchmarks spanning open-domain QA, closed-set QA, and long-form generation, RAS consistently outperforms strong baselines by 7.0% with open-source LLMs and 8.7% with proprietary models. Our main contributions are:
+
+• We propose RAS, a framework that dynamically builds question-specific knowledge graphs through iterative retrieval and structuring.
+
+• We design a unified graph structure-aware model that jointly plans retrieval and generates answers over evolving knowledge graphs.
+
+• We show consistent gains across seven benchmarks, with up to 8.7% improvement over strong RAG baselines, while maintaining efficiency and scalability.
+
+## 2 RELATED WORK
+
+Retrieval-Augmented Generation (RAG). RAG enhances language model performance on knowledge-intensive tasks by incorporating retrieved passages into the model input (Guu et al., 2020; Lewis et al., 2020), improving factual accuracy and grounding. Early approaches retrieved a fixed number of passages once before generation (Shao et al., 2023; Es et al., 2024; Lyu et al., 2024a), while later methods explored adaptive retrieval (Jiang et al., 2023) or retrieval evaluation (Kim et al., 2024b) to improve relevance. Iterative retrieval-generation approaches (Shao et al., 2023; Guan et al., 2024) and targeted subquery strategies (Khattab et al., 2023; Yao et al., 2023; Press et al., 2022; Trivedi et al., 2023) progressively enrich the evidence. Self-RAG (Asai et al., 2023) introduced self-reflective retrieval, and RPG (Lyu et al., 2024b) extracted fine-grained paragraphs. More recent work (Jiang et al., 2025c; Mei et al., 2025) further improves RAG by reinforcement learning over search behaviors. Despite these advances, retrieved context often contains redundancy or misses critical facts. Our work departs from these by converting retrieved content into a structured, evolving graph aligned with the query.
+
+Graph as Context for LLMs. Graphs offer explicit, relational structures that help models go beyond flat text by making multi-hop relationships more tractable (Yasunaga et al., 2021; 2022; Yu, 2022; Ju et al., 2022; Zhu et al., 2024; Gutiérrez et al., 2024). GraphToken (Perozzi et al., 2024) shows LLMs can process serialized graphs directly (Liu et al., 2021). G-Retriever (He et al., 2024) leverages global KGs for entity-centric subgraph retrieval, while GraphRAG-style methods (Edge et al., 2024; Jiang et al., 2025b) construct large corpus-level graphs with community summarization. These methods rely on static graphs, which are costly to construct (Appendix G) and often introduce irrelevant noise. By contrast, RAS builds question-specific knowledge graphs dynamically, eliminating prohibitive offline costs and providing denser, task-relevant context tailored to each reasoning trajectory. This design aligns with findings that many LLM errors stem from failed implicit reasoning chains (Lindsey et al., 2025), which explicit, query-focused structuring can mitigate.
+
+![](images/64f82dad20e127e9e6b02fefe78c94267b3469b59569735f34d7504514412d7a.jpg)  
+Figure 1: Overview of the Retrieval-And-Structuring (RAS) framework. RAS operates through three stages: (1) Planning (§3.1): the model strategically determines retrieval needs and generates focused sub-queries based on the current knowledge state; (2) Text Retrieval and Structuring (§3.2): the system retrieves passages based on sub-queries, extracts factual triples, and merges them into an evolving question-specific knowledge graph that expands iteratively with reasoning needs; and (3) Answering (§3.3): the accumulated structured knowledge is leveraged to generate the final output. We provide a step-by-step running example in Figure 25.
+
+## 3 RETRIEVAL-AND-STRUCTURING (RAS) FRAMEWORK
+
+Effective knowledge-intensive language generation requires not only retrieving relevant information, but also structuring and reasoning over it systematically. We introduce Retrieval-And-Structuring (RAS), a framework that interleaves iterative retrieval planning with dynamic question-specific knowledge graph construction, enabling large language models (LLMs) to reason over progressively organized knowledge tailored to each query. Figure 1 illustrates the overall workflow.
+
+Key Definitions. We define the core concepts used in the RAS framework as follows. The Main question (Q) denotes the original task input. A subquery $( q _ { i } )$ is a focused retrieval query generated at iteration i to obtain supporting evidence. At the first iteration, $q _ { 0 } \ = \ Q$ . Retrieved text (t<sub>i</sub>) is a set of the top-k documents retrieved by $q _ { i }$ . A text-to-triples model $f _ { t 2 t }$ <sub>t</sub> converts retrieved text into triples $( g _ { i } )$ , structured as subject-predicate-object facts. These triples are incrementally accumulated into an evolving question-specific knowledge graph $( G _ { Q } )$ , representing organized evidence related to $Q$ . The model M produces an plan (p ) at each step, determining whether to continue retrieval ([SUBQ]), stop retrieval ([SUFFICIENT]), or, initially, answer directly without retrieval ([NO\_RETRIEVAL]).
+
+## 3.1 KNOWLEDGE-AWARE PLANNING
+
+The planning step initiates and controls the retrieval-and-structuring process by dynamically assessing the current knowledge state.
+
+Initial Planning. Formally, given an input query $Q ,$ the model M generates an initial plan $p _ { \mathrm { 0 } } \colon$
+
+$$
+p _ {0} \leftarrow \mathcal {M} (\emptyset ; \mathrm{INST} _ {\text { Plan }}; \emptyset ; Q)\tag{1}
+$$
+
+where $\mathtt { I N S T } _ { \mathtt { P l a n } }$ is the planning instruction (as shown in Figure 15). $p _ { 0 }$ can take one of two forms:
+
+⋄ [SUBQ] $q _ { 0 } = Q$ : If M assesses that the query cannot be satisfactorily answered with its own knowledge, we start the iteration with the main question $Q$ as the initial subquery, and move to the next stage (§3.2).
+
+⋄ [NO\_RETRIEVAL]: If M determines that $Q$ can be answered directly without requiring any additional knowledge, the planning process terminates, and the framework proceeds directly to the final Answering stage (§3.3).
+
+Iterative Planning. At iteration $i > 0 ,$ , given the accumulated knowledge $G _ { i }$ and the subquery-triples history $\left[ q _ { 0 } , g _ { 0 } , \ldots , q _ { i } , g _ { i } \right]$ , the model updates the plan:
+
+$$
+p _ {i + 1} \leftarrow \mathcal {M} (\mathrm{GNN} (G _ {i}); \mathrm{INST} _ {\mathrm{Plan}}; [ q _ {0}, g _ {0},..., q _ {i}, g _ {i} ]; Q)\tag{2}
+$$
+
+where GNN is a graph neural network for encoding and projecting the evolving $\operatorname { K G } G _ { i } ; q _ { k }$ is the subquery at iteration k, and $g _ { k }$ is the extracted graph information (a list of triples) from the retrieved context $t _ { k }$
+
+The output $p _ { i + 1 }$ at each iteration can be either:
+
+⋄ [SUBQ] $q _ { i + 1 }$ : The model generates a new subquery $q _ { i + 1 }$ to guide the retrieval of additional relevant knowledge. The subquery is designed to fill specific gaps in the current knowledge state with respect to answering $Q .$ . The framework proceeds to the next stage (§3.2).
+
+⋄ [SUFFICIENT]: The accumulated knowledge $G _ { i }$ is deemed sufficient to comprehensively address the main question $Q .$ . The iterative retrieval process terminates, and the framework proceeds to the Answering stage (§3.3).
+
+Planning serves as a key driver of the RAS framework’s iterative retrieval and refinement process. By dynamically assessing the adequacy of the retrieved knowledge and generating targeted sub-queries, it enables the efficient acquisition of query-relevant information.
+
+## 3.2 TEXT RETRIEVAL AND STRUCTURING
+
+Once [SUBQ] is detected, we use the subquery $q _ { i }$ to retrieve the text $t _ { i }$ and transform it into structured knowledge $g _ { i }$ , which is progressively merged to the question-specific graph $G _ { Q }$
+
+Text Retrieval. We use a text retriever to retrieve the top-k semantically relevant passages $t _ { i }$ from the corpus $C$ for each subquery q<sub>i</sub>:
+
+$$
+t _ {i} \leftarrow \operatorname{Retrieval} (q _ {i}, C, k)\tag{3}
+$$
+
+We use a standard dense retriever by default but note that RAS is compatible with more advanced information retrieval methods (Chaudhary et al., 2023; Kang et al., 2024; Jiang et al., 2025a).
+
+Text-to-Triples Conversion. To extract essential factual information from the retrieved passages $t _ { i }$ , we employ a text-to-triples model $f _ { t 2 t }$ . This model is trained on the full WikiOfGraph dataset (Kim et al., 2024a), which is a high-quality, LLM-curated text-to-triples corpus. Details of the training process are provided in Appendix D.1. The model generates structured triples in the following format:
+
+$$
+g _ {i} \leftarrow f _ {t 2 t} (t _ {i}) = [ (s _ {0}, r _ {0}, o _ {0}),..., (s _ {| g _ {i} |}, r _ {| g _ {i} |}, o _ {| g _ {i} |}) ]\tag{4}
+$$
+
+where each triple $( s _ { j } , r _ { j } , o _ { j } )$ ) represents a subject-predicate-object fact extracted from the text. This structured representation enables efficient downstream reasoning and facilitates integration with external knowledge graphs. Although $f _ { t 2 t }$ is a lightweight LLM capable of fast inference using techniques such as quantization (Dettmers et al., 2022) and optimized inference frameworks like vLLM (Kwon et al., 2023), the text-to-triples conversion can be precomputed offline as well when maximal efficiency is required.
+
+Iterative Knowledge Enrichment to Question-Specific KG. The extracted triples $g _ { i }$ are then converted into a graph structure $g _ { i } ^ { \prime } = \bar { ( V _ { i } , E _ { i } ) }$ , where $V _ { i }$ and $E _ { i }$ denote the sets of nodes and edges, respectively. Each node $v \in V _ { i }$ corresponds to a unique subject or object entity in $g _ { i } ,$ while each edge $e \in E _ { i }$ represents a predicate connecting two entities. To enrich the graph with semantic information, the attributes of nodes and edges are obtained through Sentence-BERT (Reimers, 2019):
+
+$$
+\operatorname{emb} (v) \leftarrow \operatorname{encode} (v), \forall v \in V _ {i}; \quad \operatorname{emb} (e) \leftarrow \operatorname{encode} (e), \forall e \in E _ {i}\tag{5}
+$$
+
+These semantic embeddings enable the model to capture the nuanced relationships between entities and facilitate reasoning over the KG.
+
+To progressively enrich the question-related knowledge in response to the evolving sub-queries, the structured graph $g _ { i } ^ { \prime }$ at each iteration i is merged into an evolving KG $G _ { Q } = ( V _ { Q } , \bar { E _ { Q } } )$ specific to the main question $Q \colon$
+
+$$
+G _ {Q} \leftarrow G _ {Q} \cup g _ {i} ^ {\prime}\tag{6}
+$$
+
+After enriching $G _ { Q }$ with the new knowledge, we plan $( \ S 3 . 1 )$ for the next step. Based on $G _ { Q }$ and the chain of previous subqueries and their associated graph information, the model decides whether to generate another focused subquery for additional retrieval or to proceed with answering (§3.3) if the accumulated knowledge is sufficient.
+
+## 3.3 KNOWLEDGE-AUGMENTED ANSWERING
+
+When answering is triggered, the model M generates an answer A to the main question $Q$ either conditioned on knowledge graph $G _ { Q }$ and subquery chain $( q _ { 0 } , g _ { 0 } ) , . . . , ( q _ { i } , g _ { i } )$ when retrieval-andstructuring was processed, or directly when no retrieval is needed.
+
+If no retrieval is needed $( p _ { 0 } = \mathrm { \small ~ [ N O \_ R E T R I E V A L ] } )$ , the answer is generated directly:
+
+$$
+A \leftarrow \mathcal {M} (\emptyset ; \mathrm{INST} _ {\text { Ans }}; \emptyset ; Q)\tag{7}
+$$
+
+Otherwise, after iterative knowledge enrichment concludes with [SUFFICIENT] plan or the maximum iteration is reached, the answer is generated using encoded KG $\left( G _ { Q } \right)$ and subquery chain:
+
+$$
+A \leftarrow \mathcal {M} (\mathrm{GNN} (G _ {Q}); \mathrm{INST} _ {\mathrm{Ans}}; [ q _ {0}, g _ {0},..., q _ {i}, g _ {i} ]; Q)\tag{8}
+$$
+
+where $\ I { \mathrm { N S T _ { A n s } } }$ is the answering instruction (as shown in Figure 16). M attends to knowledge in $G _ { Q }$ and subquery chain to generate accurate, coherent answers. This structured conditioning enables systematic reasoning grounded in the assembled knowledge.
+
+## 3.4 STURCTURE-AWARE MULTITASK LEARNING
+
+The RAS framework is trained through a multitask setup that unifies knowledge-aware planning and knowledge-augmented answering under a standard next-token prediction objective.
+
+Each training instance corresponds to either a planning task or an answering task, selected randomly:
+
+⋄ Planning: Input: current encoded questionspecific KG $G _ { Q }$ , planning instruction INST<sub>Plan</sub> (shown in Figure 15), subquery-triples history $( [ q _ { 0 } , g _ { 0 } , . . . , q _ { i } , g _ { i } ] )$ , main question Q. Output: next plan $p _ { i + 1 }$
+
+⋄ Answering: Input: final encoded questionspecific KG $G _ { Q } ,$ answering instruction $\underline { { \mathrm { T N S T } } } _ { \mathtt { A n s } }$ (shown in Figure 16), subquerytriples history $( [ q _ { 0 } , g _ { 0 } , . . . , q _ { i } , g _ { i } ] )$ , main question Q. Output: final answer A.
+
+The model M used in RAS is based on Graph LLM, an architecture adapted from prior work (Perozzi et al., 2024; He et al., 2024). Note: This multitask training setup is applied to open-source setting, while we test RAS under closed-source setting (see Appendix F.1) in Section 4 as well.
+
+![](images/cc76fd8ce048320789cb497ad661de1a5eb7da6e2b20e6e4171b20268de35913.jpg)  
+Figure 2: Structure-Aware Multitask Learning for the Graph LLM in RAS. A single LLM is trained with both planning and answering tasks in a parameter-efficient way (fine-tuning the graph components with LoRA (Hu et al., 2022)).
+
+## 4 EXPERIMENTS
+
+## 4.1 SETTINGS
+
+Training Data & Setting. We develop HotpotQA-SUBQ, a dataset constructed based on HotpotQA (Yang et al., 2018), to train our model’s action planning and answering capabilities. Our dataset creation begins with document filtering: using Claude-3.5-Sonnet (Anthropic, 2024), we identify and retain only the supporting documents necessary for answering the main question, removing irrelevant content. For each supporting document $d _ { j }$ , we then iteratively generate a subquery $q _ { j }$ , considering the main question, previous subqueries, and supporting documents. During iteration j, when more supporting documents remain, we create training samples with input $\{ q _ { 0 } , g _ { 0 } , . . . , q _ { j } , g _ { j } , Q \}$ and output label $^ { \bullet \bullet } [ \mathrm { S U B Q } ] \ q _ { j + 1 } { } ^ { , \bullet }$ , where $g _ { k }$ represents triples extracted from document $d _ { k } ,$ and Q is the main question. For the final supporting document, we label the sample $\mathrm { a s } \ ^ { \ast \ast } \left[ \mathrm { S U F F I C I E N T } \right] ^ { \ast }$ . To identify queries that can be answered directly, we test our base LLM (LLaMA-2-7B) on HotpotQA’s main queries without context. For correctly answered queries, we create training samples with the main question Q as input and “[NO\_RETRIEVAL]” as the output label. Additionally, to ensure fair comparison with existing approaches, we incorporate the subset of Arc-Easy (2,147 samples) and ASQA (3,897 samples) from Self-RAG’s training data, resulting in 208k training samples in total. We place detailed training data processing, dataset statistics, and data samples in Appendix C. For efficient inference, we train a text-to-triples model $f _ { t 2 t }$ on the WikiOFGraph dataset (Kim et al., 2024a) using LLaMA-3.2-3B-Instruct as the base model (see Appendix D), and deploy it using vLLM for optimized runtime performance. We present our hyperparameter study of each component in Appendix J. Knowledge Sources. We employ faiss (Douze et al., 2024) for efficient vector searching over the dense index. Following the Self-RAG (Asai et al., 2023), we utilize the Wikipedia 2018 (Izacard et al., 2023) by default, while specifically using the Wikipedia 2020 for PopQA to access more recent information. To optimize retrieval efficiency, we partition the index into five segments.
+
+Test Datasets & Metrics & Compared Baselines. We conduct comprehensive evaluations on diverse knowledge-intensive tasks following previous studies (Asai et al., 2023; Lyu et al., 2024b). The evaluation encompasses three categories of datasets: (1) open-domain short-form generation datasets: TriviaQA (Joshi et al., 2017), PopQA (Mallen et al., 2022), and 2WikiMultihopQA (Ho et al., 2020); (2) closed-set task datasets: PubHealth (Zhang et al., 2023a) and ARC-Challenge (Clark et al., 2018); and (3) long-form generation datasets: ALCE-ASQA (Gao et al., 2023; Stelmakh et al., 2022) and ELI5 (Fan et al., 2019). For evaluation metrics, we maintain consistency with prior work (Asai et al., 2023; Mallen et al., 2022; Lyu et al., 2024b), employing “golden match” accuracy for PopQA and TriviaQA, token-level F1 score for 2WikiMultihopQA, accuracy for PubHealth and ARC-Challenge, and ROUGE-LSum alongside MAUVE score (Pillutla et al., 2021) for ASQA and ELI5. Our comparative analysis includes three baseline categories: models without retrieval augmentation, incorporating Claude 3.5 Sonnet as a state-of-the-art closed-source baseline; models with single retrieval over top-5 documents, including Claude 3.5 Sonnet, and SuRe (Kim et al., 2024b), a leading retrieve-and-summarize method; and models with self-reflective retrieval, including leading approaches Self-RAG (Asai et al., 2023), RPG (Lyu et al., 2024b) . We place more details of datasets and metrics in Appendices E.1 and E.2, respectively.
+
+Inference Setting. We evaluate RAS using both our trained open-source models $( \mathrm { R A S } _ { 7 \mathrm { B / 8 B } }$ based on LLaMA-2-7B/LLaMA-3-8B and a Graph Transformer encoder (Shi et al., 2020)) and the closed-source Claude-3.5-Sonnet & Claude-4.5-Sonnet (Anthropic, 2025) under varied inference settings. For open-source models $\mathrm { ( R A S _ { 7 B / 8 B } ) }$ , we follow prior work (Asai et al., 2023; Lyu et al., 2024b) and adopt zero-shot inference across all datasets. For the closed-source model $( \mathrm { R A S } _ { \mathrm { S o n n e t } - 3 . 5 } .$ $\mathrm { R A S } _ { \mathrm { S o n n e t - } 4 . 5 } )$ , we apply few-shot inference with two exemplars for ASQA and ELI5, while using zero-shot inference for all other datasets. More details are provided in Appendices F.1 and F.2.
+
+For PopQA and TriviaQA evaluation, we follow established settings (Asai et al., 2023; Luo et al., 2023a), incorporating top-five web search engine results as initial retrieved context t . For ASQA and ELI5, we maintain methodological consistency with prior work (Lyu et al., 2024b; Asai et al., 2023; Gao et al., 2023), utilizing their predetermined five-document context. Under these conditions, we omit plan generation and text retrieval phases, implementing static inference (Asai et al., 2023) with five fixed iterations. For remaining datasets, we establish a maximum iteration count of five. Following previous studies, we employ Contriever-MS MARCO (Izacard et al., 2021) as the primary dense retriever, with BM25 (Robertson et al., 2009) serving as the retrieval mechanism for 2WikiMultihopQA. Across all retrieval processes, we maintain a consistent top-k document selection of five. We present more details of inference settings in Appendix F.
+
+## 4.2 RESULTS
+
+Main Result. Our performance evaluation, presented in Table 1, demonstrates that the LLaMA-2- 7B/LLaMA-3-8B model fine-tuned with RAS outperforms existing SFT-based open-source solutions, including Self-RAG (Asai et al., 2023) and RPG (Lyu et al., 2024b). Notably, compared to the earlier SOTA models, ${ \mathrm { R A S } } _ { \mathrm { 7 B } }$ shows a 9.7% improvement in short-form question-answering and a 7.9% gain in long-form generation tasks. Additionally, when applied to Claude-3.5-Sonnet, RAS consistently achieves superior results compared to single retrieval RAG approaches, including retrieve and-summarize approach SuRe (Kim et al., 2024b). We find that sometimes (e.g., on TriviaQA and PubHealth) single-hop retrieval could not boost LLM’s performance, and even makes it worse, which demonstrates the necessity of on-demand retrieval, aligning with previous findings.
+
+<table><tr><td rowspan="2" colspan="2">Model/Method</td><td colspan="3">Short-form</td><td colspan="2">Closed-set</td><td colspan="4">Long-form Generation</td></tr><tr><td>TQA (acc)</td><td>2WQA (F1)</td><td>PopQA (acc)</td><td>Pub (acc)</td><td>ARC (acc)</td><td>ASQA (rouge)</td><td>(mauve)</td><td>ELI5 (rouge)</td><td>(mauve)</td></tr><tr><td rowspan="13">Closed-source</td><td colspan="10">w/o Retrieval</td></tr><tr><td>ChatGPT</td><td>74.3</td><td>24.8</td><td>29.3</td><td>70.1</td><td>75.3</td><td>36.2</td><td>68.8</td><td>22.8</td><td>32.6</td></tr><tr><td>Sonnet-3.5</td><td>78.4</td><td>40.0</td><td>30.2</td><td>83.7</td><td>88.5</td><td>37.0</td><td>39.1</td><td>21.8</td><td>26.5</td></tr><tr><td colspan="10">w/ Single Retrieval (#docs=5)</td></tr><tr><td>Sonnet-3.5#docs=1</td><td>69.1</td><td>41.9</td><td>51.5</td><td>49.1</td><td>88.6</td><td>n/a</td><td>n/a</td><td>n/a</td><td>n/a</td></tr><tr><td>Sonnet-3.5#docs=5</td><td>72.5</td><td>53.7</td><td>57.3</td><td>53.9</td><td>87.1</td><td>38.8</td><td>61.6</td><td>20.2</td><td>32.3</td></tr><tr><td>SuReGPT-4o(Kim et al., 2024b)</td><td>72.3</td><td>38.1</td><td>53.6</td><td>57.2</td><td>79.6</td><td>36.0</td><td>74.2</td><td>19.2</td><td>51.6</td></tr><tr><td>SuReSonnet-3.5</td><td>76.8</td><td>37.6</td><td>41.2</td><td>62.8</td><td>91.6</td><td>30.2</td><td>69.9</td><td>15.4</td><td>27.2</td></tr><tr><td colspan="10">w/ Self-Reflective Retrieval</td></tr><tr><td>ReActSonnet-3.5(Yao et al., 2023)</td><td>73.4</td><td>53.7</td><td>55.0</td><td>62.2</td><td>89.2</td><td>38.8</td><td>61.6</td><td>20.2</td><td>32.3</td></tr><tr><td>IRCoTSonnet-3.5(Trivedi et al., 2023)</td><td>74.7</td><td>54.9</td><td>53.2</td><td>59.4</td><td>92.0</td><td>38.8</td><td>61.6</td><td>20.2</td><td>32.3</td></tr><tr><td colspan="10">Retrieval-And-Structuring (ours)</td></tr><tr><td>RASSonnet-3.5</td><td>77.6</td><td>57.7</td><td>62.3</td><td>71.3</td><td>93.9</td><td>39.1</td><td>70.5</td><td>23.3</td><td>37.7</td></tr><tr><td colspan="11"></td></tr><tr><td rowspan="18">Open-source</td><td colspan="10">w/o Retrieval</td></tr><tr><td>Llama27B</td><td>30.5</td><td>18.9</td><td>14.7</td><td>34.2</td><td>21.8</td><td>15.3</td><td>19.0</td><td>18.3</td><td>32.4</td></tr><tr><td>Llama213B</td><td>38.5</td><td>20.2</td><td>14.7</td><td>29.4</td><td>29.4</td><td>12.4</td><td>16.0</td><td>18.2</td><td>41.4</td></tr><tr><td>Llama38B</td><td>56.1</td><td>21.2</td><td>26.7</td><td>33.2</td><td>42.2</td><td>17.6</td><td>25.0</td><td>18.2</td><td>39.7</td></tr><tr><td colspan="10">w/ Single Retrieval (#docs=5)</td></tr><tr><td>Llama27B</td><td>42.5</td><td>21.0</td><td>38.2</td><td>30.0</td><td>48.0</td><td>22.1</td><td>32.0</td><td>18.6</td><td>35.3</td></tr><tr><td>Llama213B</td><td>47.0</td><td>31.2</td><td>45.7</td><td>30.2</td><td>26.0</td><td>20.5</td><td>24.7</td><td>18.6</td><td>42.3</td></tr><tr><td>Llama38B</td><td>60.4</td><td>33.4</td><td>48.6</td><td>36.5</td><td>40.1</td><td>23.9</td><td>52.1</td><td>18.8</td><td>40.7</td></tr><tr><td>SuRe7B(Kim et al., 2024b)</td><td>51.2</td><td>20.6</td><td>39.0</td><td>36.2</td><td>52.7</td><td>35.8</td><td>76.2</td><td>16.1</td><td>26.6</td></tr><tr><td colspan="10">w/ Self-Reflective Retrieval</td></tr><tr><td>Self-RAG7B(Asai et al., 2023)</td><td>66.4</td><td>25.1</td><td>54.9</td><td>72.4</td><td>67.3</td><td>35.7</td><td>74.3</td><td>17.9</td><td>35.6</td></tr><tr><td>Self-RAG13B</td><td>69.3</td><td>26.9</td><td>55.8</td><td>74.5</td><td>73.1</td><td>37.0</td><td>71.6</td><td>18.7</td><td>38.5</td></tr><tr><td>RPG7B(Lyu et al., 2024b)</td><td>65.1</td><td>33.6</td><td>56.0</td><td>73.4</td><td>65.4</td><td>37.6</td><td>84.4</td><td>19.1</td><td>46.4</td></tr><tr><td>ReAct7B(Yao et al., 2023)</td><td>64.0</td><td>25.0</td><td>42.7</td><td>52.4</td><td>59.0</td><td>22.1</td><td>32.0</td><td>18.6</td><td>35.3</td></tr><tr><td>IRCoT7B(Trivedi et al., 2023)</td><td>61.5</td><td>27.6</td><td>44.3</td><td>59.6</td><td>61.6</td><td>22.1</td><td>32.0</td><td>18.6</td><td>35.3</td></tr><tr><td colspan="10">Retrieval-And-Structuring (ours)</td></tr><tr><td>RAS7B</td><td>72.7</td><td>42.1</td><td>58.3</td><td>74.7</td><td>68.5</td><td>37.2</td><td>95.2</td><td>19.7</td><td>47.8</td></tr><tr><td>RAS8B</td><td>73.8</td><td>44.2</td><td>57.7</td><td>77.6</td><td>71.4</td><td>37.6</td><td>96.2</td><td>20.1</td><td>54.4</td></tr></table>
+
+Table 1: Performance Comparison. We highlight the top-2 closed-source models and top-2 open-source 7B models, with the best model in each category underlined for each dataset. RAS is designed for general open-domain question answering rather than Knowledge Graph Question Answering (KGQA) tasks (Perevalov et al., 2022); we therefore exclude comparisons with KGQA-specific methods (Sun et al., 2023; Luo et al., 2023b; Ma et al., 2024). Graph encoding and projection are omitted for RAS <sub>5</sub>.
+
+Although RAS integrates planning and answering in a unified framework, these components can be decoupled for greater flexibility. Our “role-swapping” study in Figure 3 demonstrates that performance is primarily constrained by answering capability rather than planning. When Sonnet-3.5 handles planning while ${ \mathrm { R A S } } _ { 7 { \mathrm { B } } }$ performs answering, the system achieves 62.4% accuracy on ARC-C, compared to 93.9% when Sonnet-3.5 performs both tasks. Despite having 60× fewer parameters, $\mathrm { R A } \bar { \mathrm { S } _ { \mathrm { 7 B } } }$ achieves planning performance comparable to (and sometimes exceeding) Sonnet-3.5.
+
+We analyze the impact of each component of RAS in Table 2 and provide detailed discussion below.
+
+Effect of Iterative Planning and Retrieval. Comparing the base model with “No Planning” variant shows that iterative planning provides consistent improvements across all metrics (e.g., +8.8% on TQA, +9.0% on 2WQA). This demonstrates the importance of dynamically determining retrieval needs and generating focused sub-queries. Without planning, the model relies on single-pass retrieval, which may miss crucial information needed for complex reasoning. Also, when turning off retrieval, the performance degradation is more obvious, due to the knowledge-intensive nature of those datasets.
+
+Effect of Graph Construction and Encoding. The impact of structured knowledge representation is evident from two ablations. First, “No Text-to-Triple” degrades performance significantly on all metrics (e.g., -9.0% on 2WQA, -22.2% MAUVE on ASQA), showing the value of essential information extraction via converting retrieved text into structured triples. Second, removing the graph encoder (“No GraphToken”) during training or inference consistently hurts performance across datasets, with particularly large drops on PubHealth (-11.2% and -10.0% respectively). This suggests that the graph structure encoding helps the model better leverage the knowledge relationships.
+
+<table><tr><td></td><td>TQA (acc)</td><td>2WQA (F1)</td><td>Pub (acc)</td><td>ASQA (rg)</td><td>(mv)</td></tr><tr><td> $RAS_{7B}$ </td><td>72.7</td><td>42.1</td><td>74.7</td><td>37.2</td><td>95.2</td></tr><tr><td colspan="6">Training Phase</td></tr><tr><td>w/o GraphEncode</td><td>70.2</td><td>38.4</td><td>66.4</td><td>33.1</td><td>85.0</td></tr><tr><td>w/o LoRA</td><td>71.5</td><td>37.8</td><td>54.8</td><td>32.8</td><td>84.8</td></tr><tr><td>w/o Text-to-Triple</td><td>70.4</td><td>38.2</td><td>71.4</td><td>36.2</td><td>73.8</td></tr><tr><td>w/o Multi-Task</td><td>68.6</td><td>39.2</td><td>65.5</td><td>36.7</td><td>88.9</td></tr><tr><td colspan="6">Inference Phase</td></tr><tr><td>w/o Retrieval</td><td>56.9</td><td>27.4</td><td>69.0</td><td>31.3</td><td>70.6</td></tr><tr><td>w/o GraphEncode</td><td>68.8</td><td>38.7</td><td>67.3</td><td>36.5</td><td>93.6</td></tr><tr><td>w/o Planning</td><td>66.7</td><td>37.8</td><td>71.5</td><td>37.2</td><td>95.2</td></tr></table>
+
+![](images/6873aedd932ffad6992de6297e01e0eaf3fc8e60d6a85a9c5c04b6b7771e095d.jpg)
+
+Figure 3: Role-Swapping Study. We alternate Sonnet $3 . { \bar { 5 } }$ and ${ \mathrm { R A S } } _ { 7 { \mathrm { B } } }$ on the planning and answering tasks, and evaluate the overall performance.  
+Table 2: Ablations in Training and Inference (with $\mathbf { R A S } _ { \mathbf { 7 B } } )$ . Training: “No GraphEncode” removes the graph encoder during training, using only LoRA-based LLM fine-tuning. “No LoRA” uses graph token optimization without low-rank adapta tion. “No Text-to-Triple” keeps the original retrieved texts instead of converting them into triples. “No Multi-Task” trains two models separately handling planning and answering. Inference: “No Retrieval” tests direct query answering without any context. “No GraphEncode” removes graph encoding and projection during inference, using only textual context. “No Planning” removes the planning module and runs single-pass retrieval-structuring-answering pipeline.  
+![](images/8b58705548253be70fa1e3e7ce47b1f91c0347c070ab270b9a3c8849a40f82e8.jpg)
+
+![](images/2eb53589ee94b21c89c5d4cd9e073b4366ff847ab7ef3e8e578a0ce5f2bb9e64.jpg)  
+Figure 4: Impact of Graph Information Abundance. For each sample, we randomly shuffle its associated triples five times and take different ratios (10%–100%) of the shuffled data. The performance scores are averaged across these five shuffling runs.
+
+Effect of LoRA and Multi-task Learning. Our experiments reveal that parameter-efficient training strategies significantly impact model performance. Using only graph token optimization without LoRA leads to substantial degradation (-11.8% on average). A similar observation can be made for “No Multi-Task” (e.g., 12.3% accuracy degradation on PubHealth), indicating the significance of jointly training the model on both action planning and answer generation tasks rather than optimizing for each task separately, supporting findings from prior work (Lyu et al., 2024b). The complementary effects suggest that while graph-based knowledge representation is valuable, it needs to be combined with careful parameter tuning and multi-task learning to achieve optimal performance.
+
+Impact of Graph Information Abundance. Figure 4 shows that increasing the amount of structured graph information consistently improves RAS’s performance across tasks. For TQA, both ${ \mathrm { R A S } } _ { \mathrm { 7 B } }$ and ${ \mathrm { R A S } } _ { \mathrm { 8 B } }$ exhibit approximately linear gains as more triples are retained, with no clear saturation even at 100% information. For ASQA-MV, ${ \mathrm { R A S } } _ { \mathrm { 7 B } }$ benefits from a sharp improvement between 10% and 30% graph information, followed by steady increases, while ${ \mathrm { R A S } } _ { \mathrm { 8 B } }$ maintains a smoother and more stable growth pattern throughout. These results confirm that RAS effectively leverages structured knowledge at all levels of availability, and that more complete knowledge graphs consistently translate to stronger reasoning and generation quality. Additionally, the larger 8B model consistently outperforms the 7B variant under all conditions, suggesting that scaling the model size further enhances RAS’s ability to utilize structured knowledge. Interestingly, even partial graphs containing only 30%–50% of triples already deliver substantial gains over low-information baselines, highlighting RAS’s robustness to incomplete or partially retrieved knowledge.
+
+Impact of Training Data Volume. Figure 5 demonstrates how training dataset size influences model performance across different tasks. Considering the computational efficiency, we sampled 2,000 instances each from TQA and 2WQA for evaluation, while maintaining the original sizes of other datasets. The results indicate that model performance generally improves with increased training data volume. Notably, our model achieves competitive performance even with limited training data - using only 5% (10K instances) of our full dataset, it surpasses previous state-ofthe-art models on TQA, 2WQA, and ELI5. These results suggest both the robustness of our architectural design and the effectiveness of our data curation methodology. However, we observed an exception with the ELI5 dataset, where performance were inconsistent. This irregularity can be attributed to the inclusion of ASQA training data in our training set, following established setting from previous research (Asai et al., 2023; Lyu et al., 2024b). Among our test datasets, ASQA and ELI5 are unique in requiring long-form response generation. The periodic decline in ELI5 performance suggests that the model’s response generation began to align more closely with ASQA’s training data distribution, potentially at the expense of ELI5’s distinct characteristics.
+
+![](images/086b4718938a337c4fe754059af5fd635fe623ba31780a982cb61eab881e493e.jpg)  
+Figure 5: Impact of Training Data Volume on Model Performance. Results for RAS<sub>7B</sub> (top) and RAS<sub>8B</sub> (bottom) illustrate how performance scales with increasing training data.
+
+Impact of Triple Extractor Selection We examine how triple extraction quality affects RAS performance using three models: Flan-T5-Large, LLaMA-3.2-3B, and Claude-3.5-Sonnet. As shown in Table 3, higherquality extraction consistently improves results across datasets, with Claude-3.5-Sonnet achieving the best accuracy but at significantly lower efficiency (1.5e-
+
+<table><tr><td rowspan="2">Triple Extractor  $f_{t2t}$ </td><td colspan="3">Performance</td><td rowspan="2">Efficiency (tokens/s)</td></tr><tr><td>TQA</td><td>2WQA</td><td>PopQA</td></tr><tr><td>Flan-T5-Large</td><td>70.3</td><td>40.7</td><td>56.7</td><td>166.0</td></tr><tr><td>LLaMA-3.2-3B</td><td>72.7</td><td>42.1</td><td>58.3</td><td>4,885.3</td></tr><tr><td>Claude-3.5-Sonnet</td><td>73.8</td><td>44.5</td><td>60.1</td><td>68.2</td></tr></table>
+
+Table 3: Impact of Triple Extractor Selection. Higher-quality textto-triples models lead to better answer generation in RAS. Claude-3.5- Sonnet achieves the best performance on TriviaQA, 2WikiMultihopQA, and PopQA. LLaMA-3.2-3B (deployed w/ vLLM) is used in our experi ments, selected for its strong balance between accuracy and efficiency.
+
+2 sec/token vs 2.0e-4 for LLaMA-3.2-3B). These results demonstrate the accuracy-efficiency tradeoff in triple extraction, with LLaMA-3.2-3B providing the optimal balance for our experiments.
+
+## 5 CONCLUSION
+
+We presented RAS, a framework that dynamically constructs question-specific knowledge graphs through iterative retrieval and structured reasoning. Experiments across seven benchmarks show consistent improvements of up to 6.4% and 7.0% with open-source and proprietary LLMs, respectively. The modular architecture enables transparent reasoning and seamless integration with external knowledge sources. Limitations and future work are discussed in Appendix A. The statement of the LLM usage is placed in Appendix B. Broader Impacts, safeguards, and used assets are discussed in Appendix K. Our data and code can be found at: https://github.com/pat-jj/RAS.
+
+## ETHICS STATEMENT
+
+This work does not involve human subjects, personal data, or sensitive user information. Our research focuses on algorithmic improvements for knowledge-intensive language model reasoning. We are mindful of potential ethical concerns, such as risks of misinformation or biased outputs when deploying retrieval-augmented LLMs. To mitigate these risks, we provide transparent descriptions of our methods, ablation studies on failure cases, and open-sourcing of code and models to facilitate community scrutiny. We also discuss broader impacts and safeguards in Appendix K.
+
+## ACKNOWLEDGMENT
+
+Research was supported in part by a research gift from Google Inc.; the AI Institute for Molecular Discovery, Synthetic Strategy, and Manufacturing: Molecule Maker Lab Institute, funded by U.S. National Science Foundation under Awards No. 2019897 and 2505932; NSF IIS 25-37827; and the Institute for Geospatial Understanding through an Integrative Discovery Environment (I-GUIDE) by NSF under Award No. 2118329. The research has used the Delta/DeltaAI advanced computing and data resource, supported in part by the University of Illinois Urbana-Champaign and through allocation #250851 from the Advanced Cyberinfrastructure Coordination Ecosystem: Services & Support (ACCESS) program, which is supported by National Science Foundation grants OAC #2320345, #2138259, #2138286, #2138307, #2137603, and #2138296.
+
+## REFERENCES
+
+Anthropic. Introducing claude 3.5 sonnet. https://www.anthropic.com/news/ claude-3-5-sonnet, 2024. Accessed: 2025-01-06.
+
+Anthropic. Claude sonnet 4.5 system card. Technical report, Anthropic, 9 2025. URL https://assets.anthropic.com/m/12f214efcc2f457a/original/ Claude-Sonnet-4-5-System-Card.pdf. System card for the Claude Sonnet 4.5 large language model.
+
+Akari Asai, Zeqiu Wu, Yizhong Wang, Avirup Sil, and Hannaneh Hajishirzi. Self-rag: Learning to retrieve, generate, and critique through self-reflection. In The Twelfth International Conference on Learning Representations, 2023.
+
+Tom Brown, Benjamin Mann, Nick Ryder, Melanie Subbiah, Jared D Kaplan, Prafulla Dhariwal, Arvind Neelakantan, Pranav Shyam, Girish Sastry, Amanda Askell, et al. Language models are few-shot learners. Advances in neural information processing systems, 33:1877–1901, 2020.
+
+Aditi Chaudhary, Karthik Raman, Krishna Srinivasan, Kazuma Hashimoto, Mike Bendersky, and Marc Najork. Exploring the viability of synthetic query generation for relevance prediction. arXiv preprint arXiv:2305.11944, 2023.
+
+Hyung Won Chung, Le Hou, Shayne Longpre, Barret Zoph, Yi Tay, William Fedus, Yunxuan Li, Xuezhi Wang, Mostafa Dehghani, Siddhartha Brahma, et al. Scaling instruction-finetuned language models. Journal ofMachine Learning Research, 25(70):1–53, 2024.
+
+Peter Clark, Isaac Cowhey, Oren Etzioni, Tushar Khot, Ashish Sabharwal, Carissa Schoenick, and Oyvind Tafjord. Think you have solved question answering? try arc, the ai2 reasoning challenge. arXiv preprint arXiv:1803.05457, 2018.
+
+Tim Dettmers, Mike Lewis, Younes Belkada, and Luke Zettlemoyer. Gpt3. int8 (): 8-bit matrix multiplication for transformers at scale. Advances in neural information processing systems, 35: 30318–30332, 2022.
+
+Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina Toutanova. Bert: Pre-training of deep bidirectional transformers for language understanding. arXiv preprint arXiv:1810.04805, 2018.
+
+Matthijs Douze, Alexandr Guzhva, Chengqi Deng, Jeff Johnson, Gergely Szilvasy, Pierre-Emmanuel Mazaré, Maria Lomeli, Lucas Hosseini, and Hervé Jégou. The faiss library. arXiv preprint arXiv:2401.08281, 2024.
+
+Darren Edge, Ha Trinh, Newman Cheng, Joshua Bradley, Alex Chao, Apurva Mody, Steven Truitt, and Jonathan Larson. From local to global: A graph rag approach to query-focused summarization. arXiv preprint arXiv:2404.16130, 2024.
+
+Shahul Es, Jithin James, Luis Espinosa Anke, and Steven Schockaert. RAGAs: Automated evaluation of retrieval augmented generation. In Nikolaos Aletras and Orphee De Clercq (eds.), Proceedings of the 18th Conference of the European Chapter of the Association for Computational Linguistics: System Demonstrations, pp. 150–158, St. Julians, Malta, March 2024. Association for Computational Linguistics. URL https://aclanthology.org/2024.eacl-demo.16/.

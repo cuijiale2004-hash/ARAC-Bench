@@ -1,0 +1,1263 @@
+[
+    {
+        "type": "text",
+        "text": "ABSTRACT",
+        "text_level": 2,
+        "bbox": [
+            450,
+            362,
+            547,
+            377
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "We propose FlowRL: matching the full reward distribution via flow balancing instead of solely maximizing rewards in large language model (LLM) reinforcement learning (RL). Recent advanced reasoning LLMs adopt reward-maximizing methods (e.g., PPO and GRPO), which tend to over-optimize dominant reward signals while neglecting less frequent but valid reasoning paths, thus reducing diversity. In contrast, we transform scalar rewards into a normalized target distribution using a learnable partition function, and then minimize the reverse KL divergence between the policy and the target distribution. We implement this idea as a flowbalanced optimization method that promotes diverse exploration and generalizable reasoning trajectories. We conduct experiments on both math and code reasoning tasks: FlowRL achieves a significant average improvement of 10.0% over GRPO and 5.1% over PPO on math benchmarks, and performs consistently better on code reasoning tasks. These results highlight reward distribution-matching as a key step toward efficient exploration and diverse reasoning of LLM reinforcement learning.",
+        "bbox": [
+            230,
+            393,
+            767,
+            604
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "1 INTRODUCTION",
+        "text_level": 2,
+        "bbox": [
+            174,
+            635,
+            338,
+            650
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Reinforcement learning (RL) plays a crucial role in the post-training of large language models (LLMs) (Zhang et al., 2025b). A series of powerful reasoning models (Guo et al., 2025; Kavukcuoglu, 2025; Rastogi et al., 2025) have employed large-scale reinforcement learning to achieve strong performance on highly challenging benchmarks. The evolution of RL algorithms for LLM reasoning has progressed through several key stages: REINFORCE (Sutton et al., 1999a) provides a solid baseline that is easy to implement and efficient in simple settings; PPO (Schulman et al., 2017) improves upon REINFORCE with better stability and efficiency in complex settings; GRPO (Shao et al., 2024) simplifies PPO training by eliminating the learning of a separate value function and relying on group comparisons. However, all these methods share a fundamental limitation in their reward-maximizing objective.",
+        "bbox": [
+            169,
+            666,
+            826,
+            806
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Reward-maximizing RL methods tend to overfit to the dominant mode of the reward distribution (Skalse et al., 2022; Pan et al., 2022; Zelikman et al., 2022; Gao et al., 2023). As illustrated in Figure 1, representative RL methods such as GRPO neglect other meaningful modes, which often results in limited diversity among generated reasoning paths and reduces generalization to less frequent yet valid logical outcomes (Hu et al., 2023). These drawbacks become especially pronounced in complex long-chain-of-thought (CoT; Wei et al., 2022) reasoning, where capturing a diverse distribution of plausible solutions is essential for effective generalization (Liu et al., 2025a). Recent approaches adjust the clip ratio (Yu et al., 2025b), apply entropy-based advantage shaping (Cheng et al., 2025), or selectively promote high-entropy tokens (Wang et al., 2025), thereby dynamically adapting the data distribution and implicitly increasing diversity. This raises a fundamental question: How can we promote diverse exploration to prevent convergence to dominant solution patterns in RL training?",
+        "bbox": [
+            169,
+            813,
+            826,
+            926
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_number",
+        "text": "1",
+        "bbox": [
+            493,
+            948,
+            503,
+            959
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "chart",
+        "img_path": "images/c40d359fd741aa3c228b3c32c901a9138535952cbc205d17d80b4e1844a0b5f9.jpg",
+        "content": "",
+        "chart_caption": [
+            "Figure 1: Top: Comparison between distribution-matching and reward-maximizing approaches. FlowRL (left) learns to match the full reward distribution, maintaining diversity across multiple modes with low KL divergence. In contrast, reward-maximizing methods (right) such as RE-INFORCE++ (R++; Sutton et al., 1999b; Hu et al., 2025), PPO (Schulman et al., 2017), and GRPO (Shao et al., 2024) concentrate on a single high-reward peak, leading to mode collapse and higher KL divergence. Bottom: Performance comparison. FlowRL consistently outperforms GRPO across math and code domains."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            184,
+            98,
+            821,
+            393
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            534,
+            825,
+            592
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "In this paper, we propose FlowRL, a policy optimization algorithm that aligns the policy model with the full reward distribution, encouraging mode coverage. FlowRL achieves more efficient exploration by fundamentally shifting from reward maximization to reward distribution matching, thereby addressing the inherent mode-collapse limitations of previous RL approaches. As illustrated in Figure 1, the core idea of FlowRL is to introduce a learnable partition function that normalizes scalar rewards into a target distribution, and to minimize the reverse KL divergence between the policy and this reward-induced distribution. We develop this KL objective based on the trajectory balance formulation from GFlowNets (Bengio et al., 2023b), providing a gradient equivalence proof that bridges generative modeling and policy optimization. To address the challenges of long CoT training, we introduce two key technical solutions: length normalization to tackle gradient explosion issues that occur with variable-length CoT reasoning, and importance sampling to correct for the distribution mismatch between generated rollouts and the current policy.",
+        "bbox": [
+            169,
+            597,
+            826,
+            766
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "We compare FlowRL with mainstream RL algorithms for LLM reasoning, including REIN-FORCE++ (Hu et al., 2025), PPO, and GRPO, across math and code domains, using both base and distilled LLMs with 7B or 32B parameters. In the math domain, FlowRL outperforms GRPO and PPO by 10.0% and 5.1%, respectively, demonstrating consistent improvements on six challenging math benchmarks (MAA, 2025; 2023; Lightman et al., 2023a; Lewkowycz et al., 2022; He et al., 2024). Furthermore, FlowRL surpasses both PPO and GRPO on three challenging coding benchmarks (Jain et al., 2024; Penedo et al., 2025; Chen et al., 2021), highlighting its strong generalization capabilities in code reasoning tasks. To understand what drives these performance gains, we analyze the diversity of generated reasoning paths and confirm that FlowRL produces substantially more diverse rollouts than the baseline methods, thereby validating the effectiveness of our approach in exploring multiple solution strategies.",
+        "bbox": [
+            169,
+            771,
+            826,
+            926
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "page_number",
+        "text": "2",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Contributions. We summarize the key contributions of this work as follows:",
+        "bbox": [
+            171,
+            104,
+            679,
+            119
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "• We propose FlowRL, a policy optimization algorithm that shifts from reward maximization to reward distribution matching via flow balancing, encouraging diverse reasoning path exploration while addressing the inherent mode-collapse limitations of existing RL methods.",
+        "bbox": [
+            171,
+            125,
+            825,
+            167
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "• We introduce length normalization and importance sampling to enable effective training on variable-length CoT reasoning, addressing gradient explosion and sampling mismatch issues.",
+        "bbox": [
+            171,
+            167,
+            825,
+            195
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "• FlowRL outperforms GRPO and PPO by 10.0% and 5.1% respectively across math benchmarks and demonstrates strong generalization on code reasoning tasks, with diversity analysis confirming substantially more diverse solution exploration.",
+        "bbox": [
+            171,
+            194,
+            826,
+            238
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "2 PRELIMINARIES",
+        "text_level": 2,
+        "bbox": [
+            171,
+            258,
+            341,
+            273
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Reinforcement Learning for Reasoning. We formulate reasoning as a conditional generation problem, where the policy model receives a question $\\mathbf { x } \\in \\mathcal { X }$ and generates an answer $\\mathbf { y } \\in \\mathcal { V }$ . The objective is to learn a policy $\\pi _ { \\boldsymbol { \\theta } } ( \\mathbf { y } | \\mathbf { x } )$ that produces high-quality answers under task-specific reward signals r. To better illustrate the policy optimization procedure, we provide a detailed formulation of GRPO below. For each question x, GRPO samples a group of answers $\\left\\{ \\mathbf { y } _ { 1 } , \\mathbf { y } _ { 2 } , \\ldots , \\mathbf { y } _ { G } \\right\\}$ from old policy $\\pi _ { \\theta _ { o l d } }$ and updates the model by maximizing the following objective:",
+        "bbox": [
+            169,
+            290,
+            825,
+            376
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\begin{array}{l} \\mathcal {J} _ {G R P O} (\\theta) = \\mathbb {E} _ {[ \\mathbf {x} \\sim P (\\mathcal {X}), \\{\\mathbf {y} _ {i} \\} _ {i = 1} ^ {G} \\sim \\pi_ {\\theta_ {o l d}} (\\mathcal {Y} | \\mathbf {x}) ]} \\\\ \\frac {1}{G} \\sum_ {i = 1} ^ {G} \\frac {1}{| \\mathbf {y} _ {i} |} \\sum_ {t = 1} ^ {| \\mathbf {y} _ {i} |} \\left\\{\\min \\left[ \\frac {\\pi_ {\\theta} (\\mathbf {y} _ {i , t} | \\mathbf {x} , \\mathbf {y} _ {i , <   t})}{\\pi_ {\\theta_ {o l d}} (\\mathbf {y} _ {i , t} | \\mathbf {x} , \\mathbf {y} _ {i , <   t})} \\hat {A} _ {i, t}, \\operatorname{clip} \\left(\\frac {\\pi_ {\\theta} (\\mathbf {y} _ {i , t} | \\mathbf {x} , \\mathbf {y} _ {i , <   t})}{\\pi_ {\\theta_ {o l d}} (\\mathbf {y} _ {i , t} | \\mathbf {x} , \\mathbf {y} _ {i , <   t})}, 1 - \\epsilon , 1 + \\epsilon\\right) \\hat {A} _ {i, t} \\right] - \\lambda \\mathbb {D} _ {K L} [ \\pi_ {\\theta} | | \\pi_ {r e f} ] \\right\\}, \\\\ \\mathbb {D} _ {\\mathrm{KL}} (\\pi_ {\\theta} | | \\pi_ {\\mathrm{ref}}) = \\frac {\\pi_ {\\mathrm{ref}} (\\mathbf {y} _ {i} | \\mathbf {x})}{\\pi_ {\\theta} (\\mathbf {y} _ {i} | \\mathbf {x})} - \\log \\frac {\\pi_ {\\mathrm{ref}} (\\mathbf {y} _ {i} | \\mathbf {x})}{\\pi_ {\\theta} (\\mathbf {y} _ {i} | \\mathbf {x})} - 1, \\end{array}\\tag{1}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            171,
+            383,
+            823,
+            460
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "where ϵ and λ are hyper-parameters. Here, $A _ { i }$ denotes the advantage, computed by normalizing the group reward values $\\{ r _ { 1 } , r _ { 2 } , \\dots , r _ { G } \\}$ as $\\begin{array} { r } { A _ { i } \\ = \\ \\frac { r _ { i } - \\mathrm { m e a n } ( \\{ r _ { 1 } , r _ { 2 } , \\cdots , r _ { G } \\} ) } { \\mathrm { s t d } ( \\{ r _ { 1 } , r _ { 2 } , \\cdots , r _ { G } \\} ) } } \\end{array}$ . Compared to GRPO, REINFORCE applies the policy gradient directly, without advantage normalization, clipping, or KL regularization. PPO uses a critic model to estimate the advantage and employs importance sampling to stabilize policy updates.",
+        "bbox": [
+            169,
+            473,
+            825,
+            549
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "GFlowNets. Generative Flow Networks (GFlowNets; Bengio et al., 2023a) are a probabilistic framework for training stochastic policies to sample discrete, compositional objects (e.g., graphs, sequences) in proportion to a given reward. As shown in Figure 2, the core principle of GFlowNets is to balance the forward and backward probability flows at each state, inspired by flow matching (Bengio et al., 2021). The initial flow is estimated by $Z _ { \\phi } ( s _ { 0 } )$ at the initial state $s _ { 0 }$ . The output flow is equal to the outcome reward $r ( s _ { f } )$ conditioned at the final state $s _ { f }$ . Following Lee et al. (2024), we use a 3-layer MLP to parameterize $Z _ { \\phi } .$ This flow-balancing mechanism facilitates the discovery of diverse, high-reward solutions by ensuring proper exploration of the solution space. See Appendix C for detailed GFlowNets background.",
+        "bbox": [
+            169,
+            564,
+            486,
+            829
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "image",
+        "img_path": "images/ba28d029bd7a64b3cb16d1c85cb3a42af3414a52aa6c0540b3b9397e0e777065.jpg",
+        "image_caption": [
+            "Figure 2: GFlowNets (Bengio et al., 2023a), a flow-balance perspective on reinforcement learning. The initial flow $Z _ { \\phi } ( s _ { 0 } )$ injects probability mass into the environment, which is transported through intermediate states by the policy π and accumulated at terminal states in proportion to the scalar rewards."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            504,
+            573,
+            803,
+            684
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "3 METHODOLOGY",
+        "text_level": 2,
+        "bbox": [
+            171,
+            849,
+            343,
+            864
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "In this section, we first formulate distribution matching in reinforcement learning through reverse KL divergence and establish its connection to trajectory balance from GFlowNets. To address the challenges of gradient explosion and sampling mismatch encountered during long CoT training, we further incorporate length normalization and importance sampling. Using this enhanced framework, we derive a flow-balanced objective, termed FlowRL.",
+        "bbox": [
+            169,
+            882,
+            826,
+            925
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "page_number",
+        "text": "3",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            104,
+            825,
+            133
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3.1 FROM REWARD MAXIMIZATION TO DISTRIBUTION MATCHING",
+        "text_level": 2,
+        "bbox": [
+            171,
+            148,
+            651,
+            164
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "As illustrated in Figure 1, recent powerful large reasoning models typically employ rewardmaximizing RL algorithms, such as PPO or GRPO. However, these methods tend to optimize toward the dominant reward mode, frequently resulting in mode collapse and the neglect of other plausible, high-quality reasoning paths. To address this fundamental limitation, we propose optimizing the policy by aligning its output distribution to a target reward distribution. A simple yet effective way to achieve this is to minimize the reverse KL divergence<sup>1</sup> between the policy and this target. However, in long CoT reasoning tasks, the available supervision in RL is a scalar reward, rather than a full distribution. Moreover, enumerating or sampling all valid trajectories to recover the true reward distribution is computationally intractable.",
+        "bbox": [
+            169,
+            175,
+            826,
+            301
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Inspired by energy-based modeling (Hinton et al., 1995; Du & Mordatch, 2019), we introduce a learnable partition function $Z _ { \\phi } ( \\mathbf { x } )$ to normalize scalar rewards into a valid target distribution. This allows us to minimize the reverse KL divergence between the policy and the reward-weighted distribution, formalized as:",
+        "bbox": [
+            169,
+            306,
+            826,
+            364
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\min _ {\\theta} \\mathcal {D} _ {\\mathrm{KL}} \\left(\\pi_ {\\theta} (\\mathbf {y} \\mid \\mathbf {x}) \\left\\| \\frac {\\exp (\\beta r (\\mathbf {x} , \\mathbf {y}))}{Z _ {\\phi} (\\mathbf {x})}\\right) \\right. \\Rightarrow \\pi_ {\\theta} (\\mathbf {y} \\mid \\mathbf {x}) \\propto \\exp (\\beta r (\\mathbf {x}, \\mathbf {y})),\\tag{2}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            240,
+            369,
+            754,
+            402
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "where $r ( \\mathbf { x } , \\mathbf { y } )$ is the reward function, $\\beta$ is a hyperparameter, $Z _ { \\phi } ( \\mathbf { x } )$ is the learned partition function, and the resulting target distribution is defined as $\\begin{array} { r } { \\tilde { \\pi } ( \\mathbf { y } \\mid \\mathbf { x } ) = \\frac { \\exp ( \\beta r ( \\mathbf { x } , \\mathbf { y } ) ) } { Z _ { \\phi } ( \\mathbf { x } ) } } \\end{array}$ . This objective encourages the policy to sample diverse, high-reward trajectories in proportion to their rewards, rather than collapsing to dominant modes as in standard reward maximization.",
+        "bbox": [
+            169,
+            409,
+            825,
+            474
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "While the KL-based formulation provides a principled target distribution, we derive a more practical, RL-style objective that facilitates efficient policy optimization.",
+        "bbox": [
+            169,
+            479,
+            823,
+            508
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Proposition 1. In terms of expected gradients, minimizing the KL objective in $E q . ~ 2$ is equivalent to minimizing the trajectory balance loss used in GFlowNet (Malkin et al., 2022; 2023; Lee et al., 2024; Bartoldson et al., 2025):",
+        "bbox": [
+            169,
+            512,
+            823,
+            554
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\min _ {\\theta} \\mathcal {D} _ {\\mathrm{KL}} \\left( \\right.\\pi_ {\\theta} (\\mathbf {y} \\mid \\mathbf {x}) \\left\\| \\right. \\frac {\\exp (\\beta r (\\mathbf {x} , \\mathbf {y}))}{Z _ {\\phi} (\\mathbf {x})}\\left. \\right) \\quad \\Longleftrightarrow \\quad \\min _ {\\theta} \\underbrace {\\left(\\log Z _ {\\phi} (\\mathbf {x}) + \\log \\pi_ {\\theta} (\\mathbf {y} \\mid \\mathbf {x}) - \\beta r (\\mathbf {x} , \\mathbf {y})\\right) ^ {2}} _ {\\text { Trajectory   Balance }}\\tag{3}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            174,
+            559,
+            820,
+            604
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Remark 2 (Trajectory balance as a practical surrogatefor KL minimization). Given the equivalence established in Proposition 1, the KL-based distribution matching objective can be reformulated as the trajectory balance loss. This reformulation provides a practical optimization approach by using a stable squared loss form rather than direct KL optimization, and by treating $Z _ { \\phi } ( \\mathbf { \\bar { x } } )$ as a learnable parameter rather than requiring explicit computation of the intractable partition function. The trajectory balance objective thus serves as a tractable surrogate for reward-guided KL minimization that can be directly integrated into existing RL frameworks.",
+        "bbox": [
+            169,
+            627,
+            826,
+            726
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3.2 FLOWRL",
+        "text_level": 2,
+        "bbox": [
+            171,
+            741,
+            281,
+            756
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "As established in Proposition 1, the target reward distribution can be approximated by optimizing the trajectory balance objective. However, applying this objective directly to long CoT reasoning introduces two key challenges:",
+        "bbox": [
+            169,
+            767,
+            825,
+            811
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Problem I: Exploding gradients from long trajectories. Trajectory balance is a sequence-level objective, and applying it to long CoT reasoning with up to 8K tokens leads to exploding gradients and unstable updates. This issue is not observed in prior GFlowNets works, which typically operate on short trajectories in small discrete spaces. Specifically, the log-probability term log $\\pi _ { \\boldsymbol { \\theta } } ( \\mathbf { y } \\mid \\mathbf { x } )$ decomposes into a token-wise sum, $\\begin{array} { r } { \\sum _ { t } \\operatorname { \\bar { l o g } } \\pi _ { \\theta } ( y _ { t } \\mid y _ { < t } , \\mathbf { x } ) } \\end{array}$ , causing the gradient norm to potentially scale with sequence length.",
+        "bbox": [
+            169,
+            816,
+            825,
+            901
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "page_footnote",
+        "text": "<sup>1</sup>We use reverse KL since we can only sample from the policy model, not the target reward distribution.",
+        "bbox": [
+            191,
+            909,
+            805,
+            924
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "page_number",
+        "text": "4",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Problem II: Sampling mismatch. Mainstream RL algorithms such as PPO and GRPO commonly perform micro-batch updates and reuse trajectories collected from an old policy $\\pi _ { \\theta _ { \\mathrm { o l d } } }$ , enabling dataefficient training. In contrast, the KL-based trajectory balance objective assumes fully on-policy sampling, where responses are drawn from the current policy. This mismatch poses practical limita tions when integrating trajectory balance into existing RL pipelines.",
+        "bbox": [
+            169,
+            99,
+            825,
+            171
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "These limitations motivate our reformulation that retains the benefits of distribution matching while addressing key practical challenges. To enable this reformulation, we first redefine the reward function following established practices in GFlowNets literature (Lee et al., 2024; Bartoldson et al., 2025; Yu et al., 2025a) by incorporating a reference model as a prior constraint on the reward distribution. Specifically, we modify the original $\\exp ( \\beta r ( \\mathbf x , \\mathbf y ) )$ ) to include the reference model:",
+        "bbox": [
+            169,
+            176,
+            825,
+            248
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\exp \\left(\\beta r (\\mathbf {x}, \\mathbf {y})\\right) \\cdot \\pi_ {\\mathrm{ref}} (\\mathbf {y} \\mid \\mathbf {x}),\\tag{4}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            398,
+            258,
+            596,
+            273
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "where $r ( \\mathbf { x } , \\mathbf { y } )$ denotes the outcome reward commonly used in reinforcement learning and $\\pi _ { \\mathrm { r e f } }$ is the initial pre-trained model. We follow Guo et al. (2025) to use outcome-based reward signals, and apply group normalization to $r ( \\mathbf { x } , \\mathbf { y } )$ as $\\hat { r } _ { i } = ( r _ { i } - \\mathrm { m e a n } ( \\mathbf { r } ) ) / \\mathrm { s t d } ( \\mathbf { r } )$ , where $\\mathbf { r } = \\{ r _ { 1 } , r _ { 2 } , \\ldots , r _ { G } \\}$ denotes the set of rewards within a sampled group. By substituting the redefined reward formulation Eq. 4 into Eq. 3, we derive the following objective<sup>2</sup>:",
+        "bbox": [
+            169,
+            284,
+            825,
+            356
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\min _ {\\theta} \\left(\\log Z _ {\\phi} (\\mathbf {x}) + \\log \\pi_ {\\theta} (\\mathbf {y} | \\mathbf {x}) - \\beta \\hat {r} _ {i} (\\mathbf {x}, \\mathbf {y}) - \\log \\pi_ {\\mathrm{ref}} (\\mathbf {y} | \\mathbf {x})\\right) ^ {2}\\tag{5}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            281,
+            367,
+            714,
+            388
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Remark 3 (Reward shaping via length normalization). Trajectory balance treats both the initial flow and the outcome reward as sequence-level quantities. In contrast, standard policy optimization methods such as PPO or GRPO assign rewards at the token level and compute gradients at each step. However, for trajectories of varying lengths $( e . g .$ , CoT responses), this mismatch can cause the log-probability term log $\\textstyle \\pi _ { \\theta } ( \\mathbf { y } \\mid \\mathbf { x } ) = \\sum _ { t = 1 } ^ { | \\mathbf { y } | }$ log $\\pi _ { \\boldsymbol { \\theta } } ( y _ { t } \\mid \\boldsymbol { y } _ { < t } , \\mathbf { x } )$ to scale with sequence length. To address this, we apply a form of reward shaping by normalizing log-probabilities with respect to sequence length. Specifically, we rescale the term as ${ \\frac { 1 } { | \\mathbf { y } | } } \\log \\pi _ { \\theta } ( \\mathbf { y } \\mid \\mathbf { x } )$ , balancing the contributions of long and short sequences and stabilizing the learning signal.",
+        "bbox": [
+            169,
+            400,
+            825,
+            518
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Remark 4 (Importance sampling for data-efficient training). To mitigate sampling mismatch, we employ importance sampling inspired by PPO to stabilize policy updates with off-policy data. We re-weight stale trajectories using the importance ratio $w = \\pi _ { \\boldsymbol { \\theta } } ( \\mathbf { y } \\mid \\mathbf { x } ) / \\pi _ { \\mathrm { o l d } } ( \\mathbf { y } \\mid \\mathbf { x } )$ , which serves as a coefficient in the surrogate loss. Since our objective focuses on optimizing trajectory balance rather than expected return, we detach the gradient from the current policy to prevent excessive policy drift: $w = \\bar { \\mathrm { d e t a c h } } [ \\pi _ { \\boldsymbol { \\theta } } ( \\mathbf { y } \\mid \\mathbf { x } ) ] / \\pi _ { \\mathrm { o l d } } ( \\mathbf { y } \\mid \\mathbf { x } )$ . For additional stability, we incorporate PPO-style clipping to bound the importance weights: $\\begin{array} { r } { w = \\mathrm { c l i p } \\left( \\frac { \\pi _ { \\theta } \\left( \\mathbf { y } \\mid \\mathbf { x } \\right) } { \\pi _ { \\mathrm { o l d } } \\left( \\mathbf { y } \\mid \\mathbf { x } \\right) } , 1 - \\epsilon , 1 + \\epsilon \\right) ^ { \\mathrm { d e t a c h } } } \\end{array}$",
+        "bbox": [
+            169,
+            523,
+            826,
+            633
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Incorporating these improvements into Eq. 5, we arrive at the following FlowRL objective:",
+        "bbox": [
+            171,
+            647,
+            769,
+            664
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "FlowRL",
+        "text_level": 2,
+        "bbox": [
+            187,
+            683,
+            250,
+            696
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathcal {L} _ {\\mathrm{FlowRL}} = w \\cdot \\left(\\log Z _ {\\phi} (\\mathbf {x}) + \\frac {1}{| \\mathbf {y} |} \\log \\pi_ {\\theta} (\\mathbf {y} \\mid \\mathbf {x}) - \\beta \\hat {r} (\\mathbf {x}, \\mathbf {y}) - \\frac {1}{| \\mathbf {y} |} \\log \\pi_ {\\mathrm{ref}} (\\mathbf {y} \\mid \\mathbf {x})\\right) ^ {2}\\tag{6}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            212,
+            709,
+            764,
+            744
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "where the clipped importance weight w and normalized reward ${ \\hat { r } } ( \\mathbf { x } , \\mathbf { y } )$ are defined as:",
+        "bbox": [
+            171,
+            782,
+            738,
+            797
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\nw = \\operatorname{clip} (\\frac {\\pi_ {\\theta} (\\mathbf {y} \\mid \\mathbf {x})}{\\pi_ {\\text { old }} (\\mathbf {y} \\mid \\mathbf {x})}, 1 - \\epsilon , 1 + \\epsilon) ^ {\\text { detach }}, \\quad \\hat {r} _ {i} = \\frac {r _ {i} - \\text { mean } (\\mathbf {r})}{\\text { std } (\\mathbf {r})}.\\tag{7}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            285,
+            808,
+            710,
+            840
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "We use this objective to update the policy parameters θ during training, and refer to this strategy as FlowRL. Implementation details and theoretical analysis are provided in § 4 and § B, respectively.",
+        "bbox": [
+            171,
+            851,
+            823,
+            881
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "page_footnote",
+        "text": "βr(x, y)",
+        "bbox": [
+            351,
+            898,
+            406,
+            911
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "page_footnote",
+        "text": "βr(x, y) + log πref (y | x)",
+        "bbox": [
+            656,
+            898,
+            821,
+            912
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "page_footnote",
+        "text": "<sup>2</sup>The substitution replaces in trajectory balance objective Eq. 3 with βr(x, y) + log π<sub>ref</sub>(y | x) to incorporate the reference model constraint.",
+        "bbox": [
+            169,
+            896,
+            823,
+            924
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "page_number",
+        "text": "5",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "table",
+        "img_path": "images/d7f6a2952d29cbebfee4a5a9093b270b888770998cc7a136974aee4c2c4d2239.jpg",
+        "table_caption": [
+            "Table 1: Results on math reasoning benchmarks. We report Avg@16 accuracy with relative improvements shown as subscripts. Positive gains are shown in green and negative changes in red. FlowRL outperforms all baselines across both 7B and 32B model scales."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Models</td><td>AIME24</td><td>AIME25</td><td>AMC23</td><td>MATH500</td><td>Minerva</td><td>Olympiad</td><td>Avg</td></tr><tr><td colspan=\"8\">Qwen2.5-32B-Base, Max Response Len = 8K tokens</td></tr><tr><td>Backbone</td><td>4.58</td><td>2.08</td><td>28.59</td><td>52.48</td><td>26.99</td><td>21.37</td><td>22.68</td></tr><tr><td>R++</td><td> $14.79_{+10.21}$ </td><td> $9.17_{+7.08}$ </td><td> $52.65_{+24.06}$ </td><td> $44.35_{-8.13}$ </td><td> $17.37_{-9.62}$ </td><td> $24.52_{+3.15}$ </td><td>27.14</td></tr><tr><td>PPO</td><td> $26.87_{+22.29}$ </td><td> $20.41_{+18.33}$ </td><td> $76.40_{+47.81}$ </td><td> $69.17_{+16.69}$ </td><td> $28.79_{+1.80}$ </td><td> $37.90_{+16.53}$ </td><td>43.25</td></tr><tr><td>GRPO</td><td> $23.12_{+18.54}$ </td><td> $14.58_{+12.50}$ </td><td> $76.87_{+48.28}$ </td><td> $61.60_{+9.12}$ </td><td> $18.95_{-8.04}$ </td><td> $34.94_{+13.57}$ </td><td>38.34</td></tr><tr><td>FlowRL</td><td> $23.95_{+19.37}$ </td><td> $21.87_{+19.79}$ </td><td> $73.75_{+45.16}$ </td><td> $80.75_{+28.27}$ </td><td> $38.21_{+11.22}$ </td><td> $51.83_{+30.46}$ </td><td>48.39</td></tr><tr><td colspan=\"8\">Qwen2.5-7B-Base, Max Response Len = 8K tokens</td></tr><tr><td>Backbone</td><td>4.38</td><td>2.08</td><td>30.78</td><td>54.47</td><td>22.38</td><td>24.03</td><td>23.02</td></tr><tr><td>R++</td><td> $11.04_{+6.66}$ </td><td> $5.41_{+3.33}$ </td><td> $66.71_{+35.93}$ </td><td> $54.25_{-0.22}$ </td><td> $24.37_{+1.99}$ </td><td> $27.33_{+3.30}$ </td><td>31.52</td></tr><tr><td>PPO</td><td> $9.38_{+5.00}$ </td><td> $7.29_{+5.21}$ </td><td> $63.43_{+32.65}$ </td><td> $57.98_{+3.51}$ </td><td> $26.53_{+4.15}$ </td><td> $27.25_{+3.22}$ </td><td>31.98</td></tr><tr><td>GRPO</td><td> $13.54_{+9.16}$ </td><td> $9.79_{+7.71}$ </td><td> $64.53_{+33.75}$ </td><td> $57.05_{+2.58}$ </td><td> $23.06_{+0.68}$ </td><td> $26.88_{+2.85}$ </td><td>32.48</td></tr><tr><td>FlowRL</td><td> $15.41_{+11.03}$ </td><td> $10.83_{+8.75}$ </td><td> $54.53_{+23.75}$ </td><td> $66.96_{+12.49}$ </td><td> $31.41_{+9.03}$ </td><td> $34.61_{+10.58}$ </td><td>35.63</td></tr></table>",
+        "bbox": [
+            176,
+            161,
+            823,
+            349
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "4 EXPERIMENT SETTINGS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            371,
+            408,
+            387
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Backbone Models. There are two learnable modules in Eq. 6: the policy model $\\pi _ { \\theta }$ and the partition function $Z _ { \\phi }$ . For the policy model $\\pi _ { \\theta } ,$ , we use Qwen-2.5-7B/32B (Team, 2024) for math tasks and DeepSeek- $\\cdot _ { \\mathrm { R 1 - D i s t i l 1 - Q w e n - 7 B } }$ (DeepSeek-AI, 2025) for code tasks, respectively. The reference model $\\pi _ { \\mathrm { r e f } }$ is the corresponding fixed pretrained model. For partition function $Z _ { \\phi } ,$ , following Lee et al. (2024), we use a randomly initialized 3-layer MLP with hidden dimensions matching those of the base model. The input to $\\dot { Z } _ { \\phi }$ is the mean of the language model’s hidden states after encoding the input $\\mathbf { x } ,$ and the output is a scalar value. We detail the implementation of $Z _ { \\phi }$ in $\\ S \\operatorname { F } .$ . All training scripts are based on the veRL (Sheng et al., 2024). For the reward function, following Lee et al. (2024), we set the hyperparameter $\\beta = 1 5$",
+        "bbox": [
+            169,
+            407,
+            826,
+            534
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Baselines. We compare our method against three representative reward-maximization RL baselines: REINFORCE++ (R++; Sutton et al., 1999b; Hu et al., 2025), PPO (Schulman et al., 2017), and GRPO (Shao et al., 2024). All baselines follow the official veRL recipes, with consistent training configurations. For fair comparison, all methods use the same learning rate, batch size, and training steps, and are evaluated at convergence using identical step counts.",
+        "bbox": [
+            169,
+            556,
+            826,
+            628
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Training Configuration. We experiment on both math and code domains. For the math domain, we use the training set collected from DAPO (Yu et al., 2025b). For the code domain, we follow the setup of DeepCoder (Luo et al., 2025), using their training set. For 7B model training, we use a single node equipped with 8 NVIDIA H800 GPUs (80GB memory each). For 32B model training, we scale to 4 nodes with 32 GPUs to accommodate the larger memory requirements. All experiments use max prompt length = 2048 and max response length = 8192 across both model sizes. We use a batch size of 512 for math reasoning tasks and 64 for code reasoning tasks. We set the learning rate to 1e-6 and enable dynamic batch sizing in veRL for efficient training. For GRPO and FlowRL, we configure rollout n = 8, meaning each prompt generates 8 response rollouts as the group size.",
+        "bbox": [
+            169,
+            648,
+            826,
+            790
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Evaluation Configuration. For the math domain, we evaluate on six challenging benchmarks: AIME 2024/2025 (MAA, 2025), AMC 2023 (MAA, 2023), MATH-500 (Lightman et al., 2023a), Minerva (Lewkowycz et al., 2022), and Olympiad (He et al., 2024). For the code domain, we evaluate on LiveCodeBench (Jain et al., 2024), CodeForces (Penedo et al., 2025), and HumanEval+ (Chen et al., 2021). For all evaluation datasets, we perform 16 rollouts and report the average Pass@1 accuracy, denoted as Avg@16. We further report rating and percentile for Codeforces. During generation, we use sampling parameters of temperature = 0.6 and top $_ \\mathrm { - p = 0 . 9 5 }$ for all evaluations. The response length for evaluation is set to 8,192 tokens, consistent with the training configuration.",
+        "bbox": [
+            169,
+            811,
+            826,
+            925
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "page_number",
+        "text": "6",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "table",
+        "img_path": "images/2a01d12e891556729f20a2b876f3aee35242f86a8ca094e3bece52aa0df06e74.jpg",
+        "table_caption": [
+            "Table 2: Results on code benchmarks. We report metrics with relative improvements shown as subscripts. Positive gains are shown in green and negative changes in red. FlowRL achieves the strongest performance across all three benchmarks.",
+            "Table 3: Ablation study on FlowRL with Qwen2.5-7B as the base model. Avg@16 accuracy is reported across six math reasoning benchmarks. IS denotes importance sampling."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td rowspan=\"2\">Models</td><td colspan=\"2\">LiveCodeBench</td><td colspan=\"2\">CodeForces</td><td>HumanEval+</td></tr><tr><td>Avg@16</td><td>Pass@16</td><td>Rating</td><td>Percentile</td><td>Avg@16</td></tr><tr><td colspan=\"6\">DeepSeek-R1-Distill-Qwen-7B, Max Response Len = 8K tokens</td></tr><tr><td>Backbone</td><td>30.68</td><td>49.46</td><td>886.68</td><td>19.4%</td><td>80.90</td></tr><tr><td>R++</td><td> $30.46_{-0.22}$ </td><td> $52.68_{+3.22}$ </td><td> $1208.03_{+321.35}$ </td><td> $56.8\\%_{+37.4\\%}$ </td><td> $76.61_{-4.29}$ </td></tr><tr><td>PPO</td><td> $35.10_{+4.42}$ </td><td> $54.48_{+5.02}$ </td><td> $1403.07_{+516.39}$ </td><td> $73.7\\%_{+54.3\\%}$ </td><td> $82.32_{+1.42}$ </td></tr><tr><td>GRPO</td><td> $32.75_{+2.07}$ </td><td> $52.32_{+2.86}$ </td><td> $1313.82_{+427.14}$ </td><td> $67.1\\%_{+47.7\\%}$ </td><td> $80.13_{-0.77}$ </td></tr><tr><td>FlowRL</td><td> $37.43_{+6.75}$ </td><td> $56.27_{+6.81}$ </td><td> $1549.47_{+662.79}$ </td><td> $83.3\\%_{+63.9\\%}$ </td><td> $83.28_{+2.38}$ </td></tr></table>",
+        "bbox": [
+            223,
+            161,
+            772,
+            282
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "table",
+        "img_path": "images/a64a8cb4b5ed853f62caccf627d7c7836be3007f7a5631c4071deb616b8a5610.jpg",
+        "table_caption": [],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Method</td><td>AIME 2024</td><td>AIME 2025</td><td>AMC 2023</td><td>MATH-500</td><td>Minerva</td><td>Olympiad</td><td>Avg</td></tr><tr><td>FlowRL</td><td>15.41</td><td>10.83</td><td>54.53</td><td>66.96</td><td>31.41</td><td>34.61</td><td>35.63</td></tr><tr><td>w/o IS</td><td>6.25</td><td>7.91</td><td>41.40</td><td>56.97</td><td>22.19</td><td>25.52</td><td>26.71</td></tr><tr><td>Zhang et al. (2025a)</td><td>10.41</td><td>6.66</td><td>53.75</td><td>66.50</td><td>30.97</td><td>33.72</td><td>33.67</td></tr></table>",
+        "bbox": [
+            176,
+            334,
+            823,
+            398
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "5 RESULTS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            429,
+            284,
+            444
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Main Results. Our experimental results, summarized in Table 1 and Table 2, demonstrate that FlowRL consistently outperforms all reward-maximization baselines across both math and code reasoning domains. Table 1 reports results on math reasoning benchmarks using both 7B and 32B base models, while Table 2 presents the corresponding results on code reasoning tasks. On math reasoning tasks, FlowRL achieves the highest average accuracy of 35.6% with the 7B model and 48.4% with the 32B model, surpassing PPO by 5.1% and GRPO by 10.1% on the 32B model. FlowRL shows strong improvements on challenging benchmarks like MATH-500 and Olympiad problems, demonstrating consistent gains across diverse mathematical domains. On code generation tasks, FlowRL achieves compelling improvements with the highest Avg@16 score of 37.43% on LiveCodeBench, a Codeforces rating of 1549.47 with 83.3% percentile ranking, and 83.28% accuracy on HumanEval+, outperforming all baselines across the board. These consistent performance gains across both domains and model scales provide strong empirical evidence that FlowRL’s flowbalanced optimization successfully enhances generalization. This improvement comes from promoting diverse solution exploration compared to previous reward-maximizing RL approaches.",
+        "bbox": [
+            169,
+            460,
+            826,
+            657
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Ablation Studies. We conduct ablation studies on importance sampling and the β hyperparameter. For importance sampling, we compared the performance with and without it, and implemented a combined loss approach proposed by Zhang et al. (2025a) that simultaneously optimizes both GFlowNets and PPO objectives. This combined loss focuses on optimizing diffusion models, and we adapt it to long CoT reasoning tasks for comparison. Table 3 demonstrates that importance sampling substantially improves FlowRL performance across all math reasoning benchmarks. Compared to Zhang et al. (2025a), using importance sampling as a trajectorylevel ratio is more suitable than the combined loss of GFlowNets and PPO. The performance drop without importance sampling (from 35.63% to 26.71%) highlights the critical role of correcting for distribution mismatch between rollout generation and policy training. For the hyperparameter $\\beta ,$ , we conduct a series of parameter ablation studies, and Figure 3 shows that $\\beta = 1 5$ achieves optimal performance, with detailed results shown in Table 7.",
+        "bbox": [
+            169,
+            674,
+            519,
+            911
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "chart",
+        "img_path": "images/2e4823928e01dac771d65216bf4d8b01733cbc18122ca907bf726c175c56f463.jpg",
+        "content": "",
+        "chart_caption": [
+            "Figure 3: Ablation study on the β in FlowRL. $\\beta \\ : = \\ : 1 5$ (highlighted in blue) achieves the best performance."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            535,
+            688,
+            816,
+            849
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            171,
+            909,
+            826,
+            924
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "page_number",
+        "text": "7",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            104,
+            823,
+            133
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "6 ANALYSIS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            156,
+            294,
+            172
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Diversity Analysis. To assess solution diversity, we follow the approach of Yu et al. (2025a) and employ GPT-4o-mini (OpenAI, 2024) to evaluate all responses generated by each method on AIME 24/25. The evaluation prompt is shown in Appendix H. As shown in Figure 4, FlowRL achieves higher diversity scores compared to baseline methods. This demonstrates that FlowRL improves sample diversity compared to baselines, which tend to exhibit repetitive solution patterns. This diversity evaluation reveals significant differences in exploration patterns across methods. This nearly doubling of diversity score compared to the strongest baseline (PPO) indicates that FlowRL generates qualitatively different solution approaches rather than minor variations of the same strategy. The diversity analysis provides empirical validation of our core hypothesis that flow-balanced optimization promotes mode coverage in complex reasoning tasks.",
+        "bbox": [
+            169,
+            189,
+            826,
+            330
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Case Study. Table 4 illustrates the behavioral differences between GRPO and FlowRL on a representative AIME problem. GRPO exhibits repetitive patterns, applying AM-GM three times and getting stuck in identity loops, failing to solve the problem. FlowRL explores more diverse actions: it sets $a = b ,$ derives a cubic equation, finds the rational root, and reaches the correct answer. This shows that FlowRL successfully avoids the repetitive exploration patterns. The contrast reveals fundamental differences in exploration strategies: GRPO’s reward-maximizing approach leads to exploitation of familiar techniques (AM-GM inequality) without exploring alternatives, eventually reaching contradictory conclusions like $a \\ = \\ b \\ = \\ c .$ In contrast, FlowRL’s distribution-matching enables strategic decisions such as the symmetry assumption $a =$ $b ,$ which transforms the problem into a tractable cubic equation $a ^ { 3 } - 2 7 a { \\overset { \\cdot } { + } } 4 6 = 0$ , allowing systematic solution through rational root testing and polynomial factorization.",
+        "bbox": [
+            169,
+            347,
+            517,
+            597
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "chart",
+        "img_path": "images/abc0ad461b16be520e127a617b7f34b8f43975945d693192b4ab8cc5e48356ba.jpg",
+        "content": "",
+        "chart_caption": [
+            "Figure 4: GPT-judged diversity scores on rollouts of AIME 24/25 problems. FlowRL generates more diverse solutions than R++, GRPO, and PPO."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            531,
+            359,
+            821,
+            522
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            595,
+            825,
+            626
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "7 RELATED WORK",
+        "text_level": 2,
+        "bbox": [
+            171,
+            648,
+            346,
+            664
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Our work relates to GFlowNets, Flow-Matching Policies, Length Normalization and KL Regularization. We discuss three topics that relate most closely to our work in this section, and the other topics are included in Appendix E.",
+        "bbox": [
+            169,
+            681,
+            825,
+            726
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Reinforcement Learning for LLM Reasoning. RL has emerged as a powerful approach for LLM post-training on reasoning tasks (Sutton et al., 1999b; Schulman et al., 2017; Lightman et al., 2023b; Shao et al., 2024; Guo et al., 2025). Most approaches employ reward-maximizing RL to optimize expected cumulative returns. Entropy regularization (Haarnoja et al., 2018; Ahmed et al., 2019; Cheng et al., 2025) is a classical technique for mitigating mode collapse by promoting diversity in the policy’s output distribution, and has also been shown to enhance reasoning capabilities in various settings (Eysenbach & Levine, 2021; Chao et al., 2024). However, for long CoT reasoning, the extended trajectory length (e.g., more than 8k tokens) makes it difficult for the regularization signal to effectively influence reward-maximizing learning. Recent work (Cheng et al., 2025; Wang et al., 2025; Cui et al., 2025; Dong et al., 2025) has discovered that training with more diverse or high-entropy training data can further enhance training effectiveness. Compared to traditional entropy regularization, the above methods explicitly increase the proportion of low-probability (i.e., high-entropy) tokens in the training data. In our work, we address the mode-collapse problem by fundamentally shifting from reward maximization to reward distribution matching in our RL formulation. See Appendix E for detailed comparisons.",
+        "bbox": [
+            169,
+            743,
+            826,
+            926
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "page_number",
+        "text": "8",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "table",
+        "img_path": "images/ce638eb831e2850233bd90a88c826d9ab95dc3a8b3708ecfe2fa9118db6026d9.jpg",
+        "table_caption": [
+            "Table 4: Case study comparing GRPO and FlowRL rollouts on an AIME problem. GRPO exhibits repetitive patterns (AM-GM ×3, identity loops ×2), while FlowRL follows a more diverse solution path."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td></td><td colspan=\"2\">Content (boxed = actions; “×k” = repeated; “...” = omitted)</td></tr><tr><td>Question</td><td colspan=\"2\">Let  $\\mathcal{B}$  be the set of rectangular boxes with surface area 54 and volume 23. Let r be the radius of the smallest sphere that can contain each box in  $\\mathcal{B}$ . If  $r^2 = \\frac{p}{q}$  with gcd(p, q) = 1, find p + q.</td></tr><tr><td>GRPO</td><td colspan=\"2\">“... denote a, b, c ...  $2(ab+bc+ca) = 54, abc = 23$  ...  $d = \\sqrt{a^2 + b^2 + c^2}, r = d/2$  ...  $(a+b+c)^2 = a^2 + b^2 + c^2 + 2(ab+bc+ca)$  ... AM-GM ×3: AM-GM (1) ... AM-GM (2) ... AM-GM (3) ...  $(a+b+c)^3$  identity loop ×2: loop (1) ... loop (2) ... a = b = c (contradiction) ... back to  $(a+b+c)^2$  ... no factorization ...”</td></tr><tr><td>FlowRL</td><td colspan=\"2\">“... let a, b, c with  $2(ab+bc+ca) = 54, abc = 23$  ...  $d = \\sqrt{a^2 + b^2 + c^2}, r = d/2$  ...  $(a+b+c)^2 \\Rightarrow a^2 + b^2 + c^2 = s^2 - 54$  ... a = b ...  $a^3 - 27a + 46 = 0$  ... rational root a = 2 ... factor  $(a-2)(a^2 + 2a - 23)$  ... branch a = -1 + 2√6 ... back-sub  $c = 23/a^2$  ...  $a^2 + b^2 + c^2 = \\frac{657}{16}$  ...  $r^2 = \\frac{657}{64}$  ... Answer 721 ...”</td></tr></table>",
+        "bbox": [
+            176,
+            160,
+            820,
+            436
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            467,
+            825,
+            497
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "GFlowNets. GFlowNets (Bengio et al., 2023a) represent a class of diversity-driven algorithms designed to balance probability flows across states. They have rich connections to probabilistic modeling methods (Zhang et al., 2022a;b; 2024a; Zimmermann et al., 2022; Malkin et al., 2023; Ma et al.), and control methods (Pan et al., 2023b;c;d; Zhang et al., 2024b; Tiapkin et al., 2024). This advantage has enabled GFlowNets to achieve successful applications in multiple downstream tasks, such as molecular drug discovery (Jain et al., 2022; 2023b; Liu et al., 2022; Jain et al., 2023a; Shen et al., 2023; Pan et al., 2023a; Kim et al., 2023; 2024), phylogenetic inference (Zhou et al., 2024), and combinatorial optimization (Zhang et al., 2023a;b). For generative AI, GFlowNets provide a powerful approach to align pretrained models in scenarios such as image generation (Zhang et al., 2025a; Yun et al., 2025) and language model fine-tuning (Hu et al., 2024; Yu et al., 2025a; Lee et al., 2024). Another line of work primarily focuses on the theoretical aspects of GFlowNets. Recent theoretical studies have interpreted GFlowNets as solving a maximum entropy reinforcement learning problem within a modified Markov Decision Process (MDP) (Tiapkin et al., 2024; Deleu et al., 2024; Mohammadpour et al., 2024). These theoretical contributions have inspired us to enhance reinforcement learning from a more foundational standpoint using GFlowNets principles. A comprehensive overview of GFlowNets theory can be found in Appendix C.",
+        "bbox": [
+            169,
+            515,
+            826,
+            739
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Flow-Matching Policies. Flow matching simplifies diffusion-based approaches by learning vector fields that transport samples from prior to target distributions (Lipman et al., 2023). Recent work has explored flow matching for policy optimization. McAllister et al. (2025) reformulates policy optimization using advantage-weighted ratios from conditional flow matching loss, enabling flowbased policy training without expensive likelihood computations. Pfrommer et al. (2025) explored reward-weighted flow matching for improving policies beyond demonstration performance. Park et al. (2025) uses a separate one-step policy to avoid unstable backpropagation through time when training flow policies with RL. Zhang et al. (2025a) proposed a combined loss function integrating PPO and GFlowNets to optimize diffusion model alignment. Lv et al. (2025) integrates flow-based policy representation with Wasserstein regularized optimization for online reinforcement learning. However, these approaches focus on continuous control, image generation, or vision-action models, rather than addressing mode-collapse limitations in reward-maximizing RL. Inspired by flow matching principles, our work improves upon RL training to enhance training stability while promoting diverse solution exploration.",
+        "bbox": [
+            169,
+            757,
+            826,
+            926
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "page_number",
+        "text": "9",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            104,
+            825,
+            133
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "8 CONCLUSION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            154,
+            321,
+            169
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "In this work, we introduce FlowRL, which transforms scalar rewards into normalized target distributions using a learnable partition function and minimizes the reverse KL divergence between the policy and target distribution. We demonstrate that this approach is theoretically equivalent to trajectory balance objectives from GFlowNets and implicitly maximizes both reward and entropy, thereby promoting diverse reasoning trajectories. To further address gradient explosion and sampling mismatch issues in long CoT reasoning, we incorporate importance sampling and length normalization. Through experiments on math and code reasoning benchmarks, FlowRL achieves consistent improvements across all tasks compared to GRPO and PPO. Our diversity analysis and case studies confirm that FlowRL generates more varied solution approaches while avoiding repetitive patterns.",
+        "bbox": [
+            169,
+            186,
+            826,
+            314
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "ACKNOWLEDGEMENT",
+        "text_level": 2,
+        "bbox": [
+            171,
+            334,
+            359,
+            349
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "This work is sponsored by the National Key Research and Development Program of China (No. 2023ZD0121402) and the National Natural Science Foundation of China (NSFC) grant (No. 62576211). We are grateful to Mingqian Feng and Yuetai Li for their valuable discussions and feedback, which helped improve the quality of this work.",
+        "bbox": [
+            169,
+            366,
+            825,
+            424
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "ETHICS STATEMENT",
+        "text_level": 2,
+        "bbox": [
+            171,
+            444,
+            346,
+            460
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "This work presents FlowRL, a reinforcement learning algorithm for improving reasoning in large language models. Our focus on mathematical and logical problem-solving directly supports beneficial applications in education, scientific research, and decision-support systems. We use established public benchmarks to ensure transparent and unbiased evaluation, and minimize computational waste through efficient configurations, demonstrating our commitment to environmentally conscious and reproducible research.",
+        "bbox": [
+            169,
+            476,
+            826,
+            561
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "REPRODUCIBILITY STATEMENT",
+        "text_level": 2,
+        "bbox": [
+            171,
+            582,
+            439,
+            598
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "We provide comprehensive details to ensure reproducibility: implementation specifics in Section 4 (model architectures, training configurations, hyperparameters), complete algorithmic formulation in Eq. 6, experimental setup covering datasets and evaluation benchmarks, baseline implementations following official veRL recipes, and evaluation methodology. All mathematical formulations, implementation details, and experimental configurations necessary for reproduction are included in the paper.",
+        "bbox": [
+            169,
+            614,
+            826,
+            700
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "REFERENCES",
+        "text_level": 2,
+        "bbox": [
+            173,
+            720,
+            287,
+            736
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "ref_text",
+        "text": "Zafarali Ahmed, Nicolas Le Roux, Mohammad Norouzi, and Dale Schuurmans. Understanding the impact of entropy on policy optimization. In International conference on machine learning, pp. 151–160. PMLR, 2019.",
+        "bbox": [
+            173,
+            744,
+            823,
+            786
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "ref_text",
+        "text": "Mohammad Gheshlaghi Azar, Zhaohan Daniel Guo, Bilal Piot, Remi Munos, Mark Rowland, Michal Valko, and Daniele Calandriello. A general theoretical paradigm to understand learning from human preferences. In International Conference on Artificial Intelligence and Statistics, pp. 4447–4455. PMLR, 2024.",
+        "bbox": [
+            174,
+            799,
+            823,
+            854
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "ref_text",
+        "text": "Brian R Bartoldson, Siddarth Venkatraman, James Diffenderfer, Moksh Jain, Tal Ben-Nun, Seanie Lee, Minsu Kim, Johan Obando-Ceron, Yoshua Bengio, and Bhavya Kailkhura. Trajectory balance with asynchrony: Decoupling exploration and learning for fast, scalable llm post-training. arXiv preprint arXiv:2503.18929, 2025.",
+        "bbox": [
+            174,
+            867,
+            823,
+            922
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "page_number",
+        "text": "10",
+        "bbox": [
+            490,
+            948,
+            509,
+            960
+        ],
+        "page_idx": 9
+    }
+]

@@ -1,0 +1,10 @@
+Given Topic:
+This study addresses few-shot class-incremental learning on resource-constrained edge devices, where models must continuously recognize novel categories from scarce labeled data without forgetting previously acquired knowledge. Existing methods predominantly depend on large-scale conventional architectures that exceed on-device memory and power budgets, while their reliance on abundant training data conflicts with real-world privacy constraints and limited storage. Consequently, catastrophic forgetting during incremental updates and overfitting under few-shot supervision remain unresolved. Although event-driven neural paradigms offer energy-efficient computation and neuromorphic hardware compatibility, their deployment in dynamic incremental scenarios is hindered by non-differentiable activation constraints and the lack of mechanisms to balance representational stability with plasticity under severe resource limitations.
+
+Given Inspiration:
+1. Biological homeostatic plasticity suggests that heterogeneous populations of neurons can simultaneously maintain stable representations and undergo selective adaptation to new stimuli.
+2. Sparse spike coding indicates that restricting synaptic updates through controlled neuronal excitability can inherently preserve existing knowledge traces.
+3. The non-differentiable nature of discrete spike events motivates signal approximation through gradient-free perturbation methods rather than continuous relaxation.
+4. Few-shot prototype estimators inherently exhibit distributional bias toward abundant base classes, requiring geometric adjustment in embedding space.
+5. Subspace geometry principles suggest that aligning novel concepts with orthogonal bases derived from prior knowledge can enhance discriminability without network expansion.
+6. Functional specialization of neuronal firing dynamics in biological visual systems implies that modulating intrinsic excitability thresholds could regulate plasticity more efficiently than structural connectivity changes.

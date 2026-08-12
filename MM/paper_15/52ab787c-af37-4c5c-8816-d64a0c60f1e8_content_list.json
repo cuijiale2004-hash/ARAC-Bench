@@ -1,0 +1,1328 @@
+[
+    {
+        "type": "text",
+        "text": "ABSTRACT",
+        "text_level": 2,
+        "bbox": [
+            450,
+            287,
+            547,
+            303
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Precisely evaluating video understanding models remains challenging: commonly used metrics such as BLEU, ROUGE, and BERTScore fail to capture the nuances of human judgment, while obtaining such judgments through manual evaluation is costly. Recent work has explored using large language models (LLMs) or multimodal LLMs (MLLMs) as evaluators, but their extension to video understanding remains relatively unexplored. In this work, we introduce VideoJudge, a 3B and 7B-sized MLLM judge specialized to evaluate outputs from video understanding models (i.e., text responses conditioned on videos). To train VideoJudge, our recipe builds on the interplay between a generator and an evaluator: the generator is prompted to produce responses conditioned on a target rating, and responses not matching the evaluator’s rating are discarded. Across three out of four meta-evaluation benchmarks, VideoJudge-7B outperforms or is on par with larger MLLM judge baselines such as Qwen2.5-VL (32B and 72B). Notably, we find that LLM judges (Qwen3) models perform worse than MLLM judges (Qwen2.5-VL), and long chain-of-thought reasoning does not improve performance, indicating that providing video inputs is crucial for the evaluation of video understanding tasks.",
+        "bbox": [
+            210,
+            321,
+            785,
+            546
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "1 INTRODUCTION",
+        "text_level": 2,
+        "bbox": [
+            174,
+            578,
+            338,
+            593
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Recent advances in multimodal large language models (MLLMs) have significantly improved video captioning, question answering, and long-form video understanding across various domains (Nguyen et al., 2024). However, their progress poses a critical challenge: how to evaluate their outputs with reliability, interpretability, and at scale? Traditional reference-based metrics such as BLEU, ROUGE (Lin, 2004), and BERTScore (Zhang et al., 2020) struggle to capture semantic fidelity, contextual grounding, or task-specific reasoning. Moreover, in open-ended tasks where multiple valid answers exist, simple reference overlap can be misleading. Human evaluation is often considered the gold standard, but is expensive, slow to scale, and suffers from inter-annotator variability (Liang et al., 2025). A promising alternative is LLM-as-a-Judge. By prompting or finetuning language models to assess responses, this paradigm has improved evaluation in text generation (Zheng et al., 2023; Kim et al., 2024a; Gu et al., 2025; Li et al., 2024b) and more recently in vision–language tasks via MLLM-as-a-Judge (Chen et al., 2024a; Xiong et al., 2025; Lee et al., 2024b).",
+        "bbox": [
+            169,
+            611,
+            826,
+            792
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Applying MLLM-as-a-judge to video understanding remains underexplored, largely due to the temporal and multimodal complexity of the video. Beyond this inherent difficulty, two broader limitations persist. First, the field lacks large-scale evaluation resources: there are no comprehensive datasets with human preference signals or standardized benchmarks for verifying alignment with human judgments. As a result, existing work either relies on proprietary models such as GPT-4 or GPT-4o (Pu et al., 2025a), which lack transparency and reproducibility, or on small open-source MLLMs in zero-shot settings, which fall short of human-level reliability. Second, principled evaluation criteria are missing. Current (M)LLM-as-a-judge methods depend either on generic rubrics, which are often vague and brittle, or on manually authored rubrics, which cannot scale across tasks.",
+        "bbox": [
+            169,
+            799,
+            826,
+            925
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_number",
+        "text": "1",
+        "bbox": [
+            493,
+            948,
+            503,
+            959
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "To address this gap, we introduce a framework to bootstrap data to train video understanding evaluators. The framework has two key pillars. First, it automatically generates training data by producing candidate responses across a 1–5 rating scale, validating them with an evaluator model, and refining cases where predicted ratings diverge from expectations. These bootstrapped examples are then used to train both pointwise and pairwise judge models. Second, the same process enables the construction of new pointwise and pairwise meta-evaluation benchmarks, providing large-scale, highquality resources for systematic comparison. For evaluation, video–instruction pairs are sourced from datasets distinct from those used in training to avoid distribution overlap. In this way, our approach eliminates the need for costly human annotation while yielding both robust training data and standardized evaluation suites. Beyond these bootstrapped benchmarks, we evaluate our judge models on existing independent, human-annotated benchmarks in both pointwise and pairwise settings, demonstrating that trained judge models learn generalizable evaluation capabilities that align with human judgment rather than merely fitting to the preferences of the generator-evaluator pipeline.",
+        "bbox": [
+            169,
+            104,
+            826,
+            287
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Further, we train MLLM judge models not only to predict ratings with explanations, but also to generate instance-specific rubrics at test time. This enables fine-grained evaluation that is both interpretable and anchored in explicit evaluation guidelines. Experiments in both pointwise and pairwise settings show that our models match or surpass much larger models while correlating more strongly with human ratings and demonstrating higher sample efficiency.",
+        "bbox": [
+            169,
+            291,
+            826,
+            363
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "In summary, our contributions are:",
+        "bbox": [
+            171,
+            368,
+            403,
+            383
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "• We introduce VideoJudge, the first bootstrapped framework for training scalable MLLMbased evaluators across diverse video understanding tasks.",
+        "bbox": [
+            197,
+            393,
+            823,
+            422
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "• Train judge models that can not only assign ratings but also generate high-quality, instancespecific rubrics at inference time.",
+        "bbox": [
+            197,
+            425,
+            823,
+            455
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "• We demonstrate that fine-tuned small models on the bootstrapped data can match or outperform much larger models in accuracy and alignment with human-specified ratings.",
+        "bbox": [
+            197,
+            458,
+            825,
+            488
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "• We provide a suite of trained pointwise and pairwise judge models, meta-evaluation benchmarks, bootstrapped datasets, and other artifacts to support reproducible research in video understanding evaluation.",
+        "bbox": [
+            197,
+            489,
+            825,
+            532
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "2 RELATED WORKS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            551,
+            357,
+            569
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Video Understanding Models and Evaluation Advances in large language models have led to the development of multimodal models that jointly process and generate outputs across text, image, audio, and video modalities (Bai et al., 2025b; Chen et al., 2024c; Wu et al., 2024b; Xu et al., 2025; Zhao et al., 2025; Chen et al., 2025; Wu et al., 2025). A growing line of work explores video understanding specifically, either by pre-training multimodal models with video–text corpora (Zhang et al., 2024b; 2023; Cheng et al., 2024; Zhang et al., 2025a; Wang et al., 2025) or by instructiontuning to align video representations with downstream tasks (Zhang et al., 2024c;a). These models are often evaluated using conventional, automatic metrics such as BLEU (Papineni et al., 2002), ROUGE (Lin, 2004), and BERTScore (Zhang et al., 2020), which all assume the existence of reference answers. Human evaluation is also widely used, but it is costly and inconsistent. These limitations motivate more principled automatic and semi-automatic approaches.",
+        "bbox": [
+            169,
+            584,
+            826,
+            738
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "LLM-as-Judge An alternative paradigm for evaluation uses LLMs themselves as evaluators. Several works have investigated the viability of prompting powerful models such as GPT-4 to act as judges on text generation tasks (Zheng et al., 2023; Liu et al., 2023; Ye et al., 2023; Kim et al., 2025a). Beyond prompting, other efforts fine-tune open-weight models such as Llama-2 (Touvron et al., 2023) and Mistral (Jiang et al., 2023) to serve as reliable evaluators by distilling from GPT-4’s assessment trajectories (Kim et al., 2023; 2024b; 2025a). More recently, researchers have extended this line of work to multimodal settings. For example, Chen et al. (2024b) examines whether multimodal LLMs can act as reliable judges, while Lee et al. (2024a) explores fine-tuning openweight models such as LLaVA-1.5 (Liu et al., 2024) to mimic the evaluation capability of proprietary MLLMs. Similarly, He et al. (2024) and Ku et al. (2024) investigate the use of MLLMs as judges for text-to-image and text-to-video tasks. Together, these works highlight the promise of LLM-as-a-Judge for scalable evaluation, while underscoring the need to further test its robustness in video understanding.",
+        "bbox": [
+            169,
+            744,
+            826,
+            925
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "page_number",
+        "text": "2",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "3 METHODOLOGY",
+        "text_level": 2,
+        "bbox": [
+            171,
+            102,
+            344,
+            118
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Our bootstrapping framework consists of a generator–evaluator pipeline that jointly synthesizes data and enforces quality control. The design draws inspiration from self-refinement approaches, where self-consistency (Mitchell et al., 2022; Wang et al., 2023; Chen et al., 2023) and selfverification (Weng et al., 2023) enhance LLM performance, and models adapt through verbal feedback (Madaan et al., 2023). Our overall framework has two stages: (1) iterative bootstrapping to construct large-scale, fine-grained training data, and (2) fine-tuning judge models which are evaluated under both pointwise and pairwise settings. The proposed framework is shown in Figure 1.",
+        "bbox": [
+            169,
+            133,
+            826,
+            233
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "image",
+        "img_path": "images/8e4214f85aeba39ca69294c1f9307fc769695ae4cbd7510cdf33489c6ac28d17.jpg",
+        "image_caption": [
+            "Figure 1: Overview of our bootstrapping framework for training scalable video understanding evaluators. A generator first produces candidate responses for a 1 to N−1 rating scale $( N = 5 )$ for each video–instruction pair. These responses are then scored by an evaluator, and only candidates whose ratings align with expectations are retained. Through an iterative refinement loop, mismatched responses are revised until they satisfy the acceptance criterion. The resulting bootstrapped dataset provides high-quality supervision signals, which we use to fine-tune small VideoJudge models."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            174,
+            241,
+            823,
+            452
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "3.1 BOOTSTRAPPING PROCESS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            571,
+            403,
+            587
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "We begin with seed data sourced from three large-scale video instruction–response datasets: VideoInstruct-100K (Muhammad Maaz & Khan, 2023), VCG-Plus-112K (Maaz et al., 2024), and VideoChat2-IT (Li et al., 2023). For VideoChat2-IT, which contains multi-turn dialogues, we retain only the first human–assistant exchange. The three corpora are merged and de-duplicated at the instruction level for each video using a MINHASHLSH index (128 permutations, Jaccard threshold 0.9). From this de-duplicated pool, we randomly sample 25K examples, resulting in a corpus of triplets $( v , x , y )$ , where v denotes the video, x the instruction, and y the gold-standard response. During bootstrapping, we generate dense video descriptions v˜ using strong vision-language models (§A.2) and use them as semantic context for both the generator and evaluator. This provides richer grounding while reducing the need for repeated inference over raw video, making the pipeline more cost efficient.",
+        "bbox": [
+            169,
+            599,
+            826,
+            753
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "To transform this seed corpus into a training dataset for the evaluator, we iteratively generate and refine candidate responses for each $( \\tilde { v } , x , y ^ { * } )$ triplet. The process follows three stages: Initial Generation, Feedback, and Refinement, described formally below.",
+        "bbox": [
+            169,
+            758,
+            825,
+            801
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Initial Generation: For each instruction–video pair $( x , \\tilde { v } )$ with gold response $y ^ { * }$ , a generator model G produces $N - 1$ candidate responses, each intended to correspond to a rating $r \\in \\{ 1 , \\ldots , N - 1 \\}$ as shown in 1. The gold response $y ^ { * }$ is included as the highest-rated response with rating N.",
+        "bbox": [
+            169,
+            806,
+            823,
+            851
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\ny _ {0} ^ {(r)} = G (p _ {\\text { gen }} \\| \\tilde {v} \\| x \\| y ^ {*}, r).\\tag{1}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            406,
+            856,
+            588,
+            876
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Feedback: Each candidate response $y _ { t } ^ { ( r ) }$ is evaluated by an evaluator model $E ,$ which assigns a rating rˆ and provides reasoning $f _ { t } ^ { ( r ) }$ . We then compute the deviation between the intended rating r and the evaluator’s rating $\\hat { r }$ to determine whether the candidate should be accepted or refined. Candidates for which $\\Delta _ { t } ^ { ( r ) } \\leq$ α are accepted directly into the dataset. The evaluation process can be formalized as:",
+        "bbox": [
+            169,
+            891,
+            825,
+            925
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "page_number",
+        "text": "3",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            104,
+            825,
+            150
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\hat {r}, f _ {t} ^ {(r)} = E (p _ {\\mathrm{eval}} \\| \\tilde {v} \\| x \\| y ^ {*} \\| y _ {t} ^ {(r)})\\tag{2}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            220,
+            166,
+            437,
+            186
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\Delta_ {t} ^ {(r)} = | \\boldsymbol {r} - \\hat {\\boldsymbol {r}} |\\tag{3}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            614,
+            166,
+            718,
+            186
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Refinement: For candidates with a rating deviation $\\Delta _ { t } ^ { ( r ) } > \\alpha$ , the generator is prompted again using the evaluator’s feedback to improve the response. This iterative refinement continues until the candidate meets the acceptance criterion or a maximum of $T$ iterations is reached.The refinement step is formalized as:",
+        "bbox": [
+            169,
+            194,
+            826,
+            252
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\ny _ {t + 1} ^ {(r)} = G (p _ {\\mathrm{ref}} \\| \\tilde {v} \\| x \\| y ^ {*} \\| y _ {t} ^ {(r)} \\| f _ {t} ^ {(r)}, r)\\tag{4}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            372,
+            272,
+            622,
+            294
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Acceptance Criterion: A candidate response $y _ { t } ^ { ( r ) }$ is added to the bootstrapped dataset $\\operatorname { i f } \\left| r - { \\hat { r } } \\right| \\leq \\alpha$ The final dataset, therefore, consists of $\\{ ( v , x , \\dot { y } , r ) \\}$ triplets with aligned ratings.",
+        "bbox": [
+            169,
+            311,
+            823,
+            344
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "The complete process is outlined in Algorithm 1. Using this pipeline, we bootstrap pointwise data with $N = 5 ,$ , where each instruction is paired with five responses rated from 5 to 1. Representative examples are shown in Table 6 in Appendix A.4.",
+        "bbox": [
+            169,
+            349,
+            825,
+            392
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3.2 MODEL TRAINING",
+        "text_level": 2,
+        "bbox": [
+            171,
+            411,
+            346,
+            426
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "We use the bootstrapped dataset to train pointwise and pairwise evaluator models. The dataset is defined as $\\mathcal { D } = \\{ ( v _ { i } , x _ { i } , y _ { i } , t _ { i } ) \\} _ { i = 1 } ^ { M }$ , where $v _ { i }$ denotes the video, x the instruction, $y _ { i }$ a candidate response (or a response pair in the pairwise setting), and $t _ { i }$ the associated target annotation, such as a rating or a preference label. The evaluator model is trained end-to-end to autoregressively generate the target sequence $t _ { i }$ conditioned on $( v _ { i } , x _ { i } , y _ { i } )$ , with the standard negative log-likelihood over tokens:",
+        "bbox": [
+            169,
+            439,
+            825,
+            523
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathcal {L} (\\theta) = - \\frac {1}{M} \\sum_ {i = 1} ^ {M} \\sum_ {j = 1} ^ {| t _ {i} |} \\log P _ {\\theta} \\left(t _ {i, j} \\mid t _ {i, <   j}, v _ {i}, x _ {i}, y _ {i}\\right),\n$$",
+        "text_format": "latex",
+        "bbox": [
+            328,
+            525,
+            666,
+            568
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "where $t _ { i , j }$ denotes the j-th token of $t _ { i } .$ . This loss is applied to both pointwise and pairwise models. In the pointwise setting, the model produces intermediate reasoning within <thinking></thinking> followed by a scalar rating in <score></score>, and it can optionally generate task-specific rubrics in $< \\mathtt { r u b r i c > < / r u b r i c > }$ before reasoning and evaluation. In the pairwise setting, the model outputs its decision within <answer></answer> based on a pair of candidate responses.",
+        "bbox": [
+            169,
+            577,
+            826,
+            662
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "4 EXPERIMENTS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            685,
+            328,
+            700
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "We bootstrap pointwise data starting from 25K seed video instruction-response pairs. After the bootstrapping process, we retain only instructions with at least five responses (one for each rating), resulting in 103,825 examples across 20,765 unique video–instruction pairs.",
+        "bbox": [
+            169,
+            719,
+            825,
+            763
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "We construct pairwise supervision by forming response pairs where the higher-rated output is chosen as preferred. Due to computational limitations and while keeping the setting identical, we randomly sample 50% of all possible pairs, resulting in 103,825 pairwise training examples. Both pointwise and pairwise judge models are trained on these bootstrapped datasets. In the pointwise setting, the model takes a video, instruction, and candidate response as input, and is trained to produce a reasoning trace followed by a score. We further train a judge model to first generate an instruction-specific evaluation rubric, which is then applied when scoring, ensuring that evaluations are grounded in context-specific criteria. In the pairwise setting, each instruction is paired with two candidate responses<sup>1</sup>, and the model is trained to identify the preferred response.",
+        "bbox": [
+            169,
+            768,
+            826,
+            895
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "page_footnote",
+        "text": "<sup>1</sup>To avoid positional bias, the order of responses is randomized during both training and evaluation.",
+        "bbox": [
+            191,
+            909,
+            779,
+            924
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "page_number",
+        "text": "4",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "4.1 BASELINES",
+        "text_level": 2,
+        "bbox": [
+            171,
+            104,
+            295,
+            118
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "We evaluate a broad range of models, including unimodal language models and multimodal videolanguage models, to evaluate their ability as judges. Unimodal models are tested using detailed video descriptions (§A.2) as proxies for visual input, while video models directly process the video content. This setup allows us to compare how different model classes handle the judging task.",
+        "bbox": [
+            169,
+            130,
+            826,
+            189
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Unimodal Models Each unimodal model is provided with the description, instruction, and candidate response, and is prompted to generate a reasoning trace followed by a score. We consider Qwen3 (Yang et al., 2025a) family of models from 0.6B to 14B, and also enable the “thinking mode” of smaller models (up to 4B) to test whether extended reasoning sequences enhance judging ability (Chan et al., 2025; Kim et al., 2025b; Zhou et al., 2025).",
+        "bbox": [
+            169,
+            194,
+            826,
+            265
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Video Models We evaluate Qwen2.5-VL(3B–72B) (Bai et al., 2025a) along with other recent video–language models, including LLaVA-Next (7B) (Zhang et al., 2024b), VideoR1 (7B) (Feng et al., 2025), and LLaVA-OneVision (Li et al., 2024a). In our preliminary experiments we find that several models—such as VideoLLaMA3-7B (Zhang et al., 2025b), VideoChat-Flash (Li et al., 2024d), Keye-VL (Yang et al., 2025b), and SmolVLM2 (Marafioti et al., 2025) often failed to follow instructions or produce valid scores under the same evaluation setup. Consequently, we exclude them from our main results.",
+        "bbox": [
+            169,
+            270,
+            826,
+            369
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "4.2 EVALUATION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            387,
+            308,
+            402
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Pointwise Each video–instruction–response triplet is evaluated independently, with the model producing a reasoning trace followed by a rating on a 1–5 scale. We construct two meta-evaluation benchmarks, VideoJudgeLLaVA-MetaEval and VideoJudgeVCG-MetaEval, by sourcing seed instruction data from LLaVA-Video (Zhang et al., 2024c) and VideoChatGPT <sup>2</sup>, then generating additional responses via our bootstrapping pipeline (Algorithm 1) with threshold 0. We report correlation and error metrics, as well as divergence error. We further evaluate on Vatex-Eval (Shi et al., 2022), which contains multiple human judgments aggregated into continuous ground-truth scores, emphasizing ranking- and separation-based measures to capture preference consistency. We also use LongVideoBench (Wu et al., 2024a) for long-form multiple-choice evaluation by rating correct versus distractor answers, reporting both the average score gap (Delta) and pairwise superiority.",
+        "bbox": [
+            169,
+            414,
+            826,
+            556
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Pairwise The judge models compare two candidate responses for the same video–instruction and select the preferred one. We use VideoAutoArena (Luo et al., 2025), where human preferences serve as ground truth. From our pointwise evaluation data, we also construct VideoJudge-Pairwise by pairing responses with different ratings and treating the higher-rated response as correct, measuring accuracy against this derived ground truth. To probe more subtle distinctions, we create VideoJudge-Pairwise-H, focusing on challenging 2-vs.-3 cases: we sample 250 such pairs, collect annotations from two human evaluators, and retain only those with full agreement, yielding over 200 pairs with human preference ground truth. We report the accuracy score for all pairwise evaluations.",
+        "bbox": [
+            169,
+            571,
+            826,
+            685
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Experimental Setup All models are trained and evaluated under identical hyperparameter settings to ensure fairness. We perform full fine-tuning in BF16 precision with a maximum sequence length of 128K tokens with fps rate of 1 with maximum number of frames 60 for training and 180 during evaluation. We train all models for 2 epochs with a batch size of 16. The learning rate is set to $2 \\times 1 0 ^ { - 7 }$ with cosine decay, a warmup ratio of 0.03, weight decay of 0, and gradient clipping at 1. We provide key hyperparameters and other implementation details in Appendix A.7",
+        "bbox": [
+            169,
+            700,
+            826,
+            785
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "5 DATA EVALUATION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            806,
+            367,
+            823
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "We evaluate the bootstrapped data to ensure the quality and that it provides meaningful and reliable supervision. Our data evaluation has two parts: automatic checks to assess the relative quality of the responses, and human evaluation to validate correctness and preference alignment. Together, these evaluations confirm that the generated data is of sufficient quality for training and benchmarking.",
+        "bbox": [
+            169,
+            839,
+            826,
+            898
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "page_footnote",
+        "text": "<sup>2</sup>https://huggingface.co/datasets/lmms-lab/VideoChatGPT",
+        "bbox": [
+            191,
+            909,
+            671,
+            924
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "page_number",
+        "text": "5",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "5.1 AUTOMATIC EVALUATION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            104,
+            398,
+            118
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "During our bootstrapping process, we prompt the generator model to produce candidate responses for different ratings by progressively degrading the quality according to the specified score. A natural proxy to verify that the generated dataset adheres to this design is to assess whether response quality indeed declines as we move from higher to lower ratings. To this end, we compute BERTScore and BLEU using the gold response as reference and the generated candidates (ratings 4–1) as hypotheses. The results presented in Figure 2, show a clear monotonic degradation: BERTScore decreases from 91.1 (5– 4) to 86.9 (5–1), while BLEU drops from 11.0 to 3.0. This consistent downward",
+        "bbox": [
+            169,
+            130,
+            454,
+            366
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "chart",
+        "img_path": "images/e2411769a5e074aa5b1a430146b50ac1d2a104da03abb178b4d807ae94ca49bd.jpg",
+        "content": "",
+        "chart_caption": [
+            "Figure 2: Comparison of BERTScore (left axis, blue) and BLEU (right axis, orange) across rating pairs. BERTScore remains consistently high while BLEU drops sharply with larger rating gaps."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            511,
+            148,
+            769,
+            294
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "trend shows that the generator reliably produces responses of progressively lower quality, validating the effectiveness of our controlled response generation process. To further incorporate video context into the evaluation, we also calculate VQAScore (Lin et al., 2024) (§ A.5) with results shown in Figure 16 and observe similar trend.",
+        "bbox": [
+            169,
+            364,
+            826,
+            422
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "5.2 HUMAN EVALUATION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            439,
+            367,
+            454
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "We construct our pairwise data by sampling response pairs with different ratings for the same instruction, choosing the higher-rated one as preferred. In practice, we found that generator–evaluator disagreements were most frequent around ratings 2 and 3, even after incorporating the feedback loop. To focus on these harder cases, we restricted human evaluation to pairs with ratings 2 vs. 3. We sample 250 such examples, each containing the video, a detailed description, the instruction, and two candidate responses. We then ask two annotators to select the preferred response. Results are shown in Table 7. Agreement between annotators is high (94.8% with Cohen’s κ of 89.5), and both annotators achieved over 92% correctness relative to the gold preference. The preference distribution shows a mild bias toward response b, but error analysis indicates only 4.4% cases where both annotators agreed on the wrong response and 5.2% where they disagreed on a correct one. Overall, human evaluation validates that the generated pairwise data is consistent and reliable, even in the most ambiguous rating regions. We provide detailed metrics of our human evaluation study in Table 7 and examples in Table 8, Appendix A.6.",
+        "bbox": [
+            169,
+            465,
+            826,
+            647
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "6 RESULTS AND DISCUSSION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            667,
+            434,
+            683
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "We train Qwen2.5-VL (3B, 7B) models for both pointwise and pairwise evaluation under identical settings. We evaluate various baselines and our trained judge models across a suite of metaevaluation benchmarks. We report pointwise evaluation results in Table 1 and pairwise results in Table 3. Our findings show that bootstrapped supervision enables smaller models to reach, and in some cases surpass, the judgment reliability and accuracy of much larger (∼10×) general-purpose models. We discuss our findings in subsequent sections.",
+        "bbox": [
+            169,
+            699,
+            826,
+            784
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "6.1 POINTWISE EVALUATION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            800,
+            390,
+            814
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "We evaluate all models in the pointwise setup, where each system is required to produce a scalar score. We use the identical prompt decoding parameter across the different models. Unimodal models provide a useful reference point. Across Qwen3 variants, we find that performance on VideoJudgeLLaVA and VideoJudgeVCG is reasonably strong, but VATEX remains challenging with consistently high error and poor calibration. LongVideoBench is considerably more difficult. Although unimodal models achieve non-trivial PSup scores, the gap between correct and distractor responses remains small, suggesting that temporal dependencies are hard to capture from text-only signals. Thinking mode further improves the 0.6B model, showing that explicit reasoning steps are beneficial. However, enabling unimodal models to perform judgment requires high-quality, detailed descriptions, often generated by powerful models such as Qwen2.5-VL-72B or GPT-4o-mini. As a result, the computational cost of generating these descriptions should be accounted for when considering the overall efficiency of the approach.",
+        "bbox": [
+            169,
+            825,
+            826,
+            925
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "page_number",
+        "text": "6",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            104,
+            826,
+            175
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Video-language model baselines such as LLaVA-NeXT, OneVision, and Video-R1 perform competitively on VideoJudgeLLaVA and VideoJudgeVCG, achieving correlations in the 0.66–0.77 range with relatively low error values, on par with or better than several unimodal Qwen3 baselines. However, their performance degrades substantially on LongVideoBench, where both PSup and ∆(C–D) drop sharply (e.g., LLaVA-NeXT: 0.59 / 0.45, Video-R1: 0.60 / 0.54), underscoring the difficulty of long-context temporal reasoning. In contrast, the Qwen2.5-VL series scales more robustly: larger variants (32B, 72B) show consistent improvements across all four benchmarks, achieving higher correlations and stronger ∆(C–D) values on LongVideoBench.",
+        "bbox": [
+            169,
+            180,
+            826,
+            294
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Our trained VideoJudge models demonstrate consistently strong performance across most evaluation settings. On VideoJudgeLLaVA and VideoJudgeVCG, both VideoJudge-3B and VideoJudge-7B achieve correlations that not only match but in several cases surpass those of substantially larger baselines such as Qwen2.5-VL-32B/72B, while also outperforming post-trained baseline videolanguage systems including LLaVA-NeXT, OneVision, and Video-R1. Beyond short-context benchmarks, VATEX shows similar patterns: feedback-guided training reduces error and improves calibration, leading to more accurate and better-grounded predictions. The effect is even clearer on LongVideoBench, where many existing models degrade substantially, while VideoJudge maintains high PSup and ∆(C–D) scores. Together, these findings indicate that feedback supervision supports more consistent and temporally coherent evaluation, particularly for longer and more complex videos. Overall, rubric-supervised judges perform on par with or better than larger video-language models, while remaining comparatively scalable.",
+        "bbox": [
+            169,
+            299,
+            826,
+            468
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "table",
+        "img_path": "images/36fb2a232a0fd9f26a7296fb039cf1a5c21f02677250864765b2ccfbded9286f.jpg",
+        "table_caption": [
+            "Table 1: Benchmark results across VideoJudgeLLaVa, VideoJudgeVCG, VATEX, and LongVidB. Metrics: RMSE/MAE (error), S/P (Spearman/Pearson correlation), ECE (calibration), PSup/ ∆(C-D) (preference)."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td rowspan=\"2\" colspan=\"2\">Model</td><td colspan=\"4\">VideoJudgeLLaVa</td><td colspan=\"4\">VideoJudgeVCG</td><td colspan=\"2\">VATEX</td><td colspan=\"2\">LongVidB</td></tr><tr><td> $RMSE_{\\downarrow}$ </td><td> $MAE_{\\downarrow}$ </td><td> $S_{\\uparrow}$ </td><td> $P_{\\uparrow}$ </td><td> $RMSE_{\\downarrow}$ </td><td> $MAE_{\\downarrow}$ </td><td> $S_{\\uparrow}$ </td><td> $P_{\\uparrow}$ </td><td> $RMSE_{\\downarrow}$ </td><td> $ECE_{\\downarrow}$ </td><td> $PSup_{\\uparrow}$ </td><td> $\\Delta(C-D)_{\\uparrow}$ </td></tr><tr><td rowspan=\"5\">Unimodal</td><td>Qwen3-0.6B</td><td>1.20</td><td>0.92</td><td>0.64</td><td>0.63</td><td>1.20</td><td>0.92</td><td>0.66</td><td>0.65</td><td>1.44</td><td>0.84</td><td>0.58</td><td>0.17</td></tr><tr><td>Qwen3-1.7B</td><td>0.97</td><td>0.60</td><td>0.78</td><td>0.78</td><td>1.33</td><td>0.85</td><td>0.61</td><td>0.60</td><td>2.18</td><td>0.86</td><td>0.64</td><td>0.71</td></tr><tr><td>Qwen3-4B</td><td>0.96</td><td>0.61</td><td>0.72</td><td>0.74</td><td>1.22</td><td>0.79</td><td>0.58</td><td>0.59</td><td>2.42</td><td>0.97</td><td>0.67</td><td>0.69</td></tr><tr><td>Qwen3-8B</td><td>0.97</td><td>0.61</td><td>0.73</td><td>0.74</td><td>1.19</td><td>0.76</td><td>0.61</td><td>0.61</td><td>2.06</td><td>0.94</td><td>0.64</td><td>0.53</td></tr><tr><td>Qwen3-14B</td><td>1.09</td><td>0.65</td><td>0.69</td><td>0.69</td><td>1.29</td><td>0.83</td><td>0.58</td><td>0.58</td><td>2.38</td><td>0.96</td><td>0.63</td><td>0.57</td></tr><tr><td rowspan=\"3\">Unimodal (thinking)</td><td>Qwen3-0.6B</td><td>1.12</td><td>0.81</td><td>0.64</td><td>0.64</td><td>1.31</td><td>0.98</td><td>0.59</td><td>0.59</td><td>1.98</td><td>0.89</td><td>0.62</td><td>0.63</td></tr><tr><td>Qwen3-1.7B</td><td>1.00</td><td>0.70</td><td>0.73</td><td>0.75</td><td>1.34</td><td>0.94</td><td>0.56</td><td>0.58</td><td>1.99</td><td>0.82</td><td>0.65</td><td>0.86</td></tr><tr><td>Qwen3-4B</td><td>1.02</td><td>0.69</td><td>0.68</td><td>0.70</td><td>1.33</td><td>0.90</td><td>0.51</td><td>0.52</td><td>2.12</td><td>0.92</td><td>0.65</td><td>0.69</td></tr><tr><td rowspan=\"7\">Video Models</td><td>LLaVA-NeXT-7B</td><td>1.06</td><td>0.72</td><td>0.67</td><td>0.66</td><td>1.06</td><td>0.67</td><td>0.70</td><td>0.69</td><td>1.65</td><td>0.84</td><td>0.59</td><td>0.45</td></tr><tr><td>LLaVA-OneVision</td><td>1.01</td><td>0.71</td><td>0.77</td><td>0.75</td><td>1.00</td><td>0.69</td><td>0.77</td><td>0.76</td><td>1.52</td><td>0.78</td><td>0.64</td><td>0.83</td></tr><tr><td>Video-R1-7B</td><td>1.07</td><td>0.67</td><td>0.73</td><td>0.73</td><td>1.74</td><td>1.21</td><td>0.46</td><td>0.47</td><td>1.87</td><td>0.72</td><td>0.6</td><td>0.54</td></tr><tr><td>Qwen2.5-VL-3B</td><td>1.31</td><td>0.94</td><td>0.63</td><td>0.63</td><td>1.58</td><td>1.12</td><td>0.51</td><td>0.52</td><td>2.27</td><td>0.85</td><td>0.56</td><td>0.20</td></tr><tr><td>Qwen2.5-VL-7B</td><td>0.92</td><td>0.61</td><td>0.77</td><td>0.76</td><td>1.22</td><td>0.76</td><td>0.65</td><td>0.65</td><td>2.36</td><td>0.88</td><td>0.57</td><td>0.35</td></tr><tr><td>Qwen2.5-VL-32B</td><td>0.87</td><td>0.59</td><td>0.80</td><td>0.79</td><td>1.05</td><td>0.75</td><td>0.69</td><td>0.70</td><td>1.43</td><td>0.81</td><td>0.73</td><td>1.08</td></tr><tr><td>Qwen2.5-VL-72B</td><td>0.87</td><td>0.61</td><td>0.80</td><td>0.81</td><td>0.98</td><td>0.69</td><td>0.76</td><td>0.77</td><td>1.40</td><td>0.79</td><td>0.71</td><td>1.06</td></tr><tr><td rowspan=\"2\">Ours</td><td>VideoJudge-3B</td><td>1.07</td><td>0.61</td><td>0.82</td><td>0.82</td><td>1.59</td><td>1.06</td><td>0.59</td><td>0.63</td><td>1.33</td><td>0.63</td><td>0.61</td><td>0.70</td></tr><tr><td>VideoJudge-7B</td><td>0.96</td><td>0.52</td><td>0.78</td><td>0.80</td><td>1.20</td><td>0.72</td><td>0.74</td><td>0.76</td><td>1.46</td><td>0.64</td><td>0.66</td><td>1.16</td></tr></table>",
+        "bbox": [
+            218,
+            537,
+            774,
+            792
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Training Judge Models to Generate Instance-Specific Rubrics at Test Time In our setup, we first synthesize training rubrics and then train the model to (i) generate a rubric for each instance, (ii) reason with the rubric, and (iii) output an integer score. This approach enables scalable, rubric-driven evaluation tailored to individual examples. For computational feasibility, we train Qwen2.5-VL-3B on 10% of total pointwise data and evaluate on 1,000 examples sampled from VideoJudgeLLaVA and VideoJudgeVCG. We report the results in Table 2. The rubric generation prompt is shown in Figure 10, and the training/evaluation prompt is provided in Figure 12 in Appendix A.3.",
+        "bbox": [
+            169,
+            825,
+            826,
+            926
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "page_number",
+        "text": "7",
+        "bbox": [
+            493,
+            946,
+            504,
+            959
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Our results show that VideoJudgeR-3B, trained to generate instance-specific rubrics, substantially improves over the 3B and 7B baselines. It reduces error (MAE 0.59 vs. 1.15, RMSE 1.05 vs. 1.56) and achieves correlations above 73, comparable to the much larger 32B and 72B base models. This demonstrates that rubric-driven supervision can close most of the performance gap without scaling model size, yielding evaluations that are both more reliable and more interpretable.",
+        "bbox": [
+            169,
+            104,
+            826,
+            175
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Evaluating the Quality of Generated Rubrics While rubric-driven supervision improves model performance, it is also important to verify whether the rubrics themselves are meaningful and useful for evaluation. High-quality rubrics should specify explicit, context-specific criteria, whereas poor ones risk being vague or generic. To assess rubric quality, we use two methods: LLM-as-Judge, where GPT-4o-mini (temperature = 0) selects the better rubric between two candidates, and human evaluation, where 300 rubric pairs per model are judged by three annotators, with outcomes aggregated by unanimous (as shown in Figure 3) or majority vote (Figure 17). This dual setup measures alignment with both automated LLM judgments and human preferences.",
+        "bbox": [
+            169,
+            191,
+            519,
+            358
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "table",
+        "img_path": "images/d1a8ddda58a6dcd42b3ed259e12721d355598a19b0e0ffc1680e417146216ac8.jpg",
+        "table_caption": [
+            "Table 2: Divergence errors and correlation metrics (P = Pearson, S = Spearman) for zero-shot base models and the VideoJudgeR-3B model trained to generate instance-specific rubrics at test time. All models are prompted to produce rubrics together with reasoning and a score."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Model</td><td> $MAE_{\\downarrow}$ </td><td> $RMSE_{\\downarrow}$ </td><td> $P_{\\uparrow}$ </td><td> $S_{\\uparrow}$ </td></tr><tr><td>Qwen2.5-VL-3B</td><td>1.15</td><td>1.56</td><td>37.85</td><td>37.96</td></tr><tr><td>Qwen2.5-VL-7B</td><td>0.86</td><td>1.22</td><td>57.09</td><td>57.26</td></tr><tr><td>Qwen2.5-VL-32B</td><td>0.59</td><td>0.86</td><td>78.59</td><td>80.21</td></tr><tr><td>Qwen2.5-VL-72B</td><td>0.54</td><td>0.87</td><td>78.10</td><td>78.61</td></tr><tr><td>VideoJudgeR-3B</td><td>0.59</td><td>1.05</td><td>73.96</td><td>74.16</td></tr></table>",
+        "bbox": [
+            550,
+            262,
+            803,
+            342
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            357,
+            825,
+            386
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Our results show that VideoJudgeR-3B produces substantially higher-quality rubrics than the 3B, 7B, and 32B baselines across all settings, with large margins under both unanimous and majority human judgments and even stronger gains in LLM-as-Judge evaluation. Against stronger models, it remains competitive: in the LLM-as-Judge setup, VideoJudgeR-3B achieves a 92.7% win rate against GPT-4o-mini and 71.3% against Qwen-72B, consistently maintaining above 50% win rate across all evaluation settings. These findings demonstrate that instance-specific rubric generation enables a compact 3B model to outperform much larger models while producing rubrics preferred by",
+        "bbox": [
+            169,
+            392,
+            473,
+            614
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "chart",
+        "img_path": "images/e6cca0ceb0255555ec45b45ec3069965a0d0fd35ff426ef686c7c51e020459ad.jpg",
+        "content": "",
+        "chart_caption": [
+            "Figure 3: Win rates from human evaluations comparing VideoJudge-3B against other models."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            486,
+            397,
+            823,
+            565
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "both humans and strong LLM judges. We provide example rubrics generated by different models in Table 5 in Appendix A.3.2.",
+        "bbox": [
+            169,
+            614,
+            825,
+            643
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "6.2 PAIRWISE EVALUATION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            661,
+            380,
+            675
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "We next train and evaluate models in the pairwise setting, where the task is to prefer the better of two responses to the same video– instruction pair. This setup directly captures relative quality and aligns closely with human preference judgments. As before, we assess both base models and our trained VideoJudge models, with and without feedback, across VideoAutoArena (VAA), VideoJudge (VJ), and VideoJudge-Human (VJ-H). Results are summarized in Table 3. VideoJudge models consistently outperform their backbone",
+        "bbox": [
+            169,
+            686,
+            408,
+            909
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "table",
+        "img_path": "images/88d8ba2fdcc933349a53b10081b8a668f7486eadee05f771b5dd410f045e4231.jpg",
+        "table_caption": [
+            "Table 3: Accuracy scores (↑) of zero-shot base models and VideoJudge on pairwise meta-evaluation benchmarks. Abbreviations: VAA = VideoAutoArena, VJ = VideoJudge, VJ-H = VideoJudge-Human, w/ FB = with feedback, w/o FB = without feedback."
+        ],
+        "table_footnote": [
+            "baselines across all benchmarks. Notably, VideoJudge-3B achieves 94.0 on VJ and 89.45 on VJ-H"
+        ],
+        "table_body": "<table><tr><td rowspan=\"2\">Model</td><td colspan=\"2\">VAA</td><td colspan=\"2\">VJ</td><td colspan=\"2\">VJ-H</td></tr><tr><td>w/ FB</td><td>w/o FB</td><td>w/ FB</td><td>w/o FB</td><td>w/ FB</td><td>w/o FB</td></tr><tr><td>Qwen2.5-VL-3B</td><td>54.90</td><td>52.16</td><td>82.60</td><td>75.00</td><td>85.23</td><td>81.01</td></tr><tr><td>Qwen2.5-VL-7B</td><td>75.29</td><td>71.37</td><td>89.00</td><td>84.60</td><td>89.03</td><td>82.28</td></tr><tr><td>Qwen2.5-VL-32B</td><td>80.78</td><td>90.59</td><td>91.20</td><td>91.20</td><td>92.83</td><td>90.72</td></tr><tr><td>Qwen2.5-VL-72B</td><td>89.80</td><td>89.80</td><td>94.00</td><td>93.20</td><td>94.51</td><td>93.25</td></tr><tr><td>VideoJudge-3B</td><td>71.76</td><td>64.71</td><td>94.00</td><td>95.80</td><td>89.45</td><td>90.72</td></tr><tr><td>VideoJudge-7B</td><td>85.49</td><td>87.45</td><td>95.60</td><td>98.60</td><td>93.67</td><td>93.25</td></tr></table>",
+        "bbox": [
+            419,
+            748,
+            823,
+            890
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "page_number",
+        "text": "8",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "(w/ feedback), far surpassing Qwen2.5-VL-3B (82.6 / 85.23) and even outperforming much larger models such as Qwen2.5-VL-32B and 72B in several cases. VideoJudge-7B further improves performance, achieving 98.6 on VJ and 93.67 on VJ-H. These results highlight that our bootstrapping process enables smaller models to match or exceed the reliability of much larger video-language systems. Feedback consistently improves the 3B and 7B baselines. For larger models, however, the gains are smaller. In the VideoJudge variants, the effect is more mixed and depends on the benchmark.",
+        "bbox": [
+            169,
+            104,
+            826,
+            202
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "How Many Frames Are Enough for an Effective Video Judge We study the effect of maxframes on judgment performance, as it controls the temporal context available for evaluation. Too few frames risk omitting critical context, while excessively large values increase computation without proportional benefit. To analyze this tradeoff, we vary maxframes during training (30–500, evaluation fixed at 180; Figure 20a) and separately during evaluation (30–180, training fixed at 60; Figure 20b). This design isolates the role of temporal coverage in both training and inference.",
+        "bbox": [
+            169,
+            224,
+            826,
+            323
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "When varied during training, VideoJudge shows consistent gains from larger maxframes. Correlations with ground truth rating increase steadily up to ∼240 frames (exceeding 0.7), while RMSE and MAE decline. Beyond this point, improvements plateau, suggesting diminishing returns despite higher cost. In evaluation, increasing maxframes at inference improves correlation and reduces error up to ∼120 frames, after which performance saturates.",
+        "bbox": [
+            169,
+            328,
+            826,
+            400
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Overall, these results indicate that moderate to large temporal context is crucial for effective judgment. Training benefits from up to 240 frames, while at evaluation, modest values (around 120) suffice to capture most relevant evidence. Thus, carefully chosen maxframes can balance accuracy and efficiency, strengthening temporal grounding without unnecessary cost.",
+        "bbox": [
+            169,
+            404,
+            825,
+            464
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Decoding Temperature We study the effect of decoding temperature on sampling reliability, as it directly controls the trade-off between determinism and diversity. This is particularly important for evaluation models, where stochastic decoding can lead to inconsistent judgments.",
+        "bbox": [
+            169,
+            484,
+            517,
+            569
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Figure 4 (other metrics in Figure 19 in Appendix A.8) reports the pointwise performance of the base Qwen2.5-VL-3B and its VideoJudge-trained counterpart across different temperatures. The base model degrades steadily as temperature increases, with Spearman correlation dropping from 0.56 at T = 0.0 to 0.42 at $T = 1 . 0$ , alongside higher error rates and more invalid outputs. In contrast, the VideoJudge model remains stable and even improves at moderate to high temperatures, achieving a peak correlation of 0.73 and the lowest MAE of 0.69.",
+        "bbox": [
+            169,
+            574,
+            517,
+            729
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "chart",
+        "img_path": "images/1d8023e2df58906763f52488cef52a6f1efcdf10c4dc44c82b112e2f15bd3d9c.jpg",
+        "content": "",
+        "chart_caption": [
+            "Figure 4: Spearman correlation across temperatures for base and VideoJudge models."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            531,
+            503,
+            821,
+            705
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Overall, these results suggest that stochastic decoding introduces variability in judge model outputs, but rubric-guided training significantly improves robustness to temperature changes. This robustness is practically important, as non-deterministic decoding is often used to encourage diverse and wellcalibrated evaluations.",
+        "bbox": [
+            171,
+            734,
+            517,
+            763
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            761,
+            825,
+            804
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Error Analysis To better understand where VideoJudge fails, we analyze model evaluations and find a consistent overestimation bias. For example, our judge models overestimate the score by ≥2 points in about 14.8% of cases but underestimate by the same margin in only 1.5%. Calibration in the mid-to-high rating range is also poor: only 36.9% of rating-3 responses get the correct score, with 46.6% inflated to a perfect 5, and 81.3% of rating-4 responses are incorrectly rated as 5. Together, these findings point to the need for training data that emphasizes hard negatives and finer-grained distinctions near the top of the rating scale.",
+        "bbox": [
+            169,
+            825,
+            826,
+            925
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "page_number",
+        "text": "9",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "7 LIMITATIONS AND FUTURE WORK",
+        "text_level": 2,
+        "bbox": [
+            171,
+            103,
+            493,
+            118
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "While VideoJudge demonstrates strong performance across multiple benchmarks, both the training supervision and a portion of the meta-evaluation benchmarks are constructed using the same generator–evaluator pipeline, which can introduce partial “closed-loop” effects. Although we evaluate, to the best of our knowledge, on the available human-annotated benchmarks, fully independent large-scale pointwise meta-evaluation datasets for video understanding remain limited, constraining evaluation to a relatively small set of benchmarks. Expanding evaluation to larger and more diverse human-annotated datasets would further strengthen the reliability and generalizability of our conclusions. As detailed in our error analysis (§6.2), VideoJudge also exhibits a consistent overestimation bias and poor calibration in the mid-to-high rating range.",
+        "bbox": [
+            169,
+            133,
+            825,
+            258
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "Looking ahead, incorporating harder negatives and finer-grained supervision could directly address these calibration gaps, while broader coverage of specialized tasks and domain shifts would strengthen generalization. More broadly, the bootstrapping methodology introduced here is not specific to video understanding and could naturally extend to other multimodal settings where humanannotated evaluation data is scarce.",
+        "bbox": [
+            169,
+            265,
+            825,
+            335
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "8 CONCLUSION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            354,
+            320,
+            369
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "We introduce VideoJudge, a bootstrapping framework for training MLLM-based evaluators specialized for video understanding. Our approach addresses the lack of evaluation resources with human preference signals and principled evaluation criteria for video understanding. The core contribution lies in an iterative generator-evaluator pipeline that synthesizes training data and enforces quality control, creating over 100,000 training examples without costly human annotation. We then fine-tune judge models to generate both ratings and instance-specific rubrics at test time, enabling interpretable evaluations anchored in explicit criteria grounded in the specific instruction and video content. Our experiments demonstrate that fine-tuned 3B and 7B VideoJudge models match or outperform much larger baselines in accuracy and alignment with human ratings. VideoJudge-3B achieves comparable performance to models up to 10× larger, while VideoJudge-7B consistently outperforms larger video-language models across multiple benchmarks. VideoJudgeR-3B produces rubrics preferred by both human annotators and LLM judges while maintaining performance comparable to much larger base models. By releasing curated meta-evaluation benchmarks, bootstrapped datasets, and trained models, we provide essential resources for reproducible multimodal evaluation research. The bootstrapping methodology is general and could extend to other modalities beyond video understanding.",
+        "bbox": [
+            169,
+            385,
+            826,
+            608
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "9 ACKNOWLEDGEMENT",
+        "text_level": 2,
+        "bbox": [
+            171,
+            627,
+            388,
+            642
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "We would like to express our sincere thanks to Shaily Bhatt and Kashu Yamazaki for their valuable contributions during the early stages of this project, whose discussions and inputs helped shape its initial direction. We also thank Sagnik Mukherjee and Arif Ahmad for their helpful feedback on the manuscript, which improved the clarity, presentation, and overall quality of the write-up.",
+        "bbox": [
+            169,
+            656,
+            825,
+            715
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "REFERENCES",
+        "text_level": 2,
+        "bbox": [
+            173,
+            732,
+            287,
+            748
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "ref_text",
+        "text": "Shuai Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin Ge, Sibo Song, Kai Dang, Peng Wang, Shijie Wang, Jun Tang, Humen Zhong, Yuanzhi Zhu, Mingkun Yang, Zhaohai Li, Jianqiang Wan, Pengfei Wang, Wei Ding, Zheren Fu, Yiheng Xu, Jiabo Ye, Xi Zhang, Tianbao Xie, Zesen Cheng, Hang Zhang, Zhibo Yang, Haiyang Xu, and Junyang Lin. Qwen2.5-vl technical report, 2025a. URL https://arxiv.org/abs/2502.13923.",
+        "bbox": [
+            174,
+            755,
+            823,
+            824
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "ref_text",
+        "text": "Shuai Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin Ge, Sibo Song, Kai Dang, Peng Wang, Shijie Wang, Jun Tang, et al. Qwen2. 5-vl technical report. arXiv preprint arXiv:2502.13923, 2025b.",
+        "bbox": [
+            174,
+            832,
+            823,
+            875
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "ref_text",
+        "text": "Fabian Caba Heilbron, Victor Escorcia, Bernard Ghanem, and Juan Carlos Niebles. Activitynet: A large-scale video benchmark for human activity understanding. In Proceedings of the ieee conference on computer vision and pattern recognition, pp. 961–970, 2015.",
+        "bbox": [
+            174,
+            882,
+            823,
+            924
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "page_number",
+        "text": "10",
+        "bbox": [
+            490,
+            948,
+            509,
+            960
+        ],
+        "page_idx": 9
+    }
+]

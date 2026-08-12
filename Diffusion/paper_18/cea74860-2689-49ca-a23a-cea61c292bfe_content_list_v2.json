@@ -1,0 +1,4429 @@
+[
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "ABSTRACT"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                450,
+                286,
+                547,
+                301
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Classifier-free guidance (CFG) is a widely used technique for improving the perceptual quality of samples from conditional diffusion models. It operates by linearly combining conditional and unconditional score estimates using a guidance weight ω. While a large, static weight can markedly improve visual results, this often comes at the cost of poorer distributional alignment. In order to better approximate the target conditional distribution, we instead learn guidance weights "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\begin{array} { r } { \\omega _ { c , ( s , t ) } , } \\end{array}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "which are continuous functions of the conditioning c, the time t from which we denoise, and the time s towards which we denoise. We achieve this by minimizing the distributional mismatch between noised samples from the true conditional distribution and samples from the guided diffusion process. We extend our framework to reward guided sampling, enabling the model to target distributions tilted by a reward function "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "R ( x _ { 0 } , c )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", defined on clean data and a conditioning c. We demonstrate the effectiveness of our methodology on low-dimensional toy examples and highdimensional image settings, where we observe improvements in Fréchet inception distance (FID) for image generation. In text-to-image applications, we observe that employing a reward function given by the CLIP score leads to guidance weights that improve image-prompt alignment."
+                    }
+                ]
+            },
+            "bbox": [
+                230,
+                319,
+                767,
+                558
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "1 INTRODUCTION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                174,
+                585,
+                338,
+                599
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Diffusion models (Sohl-Dickstein et al., 2015; Ho et al., 2020; Song et al., 2021b; Song and Ermon, 2019) produce high-quality synthetic data in areas such as images (Saharia et al., 2022; BlackForest-Labs, 2025), videos (Google, 2025), and proteins (Watson et al., 2023; Abramson et al., 2024). These models proceed by gradually adding Gaussian noise through a diffusion process, transforming the data distribution into a Gaussian distribution. The generative model is obtained by approximating the time-reversal of this noising process. Practically, this relies on a learned denoiser network which is obtained by minimizing a regression objective. A similar strategy can, in principle, be developed to sample from a conditional distribution by learning a conditional denoiser network."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                617,
+                826,
+                729
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Recently, Classifier-Free Guidance (CFG) (Ho and Salimans, 2022) has become a popular choice to address the task of conditional sampling. CFG modifies the generating process by incorporating a guidance term, calculated as the difference between conditional and unconditional denoiser networks. This difference is scaled by a guidance weight, ω, such that "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\omega = - 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": "recovers unconditional generation whereas "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\omega = 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": "corresponds to the conditional one. Empirically, it was shown that CFG can drastically improve performance of diffusion models compared to conditional generation (which only uses the conditional denoiser), especially for very high guidance weights (Saharia et al., 2022; Rombach et al., 2022a). (Chidambaram et al., 2024; Wu et al., 2024) argued that such a regime pushes the samples to the edge of support such that they become easy to classify."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                734,
+                826,
+                862
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Classifier-free guidance was initially justified as a method for sampling from a modified distribution "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { \\omega } ( x _ { 0 } | c ) \\propto \\bar { p ( x _ { 0 } ) } ^ { - \\omega } p ( x _ { 0 } | c ) ^ { 1 + \\omega } \\stackrel { \\sim } { \\propto } \\stackrel { \\sim } { p ( x _ { 0 } ) } p ( c | x _ { 0 } ) ^ { \\omega + 1 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", which amplifies the conditioning term (Ho and Salimans, 2022). However, subsequent work has established that the standard CFG sampling procedure does not, in fact, produce samples from this target distribution (Du et al., 2023; Koulischer et al., 2025a). Instead, CFG sampling shifts the generated samples towards the modes of the original conditional "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p ( x _ { 0 } | c )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "). While this discrepancy can be corrected with computationally intensive methods like Sequential Monte Carlo (Skreta et al., 2025; He et al., 2025) or Markov Chain Monte Carlo (Du et al., 2023; Moufad et al., 2025; Zhang et al., 2025), these approaches are often impractical for large-scale applications. More importantly, naive CFG already yields a significant quality boost and therefore such correction might not be required."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                867,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "1"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                949,
+                503,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                825,
+                188
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Many works, see e.g. Ho and Salimans (2022); Kynkäänniemi et al. (2024); Wang et al. (2024); Kim et al. (2025), report improved FID scores when using some level of guidance "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( \\omega > 0 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". This observation is at odds with the original motivation of CFG. Given that the learned denoiser "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat { x } _ { \\theta } ( x _ { t } , c )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is only an approximation of the true denoiser "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbb { E } [ x _ { 0 } | x _ { t } , c ]"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", this suggests that CFG acts as a correction to this approximation which leads to a better modeling of the target conditional distribution "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p ( x _ { 0 } | c )"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                194,
+                825,
+                266
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Based on this observation, we propose to learn a guidance weight ω in order to better approximate the conditional distribution "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p ( x _ { 0 } | c )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". We generalize the CFG method and allow the guidance weight to be both conditioning and time dependent, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { i } . \\mathrm { e } . , \\omega _ { c , ( s , t ) }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". This weight is used to guide the denoising process from time t to time s. We learn "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\omega _ { c , ( s , t ) }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "by matching the distribution of samples from the true diffusion process and the distribution of samples of the guided one. Empirically, we show that our method allows us to learn "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\omega _ { c , ( s , t ) }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "that better approximates the target distribution compared to the unguided model. For image generation, this leads to a consistently lower FID (Heusel et al., 2017) than the unguided model or a model with a constant guidance weight."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                272,
+                825,
+                383
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We further develop our method in a setting where an additional reward function "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "R ( x _ { 0 } , c )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is defined on samples from the diffusion model and a conditioning "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "c ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and we want to bias the samples from the model to the regions of high rewards "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "R ( x _ { 0 } , c )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". In text-to-image applications, we found that empowering our method with a reward function given by the CLIP score (Hessel et al., 2021), leads to guidance weights which improve both FID and image-prompt alignment."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                388,
+                825,
+                460
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The paper is organized as follows. In Section 2, we provide a short background on the necessary concepts. In Section 3, we describe our approach of learning guidance weights "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\omega _ { s , ( s , t ) }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". In Section 4, we present the related work on the topic. Finally, the experimental results are presented in Section 5."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                465,
+                826,
+                510
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2 BACKGROUND"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                173,
+                530,
+                328,
+                545
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Notation. We write "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for a probability distribution "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p ( x _ { t } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { s \\mid t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to denote a conditional distribu tion "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p ( x _ { s } | x _ { t } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for any s, t. We also use "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { 0 | c }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to denote "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p ( x _ { 0 } | c ) , p _ { s | t , 0 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p ( x _ { s } | x _ { t } , x _ { 0 } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { s | t , c }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p ( x _ { s } | x _ { t } , c )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". We denote by p<sub>0,c</sub> a joint distribution "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p ( x _ { 0 } , c )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Finally, we write "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { N } ( x ; \\mu , \\Sigma )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ") to denote the Gaussian density of argument x, mean "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and covariance Σ and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { N } ( \\boldsymbol { \\mu } , \\boldsymbol { \\Sigma } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for the distribution."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                561,
+                825,
+                622
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Diffusion models. The goal of conditional diffusion models is to sample from a target conditional distribution "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { 0 | c } \\mathrm { ~ o n ~ } \\mathbb { R } ^ { d }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "c \\sim p ( c )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is a conditioning signal (i.e. a text prompt) sampled from a conditioning distribution. We adopt here the Denoising Diffusion Implicit Models (DDIM) framework of Song et al. (2021a). Let "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "x _ { t _ { 0 } } \\sim p _ { 0 | c }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and define for "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "0 = t _ { 0 } < \\cdots < t _ { N } = 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": "the process "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "x _ { t _ { 1 } : t _ { N } } : = ( x _ { t _ { 1 } } , . . . , x _ { t _ { N } } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "by"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                637,
+                825,
+                710
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "p (x _ {t _ {1}: t _ {N}} | x _ {t _ {0}}) = p _ {t _ {N} | t _ {0}} (x _ {t _ {N}} | x _ {t _ {0}}) \\prod_ {k = 1} ^ {N - 1} p _ {t _ {k} | t _ {k + 1}, 0} (x _ {t _ {k}} | x _ {t _ {k + 1}}, x _ {t _ {0}}),\\tag{1}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/75b006c597d5bb77918b8f910fd9d199814f456c33287f6e76ddeb887f2528e3.jpg"
+                }
+            },
+            "bbox": [
+                277,
+                719,
+                717,
+                739
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where, for "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "0 \\leq s < t \\leq 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", we have"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                744,
+                403,
+                760
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "p _ {s | t, 0} (x _ {s} | x _ {t}, x _ {0}) = \\mathcal {N} (x _ {s}; \\mu_ {s, t} (x _ {0}, x _ {t}), \\Sigma_ {s, t}).\\tag{2}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/84786f36fbcfc8b9f79d6b834de7b8bed97b28c1940d62cc56191689d313e8c5.jpg"
+                }
+            },
+            "bbox": [
+                346,
+                768,
+                648,
+                785
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Both the mean "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu _ { s , t } ( x _ { 0 } , x _ { t } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and covariance "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\Sigma _ { s , t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "depend on a churn parameter "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\varepsilon \\in [ 0 , 1 ]"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", which controls the amount of stochasticity. Their full expressions are given in (23) in Appendix B. Here, the mean and variance are selected so that for any "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "t \\in [ 0 , 1 ]"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", we recover the noising process"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                794,
+                823,
+                838
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "p _ {t | 0} (x _ {t} | x _ {0}) = \\mathcal {N} (x _ {t}; \\alpha_ {t} x _ {0}, \\sigma_ {t} ^ {2} \\mathrm{Id}),\\tag{3}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/2d46ae73e5f4e14f6d5788f83a484bc0fe86802bdae343e8526b73942857f1d5.jpg"
+                }
+            },
+            "bbox": [
+                383,
+                845,
+                611,
+                862
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "for "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\alpha _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\sigma _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "such that "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\alpha _ { 0 } = 1 , \\sigma _ { 0 } = 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\alpha _ { 1 } = 0 , \\sigma _ { 1 } = 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", i.e. "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { 1 | 0 } ( x _ { 1 } | x _ { 0 } ) = \\mathcal { N } ( x _ { 1 } ; 0 , \\mathrm { I d } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". More precisely for any "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "0 \\leq s \\leq t \\leq 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", we have"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                871,
+                823,
+                901
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "p _ {s | 0} (x _ {s} | x _ {0}) = \\int p _ {t | 0} (x _ {t} | x _ {0}) p _ {s | t, 0} (x _ {s} | x _ {t}, x _ {0}) \\mathrm{d} x _ {t}.",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/6df59d7a950a686d386c1be76abdb0e2d3b88e86d88a5576a50d55b3b5254e34.jpg"
+                }
+            },
+            "bbox": [
+                334,
+                909,
+                661,
+                926
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "2"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Sampling with DDIM. At inference time, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "x _ { t _ { 0 } } \\sim p _ { 0 | c }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is generated by starting from a Gaussian "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "x _ { t _ { N } } \\sim \\Lambda ( 0 , \\operatorname { I d } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "x _ { t _ { k } } \\sim p ( \\cdot | x _ { t _ { k + 1 } } , c )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "k = N - 1 , . . . , 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", where for "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "0 \\leq s < t \\leq 1"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                103,
+                823,
+                135
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "p _ {s | t, c} (x _ {s} | x _ {t}, c) = \\int p _ {s | t, 0} (x _ {s} | x _ {t}, x _ {0}) p _ {0 | t, c} (x _ {0} | x _ {t}, c) \\mathrm{d} x _ {0},\\tag{4}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/5a39f4fd1b23d99c8eede4de49ef2971cc5c9aba43933308dbb390f9f1fa491e.jpg"
+                }
+            },
+            "bbox": [
+                310,
+                141,
+                683,
+                159
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { 0 | t , c } ( x _ { 0 } | x _ { t } , c )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is a posterior distribution, see also (Song et al., 2021a) for discussion. Since we do not have access to "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { 0 | t , c } ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", we approximate it by "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\delta _ { \\hat { x } _ { \\theta } ( x _ { t } , c ) }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for any "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "t \\in [ 0 , 1 ]"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat { x } _ { \\theta } ( x _ { t } , c )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "≈ "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbb { E } [ x _ { 0 } | x _ { t } , c ]"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is a neural network denoiser with parameters θ trained by minimizing the loss"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                164,
+                823,
+                210
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {L} (\\theta) = \\int_ {0} ^ {1} \\lambda (t) \\mathbb {E} _ {(x _ {0}, c) \\sim p _ {0, c}, x _ {t} \\sim p _ {t | 0}} [ \\| x _ {0} - \\hat {x} _ {\\theta} (x _ {t}, c) \\| ^ {2} ] \\mathrm{d} t.\\tag{5}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/a175fb11d8356244c9f223f2212250a504386c1d55cc3ff4e44887ecef74a4ac.jpg"
+                }
+            },
+            "bbox": [
+                307,
+                215,
+                687,
+                236
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Here, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\lambda ( t ) \\geq 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is a weighting function (see (Kingma et al., 2021)). This yields the following procedure to sample approximately from "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { 0 | c } ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": "by starting from "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "x _ { t _ { N } } \\sim \\mathcal { N } ( 0 , \\mathrm { I d } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", we then follow"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                241,
+                825,
+                272
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "x _ {t _ {k}} \\sim \\mathcal {N} (\\mu_ {t _ {k}, t _ {k + 1}} (\\hat {x} _ {\\theta} (x _ {t _ {k + 1}}, c), x _ {t _ {k + 1}}), \\Sigma_ {t _ {k}, t _ {k + 1}}), \\qquad k = N - 1,..., 0\\tag{6}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/ce930ed598b907d0d1ea9be4c7401418315124347bab1a937e687d34e190af58.jpg"
+                }
+            },
+            "bbox": [
+                258,
+                277,
+                738,
+                294
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Classifier-Free Guidance (CFG). Let "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat { x } _ { \\theta } ( x _ { t } , \\mathcal { D } ) \\approx \\mathbb { E } [ x _ { 0 } | x _ { t } ]"
+                    },
+                    {
+                        "type": "text",
+                        "content": "be an unconditional denoiser learned using a regression objective (5) (where conditioning is omitted). CFG replaces "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat { x } _ { \\theta } ( x _ { t } , c )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "when simulating approximately from "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { 0 | c }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "by"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                306,
+                825,
+                351
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\hat {x} _ {\\theta} (x _ {t}, c; \\omega) = \\hat {x} _ {\\theta} (x _ {t}, c) + \\omega \\Delta_ {\\theta} (x _ {t}, c),\\tag{7}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/19714ef115ad4157ab93fe84d80e4eae53d349211875986250de2c7c435af9cc.jpg"
+                }
+            },
+            "bbox": [
+                367,
+                357,
+                629,
+                372
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where ω is the guidance weight and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\Delta _ { \\theta } ( x _ { t } , c ) = \\hat { x } _ { \\theta } ( x _ { t } , c ) - \\hat { x } _ { \\theta } ( x _ { t } , \\mathcal { O } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". In order to sample the data with CFG, we first sample "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "x _ { t _ { N } } \\sim \\mathcal { N } ( 0 , \\mathrm { H } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and then follow"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                377,
+                825,
+                407
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "x _ {t _ {k}} \\sim \\mathcal {N} (\\mu_ {t _ {k}, t _ {k + 1}} (\\hat {x} _ {\\theta} (x _ {t _ {k + 1}}, c; \\omega), x _ {t _ {k + 1}}), \\Sigma_ {t _ {k}, t _ {k + 1}}), \\quad k = N - 1,..., 0.\\tag{8}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/c1e7dd59e2cd7a0a443b0cd967759daf85e69d56df99d8dbb6aae2879a015245.jpg"
+                }
+            },
+            "bbox": [
+                254,
+                412,
+                740,
+                429
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "When "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\omega = 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", the sampling procedure (8) is equivalent to conditional sampling (6), while "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\omega = - 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": "corresponds to a procedure using only the unconditional denoiser, allowing to sample approximately from "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { 0 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". In practice, one sets "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\omega > 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": "in order to emphasize conditioning."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                434,
+                825,
+                478
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this paper, we generalize CFG and make guidance weight "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\omega _ { c , ( s , t ) }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "a function of conditioning c and of two time-steps "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "s < t ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", where t is the proposal timestep from which we denoise towards a target timestep s as in (4). Denoising following (8) corresponds to setting, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "s = t _ { k }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "t = t _ { k + 1 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". We denote "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\omega = ( \\omega _ { c , ( s , t ) } ) _ { s , t \\in [ 0 , 1 ] , t > s } ."
+                    },
+                    {
+                        "type": "text",
+                        "content": "In Algorithm 2, we describe the CFG sampling method with DDIM."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                483,
+                825,
+                541
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Maximum Mean Discrepancy. To optimize the guidance weights ω, we match the true diffusion distribution "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and the guided "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p ^ { \\omega }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", see Section 3. We employ the Maximum Mean Discrepancy (MMD) (Gretton et al., 2012) with energy kernel (Székely and Rizzo, 2004; Sejdinovic et al., 2013),"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                554,
+                825,
+                597
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathrm{MMD} _ {(\\beta , \\lambda)} [ p ^ {\\omega}, p ] = \\mathbb {E} _ {p _ {\\omega} \\otimes p} [ | | x - y | | _ {2} ^ {\\beta} ] - \\frac {\\lambda}{2} (\\mathbb {E} _ {p ^ {\\omega} \\otimes p ^ {\\omega}} [ | | x - x ^ {\\prime} | | _ {2} ^ {\\beta} ] + \\mathbb {E} _ {p \\otimes p} [ | | y - y ^ {\\prime} | | _ {2} ^ {\\beta} ]),\\tag{9}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/2dedbcbd45382186517efadd693007bce3aff07450e9e5d7de463f73a9f5786a.jpg"
+                }
+            },
+            "bbox": [
+                209,
+                603,
+                784,
+                621
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "for independent "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "x , x ^ { \\prime } \\sim p ^ { \\omega }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "y , y ^ { \\prime } \\sim p ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": "with "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\beta \\in ( 0 , 2 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\lambda \\in [ 0 , 1 ]"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". We require "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\lambda = 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for a valid MMD, however "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\lambda < 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": "may be preferable for generative modeling (Bouchacourt et al., 2016; De Bortoli et al., 2025); other characteristic kernels may also be used (Sriperumbudur et al., 2010)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                626,
+                826,
+                670
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3 LEARNING TO GUIDE YOUR DIFFUSION MODEL"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                689,
+                594,
+                705
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this section, we introduce our method for learning the guidance weights, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\omega ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", assuming access to a pre-trained conditional denoiser, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat { x } _ { \\theta } ( x _ { t } , c )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and an unconditional one, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat { x } _ { \\theta } ( x _ { t } , \\theta )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Our approach is based on enforcing consistency conditions— that any valid diffusion process must satisfy. We first derive a theoretically sound objective from marginal consistency condition, which is however impractical to optimize due to high variance. To overcome this, we introduce a stronger, more practical condition, which we call self-consistency. Enforcing self-consistency is sufficient for achieving marginal consistency and, crucially, results in a simple, low-variance objective. We formulate our complete approach for learning guidance weights based on this simplified approach. We present alternative approaches in Appendix C."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                720,
+                826,
+                847
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.1 CONSISTENCY CONDITIONS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                862,
+                408,
+                877
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Marginal consistency. The process defined by (1) admits the marginal distribution for "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "s \\in ( 0 , 1 ]"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                888,
+                818,
+                904
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "p _ {s} (x _ {s}) = \\int p _ {s | 0} (x _ {s} | x _ {0}) p _ {0, c} (x _ {0}, c) \\mathrm{d} x _ {0} \\mathrm{d} c.\\tag{10}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/184692d1b2deb50df2e16bca0311ecd0fac95f53d1f188a379206e8404956fc1.jpg"
+                }
+            },
+            "bbox": [
+                357,
+                907,
+                635,
+                926
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "3"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "This marginal distribution can also be obtained for any "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "0 \\leq s < t \\leq 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": "via"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                104,
+                656,
+                119
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "p _ {s} (x _ {s}) = \\int \\int \\int p _ {s | t, c} (x _ {s} | x _ {t}, c) p _ {t | 0} (x _ {t} | x _ {0}) p _ {0, c} (x _ {0}, c) \\mathrm{d} x _ {t} \\mathrm{d} x _ {0} \\mathrm{d} c,\\tag{11}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/a893735894bf133adef75e751373afc1c81d4902f7cf78af91ac5888aee57c81.jpg"
+                }
+            },
+            "bbox": [
+                285,
+                125,
+                707,
+                142
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "with "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { s | t , c }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "given by DDIM (4). The equality (11) states that the marginal at time s can be obtained by sampling "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( x _ { 0 } , c ) \\sim p _ { 0 , c } ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": "noising x<sub>0</sub> to "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "x _ { t } | x _ { 0 } \\sim p _ { t | 0 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and then denoising it back to time s with "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { s \\mid t , c } ."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                146,
+                823,
+                179
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We now consider a denoising mechanism relying on the guided denoiser approximation (7) which follows the construction in (11) to obtain a sample at time s. Again we sample "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( x _ { 0 } , c ) \\sim p _ { 0 , c }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "x _ { t } \\sim p _ { t | 0 } ( \\cdot | x _ { 0 } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "). However, the denoising to time s where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "0 \\leq s < t \\leq 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is done with the guided denoiser approximation, so that the marginal distribution of the resulting sample at time s is"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                184,
+                825,
+                239
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "p _ {s} ^ {t, (\\theta , \\omega)} (x _ {s}) = \\int \\int \\int p _ {s | t, c} ^ {(\\theta , \\omega)} (x _ {s} | x _ {t}, c) p _ {t | 0} (x _ {t} | x _ {0}) p _ {0, c} (x _ {0}, c) \\mathrm{d} x _ {t} \\mathrm{d} x _ {0} \\mathrm{d} c,\\tag{12}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/ee8505e6af714a796adc1a6d1310631e7a9887d32bc162232d8c03720ab6238d.jpg"
+                }
+            },
+            "bbox": [
+                266,
+                247,
+                728,
+                268
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                275,
+                218,
+                287
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "p _ {s | t, c} ^ {(\\theta , \\omega)} (x _ {s} | x _ {t}, c) = p _ {s | t, 0} (x _ {s} | x _ {t}, \\hat {x} _ {\\theta} (x _ {t}, c; \\omega)).\\tag{13}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/aab76f2eb712103a320f1b2e52469466bae5b40dbdb6a35f23584958664c57b1.jpg"
+                }
+            },
+            "bbox": [
+                346,
+                285,
+                648,
+                306
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The distribution "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { s } ^ { t , \\left( \\theta , \\omega \\right) } \\left( 1 2 \\right)"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is typically not equal to "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { s } \\left( 1 0 \\right)"
+                    },
+                    {
+                        "type": "text",
+                        "content": "as we used a delta-function approximation (13) with a model "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat { x } _ { \\theta } ( x _ { t } , c ; \\omega )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "instead of sampling from "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { 0 | t , c }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "as required by (4). Nevertheless, we could attempt to find guidance weights ω to satisfy marginal consistency, i.e. for all "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "0 \\leq s < t \\leq 1"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                311,
+                826,
+                357
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "p _ {s} ^ {t, (\\theta , \\pmb {\\omega})} (x _ {s}) \\approx p _ {s} (x _ {s}).\\tag{14}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/deb1108f7060caed455894c1d1f05da51082af4b05d17a419e678feb84a4f858.jpg"
+                }
+            },
+            "bbox": [
+                419,
+                363,
+                573,
+                382
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "This could be achieved by minimizing the MMD (9)"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                387,
+                517,
+                402
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {L} _ {m} (\\pmb {\\omega}) = \\mathbb {E} _ {(s, t) \\sim p (s, t)} [ \\mathrm{MMD} _ {(\\beta , \\lambda)} [ p _ {s} ^ {t, (\\theta , \\pmb {\\omega})} (\\cdot), p _ {s} (\\cdot) ] ],\\tag{15}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/07884e36073cec712c2faec65639b88e04948ca7cffcf9f013de7a5a3c58f11b.jpg"
+                }
+            },
+            "bbox": [
+                320,
+                409,
+                676,
+                430
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p ( s , t )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is a distribution on "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "0 \\leq s < t \\leq 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". This distribution is crucial for good empirical performance, and we discuss it in detail in Section 3.2. The gradient of (15) could suffer from high variance due to marginalization over "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( x _ { 0 } , c )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", however, which could make it challenging to optimize. We found that this approach did not work in practice. Below, we propose a simpler, lower variance method, albeit one that imposes more constraints on the guided backward scheme compared to (15)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                435,
+                826,
+                507
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Self-consistency (conditioning on "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( c , x _ { 0 } ) )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". For a fixed "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( x _ { 0 } , c ) \\sim p ( x _ { 0 } , c )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", we denote by"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                511,
+                766,
+                527
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "p _ {s | 0, c} ^ {t, (\\theta , \\omega)} (x _ {s} | x _ {0}, c) = \\int p _ {s | t, c} ^ {(\\theta , \\omega)} (x _ {s} | x _ {t}, c) p _ {t | 0} (x _ {t} | x _ {0}) \\mathrm{d} x _ {t},\\tag{16}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/87e51c9f0c1c3ef0e67cfdf7b3ad1ae302b7623eefb457f65f0abb15f6371a9b.jpg"
+                }
+            },
+            "bbox": [
+                318,
+                532,
+                676,
+                556
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "which is the term under integral in (12) depending on "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( x _ { 0 } , c )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". We consider a self-consistency condition"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                561,
+                825,
+                577
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "p _ {s | 0, c} ^ {t, (\\theta , \\omega)} (x _ {s} | x _ {0}, c) \\approx p _ {s | 0, c} (x _ {s} | x _ {0}, c) = p _ {s | 0} (x _ {s} | x _ {0}),\\tag{17}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/3758818c77c69577b26be45bbe9bc43994dd2bc591b22084909bacac5260a5bb.jpg"
+                }
+            },
+            "bbox": [
+                325,
+                584,
+                668,
+                604
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { s | 0 , c } ^ { t , ( \\theta , \\omega ) } ( \\cdot | x _ { 0 } , c )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is given by (16) and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { s | 0 } ( \\cdot | x _ { 0 } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is a noising process (3). We used a notation "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { s | 0 , c } ( x _ { s } | x _ { 0 } , c ) = p _ { s | 0 } ( x _ { s } | x _ { 0 } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to highlight that "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "x _ { 0 } \\sim p _ { 0 | c } ( \\cdot | c )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Intuitively, this condition means that as we start from "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "x _ { 0 } | ("
+                    },
+                    {
+                        "type": "text",
+                        "content": "c and go through the noising process "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "x _ { t } | x _ { 0 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and then denoise with guidance to time "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "s < t ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", the distribution at time s should be the same as of the noising process."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                614,
+                825,
+                678
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The condition (17) is much stronger than (14). Indeed, if (17) is satisfied for every "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( x _ { 0 } , c ) \\sim p _ { 0 , c } ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": "then by integrating it over "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( x _ { 0 } , c )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", we will get (14). The reverse is not true. Moreover, the lack of dependence on "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "x _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "(and on "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "x _ { 0 } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "in guidance weights "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\omega _ { c , ( s , t ) }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "makes it very unlikely for this condition to hold. However, it provides a learning signal for guidance weights and we will aim to satisfy it approximately."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                684,
+                826,
+                753
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "For "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( x _ { 0 } , c )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "in the support of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p ( x _ { 0 } , c )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", we could approximately satisfy (17) by minimizing wrt "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\omega ,"
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { M M D } _ { ( \\beta , \\lambda ) } [ p _ { s | 0 , c } ^ { t , ( \\theta , \\omega ) } ( \\cdot | x _ { 0 } , c ) , p _ { s | 0 , c } ( \\cdot | x _ { 0 } ) ]"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", see (9). Averaging over all "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( x _ { 0 } , c ) \\sim p ( x _ { 0 } , c )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "leads to"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                760,
+                825,
+                796
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {L} _ {\\beta , \\lambda} (\\boldsymbol {\\omega}) = \\mathbb {E} _ {(x _ {0}, c) \\sim p _ {0, c}, s, t \\sim p (s, t)} [ \\mathrm{MMD} _ {(\\beta , \\lambda)} [ p _ {s | 0, c} ^ {t, (\\theta , \\boldsymbol {\\omega})} (\\cdot | x _ {0}, c), p _ {s | 0, c} (\\cdot | x _ {0}) ] ].\\tag{18}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/8c106e1b1e359fd740758d774928282c56a94e405bd21c2045fad80ffc043187.jpg"
+                }
+            },
+            "bbox": [
+                246,
+                804,
+                746,
+                824
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "This approach does not suffer from high variance compared to (15), since both c and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "x _ { 0 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "are fixed. Furthermore, we found that using (18) works well in practice (see our experiments in Section 5)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                830,
+                826,
+                859
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.2 LEARNING TO GUIDE"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                876,
+                364,
+                890
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We present here our approach for learning guidance weights ω based on the self-consistency loss (18). We also provide empirical evaluation of other approaches in Section 5."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                901,
+                826,
+                931
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "4"
+                    }
+                ]
+            },
+            "bbox": [
+                491,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Guidance learning objective. For "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( x _ { 0 } , c ) \\sim p _ { 0 , c } ( x _ { 0 } , c )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", we sample "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "x _ { s } \\sim p _ { s | 0 } ( \\cdot | x _ { 0 } ) , \\mathrm { i . e . , } x _ { s } \\sim"
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { N } ( \\alpha _ { s } x _ { 0 } , \\sigma _ { s } ^ { 2 } \\mathrm { I d } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "). We also sample "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\tilde { x } _ { s } ( \\omega ) \\sim p _ { s | 0 , c } ^ { t , ( \\theta , \\omega ) }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", i.e., sample "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\tilde { x } _ { t } \\sim \\mathcal { N } ( \\alpha _ { t } x _ { 0 } , \\sigma _ { t } ^ { 2 } \\mathrm { I d } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "then"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                103,
+                823,
+                138
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\tilde {x} _ {s} (\\boldsymbol {\\omega}) \\sim \\mathcal {N} (\\mu_ {s, t} (\\hat {x} _ {\\theta} (\\tilde {x} _ {t}, c; \\omega_ {c, (s, t)}), \\tilde {x} _ {t}), \\Sigma_ {s, t}),\\tag{19}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/f402ee5247d50c0bb2c07cfb2a4d86d02f62511cba4ef0870331fe5777ca57df.jpg"
+                }
+            },
+            "bbox": [
+                343,
+                148,
+                651,
+                165
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu _ { s , t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\Sigma _ { s , t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "are given by DDIM (see (23) in Appendix B). The objective (18) can be written as"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                171,
+                825,
+                198
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {L} _ {\\beta , \\lambda} (\\boldsymbol {\\omega}) = \\mathbb {E} _ {(x _ {0}, c) \\sim p _ {0, c}, s, t \\sim p (s, t)} [ \\mathbb {E} [ | | \\tilde {x} _ {s} (\\boldsymbol {\\omega}) - x _ {s} | | _ {2} ^ {\\beta} ] - \\frac {\\lambda}{2} \\mathbb {E} [ | | \\tilde {x} _ {s} (\\boldsymbol {\\omega}) - \\tilde {x} _ {s} ^ {\\prime} (\\boldsymbol {\\omega}) | | _ {2} ^ {\\beta} ] ],\\tag{20}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/dc65d981d12144001f784ce6ff27889d7114cba1320fe70dafd1a3900743a27f.jpg"
+                }
+            },
+            "bbox": [
+                227,
+                196,
+                767,
+                215
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where we dropped terms not depending on "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\omega ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and with independent "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\tilde { x } _ { s } ( \\omega ) , \\tilde { x } _ { s } ^ { \\prime } ( \\omega ) \\sim p _ { s | 0 , c } ^ { t , ( \\theta , \\omega ) }"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                219,
+                785,
+                239
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Simplified guidance learning objective. A special case of (20) with "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\beta = 2"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\lambda = 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", leads to"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                253,
+                810,
+                270
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {L} _ {\\ell_ {2}} (\\boldsymbol {\\omega}) = \\mathcal {L} _ {\\beta , 0} (\\boldsymbol {\\omega}) = \\mathbb {E} _ {(x _ {0}, c) \\sim p _ {0, c}, s, t \\sim p (s, t)} \\left[ \\mathbb {E} [ | | \\tilde {x} _ {s} (\\boldsymbol {\\omega}) - x _ {s} | | _ {2} ^ {2} ] \\right].\\tag{21}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/2b180c6b737c4728069d791210204813ab56115faaba45647361a150ca004613.jpg"
+                }
+            },
+            "bbox": [
+                277,
+                276,
+                715,
+                294
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We found that (21) was very effective but more sensitive to hyperparameters than (20). This approach is however cheaper than (20) since it avoids quadratic complexity "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "O ( m ^ { 2 } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "of computing interaction terms. We refer the reader to Appendix D and to Algorithm 3 for more details on the use of (21)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                300,
+                823,
+                343
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Guidance network. The guidance weights "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\omega _ { c , ( s , t ) } ^ { \\phi } = \\omega ( s , t , c ; \\phi )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "are given by a neural network with parameters "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\phi"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". We use ReLU activation at the end to prevent negative guidance weights. For more details, see Appendix F. We denote "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\omega ^ { \\phi } = ( \\omega _ { c , ( s , t ) } ^ { \\phi } ) _ { s , t \\in [ 0 , 1 ] , t > s }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and employ "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\mathcal { L } } _ { \\beta , \\lambda } ( \\phi )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "instead of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { L } _ { \\beta , \\lambda } ( \\boldsymbol { \\omega } )"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                349,
+                825,
+                416
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Distribution "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p ( s , t )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". We choose target time s to be distributed as "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "s \\sim \\mathcal { U } [ S _ { \\mathrm { m i n } } , 1 - \\zeta - \\delta ]"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". We define "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\Delta t \\sim \\mathcal { U } [ \\delta , 1 - \\zeta - s ]"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and we let "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "t = s + \\Delta t"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Here, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "S _ { \\mathrm { m i n } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "controls the minimal time, and ζ controls how close it gets to 1. The parameter δ controls the distance between time-steps and we found it to be very important, see Figure 2. Even though during inference "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\begin{array} { r } { | t - s | \\approx \\frac { 1 } { T } } \\end{array}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is typically small (T is a number of steps), we found that using larger "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\delta \\approx 0 . 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": "during training worked better in practice."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                420,
+                825,
+                492
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Empirical objective. We sample "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{ x _ { 0 } ^ { i } , c ^ { i } \\} _ { i = 1 } ^ { n } \\stackrel { \\mathrm { i . i . d . } } { \\sim } p _ { 0 , c }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "from the training set and we additionally sample noise levels "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{ s _ { i } \\} _ { i = 1 } ^ { n } \\stackrel { \\mathrm { ~ i . i . d . ~ } } { \\sim } \\mathcal { U } [ S _ { \\operatorname* { m i n } } , 1 - \\zeta - \\delta ]"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", as well as time increments "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{ \\Delta t _ { i } \\} _ { i = 1 } ^ { n } \\stackrel { \\mathrm { i . i . d . } } { \\sim }"
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { U } [ \\delta , 1 - \\zeta - s _ { i } ]"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and we let "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "t _ { i } = s _ { i } + \\Delta t _ { i }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". For each "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( x _ { 0 } ^ { i } , s _ { i } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", we sample m “particles "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { ~ } ^ { , } \\{ x _ { s _ { i } } ^ { j } \\} _ { j = 1 } ^ { m } \\stackrel { \\mathrm { ~ i . i . d ~ } } { \\sim }"
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { s _ { i } | 0 } ( \\cdot | x _ { 0 } ^ { i } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "from the noising process (3), which defines the target samples. We also produce m “particles” "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{ \\tilde { x } _ { s _ { i } } ^ { j } ( \\omega ^ { \\phi } ) \\} _ { j = 1 } ^ { m } \\stackrel { \\mathrm { i . i . d . } } { \\sim } p _ { s _ { i } | 0 , c _ { i } } ^ { t _ { i } , ( \\theta , \\omega ^ { \\phi } ) } ( \\cdot | x _ { 0 } ^ { i } , c _ { i } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "by first sampling "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{ \\tilde { x } _ { t _ { i } } ^ { j } \\} _ { j = 1 } ^ { m } \\stackrel { \\mathrm { i . i . d . } } { \\sim } p _ { t _ { i } | 0 } ( \\cdot | x _ { 0 } ^ { i } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "from the noising process (3) and then denoising with guidance and DDIM using (19). This defines the proposal samples. We expand loss function (20) as a function of guidance network parameters ϕ defined on the empirical batches as follows (where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\lambda \\in [ 0 , 1 ]"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\beta \\in ( 0 , 2 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", see Algorithm 1)"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                500,
+                825,
+                638
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\hat {\\mathcal {L}} _ {\\beta , \\lambda} (\\phi) = \\frac {1}{n} \\sum_ {i = 1} ^ {n} \\left[ \\frac {1}{m ^ {2}} \\sum_ {j, k = 1} ^ {m} | | \\tilde {x} _ {s _ {i}} ^ {j} (\\boldsymbol {\\omega} ^ {\\phi}) - x _ {s _ {i}} ^ {k} | | _ {2} ^ {\\beta} - \\frac {\\lambda}{2} \\frac {1}{m (m - 1)} \\sum_ {j \\neq k} | | \\tilde {x} _ {s _ {i}} ^ {j} (\\boldsymbol {\\omega} ^ {\\phi}) - \\tilde {x} _ {s _ {i}} ^ {k} (\\boldsymbol {\\omega} ^ {\\phi}) | | _ {2} ^ {\\beta} \\right]",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/dfeb5ebe0c7c91f1b7bcbad97d75eebc0840f149566c79ed826ca6670eb07ab9.jpg"
+                }
+            },
+            "bbox": [
+                174,
+                645,
+                816,
+                667
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Learning to guide with rewards. CFG can be used to produce samples with high reward "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "R ( x _ { 0 } , \\stackrel { ( 2 2 ) } { c } ) ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": "set by a practitioner. Denoising with guidance from t to s as described by (19), gives us an approximation "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat { x } _ { \\theta } ( x _ { t } , c ; \\omega _ { c , ( s , t ) } ^ { \\phi } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "of clean data. We could use it to optimize guidance weights, by defining the loss "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { L } _ { R } ( \\phi ) = - \\mathbb { E } _ { ( s , t ) \\sim p ( s , t ) , x _ { 0 } , c \\sim p ( x _ { 0 } , c ) , x _ { t } \\sim p _ { t | 0 } ( \\cdot | x _ { 0 } ) } \\left[ R \\left( \\hat { x } _ { \\theta } ( x _ { t } , c ; \\omega _ { c , ( s , t ) } ^ { \\phi } ) , c \\right) \\right]"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Directly minimizing this loss may lead to reward hacking (Skalse et al., 2022). Thus, we regularize this objective using "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat { \\mathcal { L } } _ { \\beta , \\lambda }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". For reward weight "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\gamma _ { R } \\geq 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", we optimize "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { L } _ { \\mathrm { t o t } } ( \\phi ) = \\hat { \\mathcal { L } } _ { \\beta , \\lambda } ( \\phi ) + \\gamma _ { R } \\mathcal { L } _ { R } ( \\phi )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "(see Algorithm 4)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                671,
+                826,
+                777
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4 RELATED WORK"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                795,
+                343,
+                810
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Classifier-Free Guidance. Using guidance in the sampling of diffusion models was first investigated by Dhariwal and Nichol (2021). They proposed a classifier guidance method which linearly combines the unconditional score estimate and the input gradient of the log-probability of a (timevarying) classifier. To avoid training such classifier on noisy training data, Ho and Salimans (2022) proposed Classifier-Free Guidance (CFG), which linearly combines a conditional and unconditional denoisers. By varying the guidance weight, one is able to obtain high-quality samples. This approach has become prominent in the literature, see Adaloglou and Kaiser (2024) for a recent introduction."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                825,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "5"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "algorithm",
+            "content": {
+                "algorithm_caption": [],
+                "algorithm_content": [
+                    {
+                        "type": "text",
+                        "content": "Algorithm 1 Learning to Guide\n\n1: Input: Init. guidance parameters  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\phi"
+                    },
+                    {
+                        "type": "text",
+                        "content": "; (frozen) denoiser  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat{x}_{\\theta}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "; data distribution  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p_0"
+                    },
+                    {
+                        "type": "text",
+                        "content": "; learning rate  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\eta"
+                    },
+                    {
+                        "type": "text",
+                        "content": ";  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\zeta > 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": ",  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "S_{\\min} > 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": ",  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\delta > 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", b.s.  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "n"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", n. of particles  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "m"
+                    },
+                    {
+                        "type": "text",
+                        "content": ",  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\lambda \\in [0,1]"
+                    },
+                    {
+                        "type": "text",
+                        "content": ",  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\beta \\in [0,2]"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", DDIM churn  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\varepsilon \\in [0,1]"
+                    },
+                    {
+                        "type": "text",
+                        "content": ".\n\n2: repeat\n\n3: Sample batch of clean data and their conditionings  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{x_0^i, c^i\\}_{i=1}^n \\overset{\\text{i.i.d.}}{\\sim} p_{0,c}"
+                    },
+                    {
+                        "type": "text",
+                        "content": ".\n\n4: Sample  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{s_i\\}_{i=1}^n \\overset{\\text{i.i.d.}}{\\sim} \\mathcal{U}[S_{\\min}, 1 - \\zeta - \\delta]"
+                    },
+                    {
+                        "type": "text",
+                        "content": ",  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{\\Delta t_i\\}_{i=1}^n \\overset{\\text{i.i.d.}}{\\sim} \\mathcal{U}[\\delta, 1 - \\zeta - s_i]"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", let  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "t_i = s_i + \\Delta t_i"
+                    },
+                    {
+                        "type": "text",
+                        "content": "\n\n5: (True process) Sample  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "m"
+                    },
+                    {
+                        "type": "text",
+                        "content": " particles  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{x_{s_i}^j\\}_{j=1}^m \\overset{\\text{i.i.d.}}{\\sim} p_{s_i|0}(\\cdot | x_0^i)"
+                    },
+                    {
+                        "type": "text",
+                        "content": " from noising process (3)\n\n6: (Guided process) Sample  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "m"
+                    },
+                    {
+                        "type": "text",
+                        "content": " particles  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{\\tilde{x}_{t_i}^j\\}_{j=1}^m \\sim p_{t_i|0}(\\cdot | x_0^i)"
+                    },
+                    {
+                        "type": "text",
+                        "content": " from noising process (3)\n\n7: Compute guidance weights  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\omega_i = \\omega_{c_i,(s_i,t_i)}^\\phi"
+                    },
+                    {
+                        "type": "text",
+                        "content": " and  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat{x}_{\\theta}(\\tilde{x}_{t_i}^j, c_i; \\omega_i)"
+                    },
+                    {
+                        "type": "text",
+                        "content": " using (7)\n\n8: Sample  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\tilde{x}_{s_i}^j(\\boldsymbol{\\omega}^\\phi) \\sim p_{s_i|t_i,0}(\\cdot | \\tilde{x}_{t_i}^j, \\hat{x}_{\\theta}(\\tilde{x}_{t_i}^j, c_i; \\omega_i))"
+                    },
+                    {
+                        "type": "text",
+                        "content": " from DDIM (2) with churn parameter  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\varepsilon"
+                    },
+                    {
+                        "type": "text",
+                        "content": "\n\n9: (Loss) Compute loss\n\n10:  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat{\\mathcal{L}}_{\\beta,\\lambda}(\\phi) = \\frac{1}{n} \\sum_{i=1}^{n} \\left[ \\frac{1}{m^2} \\sum_{j,k=1}^{m} ||\\tilde{x}_{s_i}^j(\\boldsymbol{\\omega}^\\phi) - x_{s_i}^k||_2^\\beta - \\frac{\\lambda}{2} \\frac{1}{m(m-1)} \\sum_{j \\neq k} ||\\tilde{x}_{s_i}^j(\\boldsymbol{\\omega}^\\phi) - \\tilde{x}_{s_i}^k(\\boldsymbol{\\omega}^\\phi)||_2^\\beta \\right]"
+                    },
+                    {
+                        "type": "text",
+                        "content": "\n\n11: Update  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\phi \\leftarrow \\phi - \\eta \\nabla_\\phi \\hat{\\mathcal{L}}_{\\beta,\\lambda}(\\phi)"
+                    },
+                    {
+                        "type": "text",
+                        "content": "\n\n12: until convergence\n\n13: Output: Optimized guidance network parameters  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\phi"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                99,
+                867,
+                364
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "CFG has been extended in many different directions, some of them proposing dynamic mixing strategies to control the guidance weight throughout the sampling process (e.g. Sadat et al. (2024a); Kynkäänniemi et al. (2024); Wang et al. (2024); Shen et al. (2024); Malarz et al. (2025); Li et al. (2024); Koulischer et al. (2025a;b); Xia et al. (2025); Sadat et al. (2024b); Zheng and Lan (2024)). Another line of research focuses on removing the need for the unconditional score component by using either an “inferior\" version of the conditional model to provide a negative guidance signal (Karras et al., 2024; Adaloglou et al., 2025), by leveraging time-step information (Sadat et al., 2025), or by enabling the model to act as its own implicit classifier (Tang et al., 2025). Other approaches focus on fixing some of the limitations of classifier-free guidance; e.g., Chung et al. (2025) introduced CFG++, a modification to the standard CFG to address off-manifold issues, while Koulischer et al. (2025b) show that the true conditional distribution can be obtained by approximating a term corresponding to the derivative of a Rényi divergence. Very recently, Fan et al. (2025) introduced CFG-Zero∗, a CFG variant for flow-matching models. It leverages an optimized scale factor and a zero-init technique (skipping initial ODE steps) to correct for early velocity inaccuracies, resulting in improved text-to-image/video generation. We highlight that our approach could be seamlessly combined with any other guidance technique by simply replacing the definition ofthe guided denoiser (7). Finally, there exists a large literature on correcting CFG with Sequential Monte Carlo (Skreta et al., 2025; He et al., 2025) or MCMC techniques (Du et al., 2023; Moufad et al., 2025; Zhang et al., 2025). These approaches are mostly orthogonal to other improvements of CFG, and can be combined with most of the dynamic mixing strategies (i.e. Malarz et al. (2025))."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                393,
+                828,
+                674
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "CFG has also been reinterpreted as a predictor-corrector in Bradley and Nakkiran (2024) and analyzed theoretically in a variety of works (Fu et al., 2024; Wu et al., 2024; Chidambaram et al., 2024; Kong et al., 2024; Frans et al., 2025). Pavasovic et al. (2025) have shown that while CFG can overshoot the target distribution in low dimension, it can reproduce the target distribution in high dimensions."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                678,
+                826,
+                736
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Concurrently to our work, Papalampidi et al. (2025) introduced dynamic classifier guidance by selecting the guidance weight among a list of pre-determined guidance weights using online evaluators."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                739,
+                826,
+                772
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Correcting distribution mismatch. Like our method, the time-tuner approach (Xia et al., 2024) corrects the mismatch between the sampled and target conditional distributions. However, time-tuner specifically addresses backward solver discretization errors in low-NFE regimes by adjusting the denoiser’s noise level. In contrast, our approach addresses the distributional mismatch caused by CFG to improve alignment and quality, independent of NFE."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                787,
+                826,
+                859
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Learning CFG weight. Azangulov et al. (2025) introduced an algorithm based on stochastic control to optimize the guidance weights. However, this algorithm is not scalable as it requires guided backwards trajectories to estimate the gradient. Concurrently to us, Yehezkel et al. (2025) introduced an annealing guidance scheduler that dynamically adjusts the guidance weight based on the timestep and the magnitude of the conditional noise discrepancy. The method learns an adaptive policy to better balance image quality and alignment with the text prompt throughout the generation process. One of their losses is similar to an alternative approach we explored – guided score matching (see Appendix C.1). We found that optimizing such loss led to guidance weights equal to zero."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                867,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "6"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                825,
+                162
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Distillation. Our method shares similarities with distillation approaches such as Diff-Instruct (Luo et al., 2023), Variational Score Distillation (Wang et al., 2023) and Moment Matching Distillation (MMD) (Salimans et al., 2024), which distill a diffusion model by approximately minimizing the KL divergence between the distilled generator and the pretrained teacher model. One could think about our method as a form of distillation where the KL divergence is replaced by a scoring rule, the pretrained teacher model is replaced by the true distribution, and the student is replaced by a guided diffusion. Our methodology could be extended to the distillation setting."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                172,
+                826,
+                272
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Distributional approaches for diffusion models. Our objective function was motivated by (De Bortoli et al., 2025), where (9) is used to learn "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p ( x _ { 0 } | x _ { t } , c )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to obtain distributional diffusion models. Our method is also related to Inductive Moment Matching (IMM) (Zhou et al., 2025), where a generative model is trained by enforcing marginal consistency (14). Instead of directly optimizing for (14), their objective minimizes the distance between "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { s } ^ { t , ( \\theta _ { n } , \\omega ) }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { s } ^ { r , ( \\theta _ { n - 1 } , \\omega ) }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", where n is an iteration number and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "s < r < t"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is an intermediate time between s and t. However, they do not marginalize over "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( x _ { 0 } , c ) \\sim p _ { 0 , c }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "as in (12); instead, they sample a batch of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( x _ { 0 } , c )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and use it for both "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { s } ^ { t , ( \\theta _ { n } , \\omega ) }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { s } ^ { r , ( \\theta _ { n - 1 } , \\omega ) }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". This means they optimize an objective similar to self-consistency (17), where they use a batch of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( x _ { 0 } , c )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "instead of single points."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                282,
+                826,
+                421
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5 EXPERIMENTAL RESULTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                446,
+                418,
+                462
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this section, we present our core experimental results on learning guidance weights. In Section 5.1, we provide results for image generation benchmarks – ImageNet 64 × 64 (Deng et al., 2009) and CelebA (Liu et al., 2015) with resolution "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "6 4 \\times 6 4"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". We provide results on text-to-image (T2I) benchmark - MS-COCO 2014 (Lin et al., 2014) (10K images) at "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "5 1 2 \\times 5 1 2"
+                    },
+                    {
+                        "type": "text",
+                        "content": "resolution in Section 5.2. We also refer the reader to Appendix G for a discussion about training and inference cost of our method."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                482,
+                826,
+                566
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Ablations. We refer the reader to Appendix H for ablations of our method. In Appendix H.1, we provide ablations over "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\beta"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and m on ImageNet 64 × 64 and in Appendix H.2, we provide ablation over conditioning in T2I. Finally, in Appendix H.3, we provide ablation over guidance network size and architecture on T2I."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                587,
+                826,
+                643
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Additional results. We refer the reader to Appendix I for additional results and comparisons. In Appendix I.1, we provide comparisons to clamp-linear schedule (Wang et al., 2024) on ImageNet 64 × 64, and in Appendix I.2, we add comparisons to limited interval guidance (LIG) (Kynkäänniemi et al., 2024) and clamp linear schedule on T2I. Moreover, in Appendix I.3, we add results on Stable Diffusion-v1.5 (Rombach et al., 2022b). Furthermore, we report 2D Mixture of Gaussians (MoG) results in Appendix I.4. Finally, in Appendix J, we provide an analysis of learned guidance weights in T2I and ImageNet "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "6 4 \\times 6 4"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                665,
+                826,
+                765
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.1 IMAGE GENERATION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                787,
+                359,
+                801
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Experimental setting. We evaluate the performance of our method on ImageNet 64 × 64 and CelebA with resolution 64×64. As evaluation metrics, we use FID (Heusel et al., 2017) and Inception Score (IS) (Salimans et al., 2016). First, we pretrain diffusion models on ImageNet and CelebA. We then freeze these models and train guidance network "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\omega _ { c , ( s , t ) } ^ { \\phi }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "via Algorithm 1. We also train a variant of our method where conditioning is omitted, i.e. "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\omega _ { ( s , t ) } ^ { \\phi }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". On top of that, we also train the simplified "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\ell _ { 2 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "method using Algorithm 3 using the same methodology. We report metrics based on 50k samples. Please refer to Appendix F for more details."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                815,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "7"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Baselines. We report performance of the unguided model as well as the model with a constant guidance. We further report performance of limited interval guidance (LIG) (Kynkäänniemi et al., 2024). Guidance scale and intervals were selected via grid search for the lowest FID (see Appendix F)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                104,
+                826,
+                148
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/322dbc84dd02d372769009708352e9088777024541d913dc7cb6c6db9958aa05.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 1: ImageNet 64x64. We report FID and IS for different methods (the best are in bold)."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Method Name</td><td>Guidance Weight</td><td>FID ↓</td><td>Inception Score (IS) ↑</td></tr><tr><td colspan=\"4\">Baselines</td></tr><tr><td>Unguided</td><td> $\\omega = 0$ </td><td>4.46</td><td>43.52</td></tr><tr><td>Constant guidance</td><td> $\\omega = 0.25$ </td><td>2.40</td><td>66.72</td></tr><tr><td>Limited interval guidance</td><td> $\\omega(t) = 0.95 \\text{ for } t \\in [0.2, 0.8]$ </td><td>2.11</td><td>71.60</td></tr><tr><td colspan=\"4\">Learned guidance approaches</td></tr><tr><td>Self-consistency (20)</td><td> $\\omega_{c,(s,t)}^{\\phi}$ </td><td>1.99</td><td>73.62</td></tr><tr><td>Self-consistency (20)</td><td> $\\omega_{(s,t)}^{\\phi}$ </td><td>2.07</td><td>76.7</td></tr><tr><td> $\\ell_2$  objective (21)</td><td> $\\omega_{c,(s,t)}^{\\phi}$ </td><td>2.09</td><td>75.93</td></tr><tr><td> $\\ell_2$  objective (21)</td><td> $\\omega_{(s,t)}^{\\phi}$ </td><td>2.10</td><td>77.55</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                176,
+                179,
+                821,
+                372
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Results. The results for ImageNet "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "6 4 \\times 6 4"
+                    },
+                    {
+                        "type": "text",
+                        "content": "are given in Table 1 and for CelebA in Table 2. In both cases, the LIG baseline outperforms the other baselines in terms of FID and Inception Score. Our self-consistency approach (20) leads to the best results, especially when the conditioning information is provided. This highlights the importance of adjusting guidance weights for different conditioning."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                392,
+                826,
+                450
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/7b28e41978662b17ed09779e24770385d32fef9a39c5dc3223a4d32754e20306.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                204,
+                465,
+                444,
+                585
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/887d5fed44496a1f46fc8c97bf6b3a839daa5dea25deb8265c7a7f9c8447ee75.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 1: Learned guidance weights on ImageNet 64x64. Left, guidance weights "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\omega _ { ( t - d t , t ) } ^ { \\phi }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "(conditioning-agnostic) for baselines as well as for self-consistency (20) and (conditioning-agnostic) for baselines as well as for self-consistency (20) and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\ell _ { 2 } \\left( 2 1 \\right)"
+                    },
+                    {
+                        "type": "text",
+                        "content": "objectives, where objectives, where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "d t = 1 / 1 0 0 . \\mathrm { X } \\mathrm { - a x i s }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is time. Right, guidance weights is time. Right, guidance weights "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\omega _ { c , ( t - d t , t ) } ^ { \\phi }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for specific ImageNet classes. for specific ImageNet classes."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                452,
+                467,
+                787,
+                590
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In Figure 1, left, we visualize the learned conditioning-agnostic guidance weights "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\omega _ { ( t - d t , t ) } ^ { \\phi }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "with "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "d t = 1 / 1 0 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", for self-consistency (20) and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\ell _ { 2 } \\left( 2 1 \\right)"
+                    },
+                    {
+                        "type": "text",
+                        "content": "approaches, as well as for the baselines. Learned guidance weights seem to be positive on a similar interval as "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { L I G } ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": "but the shape of the weights is quite different. In Figure 1, right, we visualize guidance weights "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\omega _ { c , ( t - d t , t ) } ^ { \\phi }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for different classes of ImageNet, learned by self-consistency (20). First, we arbitrary choose some classes – 0 (tench), 10 (brambling), 100 (black swan) and 999 (toilet tissue). Then, we visualize the ones which achieve the largest and the lowest guidance weights, i.e. 83 (prairie chicken) "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\begin{array} { r l } { \\mathbf { \\sigma } } & { { } = \\arg \\operatorname* { m i n } _ { c } [ \\operatorname* { m a x } _ { t } \\boldsymbol { \\omega } _ { c , ( t - d t , t ) } ^ { \\phi } ] } \\end{array}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and 696 (paintbrush) "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "= \\arg \\operatorname* { m a x } _ { c } [ \\operatorname* { m a x } _ { t } \\omega _ { c , ( t - d t , t ) } ^ { \\phi } ]"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". For the class 83 (prairie chicken), the guidance weight is zero. For the class 696 (paintbrush) it has quite a different behavior compared to others, being more aggressive and positive on a larger interval. Overall, this, variability highlights importance of adjusting guidance weights per conditioning."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                619,
+                826,
+                823
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Ablations. In Figure 2, we study impact of δ and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "S _ { \\mathrm { m i n } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "on ImageNet "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "6 4 \\times 6 4"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". We always use "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\zeta = 0 . 0 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": "which introduces a small \"safety margin\" over the original diffusion model (i.e. "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "t \\in [ \\zeta , 1 - \\zeta ]"
+                    },
+                    {
+                        "type": "text",
+                        "content": "instead of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "t \\in [ 0 , 1 ] )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". The self-consistency approach (17) is less sensitive to the parameters compared to "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\ell _ { 2 } \\ ( 2 1 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Overall, very small "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\delta = 0 . { \\dot { 0 } } 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": "leads to worse performance compared to larger ones, motivating us to train with large gaps "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( \\delta \\approx 0 . 1 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "between s and t. This finding is surprising because during sampling "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "| s - t | \\sim 0 . 0 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for 100 sampling steps. We hypothesize that a larger gap |s−t| provides a more stable and informative gradient signal for the guidance network, which then successfully generalizes to the small-step intervals used during inference thanks to the smoothness of the network "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\omega _ { c , ( \\cdot , \\cdot ) } ^ { \\phi }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". The performance is not very sensitive to "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "S _ { \\mathrm { m i n } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", but we found "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "S _ { \\mathrm { m i n } } = 0 . 2"
+                    },
+                    {
+                        "type": "text",
+                        "content": "worked the best."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                827,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "8"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/5f97a701e2b2438bc414b6d8733899f034b653db238aca88d5408b1db373dd48.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 2: CelebA "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "6 4 \\times 6 4"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". We report FID and IS for different methods (the best are in bold)."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Method Name</td><td>Guidance Weight</td><td>FID ↓</td><td>Inception Score (IS) ↑</td></tr><tr><td colspan=\"4\">Baselines</td></tr><tr><td>Unguided</td><td> $\\omega = 0$ </td><td>2.44</td><td>2.94</td></tr><tr><td>Constant guidance</td><td> $\\omega = 0.01$ </td><td>2.45</td><td>2.94</td></tr><tr><td>Limited interval guidance</td><td> $\\omega(t) = 0.7 \\text{ for } t \\in [0.0, 0.8]$ </td><td>2.37</td><td>2.96</td></tr><tr><td colspan=\"4\">Learned guidance approaches</td></tr><tr><td>Self-consistency (20)</td><td> $w_{c,(s,t)}^{\\phi}$ </td><td>2.10</td><td>2.98</td></tr><tr><td>Self-consistency (20)</td><td> $w_{(s,t)}^{\\phi}$ </td><td>2.28</td><td>2.97</td></tr><tr><td> $\\ell_2$  objective (21)</td><td> $w_{c,(s,t)}^{\\phi}$ </td><td>2.36</td><td>2.95</td></tr><tr><td> $\\ell_2$  objective (21)</td><td> $w_{(s,t)}^{\\phi}$ </td><td>2.33</td><td>2.95</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                174,
+                119,
+                821,
+                311
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/6a7ed885e3909213fe7d1cca7180968abb641571552aa955d69e455f8b10466b.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                204,
+                325,
+                351,
+                422
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/dced13fa9728b8fd4bc9784db7641fbe3487884824301fb89eb8db186b89117b.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                357,
+                325,
+                500,
+                434
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/f0e0ef37aa0c4001d37ec1534ec927b1becf981dc6965caf515d66fc13717ab5.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                503,
+                325,
+                643,
+                434
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/7bf11985faf62072ddf155ea159b8e3a741b584fa5fa2119fe02f0975dd6588f.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 2: Ablation over "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\delta"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "S _ { \\mathrm { m i n } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "on ImageNet "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "6 4 \\times 6 4 ."
+                    },
+                    {
+                        "type": "text",
+                        "content": ". On the X-axis we report values of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "S _ { \\mathrm { m i n } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and on Y-axis we show FID. Each column denotes a method while a color corresponds to a value of δ."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                648,
+                325,
+                789,
+                421
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                171,
+                477,
+                823,
+                512
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.2 TEXT-TO-IMAGE GENERATION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                527,
+                426,
+                542
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We evaluate our method on MS COCO 2014 dataset at "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "5 1 2 \\times 5 1 2"
+                    },
+                    {
+                        "type": "text",
+                        "content": "resolution for text-to-image (T2I) task. We pretrain a 1.05B parameter flow matching model (Lipman et al., 2023) that uses a Multimodal Diffusion Transformer backbone (BlackForestLabs, 2025). We freeze it and train a guidance network "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\omega _ { c _ { \\mathrm { C L I P } } , c _ { \\mathrm { T } 5 , ( s , t ) } } ^ { \\phi }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "via Algorithm 1, where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "c _ { \\mathrm { C L I P } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "c _ { \\mathrm { T 5 } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denote CLIP (Radford et al., 2021) and T5 (Raffel et al., 2020) embeddings of the text prompt. As baseline, we consider manually selected guidance weight ω. Instead of an empty prompt ∅ for the unconditional term (7), we replace it with a fixed negative prompt "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "c _ { \\mathrm { n { e g } } } ="
+                    },
+                    {
+                        "type": "text",
+                        "content": "“blurred, blurry, disfigured, ugly, tiling, poorly drawn”. This ’negative guidance’ setup is for both our learned model and the baseline. We also consider a setting with a reward function "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "R ( x _ { 0 } , c )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "given by CLIP score (Hessel et al., 2021) computed between image "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "x _ { 0 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and prompt c. We train guidance network via Algorithm 4 with "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\gamma _ { R } = 1 0 ^ { 5 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". We report FID (Heusel et al., 2017) and CLIP Score using 10K samples. For more experimental details, see Appendix F."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                554,
+                826,
+                710
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Results. The quantitative results are summarized in Table 3. Our method outperforms unguided and guided baselines in terms of FID, which is consistent to image experiments. However, it achieves a lower CLIP score than a guided baseline. Adding CLIP score reward leads a similar CLIP score as guided baseline, but achieves lower FID. We provide qualitative results in Figures (4)-(6), see Appendix A. Our method generates images that are more realistic and better aligned with the text prompts. The learned guidance weights are shown in Figure 3. We observe high variability depending on the prompt."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                712,
+                826,
+                811
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "6 DISCUSSION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                821,
+                313,
+                838
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this paper, we presented an approach to learn CFG weights "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\omega _ { c , ( s , t ) }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "as a function of conditioning c and times s and t, using the self-consistency condition (17). This rather strong condition is motivated by a weaker marginal consistency condition (14), which is satisfied by the true backwards diffusion process. Our approach yields guidance weights that improve FID on image generation tasks – ImageNet 64 × 64 and CelebA 64 × 64. Our analysis reveals that guidance weights vary significantly de pending on the conditioning information, implying that CFG with learnable, conditioning-dependent weights can improve conditional sampling performance."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                854,
+                828,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "9"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/ef2bccff4eddca3052bab515999aa7707032f7c7858ab07c653a3d4415269657.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 3: MS COCO 512 × 512. FID and CLIP score for different methods (the best are in bold). We report the best qualitative results for the baselines: limited interval guidance (Kynkäänniemi et al., 2024) and clamp-linear schedule (Wang et al., 2024). We perform extensive hyperparameter tuning for each of these baselines as shown in Table 10 and Table 9"
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Method Name</td><td>Guidance Weight</td><td>FID ↓</td><td>CLIP Score ↑</td></tr><tr><td colspan=\"4\">Baselines</td></tr><tr><td>Unguided</td><td> $\\omega = 0$ </td><td>24.74</td><td>0.278</td></tr><tr><td>Constant guidance</td><td> $\\omega = 7.5$ </td><td>31.2</td><td>0.306</td></tr><tr><td>Limited interval guidance</td><td> $\\omega(t) = 15.0 \\text{ for } t \\in [0.1, 0.9]$ </td><td>24.95</td><td>0.304</td></tr><tr><td>Clamp-linear guidance</td><td> $\\omega = 14.0$ </td><td>27.14</td><td>0.305</td></tr><tr><td colspan=\"4\">Our approaches</td></tr><tr><td>Self-consistency (20)</td><td> $\\omega_{c_{\\text{CLIP}}, c_{\\text{T5},(s,t)}}^{\\phi}$ </td><td>18.01</td><td>0.295</td></tr><tr><td>Self-consistency (20) + CLIP reward</td><td> $\\omega_{c_{\\text{CLIP}}, c_{\\text{T5},(s,t)}}^{\\phi}$ </td><td>28.37</td><td>0.306</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                174,
+                161,
+                818,
+                319
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/3fe99f4e4c5115d73e0633acb765008895777496e1f4b47581c697d48d6845b7.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 3: Learned guidance weights on MS COCO 512 × 512 trained with self-consistency (20) and CLIP reward loss. Please refer to Figures 4 and 5 for the corresponding images."
+                    }
+                ],
+                "chart_footnote": [
+                    {
+                        "type": "text",
+                        "content": "Prompt 1. Man performing stunt on a skateboard on a road."
+                    },
+                    {
+                        "type": "text",
+                        "content": "Prompt 2. A street with cars and construction workers working."
+                    },
+                    {
+                        "type": "text",
+                        "content": "Prompt 3. A bird is sitting on a branch among unfocused trees."
+                    },
+                    {
+                        "type": "text",
+                        "content": "Prompt 4. A wooden table topped with four white bowls."
+                    },
+                    {
+                        "type": "text",
+                        "content": "Prompt 5. A light brown horse’s face is shown at close range."
+                    },
+                    {
+                        "type": "text",
+                        "content": "Prompt 6. A living room with furniture, a fireplace, and a large scenic window."
+                    },
+                    {
+                        "type": "text",
+                        "content": "Prompt 7. The large bird has a red face and black feathers."
+                    },
+                    {
+                        "type": "text",
+                        "content": "Prompt 8. A small dog on TV behind the words: \"What did I do wrong?\""
+                    }
+                ]
+            },
+            "bbox": [
+                174,
+                334,
+                434,
+                462
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                522,
+                825,
+                551
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We extended our methodology to text-to-image tasks with a reward function given by the CLIP score. We found that our approach leads to highly variable prompt-dependent guidance weights and visually provides better prompt alignment compared to baselines. Quantitatively, however, we found that the performance was close to a baseline with a manually selected guidance weight function."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                556,
+                826,
+                614
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Future work will focus on theoretical understanding of our objective function and its guidance solutions. Moreover, we will explore alternative reward functions for better prompt-image alignment, and investigate the impact of different guidance approaches. We hope our work motivates further research into how time- and conditioning-dependent guidance weights affect the sampled distributions."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                619,
+                828,
+                679
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "REFERENCES"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                698,
+                287,
+                714
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Abramson, J., Adler, J., Dunger, J., Evans, R., Green, T., Pritzel, A., Ronneberger, O., Willmore, L., Ballard, A. J., Bambrick, J., et al. (2024). Accurate structure prediction of biomolecular interactions with AlphaFold 3. Nature, 630(8016):493–500."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                723,
+                825,
+                765
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Adaloglou, N. and Kaiser, T. (2024). An overview of classifier-free guidance for diffusion models. theaisummer.com."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                174,
+                776,
+                825,
+                804
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Adaloglou, N., Kaiser, T., Iagudin, D., and Kollmann, M. (2025). Guiding a diffusion model using sliding windows. arXiv preprint arXiv:2411.10257."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                816,
+                823,
+                845
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Azangulov, I., Potaptchik, P., Li, Q., Aamari, E., Deligiannidis, G., and Rousseau, J. (2025). Adaptive diffusion guidance via stochastic optimal control. arXiv preprint arXiv:2505.19367."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                856,
+                823,
+                885
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "BlackForestLabs (2025). Flux.1 kontext: Flow matching for in-context image generation and editing in latent space. arXiv preprint arXiv:2506.15742."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                895,
+                823,
+                924
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "10"
+                    }
+                ]
+            },
+            "bbox": [
+                488,
+                946,
+                509,
+                960
+            ]
+        }
+    ]
+]

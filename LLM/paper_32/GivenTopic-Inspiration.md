@@ -1,0 +1,9 @@
+Given Topic: Autonomous self-evolution of reasoning capabilities in large language models. Existing paradigms for enhancing model reasoning remain constrained by dependence on human-annotated task corpora, pre-existing unlabeled problem sets, or domain-specific external verifiers such as code executors. These dependencies create fundamental scalability bottlenecks and render current methods ineffective for open-ended reasoning domains lacking deterministic correctness criteria. The core scientific issue is how to enable a language model to autonomously generate and learn from a self-improving task curriculum without any external data source, labels, or verification oracles, thereby achieving continuous capability advancement in a fully self-supervised manner.
+
+Given Inspiration:
+1. Co-evolutionary dynamics observed in biological systems, wherein interacting populations exert reciprocal selective pressures that drive continuous mutual adaptation and capability escalation.
+2. Pedagogical research indicating that maximum learning efficacy arises when instructional content is calibrated to the frontier of a learner's existing competence, avoiding both triviality and impossibility.
+3. Self-play frameworks from game theory and competitive reinforcement learning, where strategic improvement emerges from iterated competition against progressively stronger versions of the same agent.
+4. Information-theoretic and statistical principles establishing that the gradient of learning is steepest under conditions of maximum uncertainty, where outcome variance is maximized.
+5. The utilization of internal epistemic signals—such as the dispersion or consensus among a model's own multiple sampled outputs—as intrinsic, oracle-free indicators of task difficulty and supervision quality.
+6. Curriculum sequencing inspired by human cognitive development, wherein reasoning capabilities are sequentially fortified through exposure to monotonically complex challenges.

@@ -1,0 +1,264 @@
+## ABSTRACT
+
+With the growing demand for high-quality image generation on resourceconstrained devices, efficient diffusion models have received increasing attention. However, such models suffer from approximation errors introduced by efficiency techniques, which significantly degrade generation quality. Once deployed, these errors are difficult to correct, as modifying the model is typically infeasible in deployment environments. Through an analysis of error propagation across diffusion timesteps, we reveal that these approximation errors can accumulate exponentially, severely impairing output quality. Motivated by this insight, we propose Iterative Error Correction (IEC), a novel test-time method that mitigates inference-time errors by iteratively refining the model’s output. IEC is theoretically proven to reduce error propagation from exponential to linear growth, without requiring any retraining or architectural changes. IEC can seamlessly integrate into the infer ence process of existing diffusion models, enabling a flexible trade-off between performance and efficiency. Extensive experiments show that IEC consistently improves generation quality across various datasets, efficiency techniques, and model architectures, establishing it as a practical and generalizable solution for test-time enhancement of efficient diffusion models. The code is available at https://github.com/zysxmu/IEC.
+
+## 1 INTRODUCTION
+
+Diffusion models (Ho et al., 2020; Rombach et al., 2022; Nichol & Dhariwal, 2021) have achieved state-of-the-art generative performance across a wide range of tasks, including image synthesis (Song et al., 2020b; Choi et al., 2021; Saharia et al., 2022a; Tumanyan et al., 2023; Li et al., 2022; Saharia et al., 2022c; Gao et al., 2023; Avrahami et al., 2022; Kawar et al., 2023; Meng et al., 2021), text-to image generation (Nichol et al., 2021; Ramesh et al., 2022; Saharia et al., 2022b; Zhang et al., 2023b), text-to-3D generation (Lin et al., 2023; Luo & Hu, 2021; Poole et al., 2022), video generation (Mei & Patel, 2023), and audio generation (Huang et al., 2022; Zhang et al., 2023a). However, diffusion models typically require hundreds of iterative denoising steps and contain billions of parameters, resulting in high computational costs that hinder deployment in resource-constrained environments. To address this limitation, extensive efficiency techniques have been devoted to developing efficient model techniques for diffusion models (Song et al., 2020a; Zhang et al., 2022; Zheng et al., 2023; Liu et al., 2025b; Shang et al., 2023; Li et al., 2023; 2024c).
+
+Among these techniques, network quantization (Shang et al., 2023; Li et al., 2023; 2024c; Zheng et al., 2024) and feature caching (Chen et al., 2024b; Zou et al., 2024; Ma et al., 2024b) have emerged as two promising approaches. The former reduces data precision to low-bit representations to simultaneously shrink model size and accelerate inference, while the latter caches intermediate features to eliminate redundant computations across diffusion timesteps. Although these methods effectively reduce overhead, they inevitably suffer from approximation errors between the efficient model and the original counterpart, which degrade the generation quality of the model. Prior studies have attempted to mitigate such errors through specialized mechanisms. For example, timestep-wise quantization parameters (Wang et al., 2023; Liu et al., 2024b) have been introduced to capture the dynamics of time-varying activations, while non-uniform caching strategies (Ma et al., 2024b) exploit similarity patterns between adjacent timesteps to improve performance. Despite their effectiveness, these methods remain pre-deployment solutions that require the ability to re-execute the model-efficiency pipeline and the original model.
+
+In practice, such requirements often do not hold once a model has been deployed in edge or production environments. On the one hand, reapplying the model-efficiency pipeline and redeploying the model incurs significant engineering overhead, making it impractical in many cases. Also, deployed models are typically immutable due to storage limitations, deployment policies, or system design constraints. On the other hand, after being deployed, the original model is often irretrievable, making re-executing the model-efficiency pipeline unfeasible. For instance, a quantized model may no longer retain its original high-precision weights, making re-quantization infeasible. Inspired by recent advances in test-time scaling (Snell et al., 2024; Lightman et al., 2023; Muennighoff et al., 2025; Ma et al., 2025; Singhal et al., 2025; Prabhudesai et al., 2023; Xiao & Snoek, 2024), where model behavior is adjusted at inference time without retraining, we ask: Is it possible to improve the performance ofan already deployed diffusion model without repeating the model-efficiency pipeline?
+
+To answer this question, we begin by analyzing how errors propagate through diffusion timesteps and reveal that they accumulate exponentially, which significantly degrades the final generation quality. Motivated by this finding, we propose Iterative Error Correction (IEC), a novel test-time method that mitigates these errors by iteratively refining the model’s output. Theoretically, we show that IEC reduces error accumulation from exponential to linear growth. IEC is a plug-and-play method that operates entirely at test-time. It requires no re-running the model-efficiency pipeline, no fine-tuning weights, and no changes in model architecture, making it compatible with deployed diffusion models. While IEC introduces additional computational overhead, it is highly flexible and can be selectively applied to a subset of all diffusion timesteps. Applying IEC to more timesteps yields greater quality improvements, while using fewer timesteps reduces computational overhead. Skipping IEC entirely preserves the model’s original performance. This flexibility provides users with fine-grained control over the trade-off between efficiency and generation quality, depending on resource constraints and application needs. By enhancing the performance of efficient diffusion models in deployment, IEC preserves the compatibility and reusability of these models, making it a practical and generalizable solution for real-world applications.
+
+## 2 RELATED WORK
+
+## 2.1 DIFFUSION MODEL
+
+Diffusion models (Ho et al., 2020; Rombach et al., 2022; Karras et al., 2022; 2024; Peebles & Xie, 2023) consist of forward process and reverse process. In the forward process, given input data distribution $x _ { 0 } \sim q ( x )$ , diffusion models add a series of Gaussian noise to $x _ { 0 }$ to resulting in a sequence of noisy samples $x _ { t } , 0 \leq t \leq T$
+
+$$
+\begin{array}{c} q (x _ {1: T} | x _ {0}) = \prod_ {t = 1} ^ {T} q (x _ {t} | x _ {t - 1}), \\ q (x _ {t} | x _ {t - 1}) = \mathcal {N} (x _ {t}; \sqrt {\alpha_ {t}} x _ {t - 1}, \beta_ {t} \mathbf {I}), \end{array}\tag{1}
+$$
+
+where $\alpha _ { t } = 1 - \beta _ { t } , \beta _ { t }$ is t-based parameters. In the reverse process, given randomly sampled Gaussian noise $x _ { T } \sim \mathcal { N } ( \mathbf { 0 } , \mathbf { I } )$ , diffusion models progressively generate images by:
+
+$$
+p _ {\theta} (x _ {t - 1} | x _ {t}) = \mathcal {N} (x _ {t - 1}; \hat {\mu} _ {\theta , t} (x _ {t}), \hat {\beta} _ {t} \mathbf {I}).\tag{2}
+$$
+
+For DDIM (Song et al., 2020a), the $\hat { \beta } _ { t } = 0$ and $\hat { \mu } _ { \boldsymbol { \theta } , t }$ is defined by:
+
+$$
+x _ {t - 1} = \sqrt {\alpha_ {t - 1}} \frac {x _ {t} - \sqrt {1 - \alpha_ {t}} \epsilon_ {\theta} (x _ {t} , t)}{\sqrt {\alpha_ {t}}} + \sqrt {1 - \alpha_ {t - 1}} \epsilon_ {\theta} (x _ {t}, t).\tag{3}
+$$
+
+## 2.2 EFFICIENT DIFFUSION
+
+Significant efforts have been devoted to developing efficient diffusion models, which can be broadly categorized into two types: temporal efficiency and structural efficiency (Liu et al., 2025b). Temporal efficiency methods focus on reducing the number of sampling timesteps. For instance, methods such as DDIM (Song et al., 2020a) and GDDIM (Zhang et al., 2022) modify the denoising equations to enable fewer sampling steps, while others (Zheng et al., 2023; Shih et al., 2023) accelerate inference by performing multiple denoising timesteps in parallel. DistriFusion (Li et al., 2024a) further improves efficiency by dividing input patches across multiple GPUs. Additionally, fast solvers for diffusion (Liu et al., 2022; Dockhorn et al., 2022; Yin et al., 2024b;a; Lu et al., 2022a;b) have been proposed to reduce the computational overhead associated with sampling. Structural efficiency methods, on the other hand, aim to reduce model complexity and are complementary to temporal efficiency techniques, making them increasingly popular. For example, network quantization has emerged as a key approach for efficient diffusion model (Li et al., 2024c; Zheng et al., 2024; Yang et al., 2024; Deng et al., 2025; Zhao et al., 2024; Huang et al., 2024a; Chen et al., 2024a; Dong & Zhang, 2025). Quantization-aware training (QAT)(Li et al., 2024c; Zheng et al., 2024) restores model performance at low bit-widths but incurs significant training overhead. In contrast, post-training quantization (PTQ)(Shang et al., 2023; Li et al., 2023; Wu et al., 2024a) requires minimal computational resources and small calibration datasets, making it more suitable for scenarios with limited resources. PTQ4DM (Shang et al., 2023) and Q-Diffusion (Li et al., 2023) introduced time-aware calibration to realize quantized diffusion models. Subsequent works have refined these methods by addressing quantization error, feature re-balancing, calibration data collection, model reconstruction, mixed-precision strategies, and so on (He et al., 2024; Huang et al., 2024b; Wang et al., 2024a;b; Feng et al., 2025; Liu et al., 2024c; Sun et al., 2024; Wu et al., 2024b). Moreover, techniques such as LoRA-based optimization (Hu et al., 2021) have been applied to further enhance quantized diffusion models (Li et al., 2024b; He et al., 2023). In addition to quantization, feature caching has also gained attention (Tang et al., 2024; Chen et al., 2024b; Zou et al., 2024; Ma et al., 2024b; Wimbauer et al., 2024; Liu et al., 2025a; 2024a; Ma et al., 2024a). These methods aim to reduce inference time by reusing pre-computed features across diffusion steps. Recent studies, such as CacheQuant (Liu et al., 2025b), combine caching with quantization to achieve even greater efficiency. Other structural efficiency techniques include token pruning (Fang et al., 2024) and sparsity (Fan et al., 2025). In this work, we focus on mitigating the errors introduced by structural efficiency methods.
+
+![](images/995a03b905facef67c5f219cdc8f405461fb5dc6cbc84e8314156c639edf225c.jpg)  
+(a) $| A _ { t } + B _ { t } J _ { t } | | .$
+
+![](images/0b848b3e0a5b5477c1416a22f895de5f91151724cc305c55a76d736401be9acd.jpg)  
+(b) $\Vert \nabla G ( x ) \Vert$ with varying λ.  
+Figure 1: Empirical results of (a) $\| A _ { t } + B _ { t } J _ { t } \| ; ( \boldsymbol { \mathsf { b } } ) \| \nabla G ( x ) \|$ under varying λ. Reported values are averaged over 100 sample generations using a DDIM pretrained on CIFAR-10.
+
+## 3 METHOD
+
+## 3.1 ANALYSIS OF ERROR ACCUMULATION IN EFFICIENT DIFFUSION MODELS
+
+In this subsection, we present a theoretical analysis of error propagation and accumulation across diffusion timesteps, using the deterministic DDIM sampling procedure as an example.
+
+Preliminaries. We consider the deterministic DDIM sampling process defined as:
+
+$$
+x _ {t - 1} = \sqrt {\alpha_ {t - 1}} \frac {x _ {t} - \sqrt {1 - \alpha_ {t}} \epsilon_ {\theta} (x _ {t} , t)}{\sqrt {\alpha_ {t}}} + \sqrt {1 - \alpha_ {t - 1}} \epsilon_ {\theta} (x _ {t}, t).\tag{4}
+$$
+
+For brevity of notation, we define the following coefficients:
+
+$$
+A _ {t} = \frac {\sqrt {\alpha_ {t - 1}}}{\sqrt {\alpha_ {t}}}, B _ {t} = \sqrt {1 - \alpha_ {t - 1}} - \sqrt {\alpha_ {t - 1}} \frac {\sqrt {1 - \alpha_ {t}}}{\sqrt {\alpha_ {t}}},\tag{5}
+$$
+
+thereby simplifying the rule to:
+
+$$
+x _ {t - 1} = A _ {t} x _ {t} + B _ {t} \epsilon_ {\theta} (x _ {t}, t).\tag{6}
+$$
+
+Modeling Error. In efficient diffusion model methods, such as quantized or cached models, two primary types of errors are introduced at each timestep. First, due to error propagation from the previous timestep, there exists a discrepancy $\delta _ { t }$ between the perturbed input $\tilde { x } _ { t }$ and the ideal input $x _ { t } ,$ defined as $\tilde { x } _ { t } = x _ { t } + \delta _ { t }$ . Second, perturbations from network quantization or feature caching introduce an error $\epsilon _ { \theta } ^ { \delta }$ in the model’s prediction. Specifically, the perturbed prediction $\tilde { \epsilon } _ { \theta } ( x _ { t } , t )$ differs from the ideal case $\epsilon _ { \theta } ( x _ { t } , t )$ is defined as $\tilde { \epsilon } _ { \theta } ( x _ { t } , t ) = \epsilon _ { \theta } ( x _ { t } , t ) + \epsilon _ { \theta } ^ { \delta }$
+
+Incorporating these errors, the perturbed update rule at timestep t becomes:
+
+$$
+\begin{array}{r l} & {\tilde {x} _ {t - 1} = A _ {t} \tilde {x} _ {t} + B _ {t} \tilde {\epsilon} _ {\theta} (\tilde {x} _ {t}, t)} \\ & {\quad = A _ {t} (x _ {t} + \delta_ {t}) + B _ {t} \tilde {\epsilon} _ {\theta} (x _ {t} + \delta_ {t}, t)} \\ & {\quad \approx A _ {t} (x _ {t} + \delta_ {t}) + B _ {t} \left(\tilde {\epsilon} _ {\theta} (x _ {t}, t) + J _ {t} \delta_ {t}\right)} \\ & {\quad = A _ {t} (x _ {t} + \delta_ {t}) + B _ {t} \left(\epsilon_ {\theta} (x _ {t}, t) + \epsilon_ {\theta} ^ {\delta} + J _ {t} \delta_ {t}\right),} \end{array}\tag{7}
+$$
+
+where the approximation uses the first-order Taylor expansion, and $\begin{array} { r } { J _ { t } = \frac { \partial \tilde { \epsilon } _ { \theta } ( x , t ) } { \partial x } \big | _ { x = x _ { i } } } \end{array}$ represents the Jacobian of the model output with respect to its input.
+
+Error Propagation. By subtracting the ideal update in Eq. 6 from the perturbed update in Eq. 7, we derive the recursive relation for error propagation:
+
+$$
+\begin{array}{r l} & {\delta_ {t - 1} = \tilde {x} _ {t - 1} - x _ {t - 1}} \\ & {\qquad \approx A _ {t} \delta_ {t} + B _ {t} (\epsilon_ {\theta} ^ {\delta} + J _ {t} \delta_ {t})} \\ & {\qquad = (A _ {t} + B _ {t} J _ {t}) \delta_ {t} + B _ {t} \epsilon_ {\theta} ^ {\delta}.} \end{array}\tag{8}
+$$
+
+Recursively expanding Eq. 8 from timestep $T$ to 0, and assuming the initial error $\delta _ { T } = 0$ (since $x _ { T }$ is drawn from an ideal Gaussian prior), the accumulated error at $t = 0$ is given by:
+
+$$
+\delta_ {0} = \sum_ {i = 1} ^ {T} \left(\prod_ {j = i + 1} ^ {T} (A _ {j} + B _ {j} J _ {j})\right) (B _ {i} \epsilon_ {\theta} ^ {\delta}).\tag{9}
+$$
+
+Eq. 9 reveals that the final error $\delta _ { 0 }$ is a weighted sum of per-timestep prediction errors, where each contribution is scaled by the product of the matrices $\left( A _ { j } + B _ { j } J _ { j } \right)$ from timestep $i + 1$ to $T$
+
+Analysis of Error Growth. To understand whether the propagated error amplifies or decays over time, we analyze the spectral norm $\left\| A _ { t } + B _ { t } J _ { t } \right\|$ , which quantifies the maximum amplification of the linear transformation at each timestep. Specifically, if $\| A _ { t } + B _ { t } J _ { t } \| > 1$ , the corresponding error component is amplified, and the error can grow exponentially if such amplification persists, leading to instability. In contrast, if $\lVert A _ { t } + B _ { t } J _ { t } \rVert < 1$ for all t, the propagated error decays over time, indicating a relatively stable and robust sampling process. Empirical observations, as shown in Fig. 1a, demonstrate that $\left| \left| A _ { t } + B _ { t } J _ { t } \right| \right|$ consistently exceeds 1 across timesteps, suggesting that the errors introduced by efficient diffusion methods tend to accumulate exponentially, posing a challenge in stability.
+
+As shown in Eq. 9, the key to reducing error lies in breaking the exponential growth trend during the accumulation process. In the following subsection, we propose a novel and effective method that transforms the error growth from exponential to linear.
+
+## 3.2 ITERATIVE ERROR CORRECTION
+
+To mitigate error accumulation, we introduce Iterative Error Correction (IEC), a theoretically motivated, plug-and-play method designed to reduce error accumulation from exponential to linear growth at test-time. The core idea of IEC is to introduce correction steps within diffusion timesteps. Specifically, at a timestep $t - 1$ , an initial estimate $x _ { t - 1 } ^ { ( 0 ) }$ is computed using the standard DDIM update defined in Eq. $6 \colon x _ { t - 1 } ^ { ( 0 ) } = A _ { t } x _ { t } + B _ { t } \epsilon _ { \theta } ( x _ { t } , t )$ . We then iteratively refine this estimate by repeatedly applying the following update rule:
+
+$$
+\begin{array}{c} x _ {t - 1} ^ {(k + 1)} = x _ {t - 1} ^ {(k)} + \lambda \left(A _ {t} x _ {t} + B _ {t} \epsilon_ {\theta} (x _ {t - 1} ^ {(k)}, t) - x _ {t - 1} ^ {(k)}\right), \\ k = 0, 1, 2, \ldots , \end{array}\tag{10}
+$$
+
+where $\lambda$ is a tunable hyperparameter. The iteration proceeds until the difference $\| x _ { t - 1 } ^ { ( k + 1 ) } - x _ { t - 1 } ^ { ( k ) } \|$ falls below a predefined threshold or the maximum number of iterations is reached, yielding the final estimate $x _ { t - 1 } ^ { * }$
+
+Convergence Analysis. We provide a mathematical justification for the convergence of IEC using fixed-point theory. Eq. 10 can be reformulated as:
+
+$$
+x _ {t - 1} ^ {(k + 1)} = (1 - \lambda) x _ {t - 1} ^ {(k)} + \lambda \left(A _ {t} x _ {t} + B _ {t} \epsilon_ {\theta} (x _ {t - 1} ^ {(k)}, t)\right).\tag{11}
+$$
+
+This allows us to define the mapping $G ( x )$ as:
+
+$$
+G (x) = (1 - \lambda) x + \lambda \left(A _ {t} x _ {t} + B _ {t} \epsilon_ {\theta} (x, t)\right).\tag{12}
+$$
+
+The iterative procedure in Eq. 10 is thus equivalent to applying fixed-point iteration to solve:
+
+$$
+x _ {t - 1} ^ {*} = G (x _ {t - 1} ^ {*}).\tag{13}
+$$
+
+According to Banach’s fixed-point theorem (Banach, 1922), the iterative procedure converges to a unique fixed point $x _ { t - 1 } ^ { * }$ if the mapping $G ( x )$ is a contraction mapping, i.e., there exists a Lipschitz constant $0 < \mathsf { \bar { L } } < 1$ such that:
+
+$$
+\| G (x) - G (y) \| \leq L \| x - y \|, \forall x, y.\tag{14}
+$$
+
+To estimate the Lipschitz constant $L _ { : }$ , we compute the Jacobian of $G ( x )$ :
+
+$$
+\nabla G (x) = (1 - \lambda) I + \lambda B _ {t} J _ {t},\tag{15}
+$$
+
+where $J _ { t }$ is the Jacobian matrix. Then, the Lipschitz constant L is given by:
+
+$$
+L = \| \nabla G (x) \| = \| (1 - \lambda) I + \lambda B _ {t} J _ {t} \|.\tag{16}
+$$
+
+To guarantee convergence, it is necessary to satisfy $0 < L < 1$ . Since $B _ { t } < 0 .$ , an appropriately chosen positive λ reduces the Lipschitz constant L via the term $\lambda B _ { t } J _ { t }$ , ensuring $L < 1$ . Empirically, as shown in Fig. 1b, we observe that setting λ within the range [0.1, 0.7] consistently ensures that $\| \nabla G ( x ) \| < 1$ across all timesteps. In this paper, we set λ to 0.5 as a practical choice based on these observations. Moreover, since $\bar { G } ( x )$ is continuously differentiable, Eq. 14 holds by the Mean Value Inequality for vector-valued functions (Munkres, 2018), confirming that G is a contraction mapping and IEC can converge to the fixed-point solution.
+
+Error Accumulation in IEC. The proposed IEC effectively suppresses error accumulation. To demonstrate this, we define the error at iteration $k + 1$ of IEC as:
+
+$$
+\begin{array}{l} \delta_ {t - 1} ^ {(k + 1)} = x _ {t - 1} ^ {(k + 1)} - x _ {t - 1} = G (x _ {t - 1} ^ {(k)}) - x _ {t - 1} \\ \qquad = \underbrace {G (x _ {t - 1} + \delta_ {t - 1} ^ {(k)}) - G (x _ {t - 1})} _ {\text { first   term }} + \underbrace {G (x _ {t - 1}) - x _ {t - 1}} _ {\text { second   term }}, \end{array}\tag{17}
+$$
+
+where $\delta _ { t - 1 } ^ { ( k ) } = x _ { t - 1 } ^ { ( k ) } - x _ { t - 1 }$ is the accumulated error at iteration k. The first term of Eq. 17 can be approximated by $G ( x _ { t - 1 } + \delta _ { t - 1 } ^ { ( k ) } ) - G ( x _ { t - 1 } ) \approx \nabla G \cdot \delta _ { t - 1 } ^ { ( k ) }$
+
+By considering the noisy input and noisy model prediction, the mapping $G ( x )$ is defined as:
+
+$$
+G (x) = (1 - \lambda) x + \lambda (A _ {t} \tilde {x} _ {t} + B _ {t} \tilde {\epsilon} _ {\theta} (x, t)),\tag{18}
+$$
+
+where $\tilde { x } _ { t } = x _ { t } + \delta _ { t }$ and $\tilde { \epsilon } _ { \theta } ( x , t ) = \epsilon _ { \theta } ( x , t ) + \epsilon _ { \theta } ^ { \delta }$ represent the noisy input and noisy model prediction, respectively. Consequently, the second term in Eq. 17 can be approximated by:
+
+$$
+\begin{array}{r l} & G (x _ {t - 1}) - x _ {t - 1} = \\ & (1 - \lambda) x _ {t - 1} + \lambda (A _ {t} (x _ {t} + \delta_ {t}) + B _ {t} (\epsilon_ {\theta} (x _ {t - 1}, t) + \epsilon_ {\theta} ^ {\delta})) - x _ {t - 1} \\ & = \lambda (A _ {t} x _ {t} + B _ {t} \epsilon_ {\theta} (x _ {t - 1}, t) - x _ {t - 1}) + \lambda (A _ {t} \delta_ {t} + B _ {t} \epsilon_ {\theta} ^ {\delta}) \\ & = \lambda B _ {t} (\epsilon_ {\theta} (x _ {t - 1}, t) - \epsilon_ {\theta} (x _ {t}, t)) + \lambda (A _ {t} \delta_ {t} + B _ {t} \epsilon_ {\theta} ^ {\delta}), \end{array}
+$$
+
+where the last equality uses the relationship $x _ { t - 1 } = A _ { t } x _ { t } + B _ { t } \epsilon _ { \theta } ( x _ { t } , t )$ . Taking the norm of $\delta _ { t - 1 } ^ { ( k + 1 ) }$ and applying the triangle inequality, we obtain:
+
+$$
+\begin{array}{l} \| \delta_ {t - 1} ^ {(k + 1)} \| \leq \| \nabla G (x _ {t - 1}) \cdot \delta_ {t - 1} ^ {(k)} \| + \\ \lambda (\| B _ {t} (\epsilon_ {\theta} (x _ {t - 1}, t) - \epsilon_ {\theta} (x _ {t}, t)) \| + \| A _ {t} \delta_ {t} + B _ {t} \epsilon_ {\theta} ^ {\delta} \|) \\ \leq L \| \delta_ {t - 1} ^ {(k)} \| + C, \end{array}
+$$
+
+where $L \qquad = \qquad \left\| \nabla G ( x _ { t - 1 } ) \right\|$ is the Lipschitz constant, and $\begin{array} { r l r l } { C } & { { } } & { = } & { { } } \end{array}$ $\lambda \left( \lVert B _ { t } ( \epsilon _ { \theta } ( x _ { t - 1 } , t ) - \epsilon _ { \theta } ( x _ { t } , t ) ) \rVert + \lVert A _ { t } \delta _ { t } + B _ { t } \epsilon _ { \theta } ^ { \delta } \rVert \right)$ is a bounded constant independent of $\delta _ { t - 1 } ^ { ( k ) }$ Recursively applying Eq. 19 yields:
+
+$$
+\| \delta_ {t - 1} ^ {(k)} \| \leq L ^ {k} \| \delta_ {t - 1} ^ {(0)} \| + C \frac {1 - L ^ {k}}{1 - L}.\tag{19}
+$$
+
+As $k  \infty , L ^ { k }  0$ , and the error converges to:
+
+$$
+\| \delta_ {t - 1} ^ {(\infty)} \| \leq \frac {C}{1 - L}.\tag{20}
+$$
+
+![](images/93d9af35af08c3f0f8e5bd5bac19559382abf34908b6aedfd7bd8d914dc560fc.jpg)
+
+This result demonstrates that IEC effectively suppresses error accumulation by ensuring that the propagated error at each timestep is bounded $\mathsf { b y } \ \frac { C } { 1 - L }$ . Crucially, since IEC eliminates dependency on errors from previous timesteps, the total accumulated error after T timesteps grows only linearly: $\begin{array} { r } { \cdot \delta _ { 0 } ^ { \mathrm { I E C } } = \sum _ { j = 1 } ^ { T } \delta _ { j } ^ { x } } \end{array}$ , where each $\delta _ { j } ^ { x }$ is independently
+
+Figure 2: Error comparison across timesteps.
+
+bounded. Thus, IEC can prevent exponential error amplification and achieve linear error propagation in theory. In practice, we set the maximum iteration K to 1 and the threshold τ to 1e-5. As shown in Fig. 2, IEC effectively reduces errors across timesteps, demonstrating its effectiveness in a real case.
+
+## 4 EXPERIMENT
+
+## 4.1 EXPERIMENT SETTINGS
+
+Models, Baselines, Datasets, Metrics, and Implementation Details. All experiments are conducted using PyTorch on an NVIDIA 3090 GPU. To evaluate the effectiveness of IEC, we apply it to various diffusion models, including DDPM, LDM, and Stable Diffusion (Song et al., 2020a; Rombach et al., 2022)<sup>1</sup>, as well as efficiency techniques such as timestep-wise network quantization (Liu et al., 2024b), Deepcache (Ma et al., 2024b), and CacheQuant (Liu et al., 2025b), a hybrid technique combining quantization and feature caching. For model quantization, we adopt channel-wise quantization for weights and layer-wise quantization for activations, considering both W4A8 and W8A8 cases. For W4A8, local reconstruction is performed to enhance performance. For feature caching, following
+
+![](images/76f45e755153df14bdbba766dde17ab0ec5a81feaed860018008f9c672b940e6.jpg)
+
+![](images/dc2914704394d7570a8c6d8d74d1a5a559fbf1b1b0029280d4e379f24c3fa86c.jpg)  
+(a) Ablation study of applying IEC on W8A8 (b) Ablation study of applying IEC on Deepquantization. cache (N = 10).  
+Figure 3: Ablation study of applying IEC on quantization and Deepcache. The baseline does not use IEC, while “All Steps” applies IEC to all timesteps. The “ A” indicates that IEC is applied to both the first and last A timesteps.
+
+CacheQuant (Ma et al., 2024b), the cached blocks are set to last 3, 1, and 1 blocks for DDIM, LDM, and Stable Diffusion, respectively. We evaluate IEC on several widely used datasets, including CIFAR-10 (Krizhevsky et al., 2009), LSUN-Churchs (Yu et al., 2015), LSUN-Bedrooms (Yu et al., 2015), ImageNet (Deng et al., 2009), and MS-COCO (Lin et al., 2014). For Stable Diffusion, we generate 5,000 images using MS-COCO captions as prompts, following the protocols in (Ma et al., 2024b; Chen et al., 2024b; Wu et al., 2024a). For all other datasets, 50,000 images are generated to evaluate the quality of image synthesis. The evaluation metrics include FID (Heusel et al., 2017), Inception Score (IS) (Salimans et al., 2016), and CLIP Score (evaluated on ViT-g/14) (Hessel et al., 2021). For quantization-based methods, IEC is applied at every timestep. For DeepCache and CacheQuant, IEC is applied only to the non-cached timesteps, except for MS-COCO, where IEC is only applied at the first timestep. Note that IEC is applied solely to the efficient diffusion models and does not interfere with the baseline model efficiency pipelines.
+
+Table 1: Results of combining IEC with timestep-wise quantization (Liu et al., 2024b) on CIFAR-10, LSUN-Churchs, and LSUN-Bedrooms datasets.
+
+<table><tr><td colspan="2">CIFAR-10 32 × 32 (T=100)</td><td colspan="2">LSUN-Churchs 256 × 256 (T=100)</td><td colspan="2">LSUN-Bedrooms 256 × 256 (T=100)</td></tr><tr><td>W/A</td><td>FID ↓</td><td>W/A</td><td>FID ↓</td><td>W/A</td><td>FID ↓</td></tr><tr><td>DDIM</td><td>4.19</td><td>LDM-8</td><td>3.99</td><td>LDM-4</td><td>3.37</td></tr><tr><td>W8A8</td><td>4.32</td><td>W8A8</td><td>3.57</td><td>W8A8</td><td>8.97</td></tr><tr><td>+IEC</td><td>3.76</td><td>+IEC</td><td>3.29</td><td>+IEC</td><td>7.78</td></tr><tr><td>W4A8</td><td>6.82</td><td>W4A8</td><td>6.27</td><td>-</td><td>-</td></tr><tr><td>+IEC</td><td>5.96</td><td>+IEC</td><td>6.10</td><td>-</td><td>-</td></tr></table>
+
+## 4.2 ABLATION STUDY
+
+Fig. 3 illustrates the impact of applying IEC to different subsets of timesteps. Specifically, we examine the effects of applying IEC only to the first and last timesteps, as these timesteps exhibit the largest values of $\left\| A _ { t } + B _ { t } J _ { t } \right\|$ in Fig. 1a. As shown in Fig. 3a, for the W8A8 case, applying IEC to all timesteps achieves the best FID of 3.76. Notably, the performance gains remain significant even when IEC is applied to only a small number of timesteps. For instance, applying IEC to the first and last $1 / 1 0 ( ^ { \left. } \pm 1 / \mathrm { i } 0 ^ { \right. } )$ or $1 / 2 0 ^ { \circ } ( ^ { \circ \circ } \pm 1 / 2 0 ^ { \circ } )$ of timesteps yields FID improvements of 0.44 and 0.35, respectively. These results suggest that partial application of IEC still provides meaningful benefits. A similar trend is observed in results on feature caching in Fig. 3b. Applying IEC to all timesteps improves the FID by 1.97, while employing it to the first and last 1/10 or 1/20 of timesteps leads to gains of 0.16 and 0.19, respectively. These findings demonstrate that IEC is effective and flexible, as it can be selectively applied to a subset of timesteps to balance performance improvements with
+
+Table 2: Results of combining IEC with Deepcache (Ma et al., 2024b) on CIFAR-10, LSUN-Churchs, and LSUN-Bedrooms datasets.
+
+<table><tr><td colspan="2">CIFAR 32 × 32(T=100)</td><td colspan="2">LSUN-Churchs 256 × 256(T=100)</td><td colspan="2">LSUN-Bedrooms 256 × 256(T=100)</td></tr><tr><td>Method</td><td>FID ↓</td><td>Method</td><td>FID ↓</td><td>Method</td><td>FID ↓</td></tr><tr><td>DDIM</td><td>4.19</td><td>LDM-8</td><td>3.99</td><td>LDM-4</td><td>3.37</td></tr><tr><td>Deepcache-N=3+IEC</td><td>4.703.96</td><td>Deepcache-N=3+IEC</td><td>5.104.73</td><td>Deepcache-N=2+IEC</td><td>11.217.99</td></tr><tr><td>Deepcache-N=5+IEC</td><td>5.734.83</td><td>Deepcache-N=5+IEC</td><td>6.746.00</td><td>Deepcache-N=3+IEC</td><td>11.868.16</td></tr><tr><td>Deepcache-N=10+IEC</td><td>9.747.77</td><td>Deepcache-N=10+IEC</td><td>14.8113.17</td><td>Deepcache-N=5+IEC</td><td>14.289.20</td></tr><tr><td>Deepcache-N=15+IEC</td><td>17.2114.58</td><td>Deepcache-N=15+IEC</td><td>25.2722.42</td><td>Deepcache-N=10+IEC</td><td>26.0916.91</td></tr></table>
+
+computational cost<sup>2</sup>. Moreover, increasing the number of correction iterations (e.g., K = 2 or K = 3) leads to marginal improvements, indicating that IEC is already effective even with a single correction step.
+
+Table 3: Results of combining IEC with CacheQuant (Liu et al., 2025b) (Denoted as CacheQ) on CIFAR-10, LSUN-Churchs, and LSUN-Bedrooms datasets.
+
+<table><tr><td rowspan="2">W/A</td><td colspan="2">CIFAR-1032 × 32 (T=100)</td><td colspan="2">LSUN-Churchs256 × 256 (T=100)</td><td colspan="2">LSUN-Bedrooms256 × 256 (T=100)</td></tr><tr><td>Method</td><td>FID ↓</td><td>Method</td><td>FID ↓</td><td>Method</td><td>FID ↓</td></tr><tr><td>-</td><td>DDIM</td><td>4.19</td><td>LDM-8</td><td>3.99</td><td>LDM-4</td><td>3.37</td></tr><tr><td rowspan="4">8/8</td><td>CacheQ-N=3+IEC</td><td>4.613.93</td><td>CacheQ-N=3+IEC</td><td>3.663.39</td><td>CacheQ-N=2+IEC</td><td>8.857.51</td></tr><tr><td>CacheQ-N=5+IEC</td><td>5.285.09</td><td>CacheQ-N=5+IEC</td><td>3.713.24</td><td>CacheQ-N=3+IEC</td><td>9.277.33</td></tr><tr><td>CacheQ-N=10+IEC</td><td>8.196.47</td><td>CacheQ-N=10+IEC</td><td>5.544.25</td><td>CacheQ-N=5+IEC</td><td>10.297.67</td></tr><tr><td>CacheQ-N=15+IEC</td><td>13.4210.77</td><td>CacheQ-N=15+IEC</td><td>9.476.90</td><td>CacheQ-N=10+IEC</td><td>17.5311.07</td></tr><tr><td rowspan="4">4/8</td><td>CacheQ-N=3+IEC</td><td>7.276.42</td><td>CacheQ-N=3+IEC</td><td>7.086.85</td><td>-</td><td>-</td></tr><tr><td>CacheQ-N=5+IEC</td><td>8.156.90</td><td>CacheQ-N=5+IEC</td><td>7.246.79</td><td>-</td><td>-</td></tr><tr><td>CacheQ-N=10+IEC</td><td>11.3610.69</td><td>CacheQ-N=10+IEC</td><td>10.759.69</td><td>-</td><td>-</td></tr><tr><td>CacheQ-N=15+IEC</td><td>16.7615.50</td><td>CacheQ-N=15+IEC</td><td>13.2811.50</td><td>-</td><td>-</td></tr></table>
+
+## 4.3 MAIN RESULTS
+
+This subsection includes the quantitative results, while the visualizations are included in the appendix. Evaluation on IEC on Network Quantization. Tab. 1 presents the quantization performance. For LSUN-Bedrooms, we report only W8A8 results, as W4A8 quantization leads to model collapse.
+
+Across all datasets, applying IEC consistently improves performance. For example, in the W4A8 case, IEC reduces the FID from 6.82 to 5.96 on CIFAR-10, and from 6.27 to 6.10 on LSUN-Churchs.
+
+Evaluation on IEC on Feature Caching. The performance of IEC on DeepCache (Ma et al., 2024b) is shown in Tab. 2, demonstrating consistent improvements. For example, on CIFAR-10, IEC reduces FID from 4.70 to 3.96 when N = 3. Similar trends are observed for larger N, with FID reduced from 17.21 to 14.58 when N = 15. On LSUN-Churchs, IEC reduces FID from 25.27 to 22.42 at N = 15, and on LSUN-Bedrooms, from 26.09 to 16.91 at N = 10.
+
+Combined With Quantization-Caching. The results of IEC on CacheQuant (Liu et al., 2025b), which integrates quantization and feature caching, are shown in Tab. 3 and Tab. 4. On CIFAR-10, IEC achieves consistent improvements. For instance, under W8A8 with N = 3, FID is reduced from 4.61 to 3.93. With N = 15, FID improves from 13.42 to 10.77. Similar improvements are observed under W4A8. For example, at $\mathrm { N } = 1 0 ,$ FID improves from 11.36 to 10.69. On LSUN-Churchs, for W8A8 and N = 3, IEC reduces FID from 3.66 to 3.39. At N = 15, FID drops from 9.47 to 6.90. Under W4A8, IEC improves FID by 0.23, 0.45, 1.06, and 1.78 for N = 3, 5, 10, and 15, respectively. On LSUN-Bedrooms, IEC also provides consistent gains. For example, under W8A8 with N = 2, FID improves from 8.85 to 7.51. As shown in Tab. 4, on ImageNet, IEC enhances performance across all baselines. For instance, under W8A8 with N = 10, FID improves from 4.68 to 4.15 and IS from 184.38 to 196.20. At N = 20, FID decreases from 7.21 to 6.53, and IS increases from 160.68 to 169.71. Under W4A8, IEC also improves performance. For example, at N = 10, FID improves from 6.90 to 6.50 and IS from 158.27 to 161.86, demonstrating IEC’s robustness in low-precision scenarios. On MS-COCO, IEC also brings improvements. For example, under W8A8 with N = 10, FID improves from 23.65 to 23.36, IS from 36.71 to 37.02, and CLIP Score from 26.41 to 26.45. At N = 5, FID improves from 23.74 to 22.83, IS from 39.81 to 40.91, and CLIP Score from 26.87 to 26.94.
+
+In summary, across all datasets and efficiency techniques, the integration of IEC consistently enhances performance, demonstrating its effectiveness.
+
+Table 4: Results of combining IEC with CacheQuant (Liu et al., 2025b) (Denoted as CacheQ) on ImageNet and MS-COCO datasets.
+
+<table><tr><td rowspan="3">W/A</td><td colspan="3">ImageNet 256 × 256 (T=250)</td></tr><tr><td>Method</td><td>FID ↓</td><td>IS ↑</td></tr><tr><td>LDM-4</td><td>3.37</td><td>204.56</td></tr><tr><td rowspan="3">8/8</td><td>CacheQ-N=10+IEC</td><td>4.684.15</td><td>184.38196.20</td></tr><tr><td>CacheQ-N=15+IEC</td><td>5.515.18</td><td>174.81182.30</td></tr><tr><td>CacheQ-N=20+IEC</td><td>7.216.53</td><td>160.68169.71</td></tr><tr><td rowspan="3">4/8</td><td>CacheQ-N=10+IEC</td><td>6.906.50</td><td>158.27161.86</td></tr><tr><td>CacheQ-N=15+IEC</td><td>9.408.66</td><td>139.64144.41</td></tr><tr><td>CacheQ-N=20+IEC</td><td>12.6511.10</td><td>124.13130.01</td></tr></table>
+
+<table><tr><td rowspan="3">W/A</td><td colspan="4">MS-COCO 256 × 256 (T=50)</td></tr><tr><td>Method</td><td>FID ↓</td><td>IS ↑</td><td>CLIP Score ↑</td></tr><tr><td>PLMS</td><td>22.41</td><td>41.02</td><td>26.89</td></tr><tr><td rowspan="2">8/8</td><td>CacheQ-N=10+IEC</td><td>23.6523.36</td><td>36.7137.02</td><td>26.4126.45</td></tr><tr><td>CacheQ-N=5+IEC</td><td>23.7422.83</td><td>39.8140.91</td><td>26.8726.94</td></tr><tr><td rowspan="2">4/8</td><td>CacheQ-N=10+IEC</td><td>26.6324.82</td><td>34.5736.18</td><td>26.2326.25</td></tr><tr><td>CacheQ-N=5+IEC</td><td>23.8523.80</td><td>39.5340.27</td><td>26.7826.80</td></tr></table>
+
+## 4.4 OVERHEAD DISCUSSION
+
+Table 5 presents the overhead and FID when combining our IEC with timestep-wise quantization (Liu et al., 2024b) and Deepcache (Ma et al., 2024b) on the CIFAR-10 dataset. Here, we measure the time overhead by comparing it with the baseline without IEC. For W8A8 quantization, IEC achieves substantial improvements in FID with minimal overhead. For instance, selectively applying IEC to 1/10 or 1/20 of the steps achieves improved FID of 3.88 and 3.97 with only 20% and 10% overhead, respectively. In the case of DeepCache, the IEC is only applied to the non-cached timesteps, thereby its overhead is minimal. For example, applying IEC to all timesteps yields a FID of 7.77 with only 14% overhead, while applying IEC to 1/10 or 1/20 reduces the FID to 9.58 and 9.55, respectively, with overheads as low as 2.8% and 1.4%. These results demonstrate that IEC provides a flexible trade-off between efficiency and generation quality, making it easy to use and suitable for real-world applications.
+
+Table 5: Overhead of combining IEC with timestep-wise quantization (Liu et al., 2024b) and Deepcache (N=10) (Ma et al., 2024b) on CIFAR-10. “Naive + T” indicates increasing “T” iteration count.
+
+<table><tr><td colspan="3">CIFAR-10 32 × 32 (T=100)</td></tr><tr><td>W/A</td><td>FID ↓</td><td>Time Overhead</td></tr><tr><td>DDIM</td><td>4.19</td><td>-</td></tr><tr><td>W8A8</td><td>4.32</td><td>0%</td></tr><tr><td>Naive + 100</td><td>3.99</td><td>100%</td></tr><tr><td>All Step (K=1)</td><td>3.76</td><td>100%</td></tr><tr><td>±1/4</td><td>3.85</td><td>50%</td></tr><tr><td>±1/8</td><td>3.86</td><td>25%</td></tr><tr><td>±1/10</td><td>3.88</td><td>20%</td></tr><tr><td>±1/20</td><td>3.97</td><td>10%</td></tr></table>
+
+<table><tr><td colspan="3">CIFAR-10 32 × 32 (T=100)</td></tr><tr><td>Method</td><td>FID ↓</td><td>Time Overhead</td></tr><tr><td>DDIM</td><td>4.19</td><td>-</td></tr><tr><td>Deepcache-N=10</td><td>9.74</td><td>0%</td></tr><tr><td>Naive + 14</td><td>8.58</td><td>14%</td></tr><tr><td>All Step (K=1)</td><td>7.77</td><td>14%</td></tr><tr><td>±1/4</td><td>7.92</td><td>7%</td></tr><tr><td>±1/8</td><td>9.31</td><td>4.2%</td></tr><tr><td>±1/10</td><td>9.58</td><td>2.8%</td></tr><tr><td>±1/20</td><td>9.55</td><td>1.4%</td></tr></table>
+
+## 4.5 COMPARISON WITH NAIVELY ADDING ITERATION
+
+In this subsection, we compare IEC with two alternative approaches: naively increasing the number of iterations in timestep-wise quantization and DeepCache. Specifically, simply adding 100% more iterations to the timestep-wise quantization method yields an FID score of 3.99, which is worse than our IEC with 100% overhead (3.76 FID) and even inferior to IEC with only 10% overhead (3.97 FID), as shown in Tab. 5. Similarly, increasing the iteration count by 14% for Deepcach-N=10 leads to an FID of 8.58, which is also worse than the 7.77 FID achieved by our IEC. These results demonstrate that merely increasing the number of iterations does not lead to satisfactory performance and justify the effectiveness of IEC.
+
+## 5 DISCUSSION
+
+The analysis in Sec. 3.1 suggests that more robust models can be achieved by modifying the scheduling schemes of $A _ { t }$ and $B _ { t } ,$ or by explicitly fine-tuning the model to control the norm of the Jacobian. Additionally, as discussed in Sec. 4.2, identifying a small subset of critical timesteps for applying the proposed IEC can significantly reduce inference overhead while still improving generation quality. Finally, this paper presents a conceptual and experimental validation of the test-time method for diffusion, while further exploring other diffusion models, samplers, and efficiency techniques remains an interesting topic. Although these directions are promising, we leave their exploration to future work due to current resource limitations.
+
+## 6 CONCLUSION
+
+In this paper, we address the challenge of improving the performance of efficient diffusion models at test-time. We begin by analyzing the error accumulation in such models and show that these errors can grow exponentially during the denoising process. To mitigate this, we introduce Iterative Error Correction (IEC), a simple yet effective method that iteratively refines the model’s output to suppress error propagation. Our theoretical analysis demonstrates that IEC converges to a fixed-point solution, reducing the rate of error growth from exponential to linear. As a plug-and-play, model-agnostic method, IEC offers a flexible trade-off between performance and efficiency, allowing users to adapt it to various practical scenarios. We validate IEC through extensive experiments, showing consistent performance gains across various datasets, efficiency techniques, and diffusion model architectures.

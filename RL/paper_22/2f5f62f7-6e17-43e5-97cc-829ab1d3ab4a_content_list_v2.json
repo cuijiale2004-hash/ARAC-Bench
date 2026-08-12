@@ -1,0 +1,2940 @@
+[
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "ABSTRACT"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                450,
+                295,
+                547,
+                311
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Reinforcement learning with verifiable rewards (RLVR) has become a trending paradigm for training reasoning large language models (LLMs). However, due to the autoregressive decoding nature of LLMs, the rollout process becomes the efficiency bottleneck of RL training, consisting of up to 70% of the total training time. In this work, we propose Quantized Reinforcement Learning (QuRL) that uses a quantized actor for accelerating the rollout. We address two challenges in QuRL. First, we propose Adaptive Clipping Range (ACR) that dynamically adjusts the clipping ratio based on the policy ratio between the full-precision actor and the quantized actor, which is essential for mitigating long-term training collapse. Second, we identify the weight update problem, where weight changes between RL steps are extremely small, making it difficult for the quantization operation to capture them effectively. We mitigate this problem through the invariant scaling technique that reduces quantization noise and increases weight update. We evaluate our method with INT8 and FP8 quantization experiments on DeepScaleR and DAPO, and achieve 20% to 80% faster rollout during training."
+                    }
+                ]
+            },
+            "bbox": [
+                228,
+                329,
+                767,
+                540
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "1 INTRODUCTION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                174,
+                574,
+                338,
+                589
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The emergence of reasoning Large Language Models (LLMs) such as OpenAI-O1 (Jaech et al., 2024) and DeepSeek-R1 (Guo et al., 2025) represents a fundamental transformation in AI capabilities through the strategic scaling of inference-time computation. By enabling extensive Chain-of-Thought (CoT) deliberation, these systems exhibit advanced problem-solving behaviors that deliver significant gains on challenging domains, notably mathematical reasoning (Luo et al., 2025b; Yu et al., 2025; Yue et al., 2025) and code synthesis (Luo et al., 2025a; Liu & Zhang, 2025). Such models sacrifice computational economy in favor of superior accuracy, producing elaborate reasoning chains that encompass systematic exploration, iterative verification, and strategic backtracking. Reinforcement learning (RL) forms the cornerstone of these breakthroughs. Through direct optimization on verifiable objective functions instead of proxy reward models, RL-driven approaches circumvent reward hacking pitfalls (Amodei et al., 2016; Wen et al., 2024) while maintaining stronger fidelity to genuine reasoning patterns."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                608,
+                826,
+                776
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "A typical LLM RL training step comprises of three phases: actor rollout for response generation, forward pass to compute output probabilities, and backward pass for policy gradient updates. The autoregressive nature of LLMs imposes a fundamental bottleneck—each token must be decoded sequentially during rollout, requiring extensive memory bandwidth for weight and KV cache access. This sequential dependency severely limits parallelization opportunities. Consequently, the rollout phase dominates training time (He et al., 2025; Zheng et al., 2025), consuming approximately 70% of the total latency. This bottleneck is further exacerbated in reasoning tasks, where competitive performance requires extended CoT traces."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                782,
+                826,
+                893
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "<sup>∗</sup>Work done during internship at NVIDIA Research."
+                    }
+                ]
+            },
+            "bbox": [
+                191,
+                909,
+                503,
+                924
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "1"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                503,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this work, we propose Quantized Reinforcement Learning (QuRL), an efficient RL training algorithm through efficient inference. Specifically, we quantize the actor model for rollout while maintaining full-precision parameters for gradient updates. This approach transforms the on-policy RL into an off-policy setting: sequences are generated by a quantized actor while policy updates occur in the full-precision parameter space. This necessitates careful importance sampling and trust region constraints, as formalized in Decoupled PPO (Fu et al., 2025; Liu et al., 2025). However, we identify a critical failure mode where the decoupled PPO objective leads to training collapse at extended horizons, characterized by exponential growth of the divergence between the quantized actor and full precision actor. To address this instability, we propose Adaptive Clipping Range (ACR), which dynamically adjusts trust region bounds based on the policy divergence between the full-precision and the quantized actors."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                104,
+                826,
+                258
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Beyond importance sampling, we identify a critical scale mismatch between quantized and fullprecision actors. RL updates usually satisfy trust region constraints (Schulman et al., 2015), resulting in weight changes that are orders of magnitude smaller than quantization errors. Consequently, the quantization operation fails to capture most weight updates, effectively decoupling the quantized model from the training dynamics. To address this fundamental mismatch, we propose Update-Aware Quantization (UAQ) that uses invariant scaling (Xiao et al., 2023a) to simultaneously reduce quantization error and amplify weight updates, ensuring that parameter changes exceed the quantization granularity threshold."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                263,
+                826,
+                377
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We validate our approach across multiple RL algorithms including PPO (Schulman et al., 2017), GRPO (Shao et al., 2024), and DAPO (Yu et al., 2025) on diverse reasoning benchmarks. Through 8-bit quantization (INT8 or FP8), we achieve substantial inference acceleration for 7B, 14B and 32B models, demonstrating 20%–80% throughput improvements. Our experimental evaluation demonstrates that QuRL consistently outperforms naive combinations of RL with quantized rollout as well as concurrent approaches (Liu et al., 2025). Notably, INT8 QuRL achieves 55.5% average accuracy on the DeepScaleR benchmark (Luo et al., 2025b) across five reasoning tasks, exceeding the baseline performance by 1.7%."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                382,
+                826,
+                494
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2 RELATED WORK"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                520,
+                346,
+                536
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Reinforcement Learning for Reasoning. AI systems capable of extended reasoning constitute a distinct class of models that perform elaborate CoT deliberation prior to producing outputs, pioneered by OpenAI’s o1 series (Jaech et al., 2024). Following this breakthrough, DeepSeek (Guo et al., 2025) and Kimi (Team et al., 2025) have documented comprehensive frameworks for developing reasoning models through RLVR. These contributions have established various RL algorithms as standard practice, including GRPO (Shao et al., 2024), Mirror Descent (Tomar et al., 2020), RLOO (Ahmadian et al., 2024), among others. However, this scaling comes at the cost of performing a significant amount of decoding, which severely under-utilizes modern hardware. To this end, the RL community has explored many ways for efficient training, including selective rollout generation (Zheng et al., 2025), rollout down-sampling (Xu et al., 2025), asynchronous multi-role distributed architectures (Fu et al., 2025). Despite these advances, achieving efficient RL training while maintaining model performance remains a key challenge."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                556,
+                826,
+                724
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Quantization Quantization has emerged as a fundamental technique for compressing and accelerating large-scale models. Comprehensive surveys by Gholami et al. (2022) and Nagel et al. (2021) provide systematic analyses of quantization advancements. This section reviews key quantization methods with emphasis on LLM applications. Quantization techniques fall into two main categories: Post-training Quantization (PTQ) and Quantization-Aware Training (QAT). PTQ methods operate directly on pre-trained models without additional training. Prominent approaches including Frantar et al. (2022b); Lin et al. (2023); Wei et al. (2022; 2023); Shao et al. (2023); Chee et al. (2023); Liu et al. (2023a) enhance uniform quantization through strategic optimization of weight parameters, scaling factors, and clipping boundaries. Alternative PTQ strategies explore non-uniform quantization schemes (Egiazarian et al., 2024; van Baalen et al., 2024; Elangovan et al., 2025) and mixed-precision architectures such as LLM.int8 (Dettmers et al., 2022). QAT methods integrate quantization into the training process itself. LLM-QAT (Liu et al., 2023b) addresses data requirements through synthetic generation, while Q-LoRA (Dettmers et al., 2023) combines quantization with low-rank adaptation to reduce memory overhead during fine-tuning."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                729,
+                826,
+                926
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "2"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3 PRELIMINARIES"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                102,
+                341,
+                118
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We begin with a brief overview of the GRPO (Shao et al., 2024) algorithm. And then we introduce the basics of quantization operation and the subsequent challenges."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                126,
+                825,
+                157
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Group Relative Policy Optimization. GRPO adapts the PPO (Schulman et al., 2017) framework for training LLMs, notably by eliminating the need for a learned value function (critic). Instead of using generalized advantage estimation (GAE), GRPO estimates the advantage "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat { A } _ { i , t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "<sub>t</sub> at token t of output "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "o _ { i }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "based on the relative rewards within a group of G outputs "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\left\\{ o _ { 1 } , o _ { 2 } , \\ldots , o _ { G } \\right\\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "sampled from the old policy "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta _ { \\mathrm { o l d } } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for the same prompt q. The objective function is:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                161,
+                826,
+                236
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {J} _ {\\mathrm{GRPO}} (\\theta) = \\mathbb {E} _ {q \\sim P (q), o \\sim \\pi_ {\\theta_ {\\mathrm{old}}}} \\left[ \\frac {1}{G} \\sum_ {i = 1} ^ {G} \\frac {1}{| o _ {i} |} \\sum_ {t = 1} ^ {| o _ {i} |} \\min {(R _ {i, t} A _ {i, t}, \\mathrm{clip} (R _ {i, t}, 1 - \\epsilon , 1 + \\epsilon) A _ {i, t})} \\right]\\tag{1}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/1cc90eef938bc27ebae7842c81ef9bcd0ccc147b0d99a024d815806326fef53b.jpg"
+                }
+            },
+            "bbox": [
+                184,
+                250,
+                787,
+                297
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\begin{array} { r } { R _ { i , t } = \\frac { \\pi _ { \\theta } \\left( o _ { i , t } | q _ { i } \\right) } { \\pi _ { \\theta _ { \\mathrm { o l d } } } \\left( o _ { i , t } | q _ { i } \\right) } } \\end{array}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is importance sampling ratio between the old actor and the current actor on the t-th token of i-th generated response. Additionally, GRPO augments the PPO objective with an explicit KL regularization term "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { D } _ { K L } ( \\pi _ { \\theta } | | \\pi _ { \\theta _ { \\mathrm { r e f } } } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". The reference model "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta _ { \\mathrm { r e f } } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "(typically the initial supervised fine-tuned model) provides regularization, with the KL divergence computed using the k3 estimator from Schulman (2020)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                315,
+                825,
+                392
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Quantization. Quantization maps the full precision parameters θ into low-bit parameters "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat { \\theta } = Q \\left( \\theta \\right)"
+                    },
+                    {
+                        "type": "text",
+                        "content": "In general, a b-bit quantized parameter can be expressed as"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                398,
+                821,
+                429
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "Q (\\theta , b) = \\alpha \\times (- 1) ^ {\\mathrm{sign}} \\times 2 ^ {d} \\times (1 + \\sum_ {i = 1} ^ {b - 1 - e} \\frac {m _ {i}}{2 ^ {i}}),\\tag{2}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/1bc83e7473153bf09f4b48a5c9f7f99397f17cd6a99012c1bbcbfa4e658d26b9.jpg"
+                }
+            },
+            "bbox": [
+                333,
+                443,
+                661,
+                486
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where the representation consists of three components: sign, exponent, and mantissa, scaled by a factor α. Here, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { s i g n } \\in \\{ - 1 , + 1 \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "encodes the sign, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "d \\in [ 1 , 2 ^ { e } ]"
+                    },
+                    {
+                        "type": "text",
+                        "content": "represents the exponent using e bits. And the mantissa uses the remaining "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( b - 1 - e )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "bits with "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "m _ { i } \\in \\{ 0 , 1 \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". When "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "e = 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", this formulation reduces to integer quantization. The scaling factor α is determined by the maximum absolute value within a group of weights or activations. The granularity of quantization depends on the group size, ranging from channel-wise to block-wise operations. To further reduce memory overhead, the scaling factor itself can be quantized, as in NVFP4 (NVIDIA, 2025)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                500,
+                826,
+                599
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4 QURL: QUANTIZED REINFORCEMENT LEARNING"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                627,
+                620,
+                643
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To accelerate the rollout phase, we quantize the weights and activations of the old actor model "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\theta _ { \\mathrm { o l d } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to lower-bit representations, enabling efficient matrix multiplication during inference "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat { \\theta } _ { \\mathrm { o l d } } = Q ( \\theta _ { \\mathrm { o l d } } , b )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Fig. 1 illustrates the pipeline for incorporating quantization into the RL."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                664,
+                550,
+                738
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Our QuRL approach occupies a unique position between post-training quantization (PTQ) and quantization-aware training (QAT). Unlike QAT, we do not explicitly optimize quantization performance through gradient descent—the actor undergoes one-shot quantization before deployment for rollout. However, unlike pure PTQ, the actor parameters are implicitly influenced by the gradients computed from the quantized model’s outputs during policy updates. This dual nature imposes specific requirements on our quantization strategy: it must be sufficiently simple to avoid complex calibration procedures while remaining expressive enough to preserve the learning dynamics. In the following sections, we present our methodology addressing both the reinforcement learning adaptations and the quantization operations necessary for efficient training."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                743,
+                550,
+                868
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/9ab3214654dc88ec9872dae9ac75ddfc381c4d28843b595484f8a56a6939e1a4.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 1: Overview of QuRL training. The sampling model "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\theta _ { \\mathrm { o l d } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is quantized to "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat { \\theta } _ { \\mathrm { o l d } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for rollout."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                563,
+                674,
+                821,
+                800
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                867,
+                825,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "3"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/1af7c37d6354129a69812ba8fcc000cd5df470adc313e75fbfc3c161b7b14674.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                176,
+                102,
+                501,
+                239
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/057dd576def4df4d01f851473331353c24c77adbcb1d4f5e7672dca4b250075a.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 2: Comparison of (a) training rewards and (b) token clipped fraction under different training objective or quantization."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                501,
+                103,
+                820,
+                239
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.1 ISSUES WITH IMPORTANCE SAMPLING AND CLIPPING"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                301,
+                588,
+                316
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Given that rollout data has been sampled from the quantized actor, we can rewrite the RL objective as"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                329,
+                823,
+                359
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {J} (\\theta) = \\mathbb {E} _ {q \\sim P (q), o \\sim \\pi_ {\\hat {\\theta} _ {\\mathrm{old}}}} \\left[ \\frac {1}{G} \\sum_ {i = 1} ^ {G} \\frac {1}{| o _ {i} |} \\sum_ {t = 1} ^ {| o _ {i} |} \\min \\left(\\hat {R} _ {i, t} A _ {i, t}, \\mathrm{clip} (\\hat {R} _ {i, t}, 1 - \\epsilon , 1 + \\epsilon) A _ {i, t}\\right) \\right],\\tag{3}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/c790b6a73d563cfb234d0aea1a580f786b5a14731ae889b9f5b0a2c259faf3dd.jpg"
+                }
+            },
+            "bbox": [
+                194,
+                369,
+                781,
+                417
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\begin{array} { r } { \\hat { R } _ { i , t } = \\frac { \\pi _ { \\theta } \\left( o _ { i , t } | q _ { i } \\right) } { \\pi _ { \\hat { \\theta } _ { \\mathrm { o l d } } } \\left( o _ { i , t } | q _ { i } \\right) } } \\end{array}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denotes the importance sampling ratio between the current full-precision actor π<sub>θ</sub> and the quantized old actor "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\hat { \\theta } _ { \\mathrm { o l d } } } ."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                433,
+                823,
+                472
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We implement the objective of Eq. (3) and compare it with full-precision GRPO experiments. The model and dataset follow the DeepScaleR setup (Luo et al., 2025b). Unfortunately, the quantized model’s importance sampling leads to training instability, with rewards collapsing after several RL steps as shown in Fig. 2. Analysis of the token clipped fraction in Fig. 2(b) reveals that "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat { R } _ { i , t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "exhibits significantly higher clipping rates than the full-precision baseline. The fraction rapidly increases to 1.5% before abruptly dropping to zero, indicating severe instability in the "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat { R } _ { i , t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "when applying clipping on top of it. Additionally, we test the objective of Eq. (1) with quantized rollout, which instead uses the full-precision old actor as the denominator for clipping and importance sampling. Fig. 2 shows that this objective can have a stable training curve, but may produce a large gap between BF16 after 800 steps of RL training."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                477,
+                825,
+                622
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To address the instability in Eq. (3), we adopt the decoupled PPO objective (Hilton et al., 2022; Fu et al., 2025), which separates the behavior policy "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta _ { \\mathrm { b e h a v } } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "(for token sampling) from the proximal policy "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta _ { \\mathrm { p r o x } } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "(for clipping):"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                627,
+                825,
+                672
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {J} _ {\\mathrm{decoupled}} (\\theta) = \\tilde {\\mathbb {E}} _ {o \\sim \\pi_ {\\theta_ {\\mathrm{behav}}}} \\left[ \\frac {\\pi_ {\\theta_ {\\mathrm{prox}}} (o _ {i , t})}{\\pi_ {\\theta_ {\\mathrm{behav}}} (o _ {i , t})} \\min {(R _ {i, t} A _ {i, t}, \\mathrm{clip} (R _ {i, t}, 1 - \\epsilon , 1 + \\epsilon) A _ {i, t})} \\right],\\tag{4}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/c5acc918b90e2d2fc9bbdd29fe44268f0d79f1352ea7e3b5f30116040a1efbd1.jpg"
+                }
+            },
+            "bbox": [
+                197,
+                685,
+                777,
+                719
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\begin{array} { r } { R _ { i , t } ~ = ~ \\frac { \\pi _ { \\theta } \\left( o _ { i , t } \\right) } { \\pi _ { \\theta _ { \\mathrm { p r o x } } } \\left( o _ { i , t } \\right) } } \\end{array}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denotes the ratio between the current policy and the proximal policy. For simpler notation, we integrate the averaging across responses and groups into expectation "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\tilde { \\mathbb { E } } _ { : }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "as they do not change the clipping/importance sampling outcome. In QuRL, we set the behavior policy as the quantized old actor "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( \\pi _ { \\theta _ { \\mathrm { b e h a v } } } = \\pi _ { \\hat { \\theta } _ { \\mathrm { o l d } } } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and the proximal policy as the full-precision old actor "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( \\pi _ { \\theta _ { \\mathrm { p r o x } } } = \\pi _ { \\theta _ { \\mathrm { o l d } } } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Compared to "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat { R } _ { i , t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "that uses a quantized actor to determine clipping, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "R _ { i , t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "enables more tokens to be trained via correct importance sampling. As shown in Fig. 2, this approach significantly improves training stability."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                734,
+                825,
+                848
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "FlashRL (Liu et al., 2025) observes that "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\hat { \\theta } _ { \\mathrm { o l d } } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is usually obtained from the inference engine such as vLLM (Kwon et al., 2023) and SGLang (Zheng et al., 2024). However, due to the implementation difference between training (i.e., HuggingFace and Megatron) and inference (i.e., vLLM and SGLang) engines, an extra engineering discrepency between "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta _ { \\mathrm { p r o x } } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta _ { \\mathrm { b e h a v } } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is introduced and will hinder RL training. FlashRL proposes Truncated Importance Sampling (TIS) to reduce this"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                852,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "4"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/b1fc9da8dae27ed2d7731a8b9b9a9f013629aac0dd332433a0a5aa06f432d200.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                174,
+                102,
+                504,
+                237
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/b7a866c870eb3f598c759d716633d9c5f73270f25321a2fc385828cbe0e87d1c.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 3: Training dynamics of QuRL. (a) Training collapses after 1000 steps due to increased KL divergence between behavior and proximal policy, and (b) the maximum value of the proximal-tobehavior policy ratio."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                508,
+                104,
+                821,
+                238
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "difference, given by"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                321,
+                307,
+                335
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {J} _ {\\mathrm{TIS}} (\\theta) = \\tilde {\\mathbb {E}} _ {o \\sim \\pi_ {\\theta_ {\\mathrm{behav}}}} \\left[ \\min \\left(\\frac {\\pi_ {\\theta_ {\\mathrm{prox}}} (o _ {i , t})}{\\pi_ {\\theta_ {\\mathrm{behav}}} (o _ {i , t})}, C\\right) \\min \\left(R _ {i, t} A _ {i, t}, \\mathrm{clip} (R _ {i, t}, 1 - \\epsilon , 1 + \\epsilon) A _ {i, t}\\right) \\right].\\tag{5}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/fe270ba421ca88c8ae8e5117cfda30d2378764dc1c25abb4747063efb0684992.jpg"
+                }
+            },
+            "bbox": [
+                187,
+                343,
+                805,
+                378
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where C bounds the proximal-to-behavior ratio. This formulation reduces computational overhead by directly accessing probabilities from the inference engine and naturally extends to other offpolicy RL methods. However, even with these modifications, the decoupled objective alone cannot fully bridge the quantization gap in QuRL, particularly during later training stages."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                388,
+                825,
+                446
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.2 ADAPTIVE CLIPPING RANGE"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                463,
+                416,
+                477
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The TIS essentially modifies the behavior policy by truncating the behavior policy if it is extremely small. To see this, we define"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                489,
+                825,
+                517
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\pi_ {\\theta_ {\\text {behav}} ^ {\\text {trunc}}} = \\max (\\pi_ {\\theta_ {\\text {behav}}}, \\frac {\\pi_ {\\theta_ {\\text {prox}}}}{C}).\\tag{6}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/6ce02cc9e7ab41a4994c4f90aa6a8b4872e3190bd1731e3d70ef2d527642f517.jpg"
+                }
+            },
+            "bbox": [
+                388,
+                516,
+                604,
+                542
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Now, we can rewrite TIS objective as the decoupled PPO objective form, given by"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                546,
+                712,
+                561
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {J} _ {\\mathrm{decoupled}} (\\theta) = \\tilde {\\mathbb {E}} _ {o \\sim \\pi_ {\\theta_ {\\mathrm{behav}}}} \\left[ \\frac {\\pi_ {\\theta_ {\\mathrm{prox}}} (o _ {i , t})}{\\pi_ {\\theta_ {\\mathrm{behav}} ^ {\\mathrm{trunc}}} (o _ {i , t})} \\min {(R _ {i, t} A _ {i, t}, \\mathrm{clip} (R _ {i, t}, 1 - \\epsilon , 1 + \\epsilon) A _ {i, t})} \\right],\\tag{7}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/aab9759876251255535ac8acd791ee26afafcd86c565c499ebc1929d80992462.jpg"
+                }
+            },
+            "bbox": [
+                197,
+                568,
+                779,
+                609
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Essentially, the gradient of the original decoupled PPO objective is scaled by "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\begin{array} { r l } { r _ { i , t } } & { { } = } \\end{array}"
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta _ { \\mathrm { b e h a v } } } \\left( o _ { i , t } \\right) \\Big / \\pi _ { \\theta _ { \\mathrm { b o h a v } } ^ { \\mathrm { t r u n c } } } \\left( o _ { i , t } \\right)"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". As shown in Fig. 3(b), the maximum proximal-to-behavior ratio can reach up to "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "1 0 ^ { 5 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", causing an extremely large gradient norm if using the decoupled PPO objective. The above equation effectively avoids the excessive gradient norm."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                617,
+                825,
+                679
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In practice, we find that TIS works well under 500 steps of RL training. However, at long training steps "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( \\mathrm { e . g . , > 1 0 0 0 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "steps), we observe the KL divergence between the behavior policy and the proximal policy (i.e., "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\begin{array} { r } { \\dot { \\mathcal { D } } _ { K L } ( \\pi _ { \\theta _ { \\mathrm { b e h a v } } } | | \\pi _ { \\theta _ { \\mathrm { p r o x } } } ) = \\mathbb { E } [ \\log \\frac { \\bar { \\pi _ { \\theta _ { \\mathrm { b e h a v } } } } } { \\pi _ { \\theta _ { \\mathrm { n r o x } } } } ] ) } \\end{array}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "continues to increase. As shown in "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { F i g . } 3 ( \\mathrm { a } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", the KL divergence increases from 0.002 to 0.025, which is 12× higher. This indicates that the truncated behavior policy also leads to biased gradient estimation, especially for large r."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                683,
+                826,
+                760
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To mitigate this problem, we examine the clipping mechanism in the decoupled PPO objective and propose the Adaptive Clipping Range (ACR). Our intuition is that, when the behavior policy is truncated, the factor "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ r } _ { i , t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "implicitly affects the clipping. More concretely, given that "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "0 < r _ { i , t } \\le 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": "we can absorb this factor into the clipping term as well as its range, given by"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                766,
+                825,
+                824
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "r _ {i, t} \\mathrm{clip} (R _ {i, t}, (1 - \\epsilon), (1 + \\epsilon)) = \\mathrm{clip} (r _ {i, t} R _ {i, t}, r _ {i, t} (1 - \\epsilon), r _ {i, t} (1 + \\epsilon)).\\tag{8}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/63b21be2ba439ab7367140963ef40913142701db6857a22eba4d93ed6cdf4d39.jpg"
+                }
+            },
+            "bbox": [
+                264,
+                830,
+                730,
+                847
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "This operation shrinks both the upper and lower clipping range by a factor of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ r } _ { i , t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". For negative advantage sequences, it does affect the clipping since the large ratios do not get clipped regardless. However, for positive advantage sequences, it reduces the upper bound. For large "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\boldsymbol { r } } _ { i , t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "where the difference is likely due to training/inference engine execution, its biased estimation unexpectedly clips more tokens. To address this issue, we propose to use a fixed upper threshold (1 + ϵ), to allow more tokens to pass if the "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta _ { \\mathrm { b e h a v } } } ( o _ { i , t } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is truncated. As a result, we can rewrite our ACR into:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                854,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "5"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/6fe1adb9d5f9287d68cda64107b95a657bcce1c6113a767f8cab5cfdcd884bb8.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "(a) Weight change mismtach"
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                176,
+                103,
+                513,
+                237
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/53d9cdecefc631e9ae292cddb8cdbdb006bee7913ee8309c13ae324c76ca98a5.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "(b) Visualization of average "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( \\pi _ { \\hat { \\theta } _ { \\mathrm { o l d } } } - \\pi _ { \\theta _ { \\mathrm { o l d } } } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "Figure 4: The weight update problem. (a) An intuitive example showing weight quantization cannot sense the weight update suitably and (b) visualization of training dynamics showing the difference between "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\hat { \\theta } _ { \\mathrm { o l d } } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta _ { \\mathrm { o l d } } }"
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                519,
+                103,
+                821,
+                232
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                338,
+                787,
+                354
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {J} _ {\\mathrm{ACR}} (\\theta) = \\tilde {\\mathbb {E}} _ {o \\sim \\pi_ {\\theta_ {\\text {behav}}}} \\left[ \\min \\left(\\frac {\\pi_ {\\theta_ {\\text {prox}}} (o _ {i , t})}{\\pi_ {\\theta_ {\\text {behav}}} (o _ {i , t})}, C\\right) \\min \\left(R _ {i, t} A _ {i, t}, \\operatorname{clip} \\left(R _ {i, t}, (1 - \\epsilon), \\frac {(1 + \\epsilon)}{r _ {i , t}}\\right) A _ {i, t}\\right) \\right].\\tag{9}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/78262e1fd0175090467606c1a0f098b2b45baa139e3a578f5053a490e38e2186.jpg"
+                }
+            },
+            "bbox": [
+                171,
+                359,
+                852,
+                398
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The ACR can dynamically adjust the clipping range based on the proximal-to-behavior ratio: For tokens where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\begin{array} { r } { \\frac { \\pi _ { \\theta _ { \\mathrm { p r o x } } } \\left( o _ { i , t } \\right) } { \\pi _ { \\theta _ { \\mathrm { h e h a v } } } \\left( o _ { i , t } \\right) } > C , r _ { i , t } < 1 } \\end{array}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "enlarges the upper clipping bound, allowing more positive tokens to be updated. Otherwise, the threshold is the same as TIS."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                407,
+                826,
+                459
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.3 UPDATE-AWARE QUANTIZATION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                474,
+                442,
+                489
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Another crucial challenge in QuRL is the mismatch of magnitude between the weight quantization change and the weight update change. During each RL step, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\theta _ { \\mathrm { o l d } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is quantized to "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\widehat { \\theta } _ { \\mathrm { o l d } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for rollout, then updated to θ to become the old actor for the next step. The weight change magnitudes follow:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                502,
+                825,
+                547
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\hat {\\theta} _ {\\mathrm{old}} - \\theta_ {\\mathrm{old}} \\propto \\frac {| \\theta_ {\\mathrm{old}} |}{2 ^ {b}}, \\quad \\theta - \\theta_ {\\mathrm{old}} \\propto \\alpha G,\\tag{10}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/4a53c6f8789923bdc29467326a60821ef2cee44b21f9a2b72b123ea51b3867b4.jpg"
+                }
+            },
+            "bbox": [
+                362,
+                554,
+                633,
+                584
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where α denotes the learning rate and G the gradient. In typical RL experiments, we observe "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "G \\in"
+                    },
+                    {
+                        "type": "text",
+                        "content": "[0.1, 1.0] with "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\alpha = 1 0 ^ { - 6 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", yielding weight updates of order "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "1 0 ^ { - 7 } ~ \\mathrm { { t o } ~ i 0 ^ { - 6 } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". This is substantially smaller than the quantization error, as the weight norm itself ranges from (0.001, 0.1). We also provide an example in Fig. 4(a) to illustrate this problem."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                590,
+                825,
+                648
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Empirical analysis confirms this mismatch. Comparing "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\widehat { \\theta } _ { \\mathrm { o l d } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "across RL steps with INT8 quantization in DeepScaleR experiments, the update is much smaller than quantization error. See Appendix A for more details. This indicates that quantization masks nearly all weight updates, effectively freezing the quantized model despite ongoing training. In Fig. 4(b), we measure the average difference between "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\hat { \\theta } _ { \\mathrm { o l d } } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta _ { \\mathrm { o l d } } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "of INT8 quantization in DAPO task (Yu et al., 2025)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                655,
+                825,
+                729
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Since QuRL operates between PTQ and QAT paradigms, neither approach offers an optimal solution. Complex calibration algorithms like GPTQ (Frantar et al., 2022a) could theoretically capture finer weight changes if applied at each step, but would impose prohibitive training time overhead on rollout. For QAT, it will introduce additional discrepancies between training and inference engines, exacerbating importance sampling bias (Liu et al., 2025)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                734,
+                825,
+                806
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To mitigate this problem, we propose Update-Aware Quantization (UAQ), a one-time weight adjustment performed before RL training begins. Our approach leverages invariant scaling of linear layers in transformer blocks (Xiao et al., 2023b). Given weights W and inpu activations X in a layer, invariant scaling preserves the output by"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                811,
+                825,
+                825
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                824,
+                583,
+                895
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "W X = \\left(\\frac {W}{s}\\right) \\cdot (s X).\\tag{11}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/3d8a1e0f2ada7eab05383e915a1cd71b9766f620470f2408beb67369bf5a8bbe.jpg"
+                }
+            },
+            "bbox": [
+                297,
+                893,
+                454,
+                926
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/069a60b0669cdbb5c86f8dd97c08f55f1aeb5a13979fdc40061dc1ec6d91844a.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 5: Invariant scaling of Q/K/V layers."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                593,
+                832,
+                810,
+                930
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "6"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The scale s is applied column-wise to W and row-wise to X. The activation scaling can be absorbed into the preceding layer (e.g., LayerNorm), as illustrated in Fig. 5."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                103,
+                584,
+                147
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Unlike existing PTQ methods (Xiao et al., 2023b) that minimize quantization error "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\| Q ( W / s ) Q ( s \\bar { X } ) - \\bar { W } X \\|"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", we strategically choose "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "s \\ > \\ 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to balance weight quantization error against update magnitude such that"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                152,
+                826,
+                196
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\hat {\\theta} _ {\\mathrm{old}} - \\theta_ {\\mathrm{old}} \\propto \\frac {| \\theta_ {\\mathrm{old}} |}{s \\cdot 2 ^ {b}}, \\quad \\theta - \\theta_ {\\mathrm{old}} \\propto s \\cdot \\alpha G.\\tag{12}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/1519885a51e793ca5d2ae3d803ab1cdf9536678388e6b257a1aaf0ce2247059d.jpg"
+                }
+            },
+            "bbox": [
+                354,
+                198,
+                640,
+                229
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The scaling factor s reduces quantization error by a factor of s while amplifying weight updates by the same factor. The weight update amplification occurs because gradients with respect to W are computed as "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\nabla _ { W } \\mathcal { L } = ( \\nabla _ { Y } ^ { - } \\mathcal { L } ) \\dot { X } ^ { \\top }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", where the pre-scaled activations X have been multiplied by s."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                237,
+                825,
+                282
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "This dual effect creates an "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "s ^ { 2 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "improvement in the ratio between weight updates and quantization noise, enabling the quantized model to capture training dynamics more effectively. Empirically, we find "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "s = 1 . 5"
+                    },
+                    {
+                        "type": "text",
+                        "content": "provides consistent improvements on INT8 and FP8 quantization, striking an effective balance between reducing quantization artifacts and maintaining numerical stability."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                286,
+                826,
+                345
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5 EXPERIMENTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                362,
+                328,
+                378
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "All our experiments were conducted with the hybrid engine-based RL framework, VeRL (Sheng et al., 2024). We evaluate QuRL across three distinct reinforcement learning configurations: (1) PPO training on GSM8K (Cobbe et al., 2021), (2) DAPO (Yu et al., 2025) optimization on AIME mathematical reasoning tasks, and (3) GRPO training on the DeepScaleR benchmark (Luo et al., 2025b). Our quantization experiments employ both INT8 and FP8 precision formats. Weight quantization utilizes channel-wise scaling factors, while activation quantization applies token-wise scaling. We leverage vLLM’s optimized INT8 and FP8 matrix multiplication kernels (Kwon et al., 2023) to achieve computational acceleration during inference. Note that FP8 KV cache quantization remains suboptimally implemented in the current vLLM version and does not yield measurable throughput improvements; consequently, we exclude KV cache quantization from our experimental evaluation."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                393,
+                826,
+                534
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.1 REASONING RESULTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                547,
+                369,
+                564
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "PPO on GSM8K. We evaluate the PPO algorithm (Schulman et al., 2017) on the GSM8K dataset, which comprises 7.4k training examples and 1.3k validation examples. We use Qwen2.5-0.5B-Instruct (Qwen et al., 2024) as the base model and conduct training over 15 epochs, corresponding to 435 RL optimization steps. Training employs a batch size of 256 with a maximum response length of 512 tokens per rollout. Evaluation metrics are computed using greedy decoding on the test set (deterministic next-token selection based on maximum probability)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                574,
+                825,
+                660
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We compare against four experimental configurations: (1) Full-precision RL baseline, (2) Quantized rollout with standard importance sampling—applying Equation 1 to responses sampled from the quantized policy "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "o \\sim \\pi _ { \\hat { \\theta } _ { \\mathrm { o l d } } } , ( 3 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "FlashRL with Truncated Importance Sampling (TIS) (Liu et al., 2025), and (4) QuRL with Adaptive Clipping Range. Note that Update-Aware Quantization is disabled for this experiment due to the relatively high learning rate "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( 1 { \\dot { 0 } } ^ { - 5 } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", which already provides sufficient weight update magnitude. Table 1 presents final checkpoint accuracies. The results demonstrate that naive INT8 quantization without decoupled behavior/proximal policies yields substantial performance degradation. FlashRL (Liu et al., 2025) achieves training stabilization through TIS and decoupled PPO, yet maintains a notable accuracy gap relative to BF16 baseline—particularly severe under INT8 quantization (4% degradation). In contrast, QuRL with ACR reduces this gap to 2% for INT8 and approximately 1% for FP8, demonstrating superior quantization robustness across precision formats."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                664,
+                826,
+                835
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "DAPO on AIME 2024. Next, we test the decoupled clip and dynamic sampling policy optimization (DAPO) (Yu et al., 2025) with Qwen2.5-7B-Math. We use the 17k dataset from the original paper and apply the decoupled clip where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\epsilon _ { \\mathrm { h i g h } } = 0 . 2 8"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\epsilon _ { \\mathrm { l o w } } = 0 . 2"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for the default clipping range. We optimize the base model for 200 steps, and the learning rate is set to "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "1 e - 6"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". In each step, we sample 512 queries and 16 rollout responses per query. Additionally, DAPO does not apply any KL divergence loss between the actor and reference models. For evaluation, we use two metrics (Avg@1)"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                839,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "7"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/d05d6e111edc947893e39f0ce6699be0d6086ba0da77486fb99efcc1a910fc41.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 1: Comparison of GSM8k accuracy."
+                    },
+                    {
+                        "type": "text",
+                        "content": "Table 2: Comparison of AIME 2024 accuracy."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Method</td><td>Bitwidth</td><td>Accuracy</td></tr><tr><td>RL</td><td>BF16</td><td>55.35</td></tr><tr><td>RL</td><td>INT8</td><td>48.78</td></tr><tr><td>FlashRL (Liu et al., 2025)</td><td>INT8</td><td>51.40</td></tr><tr><td>QuRL (Ours)</td><td>INT8</td><td>53.55</td></tr><tr><td>RL</td><td>FP8</td><td>0.0</td></tr><tr><td>FlashRL (Liu et al., 2025)</td><td>FP8</td><td>53.60</td></tr><tr><td>QuRL (Ours)</td><td>FP8</td><td>54.28</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                174,
+                128,
+                527,
+                265
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/f59b990955d3fab994fac3fdcfe59f2ff369ddfc9123a89182d12453f4c67921.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 6: Convergence of INT8 experiment."
+                    },
+                    {
+                        "type": "text",
+                        "content": "Figure 7: Convergence of FP8 experiment."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                529,
+                128,
+                815,
+                284
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/07d8e1d1c19a28d428542a409d57ae7cf72f9dc6777e849c8c303d2226d35c9a.jpg"
+                },
+                "table_caption": [],
+                "table_footnote": [],
+                "html": "<table><tr><td>Method</td><td>Bitwidth</td><td>Avg@1</td><td>Avg@32</td></tr><tr><td>RL</td><td>BF16</td><td>33.33</td><td>31.67</td></tr><tr><td>RL</td><td>INT8</td><td>0.00</td><td>0.001</td></tr><tr><td>FlashRL</td><td>INT8</td><td>26.66</td><td>30.29</td></tr><tr><td>QuRL w/o UAQ</td><td>INT8</td><td>33.33</td><td>30.63</td></tr><tr><td>QuRL w/ UAQ</td><td>INT8</td><td>33.33</td><td>31.25</td></tr><tr><td>RL</td><td>FP8</td><td>0.00</td><td>0.003</td></tr><tr><td>FlashRL</td><td>FP8</td><td>30.00</td><td>32.60</td></tr><tr><td>QuRL w/o UAQ</td><td>FP8</td><td>36.66</td><td>33.12</td></tr><tr><td>QuRL w/ UAQ</td><td>FP8</td><td>33.33</td><td>33.27</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                174,
+                316,
+                486,
+                460
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/c7e362de6f420fe3b08a6d976f70ca4d132624be18cd0db36163f4f0a4747444.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                493,
+                318,
+                821,
+                465
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "and (Avg@32) on the AIME 2024 dataset, where, Avg@1 represents the accuracy achieved using greedy decoding (deterministic next token prediction) and Avg@32 represents the average accuracy of 32 sampled responses per problem, using a temperature of 1.0 and a top p of 0.7."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                497,
+                825,
+                542
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "As shown in Table 2, vanilla INT8/FP8 RL has near 0 accuracy on the AIME 2024 dataset, indicating that a biased estimation of the importance sampling will result in crashed performance. The convergence figure on the right shows that RL can converge well in the first 100 steps, but results in decreased performance for the latter 100 steps. This is due to the increased gap between proximal and behavioral policy through training. FlashRL (Liu et al., 2025) converges better than RL and has much better final accuracy than RL. For example, with INT8 quantization, FlashRL achieves 30.3% Avg@32 accuracy, with a 1.4% gap from the full precision baseline. Our QuRL, equipped with ACR, can successfully close the gap during training. The final accuracy also shows improved results, with 33.1% Avg@32 accuracy under FP8 quantization."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                546,
+                826,
+                674
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "GRPO on DeepScaleR. Finally, we test the performance of our algorithm on an open-source project, DeepScaleR (Luo et al., 2025b), which improves the reasoning boundaries of DeepSeek-Distill-Qwen1.5B models (Guo et al., 2025). The training dataset contains 40k math problems from AIME problems from 1983 to 2023, as well as Omni-Math Gao et al. (2024) and Still (Min et al., 2024). We train the actor for 3 stages, under 8k, 16k, and 24k context length, respectively. The training batch size is 256, with the learning rate of 1e − 6. Following the official implementation, for the first stage, we generate 8 rollouts per query with 8k context length and train the model for 800 steps. For the latter two stages, 16 rollouts per query are generated, and the actor is trained for 400 steps. The coefficient for KL divergence in GRPO is set to 1e − 3. The temperature is set to 0.6"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                679,
+                826,
+                765
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/829ff764e4828cc3c841ab00a516ccd835ce9fbb02d0aed8d1bfae9a3ff21688.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 3: Comparison of Avg@32 accuracy across various math reasoning tasks of DeepScaleR."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Method</td><td>Bitwidth</td><td>AIME24</td><td>AMC</td><td>MATH</td><td>Minerva</td><td>Olympiad</td><td>Avg</td></tr><tr><td>Base</td><td>BF16</td><td>28.54</td><td>62.58</td><td>82.90</td><td>26.38</td><td>43.58</td><td>48.80</td></tr><tr><td>RL</td><td>BF16</td><td>40.73</td><td>73.45</td><td>87.71</td><td>30.56</td><td>49.59</td><td>56.40</td></tr><tr><td>RL</td><td>INT8</td><td>33.95</td><td>68.75</td><td>84.90</td><td>28.12</td><td>45.85</td><td>52.31</td></tr><tr><td>FlashRL</td><td>INT8</td><td>36.77</td><td>70.55</td><td>85.88</td><td>28.44</td><td>47.33</td><td>53.80</td></tr><tr><td>QuRL w/o UAQ</td><td>INT8</td><td>39.06</td><td>70.48</td><td>86.48</td><td>29.20</td><td>48.75</td><td>54.79</td></tr><tr><td>QuRL w/ UAQ</td><td>INT8</td><td>40.52</td><td>71.34</td><td>87.20</td><td>29.22</td><td>49.13</td><td>55.48</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                174,
+                801,
+                823,
+                919
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "8"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/df89e6bdf12a65d221d5582707b86dbec0c52cd6bda2af940ff72fe635e89899.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                176,
+                102,
+                398,
+                262
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/cf99eaf7218ee8eafda827184360eae5580feae3b9bf615cc98f99bdbb9e271e.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 8: Inference acceleration of INT8 quantization."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                398,
+                102,
+                609,
+                263
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/b014b9a23fb7abcc53746226d4ca3a935a2cf587d9accb75c92dcf35f600cc40.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                609,
+                102,
+                821,
+                262
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                297,
+                826,
+                342
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "For evaluation, we follow the official implementation to compare the Avg@32 results on AIME 2024 (Li et al., 2024), MATH 500 (Hendrycks et al., 2021), AMC 2023 (Ouyang et al., 2022), Minerva Math (Lewkowycz et al., 2022), and Olympiad Bench (He et al., 2024) as well as the average accuracy of all above. The results are shown in Table 3. The full-precision RL improves the base model by 7.6% average accuracy across 5 tasks and notably 12% accuracy improvement on the AIME 2024 dataset. Instead, INT8 RL can barely improve the base model accuracy, for example, 5% improvement on the AIME 2024 dataset. Averaging all tasks, INT8 RL has a large gap of 4.1% compared to BF16 RL. FlashRL achieves a slight improvement over INT8 RL, with a 1.5% higher average accuracy among 5 tasks. On the other hand, QuRL w/ UAQ significantly boosts the average accuracy of INT8 RL by 3%."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                347,
+                826,
+                488
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.2 THROUGHPUT TEST"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                507,
+                354,
+                522
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this section, we demonstrate the throughput benefits of applying quantization during rollout (decoding). We use the script from GuideLLm (Neural Magic, 2024) to evaluate the DeepSeek-Distill-Qwen-7B/14B/32B models on the vLLM platform (Kwon et al., 2023). We test INT8 quantization across multiple GPU types, including A6000, A100, and H100. For 7B and 14B model, we evaluate the throughput (queries per second) on one GPU, while for 32B model, we evaluate it with tensor parallelism across 2 GPUs."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                534,
+                826,
+                619
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The results are shown in Fig. 8. For the 7B model, INT8 quantization can bring 20%∼30% acceleration effect, while for the 32B model, we find INT8 quantization can bring 70% faster throughput on A100 and 90% faster throughput on H100. Generally, we observe that larger models benefit more from quantization. This is due to the large model being bottlenecked by matrix multiplication, yet smaller models are usually bottlenecked by the I/O Nevertheless, we emphasize that QuRL is compatible with other types of compression (Frantar & Alistarh, 2023; Liu et al., 2024)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                625,
+                826,
+                710
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.3 ABLATION STUDY"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                729,
+                343,
+                744
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this section, we compare the results of choosing different scales for UAQ. On one hand, a large scale contributes to a smaller gap between weight update and weight quantization noise. On the"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                757,
+                826,
+                786
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "other hand, it will also make the weight update more than usual, causing more clipped tokens and decreasing the RL performance. To demonstrate this effect, we compare scales s = 1, 1.5, 2 and also test another alternative by directly increasing the learning rate on the DAPO tasks with INT8 quantization. The results are shown in Table 4. It can be seen that s = 1.5 with the original learning rate provides the best results. The larger scale or learning rate results in less stable training of RL and decreases the accuracy on AIME 2024."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                786,
+                550,
+                924
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/75a2aa98c5e586c609aa1a4dbe6830abc892e8575999f4e264c6ffc7f41f4392.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 4: Ablation on scale and α."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Scale s</td><td>Learning Rate</td><td>Avg@32</td></tr><tr><td>s = 1</td><td> $\\alpha = {10}^{-6}$ </td><td>30.63</td></tr><tr><td>s = 1.5</td><td> $\\alpha = {10}^{-6}$ </td><td>31.25</td></tr><tr><td>s = 2</td><td> $\\alpha = {10}^{-6}$ </td><td>29.15</td></tr><tr><td>s = 1</td><td> $\\alpha = {1.5} \\times {10}^{-6}$ </td><td>29.06</td></tr><tr><td>s = 1</td><td> $\\alpha = 2 \\times {10}^{-6}$ </td><td>26.66</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                565,
+                790,
+                836,
+                888
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "9"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "CONCLUSION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                103,
+                290,
+                118
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We present QuRL, an efficient RL training method that accelerates rollout generation through quantized inference. QuRL addresses two fundamental challenges: clipping instability and weight update-quantization mismatch. Our ACR prevents training collapse by dynamically adjusting the clipping, while UAQ bridges the scale gap between weight updates and quantization errors through invariant scaling. Experiments across multiple RL algorithms demonstrate consistent improvements over baselines and 20∼80% throughput improvement over BF16 rollout."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                133,
+                826,
+                219
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "ACKNOWLEDGMENT"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                173,
+                239,
+                349,
+                253
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The authors would like to thank Charbel Sakr for his helpful feedback. This work was supported in part by the National Science Foundation (CAREER Award, Grant #2312366, Grant #2318152), the DARPA Young Faculty Award, the DoE MMICC center SEA-CROGS (Award #DE-SC0023198) and the Global Industrial Technology Cooperation Center (GITCC) program."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                268,
+                826,
+                327
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "REFERENCES"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                173,
+                345,
+                287,
+                362
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Arash Ahmadian, Chris Cremer, Matthias Galle, Marzieh Fadaee, Julia Kreutzer, Olivier Pietquin,´ Ahmet Ust<sup>¨</sup> un, and Sara Hooker. Back to basics: Revisiting reinforce style optimization for learn-¨ ing from human feedback in llms. arXiv preprint arXiv:2402.14740, 2024."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                369,
+                823,
+                412
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Dario Amodei, Chris Olah, Jacob Steinhardt, Paul Christiano, John Schulman, and Dan Mane. Con-´ crete problems in ai safety. arXiv preprint arXiv:1606.06565, 2016."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                174,
+                422,
+                823,
+                450
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Jerry Chee, Yaohui Cai, Volodymyr Kuleshov, and Christopher De Sa. Quip: 2-bit quantization of large language models with guarantees. arXiv preprint arXiv:2307.13304, 2023."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                174,
+                460,
+                825,
+                489
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias Plappert, Jerry Tworek, Jacob Hilton, Reiichiro Nakano, et al. Training verifiers to solve math word problems. arXiv preprint arXiv:2110.14168, 2021."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                174,
+                498,
+                823,
+                539
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Tim Dettmers, Mike Lewis, Younes Belkada, and Luke Zettlemoyer. Llm. int8 (): 8-bit matrix multiplication for transformers at scale. arXiv preprint arXiv:2208.07339, 2022."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                174,
+                549,
+                823,
+                579
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Tim Dettmers, Artidoro Pagnoni, Ari Holtzman, and Luke Zettlemoyer. Qlora: Efficient finetuning of quantized llms. arXiv preprint arXiv:2305.14314, 2023."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                174,
+                588,
+                823,
+                616
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Vage Egiazarian, Andrei Panferov, Denis Kuznedelev, Elias Frantar, Artem Babenko, and Dan Alistarh. Extreme compression of large language models via additive quantization. arXiv preprint arXiv:2401.06118, 2024."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                174,
+                626,
+                823,
+                667
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Reena Elangovan, Charbel Sakr, Anand Raghunathan, and Brucek Khailany. Bcq: Block clustered quantization for 4-bit (w4a4) llm inference. arXiv preprint arXiv:2502.05376, 2025."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                678,
+                823,
+                705
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Elias Frantar and Dan Alistarh. Sparsegpt: Massive language models can be accurately pruned in one-shot. 2023."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                715,
+                823,
+                744
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Elias Frantar, Saleh Ashkboos, Torsten Hoefler, and Dan Alistarh. Gptq: Accurate post-training quantization for generative pre-trained transformers. arXiv preprint arXiv:2210.17323, 2022a."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                753,
+                823,
+                782
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Elias Frantar, Saleh Ashkboos, Torsten Hoefler, and Dan Alistarh. Gptq: Accurate post-training quantization for generative pre-trained transformers. arXiv preprint arXiv:2210.17323, 2022b."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                174,
+                792,
+                823,
+                820
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Wei Fu, Jiaxuan Gao, Xujie Shen, Chen Zhu, Zhiyu Mei, Chuyi He, Shusheng Xu, Guo Wei, Jun Mei, Jiashu Wang, et al. Areal: A large-scale asynchronous reinforcement learning system for language reasoning. arXiv preprint arXiv:2505.24298, 2025."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                174,
+                830,
+                823,
+                872
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Bofei Gao, Feifan Song, Zhe Yang, Zefan Cai, Yibo Miao, Qingxiu Dong, Lei Li, Chenghao Ma, Liang Chen, Runxin Xu, et al. Omni-math: A universal olympiad level mathematic benchmark for large language models. arXiv preprint arXiv:2410.07985, 2024."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                174,
+                882,
+                823,
+                924
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "10"
+                    }
+                ]
+            },
+            "bbox": [
+                490,
+                948,
+                509,
+                960
+            ]
+        }
+    ]
+]

@@ -1,0 +1,91 @@
+{
+  "overview": "BIT is an end-to-end speech BCI framework that combines a cross-species, cross-task pretrained transformer neural encoder with an audio-LLM decoder to translate intracortical neural activity directly into coherent sentences, leveraging self-supervised masked modeling pretraining, phoneme-aware fine-tuning with CTC, and contrastive cross-modal alignment for neural–text embedding consistency.",
+  "count": 17,
+  "modules": [
+    {
+      "id": 1,
+      "name": "Neural Data Preprocessing",
+      "description": "Handles raw Utah array recording preprocessing: resampling neural activity into fixed-width time bins, computing thresholded spike counts and spike-band power (SBP), applying z-score normalization across recording sessions to mitigate probe non-stationarity and drift, and interpolating dead channels. Supports both human and non-human primate datasets with subject-specific session handling."
+    },
+    {
+      "id": 2,
+      "name": "Dataset Construction & Data Loading",
+      "description": "Constructs PyTorch Dataset and DataLoader classes for three training stages (SSL pretraining, phoneme fine-tuning, sentence fine-tuning). Manages heterogeneous data sources spanning multiple subjects, sessions, species, and task types (speech, handwriting, reaching). Implements subject-specific data splits, batch collation for variable-length sequences, and separate data pipelines for attempted speech, imagined speech, and motor task datasets."
+    },
+    {
+      "id": 3,
+      "name": "Transformer Neural Encoder",
+      "description": "Implements the core transformer encoder architecture with multi-headed self-attention, feed-forward blocks, and rotary positional embeddings (RoPE). Includes the patch embedding module that groups consecutive time bins into temporal patches via LayerNorm-Linear-LayerNorm, and a reversed patch embedding module for reconstruction. Supports bidirectional attention masking and configurable depth, embedding dimension, and patch size."
+    },
+    {
+      "id": 4,
+      "name": "Self-Supervised Masked Modeling Pretraining",
+      "description": "Implements the SSL pretraining objective using temporal patch masking. Randomly masks contiguous spans of time-patch tokens with a learnable mask token, and trains the encoder to reconstruct the original neural activity from the partially masked sequence using MSE loss. Includes subject-specific linear read-in and read-out layers to handle varying electrode counts across datasets. Manages pretraining across combined human and monkey Utah array data."
+    },
+    {
+      "id": 5,
+      "name": "Phoneme Decoding Fine-tuning",
+      "description": "Fine-tunes the pretrained encoder for phoneme sequence prediction using Connectionist Temporal Classification (CTC) loss. Removes the masking module and replaces reconstruction heads with a linear phoneme classifier outputting logits over a phoneme vocabulary plus blank and silence tokens. This stage encodes phonetic information into the neural representations, which is critical for downstream sentence decoding even in the end-to-end pipeline."
+    },
+    {
+      "id": 6,
+      "name": "Cascaded Decoder Pipeline",
+      "description": "Implements the cascaded decoding framework: maps encoder phoneme logits through a 5-gram language model via approximate Viterbi beam search to generate sentence hypotheses, then re-scores candidates using an OPT language model that jointly considers acoustic scores from the CTC output and LM probabilities. Configurable beam size, blank penalty, and re-scoring scale factors."
+    },
+    {
+      "id": 7,
+      "name": "MLP Projector & Modality Aligner",
+      "description": "Implements the shallow MLP projector (Linear-ReLU-Linear) that maps neural encoder outputs into the text embedding space of the LLM decoder. Also implements the modality aligner module that performs mean pooling on neural and text embedding sequences, projects them via separate linear layers into a shared latent space, and applies L2 normalization to produce modality tokens for contrastive learning."
+    },
+    {
+      "id": 8,
+      "name": "Contrastive Cross-Modal Alignment",
+      "description": "Implements the symmetric InfoNCE contrastive loss to align neural and text embedding spaces. Constructs positive pairs from matching neural-text sentence embeddings and negative pairs from all other samples in the batch. Includes a learnable temperature parameter for scaling cosine similarities. This module enforces that neural embeddings for a given sentence are pulled closer to the corresponding text embedding while being pushed apart from non-matching ones."
+    },
+    {
+      "id": 9,
+      "name": "End-to-End LLM Decoder with LoRA",
+      "description": "Integrates pretrained audio-LLMs (or text-LLMs) as sentence decoders. Applies low-rank adaptation (LoRA) to attention projection layers, feed-forward layers, and (for audio-LLMs) the multimodal projector to enable parameter-efficient fine-tuning. Supports treating neural embeddings as either a distinct neural modality (direct text-space projection) or an audio modality (projection through the audio encoder's multimodal projector). Implements next-token prediction training with cross-entropy loss."
+    },
+    {
+      "id": 10,
+      "name": "Prompt Engineering & Modality Routing",
+      "description": "Manages prompt design and modality routing for the LLM decoder. Constructs instruction prompts with neural embedding token placeholders (e.g., '<neural_activity>#</neural_activity>') and decoding instructions. Routes neural encoder outputs through either the text embedding space or the audio embedding space depending on the modality treatment. Handles special tokens for audio begin/end markers when treating neural activity as audio."
+    },
+    {
+      "id": 11,
+      "name": "Training Pipeline & Optimization",
+      "description": "Orchestrates the multi-stage training workflow: SSL pretraining → phoneme fine-tuning → sentence-level end-to-end fine-tuning. Manages epoch scheduling, mixed-precision (bfloat16) training, gradient accumulation for large LLMs, and AdamW optimizer with configurable weight decay. Implements checkpoint selection based on validation metrics (R2 for pretraining, PER for phoneme decoding, WER for sentence decoding). Supports hyperparameter search via Ray Tune integration."
+    },
+    {
+      "id": 12,
+      "name": "Inference & Autoregressive Generation",
+      "description": "Implements the inference pipeline for end-to-end decoding: encodes neural activity through the fine-tuned encoder, projects embeddings into LLM space, and generates sentences autoregressively using nucleus (top-p) sampling with configurable temperature and maximum token length. Also implements the cascaded inference path with beam search decoding and OPT re-scoring. Measures per-sentence inference latency."
+    },
+    {
+      "id": 13,
+      "name": "Evaluation Metrics Computation",
+      "description": "Computes all evaluation metrics used in the paper: coefficient of determination (R2) for neural activity reconstruction quality during pretraining, phoneme error rate (PER) via Levenshtein edit distance after CTC blank/removal processing, and word error rate (WER) via Levenshtein edit distance on word sequences. Handles blank token and special token removal before metric calculation."
+    },
+    {
+      "id": 14,
+      "name": "Model Ensemble & LLM Merging",
+      "description": "Implements the ensemble strategy for benchmark submissions: trains multiple encoders with different random seeds, collects phoneme and sentence outputs from each, and uses a fine-tuned external LLM (GPT-3.5/GPT-4) to merge candidates into a final decoded sentence. The merger takes both transcription candidates and their corresponding phoneme sequences as input to identify and correct model-specific decoding errors."
+    },
+    {
+      "id": 15,
+      "name": "Interpretability & Representational Analysis",
+      "description": "Implements representational similarity analysis (RSA) comparing neural embedding geometry with LLM text embedding geometry using representational dissimilarity matrices and Pearson correlation. Includes LDA-based linear separability analysis between attempted and imagined speech embeddings, PCA visualization of word-level embeddings, and cross-attention weight visualization for temporal alignment analysis between neural and text tokens."
+    },
+    {
+      "id": 16,
+      "name": "Ablation Study Framework",
+      "description": "Provides a systematic ablation framework covering: encoder architecture comparison (RNN vs. transformer-from-scratch vs. pretrained), pretraining data composition (human-only vs. human+monkey vs. cross-task supervised), LLM decoder comparison (text-LLM vs. audio-LLM across model sizes), modality treatment ablation (neural vs. audio), prompt design ablation, contrastive learning ablation, feature type ablation (thresholded spikes vs. SBP vs. combined), and projector architecture ablation (linear vs. MLP vs. cross-attention)."
+    },
+    {
+      "id": 17,
+      "name": "Configuration & Experiment Management",
+      "description": "Manages experiment configurations for all training stages, including model architecture hyperparameters, optimizer settings, data paths, and evaluation protocols. Implements logging infrastructure, checkpoint saving/loading, experiment tracking, and result aggregation. Supports submission to Brain-to-Text benchmark leaderboards with holdout evaluation. Generates performance comparison tables and scaling curve visualizations for data composition experiments."
+    }
+  ]
+}

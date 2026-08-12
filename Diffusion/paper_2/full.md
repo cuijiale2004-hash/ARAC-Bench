@@ -1,0 +1,226 @@
+## ABSTRACT
+
+Latent Diffusion Models (LDMs) have recently shown great potential for image restoration owing to their powerful generative priors. However, directly applying them to ultra-high-definition image restoration (UHD-IR) often results in severe global inconsistencies and loss of fine-grained details, primarily caused by patchbased inference and the information bottleneck of the VAE. To overcome these issues, we present FreeAdapt, a plug-and-play framework that unleashes the capability of diffusion priors for UHD-IR. The core of FreeAdapt is a training-free Frequency Feature Synergistic Guidance (FFSG) mechanism, which introduces guidance at each denoising step during inference time. It consists of two modules: 1) Frequency Guidance (FreqG) selectively fuses phase information from a reference image in the frequency domain to enforce structural consistency across the entire image; 2) Feature Guidance (FeatG) injects global contextual information into the self-attention layers of the U-Net, effectively suppressing unrealistic textures in smooth regions and preserving local detail fidelity. In addition, FreeAdapt includes an optional VAE fine-tuning module, where skip connection further enhances the reconstruction of fine-grained textures. Extensive experiments demonstrate that our method achieves superior quantitative performance and visual quality compared to state-of-the-art UHD-IR approaches, and consistently delivers strong gains across multiple LDM-based backbones.
+
+## 1 INTRODUCTION
+
+With the rapid advancement of 4K/8K display and imaging technologies, the demand for Ultra-High-Definition (UHD) images is increasing dramatically (Wang et al., 2025; Li et al., 2023b; Zheng et al., 2021; Zhao et al., 2025; Liu et al., 2025b). However, in real-world capture, UHD images inevitably suffer from degradations such as low light, haze, blur, and noise, which are often caused by insufficient illumination, adverse weather conditions, or equipment limitations (Wang et al., 2025; 2024a). As a result, UHD image restoration (UHD-IR) has become a crucial yet highly challenging research field in computer vision, characterized by its massive resolution scale and requirements for preserving fine-grained details (Wang et al., 2025; Yu et al., 2024b).
+
+To address the challenges of UHD-IR, researchers have proposed a variety of solutions (Zhao et al., 2025; Wang et al., 2024a; Liu et al., 2025b; Su et al., 2024; Liu et al., 2025a; Wu et al., 2024a). Existing studies primarily enhance restoration performance by designing innovative network architectures and developing advanced training paradigms. For instance, UHDformer (Wang et al., 2024a) employs a dual-path module to balance efficiency and accuracy, while ERR (Zhao et al., 2025) decomposes the restoration process into multiple stages for refined modeling. Although these methods have achieved remarkable performance, they unavoidably encounter bottlenecks, as merely modifying network structures is insufficient to overcome the inherently ill-posed nature of image restoration (Xu et al., 2024). For UHD-IR, how to leverage powerful diffusion priors to overcome the bottlenecks remains insufficiently explored.
+
+Recently, Latent Diffusion Models (LDMs) (Rombach et al., 2022) have shown remarkable potential in low-level vision tasks owing to their powerful generative priors (Lin et al., 2024a; Wu et al., 2024c;b; Yue et al., 2025; Chen et al., 2025a; Sun et al., 2025). However, directly applying these pre-trained models to UHD-IR faces several technical bottlenecks. First, due to the high computational cost and memory demand of self-attention mechanisms, models cannot process an entire UHD image in a single pass, making patch-based inference unavoidable. As illustrated in Figure 1(b–d), this strategy often introduces stripe-like artifacts and color inconsistencies, while naive upsampling schemes typically cause blurring or structural distortions. Second, the absence of global context in patch-based inference amplifies the stochasticity of diffusion models, leading to inconsistent highfrequency details in textureless regions. Finally, the Variational Autoencoder (VAE) (Kingma & Welling, 2013), as a core component of LDMs, suffers from lossy compression that discards highfrequency information and thereby limits restoration fidelity.
+
+![](images/43f1dc563cf64dea0a43fbb7814adf14403604b6eff8c1f3be08f562368e31aa.jpg)  
+(a) GT&Input
+
+![](images/e2cddb62a6a5bf18fe19ccda971665c0ae8d54f12da8132b87cfc945ffa1c761.jpg)  
+(b) Patch-based Inference
+
+![](images/8d8f7402374721971c601298755b6c9272c8f6c9cd2cabbe78a03d573774a61a.jpg)  
+(c) RGB Upsampling
+
+![](images/e45770d81cb4cb25617e9c2599afec8c324376837ab77455aed2ca0ae06b14e9.jpg)  
+(d) Latent Upsampling
+
+![](images/039d092de9859eec49dc7071f4cb14b3fd379508cbce228f1d9a2fea3420eec7.jpg)  
+(e) Ours  
+Figure 1: Visual comparison of different LDM-based strategies on the UHD-LL (Li et al., 2023a).
+
+To enable pre-trained LDMs to overcome these challenges, we introduce FreeAdapt, a unified framework that combines a plug-and-play, training-free guidance mechanism with an optional VAE fine-tuning (VAE-FT) module. FreeAdapt provides a cost-efficient way to unleash the potential of diffusion priors and adapt pre-trained LDMs and their extensions (e.g., ControlNet (Zhang et al., 2023)) to UHD-IR. The core of our approach is the Frequency Feature Synergistic Guidance (FFSG) mechanism, which enforces both global consistency and local detail fidelity at each step of patchbased denoising during inference time. Specifically, FFSG is composed of two complementary modules: 1) Frequency Guidance (FreqG), which selectively fuses phase information from a lowresolution reference image in the frequency domain to ensure global structural consistency across patches; 2) Feature Guidance (FeatG), which incorporates global context into the U-Net selfattention layers to constrain local detail generation and suppress high-frequency hallucinations. In addition, the optional VAE-FT module fine-tunes the VAE decoder with skip connection to ease the information bottleneck and improve the reconstruction of fine textures.
+
+## Our main contributions are summarized as follows:
+
+• To the best of our knowledge, FreeAdapt is the first plug-and-play diffusion prior framework for the UHD-IR task, providing an effective and generalizable solution for pre-trained LDMs and their extensions.
+
+• We propose a training-free, plug-and-play synergistic guidance mechanism that, through innovative frequency and feature guidance modules, effectively resolves the artifact and detail hallucination issues in UHD-IR, significantly improving both global consistency and local fidelity.
+
+• By introducing skip connection and fine-tuning the VAE decoder, we successfully mitigate the VAE’s information bottleneck and improve the fidelity of reconstructed details.
+
+• Through extensive experiments across three representative LDM-based backbones (LDM (Rombach et al., 2022), StableSR (Wang et al., 2024b), and DiffBIR (Lin et al., 2024a)), we show that FreeAdapt consistently delivers strong performance improvements, achieving PSNR gains typically above 2 dB over patch-based inference. These gains stem from its ability to correct cross-patch inconsistencies and more effectively exploit pretrained diffusion priors.
+
+## 2 RELATED WORK
+
+Ultra-High-Definition Image Restoration. UHD-IR has gained increasing attention due to the rapidly growing demand for high-resolution images (Li et al., 2023b; Liu et al., 2025b; Wang et al.,
+
+2025; Zhao et al., 2025). UHDformer (Wang et al., 2024a) achieved a balance between performance and efficiency by introducing a dual-path architecture with correlation matching and channel modulation. DreamUHD (Liu et al., 2025b) employed a frequency-enhanced VAE, integrating Fourier and wavelet modules to improve detail fidelity. From a spectral perspective, ERR (Zhao et al., 2025) deconstructed the restoration process into three progressive stages, incorporating multiple structures for phased modeling. Although these methods achieved notable progress, relying on architectural innovations and training paradigms alone cannot fundamentally resolve the inherently ill-posed nature of image restoration, leading to inevitable performance bottlenecks (Xu et al., 2024). In the context of UHD-IR, the potential of leveraging diffusion priors has been overlooked. Therefore, this study aims to investigate and utilize the powerful generative priors in pre-trained models to enhance restoration performance for UHD-IR, specifically addressing the persistent issues of insufficient priors and the loss of fine-grained details.
+
+High-resolution Adaptation of Diffusion Models. With the rapid advancement of diffusion models in image generation, high-resolution image synthesis and upscaling have become significant research hotspots (Tragakis et al., 2024; Huang et al., 2024). Existing approaches fall into two categories. The first (Ren et al., 2024; Zhang et al., 2025) retrains or fine-tunes models on highresolution datasets, which requires substantial data and computational resources. The second (Bar-Tal et al., 2023; Du et al., 2024; Lin et al., 2024b; Huang et al., 2024; Zhang et al., 2024c; Qiu et al., 2024; Zhang et al., 2024b) follows a training-free paradigm that improves effective resolution by optimizing the inference procedure. Representative methods such as MultiDiffusion (Bar-Tal et al., 2023) generate large images by fusing multiple diffusion trajectories, while DemoFusion (Du et al., 2024) enhances visual coherence through progressive sampling and skip-residual refinement. AccDiffusion (Lin et al., 2024b) further emphasizes semantic alignment when guiding patch-level generation. These techniques are highly effective for high-resolution generation, where outputs only need to be perceptually plausible. In contrast, UHD restoration requires strict structural fidelity to the degraded input, and any hallucinated or altered content violates the restoration objective. As a result, generation-oriented strategies often struggle to maintain input–output consistency in UHD-IR. Meeting restoration requirements therefore relies on two principles: selective injection of reliable global information and preservation of structural alignment throughout denoising. Our frequency and feature guidance modules follow these principles, enabling diffusion priors to maintain global coherence while faithfully preserving input-consistent details.
+
+Diffusion Prior-Based Image Restoration. In recent years, with the breakthrough development of LDMs (Rombach et al., 2022) in image and video generation, their capability as powerful generative priors has gradually been introduced into low-level vision tasks (Wang et al., 2024b; Lin et al., 2024a; Wu et al., 2024c; Yang et al., 2024; Yu et al., 2024a; Ai et al., 2024; Zhang et al., 2024a; Chen et al., 2025b; Arora et al., 2025). StableSR (Wang et al., 2024b) fine-tuned the pre-trained model with a time-aware encoder and feature modulation mechanism to achieve high-quality image superresolution. DiffBIR (Lin et al., 2024a) adopted a two-stage strategy to extend the adaptability of diffusion models to blind image restoration tasks. SeeSR (Wu et al., 2024c) designed a degradationaware text prompt generator to guide more refined super-resolution reconstruction. SUPIR (Yu et al., 2024a) incorporated prompts generated by multimodal large language models and employed a degradation-robust adapter for prior control. Although these methods have achieved notable advances in image restoration, they primarily concentrated on optimizing performance within native resolution. For UHD-IR, directly applying existing models often results in artifacts such as distortions, color inconsistencies, and the loss of fine details caused by the VAE. Therefore, designing a plug-and-play, artifact-free, and universal image restoration approach for UHD images, remains an important research direction.
+
+## 3 METHODOLOGY
+
+Preliminary. LDMs (Rombach et al., 2022) are text-to-image diffusion models that perform denoising in a latent space. Specifically, LDMs employ a pre-trained VAE (Kingma & Welling, 2013) to encode an image into a latent representation $z _ { 0 } .$ , followed by training a denoising U-Net ϵ in the latent space. The training objective of the LDM is formulated as:
+
+$$
+\mathcal {L} _ {l d m} = \mathbb {E} _ {z, c, t, \epsilon} [ | | \epsilon - \epsilon_ {\theta} (\sqrt {\bar {\alpha} _ {t}} z + \sqrt {1 - \bar {\alpha} _ {t}} \epsilon , c, t) | | _ {2} ^ {2} ]\tag{1}
+$$
+
+where $\epsilon \sim \mathcal { N } ( 0 , \mathbf { I } )$ denotes the ground-truth noise at timestep t, c represents the conditional information, and $\hat { \alpha } _ { t }$ is the diffusion coefficient defined in DDPM (Ho et al., 2020).
+
+![](images/d9239ecbd418fde72b1c1e3ad6493331f2c821b58803e97d4c6a72d41471b4c1.jpg)  
+Figure 2: Overview of the proposed FreeAdapt framework. The degraded UHD input $I _ { l q }$ is downsampled and passed through a pre-trained LDM to obtain a reference latent $z _ { 0 } ^ { r e f }$ for global structural guidance. During iterative patch-based denoising of $z _ { t }$ , frequency guidance (FreqG) fuses the phase spectrum of $z _ { t }$ and $z _ { t } ^ { r e f }$ to enforce cross-patch consistency, while feature guidance (FeatG) injects global context into U-Net attention layers to suppress artifacts. Finally, the latent $z _ { t } ^ { \prime }$ is decoded by $D ,$ where an optional VAE fine-tuning (VAE-FT) module with skip connection enhances highfrequency details, producing the restored UHD output $I _ { r e c } .$
+
+Objective. To address the challenges of adapting pre-trained LDMs for UHD-IR, we introduce a novel plug-and-play FreeAdapt framework. Our primary objective is to resolve the prevalent issues of artifacts, global inconsistencies and detail loss that arise when directly applying pre-trained LDMs to UHD-IR, without modifying or fine-tuning of the denoising U-Net.
+
+Overview. As shown in Figure 2, the core of FreeAdapt is a training-free guidance mechanism that operates during the iterative, patch-based denoising process. This mechanism integrates FreqG and FeatG modules to enforce global consistency and preserve local detail fidelity. Additionally, to overcome the inherent high-frequency information loss of the VAE, we introduce an optional VAE-FT module that fine-tunes the VAE decoder with lightweight modifications to further boost the fidelity of the restored images.
+
+## 3.1 FREQUENCY FEATURE SYNERGISTIC GUIDANCE
+
+FFSG is a training-free, plug-and-play mechanism compatible with pre-trained LDMs and their extensions, such as ControlNet (Zhang et al., 2023). It is designed to address the global inconsistencies and local detail distortions that arise from patch-based inference. As illustrated in Figure 2, within each denoising step, we employ frequency-domain constraints to stabilize low-frequency structures and textures, while a feature-level attention module suppresses high-frequency artifacts and promotes cross-patch consistency. The overall mechanism consists of two main stages: Reference Image Generation and Guided High-Resolution Iterative Denoising.
+
+Reference Image Generation. LDMs are typically trained at a fixed resolution, making their direct application to UHD images prone to structural distortions and artifacts. To address this, we first generate a reference image that provides reliable low-frequency structural information by leveraging the inherent image-to-image capability of the diffusion backbone. Specifically, the degraded UHD input $I _ { l q }$ is downsampled to the native training resolution (e.g., 512×512), encoded by the VAE to obtain the conditioning latent, and then used to guide a single standard denoising process of the pre-trained LDM, producing a clean latent representation $z _ { 0 } ^ { l r }$ with coherent content and structure. This latent is decoded into the pixel domain, upsampled back to the UHD resolution to form $I _ { r e f } ,$ and re-encoded by the VAE encoder to obtain $\bar { z } _ { 0 } ^ { r e f }$ for global guidance. Compared with cascaded multi-resolution approaches (Du et al., 2024; Lin et al., 2024b), our strategy provides a structurally reliable reference using only a single denoising process.
+
+Guided High-Resolution Iterative Denoising. To address GPU memory limitations in UHD-IR, we adopt a patch-based denoising strategy. At each denoising step t, multiple small patches are cropped from the current high-resolution latent representation and denoised individually. Overlapping regions are blended by smooth averaging to maintain consistency across patch boundaries. Within each denoising step, FreqG and FeatG are integrated into the denoising process, jointly improving both global structural coherence and local detail fidelity.
+
+![](images/f344e8aec9f1838340bea98288cab351f5b8423286daf845397fdffcccf45ef3.jpg)  
+Figure 3: Visual comparison and ablation study of FreeAdapt on the UHD-LL. (b) Patch-based inference suffers from color inconsistency; (c) FreqG contains high-frequency noise; (d) FFSG still exhibits detail loss.
+
+Frequency Guidance. To overcome the structural inconsistencies introduced by patch-based denoising, as shown in Figure 3(b), we incorporate FreqG into the iterative denoising process. At each step t, both the current latent representation $z _ { t }$ and the noised reference latent $z _ { t } ^ { r \bar { e } f }$ are transformed into the frequency domain using Fast Fourier Transformation (FFT), yielding their respective amplitude and phase spectrum:
+
+$$
+\mathcal {F F T} (z _ {t}) = \mathcal {A} _ {t} e ^ {i \phi_ {t}}\tag{2}
+$$
+
+$$
+\mathcal {F F T} (z _ {t} ^ {r e f}) = \mathcal {A} _ {t} ^ {r e f} e ^ {i \phi_ {t} ^ {r e f}}\tag{3}
+$$
+
+To ensure that the global structure of the reference is effectively preserved without interfering with texture generation, only the phase components are fused. Specifically, a dynamically low-pass filter $\kappa ( t )$ is applied to weight the two phase spectrum:
+
+$$
+\overline {{\phi}} _ {t} = \arctan \left((1 - \mathcal {K} (t)) e ^ {i \phi_ {t}} + \mathcal {K} (t) e ^ {i \phi_ {t} ^ {r e f}}\right)\tag{4}
+$$
+
+$$
+\mathcal {K} (t) = \left\{ \begin{array}{l l} \frac {t}{T}, & \text { if } | x - \frac {w}{2} | <   w \cdot c \cdot \frac {t}{T} \text { and } | y - \frac {h}{2} | <   h \cdot c \cdot \frac {t}{T} \\ 0, & \text { otherwise } \end{array} \right.\tag{5}
+$$
+
+where c is a hyperparameter (default 0.15). The filter $\kappa ( t )$ , defined in Eq. (5), gradually decreases as the denoising step progresses, adaptively balancing global structural constraints with flexibility for detail generation. The corrected latent is then reconstructed by combining the original amplitude spectrum $\boldsymbol { A } _ { t }$ with the fused phase spectrum $\overline { { \phi } } _ { t }$ through inverse FFT:
+
+$$
+z _ {t} ^ {\prime} = i \mathcal {F F T} (\mathcal {A} _ {t} e ^ {i \overline {{\phi}} _ {t}})\tag{6}
+$$
+
+Feature Guidance. While FreqG enforces global low-frequency consistency, it cannot constrain high-frequency details generated independently within each patch. As shown in Figure 3(c), in textureless regions this randomness often introduces spurious details, leading to visual noise or artifacts. To address this issue, we introduce FeatG module that injects global contextual information into the self-attention layers of the U-Net. This allows each patch to reference the global semantics provided by the guidance image, thereby promoting inter-patch coherence and suppressing unrealistic artifacts. Specifically, we first compute the Query $( Q _ { t i l e } )$ , Key $( K _ { t i l e } )$ , and Value $( V _ { t i l e } )$ of the current high-resolution patch to obtain local attention:
+
+$$
+A t t n _ {l o c a l} = s o f t m a x \left(\frac {Q _ {t i l e} \cdot K _ {t i l e} ^ {T}}{\sqrt {d}}\right) V _ {t i l e}\tag{7}
+$$
+
+where d is the feature dimension. In parallel, we extract the patch-aligned query $Q _ { t i l e } ^ { r e f }$ from the reference, together with global keys $K _ { g l o b a l } ^ { r e f }$ and values $V _ { g l o b a l } ^ { r e f }$ , and compute the global attention:
+
+$$
+A t t n _ {g l o b a l} = s o f t m a x \left(\frac {\mathcal {U} (Q _ {t i l e} ^ {r e f}) \cdot K _ {g l o b a l} ^ {r e f} {} ^ {T}}{\sqrt {d}}\right) V _ {g l o b a l} ^ {r e f}\tag{8}
+$$
+
+where U denotes an upsampling operation. The final output is obtained by linearly blending the two attentions:
+
+$$
+A t t n _ {f i n a l} = (1 - \alpha) \cdot A t t n _ {l o c a l} + \alpha \cdot A t t n _ {g l o b a l}\tag{9}
+$$
+
+where α is set to 0.2 by default. Importantly, this operation is applied to the 3rd–8th decoder layers of the U-Net.
+
+## 3.2 VAE FINE-TUNING
+
+In LDMs, VAE is responsible for perceptual compression, but the lossy compression characteristic causes the loss of high-frequency details such as fine textures and text at high resolutions as illustrated in Figure 3(d). This limitation makes the VAE a major bottleneck for UHD-IR. To address this issue, we introduce an optional VAE-FT module that strengthens the decoder’s ability to recover fine details while keeping both the encoder and the U-Net frozen, ensuring that the diffusion process remains fully training-free.
+
+During fine-tuning, both a low-quality image and its high-quality counterpart are passed through the shared VAE encoder, producing a high-quality latent representation along with residual features extracted from the degraded input. The decoder receives the high-quality latent together with these residual features through skip connections, which provide structural cues that help restore information lost during encoding. Through this training strategy, VAE-FT learns a task-level prior for detail reconstruction without learning the restoration task itself. Because this prior is task specific rather than model specific, the fine-tuned decoder can be applied across different diffusion backbones without further training, serving as a lightweight auxiliary component that complements rather than alters the diffusion prior. With this training framework in place, we implement VAE-FT using an enhanced decoder designed to efficiently integrate these residual cues.
+
+As shown in Figure 2, we enhance the VAE decoder by introducing skip connection combined with parameter-efficient LoRA (Hu et al., 2022). Encoder features from the degraded input are first refined through adaptive instance normalization (AdaIN) (Huang & Belongie, 2017), which suppresses degradation while retaining structural details, and are then injected into the corresponding upsampling layers of the decoder via Zero-Convolution modules (Zhang et al., 2023). The finetuning is supervised by a composite loss:
+
+$$
+L = L _ {d w t} + L _ {l p i p s} + L _ {s s i m} + L _ {g a n}\tag{10}
+$$
+
+where $L _ { d w t }$ is an L2 loss in the Discrete Wavelet Transform domain for reconstructing highfrequency details, $L _ { l p i p s }$ ensures perceptual similarity, $L _ { s s i m }$ maintains structural consistency, and $L _ { g a n }$ introduces adversarial feedback to improve realism and sharpness.
+
+## 4 EXPERIMENTS
+
+## 4.1 EXPERIMENTAL SETUP
+
+Datasets. To comprehensively evaluate the performance of our proposed method on UHD-IR tasks, we conduct experiments on multiple publicly available benchmark datasets. For low-light enhancement, we use the UHD-LL dataset (Li et al., 2023a). For image dehazing, we evaluate performance on the UHD-Haze dataset (Wang et al., 2024a). For image deblurring, we adopt the UHD-Blur dataset (Wang et al., 2024a).
+
+Evaluation Metrics. We employ a combination of reference-based and no-reference metrics to provide a comprehensive evaluation of restoration results. PSNR and SSIM (Wang et al., 2004) are used as conventional measures, assessing pixel-level reconstruction accuracy and structural similarity, respectively. LPIPS (Zhang et al., 2018) and DISTS (Ding et al., 2020) are adopted as perceptual metrics to better reflect human visual judgments of image quality. In addition, to further evaluate perceptual quality in a reference-free setting, we use no-reference image quality assessors including CLIPIQA (Wang et al., 2023), MUSIQ (Ke et al., 2021), and MANIQA (Yang et al., 2022).
+
+FFTformer
+
+DiffBIR-Ours
+
+![](images/50977f5cc401675a7208f90c1bdae49674680df7ab3bfd016feecbe18887d624.jpg)  
+Figure 4: Visual comparison of the proposed FreeAdapt against state-of-the-art approaches.
+
+![](images/1e41d90ff7c618d3e946c9839940c35c9a020759c6c8aabc71b76cbb4f678b6d.jpg)  
+Input
+
+![](images/d08ff4dbce9da732598292981dfc32eaa32f480385685e78a41ed3c064484324.jpg)  
+GT
+
+![](images/a7071da04b9513feb749e1af435be2c4d42d9b742cba69f349df5c753eb54aa5.jpg)  
+LDM-Multifusion
+
+![](images/a0048597e79d251566a9673798ed351726db7ef45c5dcbc4786182e6cb1cceb9.jpg)  
+LDM-Demofusion
+
+![](images/71893b2f72aef91411823148ed13a29079744e2cccf9d204af8b56506564d019.jpg)  
+LDM-Pixelsmith
+
+![](images/7404f04d51ee770e3534602ad11910df5804b7954acfd3b8da5c0a2b3a5eb3e9.jpg)  
+LDM-Ours w/o VAE-FT
+
+Figure 5: Visual comparison of training-free diffusion model adaptation methods based on LDM on three UHD-IR datasets: UHD-LL (first row), UHD-Haze (second row), and UHD-Blur (third row).
+
+## 4.2 EXPERIMENTAL RESULTS
+
+We conduct extensive quantitative and qualitative experiments on multiple UHD-IR tasks to demonstrate the effectiveness of diffusion priors and that our method more effectively leverages pre-trained diffusion models in UHD scenarios. For a fair and comprehensive evaluation, we compare our approach against two categories of methods: (1) task-specific restoration methods, including representative approaches that achieve leading performance on individual restoration tasks, such as SwinIR (Liang et al., 2021), Restormer (Zamir et al., 2022), Uformer (Wang et al., 2022), UHDFormer (Wang et al., 2024a), UHDFour (Li et al., 2023a), Wave-Mamba (Zou et al., 2024), FFTformer (Kong et al., 2023), 4KDehazing (Xiao et al., 2024), DreamUHD (Liu et al., 2025b), and ERR (Zhao et al., 2025); (2) training-free diffusion adaptation methods that adapt standard diffusion models to high-resolution images without additional training, such as MultiDiffusion (Bar-Tal et al., 2023), DemoFusion (Du et al., 2024), and PixelSmith (Tragakis et al., 2024). Moreover, to further validate the generality of FreeAdapt under different diffusion architectures, we conduct experiments using three representative diffusion backbones, including a classical latent diffusion model (LDM) (Rombach et al., 2022), the restoration-oriented DiffBIR (Lin et al., 2024a), and the super-resolution oriented StableSR (Wang et al., 2024b), and evaluate them under the same UHD-IR setting.
+
+Low-Light Image Enhancement. As shown in Table 1, our method outperforms advanced approaches on no-reference metrics and the perceptual metrics DISTS. Although it yields lower scores than non-diffusion methods on full-reference metrics, this is largely because those methods are trained end-to-end with L2 or perceptual losses that are directly aligned with these metrics. However, such optimization often sacrifices the realism of generated details, producing overly smoothed results (Yang et al., 2024; Wang et al., 2024b; Wu et al., 2024c). The visual comparisons in Figure 4 clearly demonstrate that our diffusion prior–based methods restore richer and more realistic details, whereas competing methods generally produce blurred outputs, which contradicts the core objective of UHD-IR: recovering fine-grained details.
+
+Table 1: Quantitative comparison of the proposed method against various state-of-the-art methods. The symbols ↑ and ↓ respectively represent that higher or lower values indicate better performance. Bold represents the best and underline represents the second best.
+
+<table><tr><td>Dataset</td><td>Method</td><td>PSNR ↑</td><td>SSIM ↑</td><td>LPIPS ↓</td><td>DISTS ↓</td><td>CLIPIQA ↑</td><td>MUSIQ ↑</td><td>MANIQA ↑</td></tr><tr><td rowspan="11">UHD-LL</td><td>Uformer</td><td>22.57</td><td>0.904</td><td>0.258</td><td>0.170</td><td>0.335</td><td>32.63</td><td>0.259</td></tr><tr><td>Restormer</td><td>23.46</td><td>0.906</td><td>0.268</td><td>0.160</td><td>0.402</td><td>36.05</td><td>0.265</td></tr><tr><td>Swinir</td><td>22.12</td><td>0.905</td><td>0.214</td><td>0.114</td><td>0.385</td><td>33.51</td><td>0.305</td></tr><tr><td>UHDFour</td><td>28.59</td><td>0.918</td><td>0.235</td><td>0.140</td><td>0.411</td><td>28.08</td><td>0.280</td></tr><tr><td>UHDformer</td><td>27.10</td><td>0.926</td><td>0.232</td><td>0.138</td><td>0.360</td><td>35.83</td><td>0.304</td></tr><tr><td>Wave-Mamba</td><td>29.84</td><td>0.941</td><td>0.185</td><td>0.117</td><td>0.410</td><td>41.78</td><td>0.337</td></tr><tr><td>DreamUHD</td><td>27.73</td><td>0.929</td><td>0.220</td><td>0.132</td><td>0.378</td><td>38.52</td><td>0.311</td></tr><tr><td>ERR</td><td>27.57</td><td>0.933</td><td>0.214</td><td>0.148</td><td>0.501</td><td>42.28</td><td>0.344</td></tr><tr><td>LDM-Ours</td><td>22.21</td><td>0.887</td><td>0.253</td><td>0.101</td><td>0.569</td><td>49.07</td><td>0.372</td></tr><tr><td>StableSR-Ours</td><td>22.42</td><td>0.887</td><td>0.244</td><td>0.093</td><td>0.560</td><td>48.35</td><td>0.364</td></tr><tr><td>DiffBIR-Ours</td><td>23.99</td><td>0.900</td><td>0.233</td><td>0.092</td><td>0.564</td><td>48.37</td><td>0.364</td></tr><tr><td rowspan="10">UHD-Haze</td><td>Uformer</td><td>23.38</td><td>0.937</td><td>0.136</td><td>0.069</td><td>0.283</td><td>31.97</td><td>0.267</td></tr><tr><td>Restormer</td><td>23.10</td><td>0.930</td><td>0.157</td><td>0.076</td><td>0.294</td><td>33.69</td><td>0.264</td></tr><tr><td>Swinir</td><td>24.09</td><td>0.943</td><td>0.101</td><td>0.038</td><td>0.288</td><td>32.07</td><td>0.285</td></tr><tr><td>UHDformer</td><td>22.58</td><td>0.942</td><td>0.118</td><td>0.049</td><td>0.301</td><td>31.72</td><td>0.288</td></tr><tr><td>4KDehazing</td><td>22.50</td><td>0.906</td><td>0.185</td><td>0.145</td><td>0.329</td><td>35.60</td><td>0.281</td></tr><tr><td>DreamUHD</td><td>24.36</td><td>0.945</td><td>0.116</td><td>0.048</td><td>0.282</td><td>33.08</td><td>0.280</td></tr><tr><td>ERR</td><td>25.10</td><td>0.949</td><td>0.119</td><td>0.051</td><td>0.282</td><td>31.17</td><td>0.292</td></tr><tr><td>LDM-Ours</td><td>21.59</td><td>0.934</td><td>0.104</td><td>0.044</td><td>0.403</td><td>44.38</td><td>0.343</td></tr><tr><td>StableSR-Ours</td><td>22.80</td><td>0.945</td><td>0.092</td><td>0.033</td><td>0.393</td><td>43.63</td><td>0.333</td></tr><tr><td>DiffBIR-Ours</td><td>25.50</td><td>0.953</td><td>0.077</td><td>0.028</td><td>0.404</td><td>42.18</td><td>0.337</td></tr><tr><td rowspan="10">UHD-Blur</td><td>Uformer</td><td>28.88</td><td>0.851</td><td>0.205</td><td>0.103</td><td>0.284</td><td>29.21</td><td>0.250</td></tr><tr><td>Restormer</td><td>29.57</td><td>0.860</td><td>0.210</td><td>0.115</td><td>0.300</td><td>28.86</td><td>0.243</td></tr><tr><td>Swinir</td><td>28.30</td><td>0.834</td><td>0.190</td><td>0.086</td><td>0.269</td><td>28.10</td><td>0.236</td></tr><tr><td>FFTformer</td><td>26.28</td><td>0.825</td><td>0.215</td><td>0.105</td><td>0.288</td><td>31.22</td><td>0.236</td></tr><tr><td>UHDformer</td><td>28.81</td><td>0.843</td><td>0.233</td><td>0.127</td><td>0.299</td><td>27.31</td><td>0.233</td></tr><tr><td>DreamUHD</td><td>27.15</td><td>0.808</td><td>0.284</td><td>0.172</td><td>0.265</td><td>24.33</td><td>0.205</td></tr><tr><td>ERR</td><td>29.71</td><td>0.861</td><td>0.206</td><td>0.106</td><td>0.267</td><td>29.28</td><td>0.251</td></tr><tr><td>LDM-Ours</td><td>26.91</td><td>0.828</td><td>0.166</td><td>0.076</td><td>0.347</td><td>34.39</td><td>0.278</td></tr><tr><td>StableSR-Ours</td><td>27.42</td><td>0.831</td><td>0.162</td><td>0.077</td><td>0.364</td><td>36.10</td><td>0.278</td></tr><tr><td>DiffBIR-Ours</td><td>28.16</td><td>0.851</td><td>0.145</td><td>0.059</td><td>0.378</td><td>38.64</td><td>0.290</td></tr></table>
+
+Image Dehazing. In the evaluation on the UHD-Haze dataset, the DiffBIR-Ours model demonstrates comprehensive superiority. As shown in Table 1, it achieves the best performance on both reference-based metrics and perceptual metrics. Notably, on the perceptual metric DISTS, our approach delivers a remarkable improvement of about 26.3% over the second-best method SwinIR. Furthermore, the visual results in Figure 4 illustrate that our method more effectively restores color saturation and contrast while avoiding distortions and detail loss, providing strong evidence for the effectiveness of diffusion priors.
+
+Image Deblurring. As shown in Table 1, our adapted diffusion prior-based model also achieves strong performance. On the perceptual metric LPIPS, DiffBIR-Ours achieves an improvement of about 29.6% over ERR, highlighting the effectiveness of diffusion priors. Moreover, the visual comparisons in Figure 4 demonstrate that our method can effectively handle complex motion blur, producing images with sharp edges and well-preserved textures. In contrast, competing methods often suffer from ringing artifacts or fail to completely remove blur.
+
+Comparison with Training-Free Diffusion Adaptation Methods. To further evaluate the generality of our guidance mechanism, Table 2 compares training-free diffusion adaptation strategies across three representative backbones: LDM, DiffBIR, and StableSR. Across all UHD-IR tasks, our FFSG modules consistently yield clear improvements over patch-based inference, as reflected in the FFSG Gain rows, and outperform MultiDiffusion, DemoFusion, and PixelSmith on PSNR, LPIPS, and MUSIQ. A key factor behind this performance gap is that existing methods were originally designed for high-resolution generation, where perceptual plausibility is prioritized, whereas UHD restoration demands strict consistency with the degraded input. Our FFSG mechanism is explicitly tailored for restoration, enforcing global structural coherence and input-aligned texture synthesis.
+
+Table 2: Quantitative comparison of diffusion model adaptation methods using LDM (Rombach et al., 2022), StableSR (Wang et al., 2024b), and DiffBIR (Lin et al., 2024a). PI indicates patchbased inference. Bold and underlined entries denote the best and second-best results, respectively. Red values represent positive gains, while blue values indicate negative gains.
+
+<table><tr><td rowspan="2">Model</td><td>UHD-LL</td><td>UHD-Haze</td><td>UHD-Blur</td></tr><tr><td>PSNR / LPIPS / MUSIQ</td><td>PSNR / LPIPS / MUSIQ</td><td>PSNR / LPIPS / MUSIQ</td></tr><tr><td>LDM-PI</td><td>18.91 / 0.386 / 44.89</td><td>19.27 / 0.190 / 42.63</td><td>23.61 / 0.213 / 35.37</td></tr><tr><td>LDM-Multidiffusion</td><td>20.13 / 0.399 / 32.41</td><td>18.59 / 0.240 / 38.71</td><td>25.16 / 0.364 / 26.49</td></tr><tr><td>LDM-Demofusion</td><td>21.74 / 0.417 / 23.09</td><td>19.40 / 0.292 / 32.17</td><td>23.81 / 0.400 / 22.27</td></tr><tr><td>LDM-Pixelsmith</td><td>20.64 / 0.397 / 31.15</td><td>20.64 / 0.224 / 42.97</td><td>24.07 / 0.323 / 29.75</td></tr><tr><td>LDM-Ours w/o VAE-FT</td><td>21.88 / 0.283 / 45.67</td><td>21.37 / 0.163 / 44.75</td><td>26.58 / 0.198 / 35.52</td></tr><tr><td>LDM-Ours</td><td>22.21 / 0.253 / 49.07</td><td>21.59 / 0.104 / 44.38</td><td>26.91 / 0.166 / 34.39</td></tr><tr><td>FFSG Gain</td><td>+2.96 / -0.103 / +0.78</td><td>+2.11 / -0.028 / +2.13</td><td>+2.97 / -0.015 / +0.15</td></tr><tr><td>VAE-FT Gain</td><td>+0.33 / -0.030 / +3.40</td><td>+0.22 / -0.059 / -0.38</td><td>+0.33 / -0.032 / -1.13</td></tr><tr><td>StableSR-PI</td><td>19.14 / 0.369 / 45.34</td><td>19.85 / 0.182 / 40.28</td><td>24.10 / 0.202 / 35.74</td></tr><tr><td>StableSR-Multidiffusion</td><td>19.52 / 0.355 / 37.71</td><td>20.14 / 0.228 / 40.37</td><td>24.80 / 0.259 / 32.47</td></tr><tr><td>StableSR-Demofusion</td><td>21.59 / 0.393 / 25.65</td><td>20.17 / 0.211 / 34.25</td><td>25.31 / 0.382 / 23.38</td></tr><tr><td>StableSR-Pixelsmith</td><td>20.79 / 0.361 / 33.48</td><td>20.92 / 0.198 / 41.26</td><td>25.65 / 0.297 / 32.62</td></tr><tr><td>StableSR-Ours w/o VAE-FT</td><td>21.96 / 0.270 / 47.20</td><td>22.51 / 0.142 / 44.02</td><td>27.07 / 0.195 / 36.80</td></tr><tr><td>StableSR-Ours</td><td>22.42 / 0.244 / 48.35</td><td>22.80 / 0.092 / 43.63</td><td>27.42 / 0.162 / 36.10</td></tr><tr><td>FFSG Gain</td><td>+2.82 / -0.098 / +1.86</td><td>+2.65 / -0.040 / +3.74</td><td>+2.97 / -0.007 / +1.06</td></tr><tr><td>VAE-FT Gain</td><td>+0.46 / -0.026 / +1.14</td><td>+0.29 / -0.051 / -0.40</td><td>+0.35 / -0.033 / -0.70</td></tr><tr><td>DiffBIR-PI</td><td>21.61 / 0.280 / 45.38</td><td>23.35 / 0.143 / 41.58</td><td>26.65 / 0.174 / 38.09</td></tr><tr><td>DiffBIR-Multidiffusion</td><td>22.18 / 0.285 / 40.24</td><td>23.35 / 0.141 / 38.21</td><td>24.87 / 0.176 / 32.73</td></tr><tr><td>DiffBIR-Demofusion</td><td>23.22 / 0.335 / 24.82</td><td>23.44 / 0.224 / 32.59</td><td>26.06 / 0.280 / 26.74</td></tr><tr><td>DiffBIR-Pixelsmith</td><td>23.45 / 0.316 / 32.44</td><td>23.90 / 0.225 / 40.20</td><td>24.79 / 0.291 / 29.11</td></tr><tr><td>DiffBIR-Ours w/o VAE-FT</td><td>23.66 / 0.252 / 45.85</td><td>24.96 / 0.127 / 42.41</td><td>27.68 / 0.175 / 38.97</td></tr><tr><td>DiffBIR-Ours</td><td>23.99 / 0.233 / 48.37</td><td>25.50 / 0.077 / 42.18</td><td>28.16 / 0.145 / 38.64</td></tr><tr><td>FFSG Gain</td><td>+2.05 / -0.028 / +0.48</td><td>+1.61 / -0.017 / +0.82</td><td>+1.03 / +0.001 / +0.87</td></tr><tr><td>VAE-FT Gain</td><td>+0.33 / -0.019 / +2.52</td><td>+0.54 / -0.050 / -0.22</td><td>+0.48 / -0.030 / -0.33</td></tr></table>
+
+As shown in Figure 5, generation-oriented baselines often introduce blurring, distortions, or inconsistent textures. In contrast, diffusion models equipped with FFSG produce sharper details, more stable structures, and visually coherent results that remain faithful to the input.
+
+## 4.3 ABLATION STUDY
+
+Table 3: Ablation study of the proposed methods.
+
+<table><tr><td>FreqG</td><td>FeatG</td><td>VAE-FT</td><td>PSNR ↑</td><td>LPIPS↓</td></tr><tr><td>×</td><td>×</td><td>×</td><td>18.91</td><td>0.386</td></tr><tr><td>√</td><td>×</td><td>×</td><td>21.76</td><td>0.314</td></tr><tr><td>√</td><td>√</td><td>×</td><td>21.88</td><td>0.283</td></tr><tr><td>√</td><td>√</td><td>√</td><td>22.21</td><td>0.253</td></tr></table>
+
+Table 4: Comparison of Fusion Methods of LDM.
+
+<table><tr><td>Fusion method</td><td>SSIM ↑</td><td>DISTS ↓</td></tr><tr><td>Patch-based Inference</td><td>0.823</td><td>0.145</td></tr><tr><td>Skip Residual</td><td>0.839</td><td>0.312</td></tr><tr><td>FFT Fusion</td><td>0.863</td><td>0.187</td></tr><tr><td>FeaqG</td><td>0.865</td><td>0.121</td></tr></table>
+
+To validate the effectiveness of each proposed component, we conduct a series of comprehensive ablation experiments. All experiments are performed on the UHD-LL (Li et al., 2023a), with pretrained LDM equipped with a standard patch-based denoising strategy serving as the baseline model.
+
+Effectiveness of Frequency Guidance. As shown in Figure 1(b), Figure 3(b) and Figure 6, the baseline model produces severe stitching artifacts and color inconsistencies when directly applied with patch-based inference. After incorporating our proposed FreqG, global consistency is significantly improved, and Table 3 further shows notable improvements in PSNR and LPIPS. To validate the superiority of our fusion strategy, we also compare it with alternative designs, including spatialdomain fusion (skip residual from DemoFusion(Du et al., 2024)) and FFT spectrum fusion (Yang et al., 2025). As presented in Figure 6, the former fails to distinguish the roles of low- and highfrequency information during the diffusion process, resulting in blurred outputs, while the latter leads to severe color distortions. In addition, the quantitative results in Table 4 show that both alternatives substantially degrade perceptual quality, with much worse DISTS scores compared to ours. These comparisons clearly demonstrate the effectiveness of our phase-only fusion strategy.
+
+![](images/feb282b89c6a30972b80e71cd19aa576538d46761b70dcbaef29853c400f68ce.jpg)  
+Figure 6: Qualitative comparison of different diffusion fusion methods.
+
+Effectiveness of Feature Guidance. Building upon FreqG alone, we further incorporate the proposed FeatG module. As shown in Table 3, this addition yields further improvements on perceptual metrics such as LPIPS. The visual comparisons in Figure 3 also demonstrate that FeatG effectively suppresses hallucinated noise and unrealistic textures in smooth regions, producing more faithful and coherent local details.
+
+Effectiveness of VAE Decoder Fine-tuning. Finally, we validate the effectiveness of the proposed VAE fine-tuning module. Within the full guidance mechanism, we compare the performance of the standard VAE with our fine-tuned VAE decoder. As shown in Table 2 and Table 3, the fine-tuned decoder achieves significant improvements on PSNR and LPIPS, while the visual results in Figure 3 further confirm its superiority in reconstructing fine details. Moreover, to examine the role of the introduced skip connection, we conduct additional ablation studies. The comparisons in Figure 7 clearly indicate that skip connection effectively alleviates the information bottleneck and enable the recovery of sharper highfrequency details, whereas removing them leads to noticeable detail loss.
+
+![](images/f19d5324f48a5440538c6fd2da2b7da9e26f5d71bbb75fd5e131c1af28624fb1.jpg)  
+Figure 7: Ablation study on the skip connection in the VAE-FT module.
+
+## 5 CONCLUSION
+
+In this paper, we propose FreeAdapt, a plug-and-play framework designed to unleash the potential of pre-trained diffusion priors for UHD-IR. FreeAdapt integrates FreqG to correct global lowfrequency structures and colors, ensuring cross-patch consistency, while FeatG introduces global context into the U-Net attention layers to suppress unrealistic high-frequency details in smooth regions. In addition, we design an optional VAE-FT module, where skip connection further enhances the reconstruction of fine textures. Extensive experiments demonstrate that our method not only achieves significant improvements in perceptual metrics over state-of-the-art restoration methods but also consistently outperforms other diffusion adaptation approaches, highlighting its superiority in fully exploiting diffusion priors.
+
+Limitations and Future Work. Despite its effectiveness, FreeAdapt has limitations. As an iterative denoising approach, it is time-consuming and computationally heavy. In future work, we will distill our guidance into one- or few-step generative models for efficiency and extend its applicability beyond U-Net–based designs to emerging frameworks such as Diffusion Transformers (DiTs).
+
+Practical Applicability. Although iterative diffusion sampling is computationally demanding, LDMs+FreeAdapt is well suited for offline, quality-oriented UHD restoration workflows where visual fidelity takes precedence over runtime. Representative scenarios include film and television remastering, digital cultural heritage restoration, and large-scale remote sensing analysis, all of which routinely operate under non–real-time constraints and can therefore benefit from the superior perceptual fidelity enabled by diffusion priors.

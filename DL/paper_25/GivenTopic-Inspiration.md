@@ -1,0 +1,10 @@
+Given Topic: The field concerns the theoretical foundations of gradient-based optimization dynamics in deep learning, specifically their relationship with Bayesian statistical inference. Mainstream theoretical frameworks typically rely on regular statistical assumptions—such as non-degenerate local minima and quadratic loss surfaces—which are violated by neural networks due to their singular nature and extensive degeneracies at critical points. Consequently, classical Bayesian information criteria and standard diffusive models fail to accurately characterize generalization or long-time optimization behavior. The core scientific issue is establishing a theoretically principled description of late-stage training dynamics that rigorously accounts for degenerate geometries of the loss landscape, thereby bridging the gap between the stochastic evolution of parameters and the Bayesian posterior in singular statistical models.
+
+Given Inspiration:
+1. Singular learning theory reveals that neural networks are singular statistical models with degenerate minima, rendering classical regular-model approximations invalid.
+2. Empirical observations that optimization trajectories exhibit anomalous diffusion—transitions from early super-diffusion to late-stage sub-diffusion—rather than standard Brownian motion.
+3. Porous media physics, where transport through fractal or disordered geometries is governed by spectral and walk dimensions rather than ambient spatial dimensions.
+4. The thermodynamic correspondence between Bayesian inference and statistical mechanics, motivating a physical description of learning dynamics on complex energy landscapes.
+5. Fractional calculus and memory-dependent processes, offering mathematical frameworks for power-law scaling and non-Markovian evolution in long-time training regimes.
+6. The ubiquity of high-dimensional degenerate saddle points and plateaus in non-convex optimization, which fundamentally restrict accessible directions in parameter space.
+7. Homogenization principles from multiscale physics, which average microscopic fluctuations to derive effective macroscopic diffusion coefficients in heterogeneous media.

@@ -1,0 +1,1403 @@
+[
+    {
+        "type": "text",
+        "text": "ABSTRACT",
+        "text_level": 2,
+        "bbox": [
+            450,
+            276,
+            547,
+            292
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Predictive coding networks (PCNs) offer a local-learning alternative to backpropagation in which layers communicate residual errors, aligning well with biological computation and neuromorphic hardware. In this work we introduce Difference Predictive Coding (DiffPC), a spike-native PC formulation for spiking neural networks. DiffPC replaces dense floating-point messages with sparse ternary spikes, provides spike-compatible target and error updates, and employs adaptive threshold schedules for event-driven operation. We validate DiffPC on fully connected and convolutional architectures, demonstrating competitive performance on MNIST (99.3%) and Fashion-MNIST (89.6%), and outperforming a backpropagation baseline on CIFAR-10. Crucially, this performance is achieved with high communication sparsity, reducing data movement by over two orders of magnitude compared to standard predictive coding. DiffPC thus establishes a faithful, hardware-aligned framework for communication-efficient training on neuromorphic platforms.",
+        "bbox": [
+            230,
+            308,
+            767,
+            503
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "1 INTRODUCTION",
+        "text_level": 2,
+        "bbox": [
+            174,
+            530,
+            336,
+            545
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "The error backpropagation algorithm has been fundamental to the success of deep learning, yet its core mechanisms are widely considered biologically implausible Salvatori et al. (2023). Key limitations include the requirement for global error signals—where synaptic updates depend on information transmitted across multiple layers, far beyond locally available signals—and the reliance on continuous-valued communication and gradients, in contrast to the brain’s use of discrete, eventdriven signals N’dri et al. (2024). These discrepancies create a significant gap between conventional artificial neural networks (ANNs) and biological neural systems.",
+        "bbox": [
+            169,
+            563,
+            826,
+            661
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Artificial intelligence does not need to replicate biology—airplanes do not flap their wings—but certain biological properties are worth emulating. Examples include the brain’s energy efficiency and its ability to perform robust and adaptive computation with sparse, noisy, and low-precision signals N’dri et al. (2024). These observations align with the development of neuromorphic systems, which address the limitations of conventional von Neumann architectures by co-locating memory and computation to reduce data movement Al Abdul Wahid et al. (2024), thereby enabling substantially lower energy consumption—a key biological property worth emulating. Within this hardware setting, Spiking Neural Networks (SNNs) provide a natural computational model: information is represented not by continuous activations but by discrete spikes, as observed in the brain Olshausen & Field (1996; 2004). In SNNs, neurons communicate through sparse, asynchronous events rather than dense, synchronous updates Mainen & Sejnowski (1995); Cox et al. (2000), making them intrinsically well suited for low-power implementation.",
+        "bbox": [
+            169,
+            666,
+            826,
+            835
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "One promising framework for training such systems is Predictive Coding (PC). Originating from neuroscience, PC theorizes that the brain functions as a prediction machine, continuously generating top-down predictions of sensory input while bottom-up signals convey only the residual prediction errors Rao & Ballard (1999); Friston (2005); Spratling (2017); Huang & Rao (2011); Keller & Mrsic-Flogel (2018). Importantly, PC relies on local learning rules, where synaptic updates depend only on the activity of adjacent pre- and post-synaptic neurons. This locality makes PC highly compatible with the parallel and distributed organization of neuromorphic hardware N’dri et al. (2024); Salvatori et al. (2023).",
+        "bbox": [
+            169,
+            840,
+            826,
+            925
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_number",
+        "text": "1",
+        "bbox": [
+            493,
+            948,
+            503,
+            959
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            104,
+            825,
+            133
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "However, despite its theoretical alignment with neuromorphic principles, the standard formulation of PC faces practical computational challenges. To infer neural activities, PC networks typically perform an iterative settling process, requiring multiple forward and backward passes of information to converge for a single input. In standard implementations, this process relies on dense, floating-point message passing, resulting in a computational overhead that notably exceeds that of backpropagation Rosenbaum (2022). This reliance on dense, continuous communication during the iterative phase can offset the efficiency gains sought by deploying SNNs on event-driven hardware. Therefore, while PC offers a solution to the global transport problem of backpropagation, its standard formulation does not fully exploit the sparsity and efficiency of neuromorphic substrates.",
+        "bbox": [
+            169,
+            138,
+            826,
+            266
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Combining SNNs with PC-based training is a natural research direction to address these issues Lan et al. (2022); Wacongne et al. (2012); Boerlin et al. (2013); Ororbia (2023). In this work, we introduce Difference Predictive Coding (DiffPC), an algorithm that reformulates the predictive coding framework for native implementation in SNNs. DiffPC seeks to address the communication overhead of standard PC by replacing dense, floating-point message passing with sparse, ternary spikebased communication. By employing spike-compatible state update rules and adaptive threshold schedules, DiffPC ensures that computation and message passing are event-driven, occurring when necessary to correct prediction errors. Our results indicate that DiffPC achieves accuracy matching or exceeding that of standard predictive coding networks (PCNs) and backpropagation trained models on benchmark datasets, while reducing the number of transmitted bits by more than two orders of magnitude compared to standard PC baselines.",
+        "bbox": [
+            169,
+            271,
+            826,
+            426
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "• We propose Difference Predictive Coding (DiffPC), a spike-native framework based on novel update rules that transmit incremental state updates via sparse ternary spikes rather than broadcasting the full state, resulting in reduced communication costs.",
+        "bbox": [
+            215,
+            431,
+            826,
+            473
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "• We introduce an adaptive threshold scheduling mechanism that enables the discrete spiking network to closely approximate the dynamics of standard continuous predictive coding with fewer timesteps.",
+        "bbox": [
+            215,
+            473,
+            825,
+            513
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "• We empirically validate DiffPC on fully connected and convolutional architectures, demonstrating that it matches the accuracy of standard predictive coding and matches or exceeds that of Backpropagation on MNIST, Fashion-MNIST, and CIFAR-10, while reducing the number of transmitted bits by more than two orders of magnitude compared to standard predictive coding baselines.",
+        "bbox": [
+            215,
+            513,
+            826,
+            585
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "2 RELATED WORKS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            604,
+            352,
+            621
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Spiking neural networks. SNNs compute with discrete events and update their state only upon spike arrivals, yielding sparse, asynchronous processing that maps well to neuromorphic substrates and modern accelerators Pfeiffer & Pfeil (2018); Tavanaei et al. (2019). This event-driven operation provides a natural match to the parallel, low-power architecture of neuromorphic hardware such as TrueNorth Akopyan et al. (2015), Loihi Davies et al. (2018), Loihi 2 Intel Corporation (2021b), and SpiNNaker Furber et al. (2014). Beyond neuromorphic-vision benchmarks, deep SNNs now achieve competitive accuracy on static datasets when equipped with convolutional backbones and carefully engineered neuron and normalization layers Hu et al. (2024).",
+        "bbox": [
+            169,
+            638,
+            826,
+            751
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Several software frameworks have been developed to simulate and train SNNs, including Brian2 Stimberg et al. (2019), NEST Gewaltig & Diesmann (2007), SpikingJelly Fang et al. (2023), and LAVA Intel Corporation (2021a). In this work we use LAVA to verify that our methods are compatible with the Intel hardware chip Loihi 2 Intel Corporation (2021b), but also provide a PyTorch implementation for easy verification and faster runtimes.",
+        "bbox": [
+            169,
+            756,
+            826,
+            828
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "SNN training. A key challenge in SNN learning is that spike generation is non-differentiable, preventing direct application of backpropagation. Contemporary approaches can be divided into three main families, each with distinct accuracy, latency, and efficiency trade-offs Hu et al. (2024).",
+        "bbox": [
+            169,
+            832,
+            825,
+            876
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "(i) ANN→SNN conversion. In this approach, a ReLU ANN is trained with backpropagation and mapped to an SNN under a rate or latency coding assumption Cao et al. (2015). Practical pipelines reduce activation–rate mismatch via weight and threshold normalization Diehl et al. (2015) or resetby-subtraction Rueckauer et al. (2017), and further tighten equivalence using quantization mapping Hu et al. (2023), clip-floor-shift activation Bu et al. (2023), and post-training parameter calibration Li et al. (2024). Conversion scales well and can match ANN accuracy with few timesteps, but training remains off-chip with dense floating-point communication, and residual conversion error or latency may erode energy benefits.",
+        "bbox": [
+            169,
+            882,
+            826,
+            924
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "page_number",
+        "text": "2",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            104,
+            826,
+            175
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "(ii) Direct surrogate-gradient training. By treating SNNs as recurrent systems unrolled over time, the zero derivative of the spike function is replaced with a smooth surrogate, enabling backpropagation through time (BPTT) Wu et al. (2018); Neftci et al. (2019). Representative methods include temporal-loss formulations (SpikeProp) Bohte et al. (2002) and time-based error reassignment (SLAYER) Shrestha & Orchard (2018). Later advances improved optimization and representation by learning neuron dynamics such as time constants Fang et al. (2021). Significant progress was also made in normalizing membrane dynamics across time via threshold-dependent scaling (tdBN) Zheng et al. (2021), time-varying parameter decoupling (BNTT) Kim & Panda (2021), input rescaling for uniform temporal distributions (TEBN) Duan et al. (2022), or direct membrane potential regulation (MPBN) Guo et al. (2023). Finally, other methods mitigate surrogate mismatch via gradient re-weighting (TET) Deng et al. (2022), information maximization objectives (IM-Loss) Guo et al. (2022), or learnable surrogate shapes Lian et al. (2023). These methods reach state-of-the-art accuracy with O(1 − 8) timesteps, but they still rely on global backward signals and dense communication, which can limit viability of on-chip training.",
+        "bbox": [
+            169,
+            180,
+            826,
+            377
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "(iii) Local plasticity. Purely local rules, such as spike-timing-dependent plasticity (STDP) and reward-modulated variants, are aligned with both biology and hardware constraints. However, they typically require auxiliary classifiers and tend to underperform on complex tasks Diehl & Cook (2015); Kheradpisheh et al. (2018); Ororbia (2023).",
+        "bbox": [
+            169,
+            382,
+            826,
+            439
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Overall, these approaches highlight a central trade-off in SNN training: methods that achieve the highest accuracy typically rely on dense, non-local signals or off-chip training, while methods that are fully local and spiking have yet to consistently match this performance on complex tasks.",
+        "bbox": [
+            169,
+            444,
+            825,
+            489
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Predictive coding. Predictive coding (PC) has recently emerged as an alternative to backpropagation that is both biologically motivated and compatible with event-driven computation. In PC, each layer generates predictions of activity in the layer below, while only the residual prediction errors are communicated forward Rao & Ballard (1999); Friston (2005); Spratling (2017); Huang & Rao (2011). PC has been developed into a computational framework with formal links to backpropagation and variational inference Millidge et al. (2021); Rao & Ballard (1999). A central advantage is its use of local learning rules: synaptic updates depend only on the activity of adjacent pre- and postsynaptic neurons, making the framework well suited for distributed neuromorphic implementation N’dri et al. (2024); Salvatori et al. (2023).",
+        "bbox": [
+            169,
+            494,
+            826,
+            619
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Several works have sought to integrate PC with SNNs Lan et al. (2022); Ororbia (2023); Lee et al. (2024). The PC-SNN algorithm formulates predictive coding in time-to-first-spike (TTFS) encoding, where each neuron spikes at most once Lan et al. (2022). This achieves unmatched energy efficiency in terms of spikes, but runtime scales exponentially with input precision (2<sup>B</sup> timesteps for B-bit input) and must be predefined due to the single-spike restriction. Additionally, their training schema remains reliant on transmission of dense floating point numbers and is done on GPU. Recent work toward creating purely spiking predictive coding frameworks Ororbia (2023); Lee et al. (2024) has made significant progress. However, to evaluate performance on discriminative benchmarks like MNIST, these frameworks adopt a hybrid approach. The spiking network is first trained in a purely unsupervised manner to learn representations. Subsequently, its weights are frozen, and a separate, non-spiking linear classifier is trained post-hoc on rate-coded activities extracted from the network’s final layer. This reliance on an external, non-spiking component for the final classification step means the reported accuracies do not reflect the performance of an end-to-end spiking system, complicating a direct assessment of their utility for fully neuromorphic deployment.",
+        "bbox": [
+            169,
+            626,
+            826,
+            821
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Relation to DiffPC. Event-driven ’gradient-by-spikes’ approaches approximate backpropagation by discretizing gradients into spikes Bohte et al. (2000); Cai et al. (2024), which enables training and inference using only spikes. We apply a similar approach in our proposed Difference Predictive Coding. Distinct from prior work, DiffPC integrates these concepts through three key mechanisms: (1) a spike-based message passing protocol that adapts sparse ternary communication specifically for predictive coding error propagation; (2) a difference-based update rule that triggers communication only upon state changes to minimize redundancy; and (3) a cyclic threshold scheduler designed to accelerate the convergence of discrete spiking states toward continuous PCN targets.",
+        "bbox": [
+            169,
+            825,
+            826,
+            914
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "page_number",
+        "text": "3",
+        "bbox": [
+            493,
+            946,
+            504,
+            960
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            104,
+            825,
+            133
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3 BACKGROUND",
+        "text_level": 2,
+        "bbox": [
+            171,
+            152,
+            328,
+            169
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3.1 SPIKING NEURAL NETWORKS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            185,
+            419,
+            199
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "SNNs are a class of artificial neural networks that mimic the behavior of biological neurons more closely than conventional neural networks. Neurons in spiking neural networks communicate through discrete spikes, or action potentials, when their membrane potential V reaches a certain activation threshold $T _ { 0 }$ . The output of the neuron i is a function of the potential $s _ { i } ( V _ { i } )$ . The neuron model utilized in this work is based on the difference equation of the Integrate-and-Fire neuron model:",
+        "bbox": [
+            169,
+            210,
+            825,
+            294
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\nV _ {i} (t + 1) = V _ {i} (t) - T _ {\\theta} s _ {i} (V _ {i} (t)) + \\sum_ {j} w _ {i j} s _ {j} (t), \\quad V _ {i} (0) = b _ {i},\\tag{1}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            284,
+            292,
+            712,
+            324
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "where $V _ { i } ( t )$ is the integration variable (membrane potential), $T _ { \\theta }$ is the threshold, $b _ { i }$ is the bias and $w _ { i j }$ is the weight of the synapse connecting the input neuron j to the neuron i. The spike activation function $s _ { i } ( t ) \\in \\{ - 1 , 0 , 1 \\}$ is",
+        "bbox": [
+            169,
+            329,
+            825,
+            373
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\ns _ {i} \\left(V _ {i} (t)\\right) := \\left\\{ \\begin{array}{l l} 1 & \\text { if } V _ {i} (t) \\geq T _ {\\theta}, \\\\ - 1 & \\text { if } V _ {i} (t) \\leq - T _ {\\theta}, \\\\ 0 & \\text { otherwise }. \\end{array} \\right.\\tag{2}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            370,
+            391,
+            622,
+            440
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Activation of the Integrate-and-Fire-neuron output causes a voltage drop (damping) in the difference equation (1).",
+        "bbox": [
+            169,
+            445,
+            825,
+            474
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3.2 PREDICTIVE CODING",
+        "text_level": 2,
+        "bbox": [
+            171,
+            492,
+            362,
+            506
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "In the context of neural networks, PC proposes that each layer generates predictions of the activity in the next layer. The next layer then computes the error between the forward propagated prediction and the target activity. This error signal is then propagated backward<sup>1</sup> to update both the targets and synaptic weights of the previous layer. The learning objective is to reduce the overall prediction error in the network. Unlike the separate forward and backward passes of conventional deep learning.",
+        "bbox": [
+            169,
+            518,
+            825,
+            589
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Predictive Coding Networks (PCNs) involve a bidirectional local flow of information; predictions of current targets in one direction and prediction errors in another (Figure 1). The target activity is updated using the received prediction error and the synaptic weights using the target activity. The updates are local, which is a substantial difference from the backpropagation algorithm, where updates depend on a single error signal calculated at the final output and propagated backward through the entire network.",
+        "bbox": [
+            169,
+            594,
+            826,
+            680
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "image",
+        "img_path": "images/6c5f0b878f41284864670d34ee672dcf40ab6dfce5b079983c8994210c09a7b0.jpg",
+        "image_caption": [
+            "Figure 1: The structure of a multi-layer Predictive Coding Network (PCN). Each neuronal unit, bounded by the dashed line, consists of the target activity x<sub>T</sub>, prediction x<sub>F</sub>, and prediction error ϵ. The arrows indicate the flow of information between layers $l = 0 , 1 , \\ldots , L$ , where the feedforward path carries the predictions from $\\mathbf { x } _ { T , l }$ to $\\mathbf { x } _ { F , l + 1 }$ , and the feedback path conveys the prediction errors $\\epsilon _ { l }$ which are used to update ${ \\bf x } _ { T , l - 1 }$ . Computations and updates can be asynchronous."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            305,
+            694,
+            689,
+            800
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "page_footnote",
+        "text": "<sup>1</sup>In the PCN literature the terms top/down are more common, but we opt forward/backward for consistency with the deep learning terminology.",
+        "bbox": [
+            169,
+            897,
+            825,
+            924
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "page_number",
+        "text": "4",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "We review the PC principles for a conventional Multi-Layer Perceptron network (MLP) of L dense layers to the input x to output y. The input and output layers are indexed as $l = 0$ and $l = L$ , and between them are the hidden layers $l = \\bar { 1 \\mathrm { t o } L - 1 }$ . Predictive Coding (PC) makes use of each layer’s current activation vectors $\\mathbf { x } _ { T , l } ( \\mathrm { Y T } )$ referring to ’Target’). In addition, the layers include vectors ${ \\bf x } _ { F , l }$ (F: ’forward’) that are the predictions generated by the previous layer $l - 1$ . Ideally, the predictions and the targets should be the same.",
+        "bbox": [
+            169,
+            104,
+            826,
+            188
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Energy function. Layer l predictions are calculated from the target activity of the layer $l - 1$",
+        "bbox": [
+            171,
+            194,
+            785,
+            209
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathbf {x} _ {F, l} = \\mathbf {W} _ {l} \\phi (\\mathbf {x} _ {T, l - 1}),\\tag{3}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            418,
+            215,
+            578,
+            231
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "where $\\mathbf { W } _ { l } \\ \\in \\ \\mathbb { R } ^ { N _ { l } \\times N _ { l - 1 } }$ are the weights, N is the number of neurons, and $\\phi ( \\cdot )$ is an activation function. The difference between the targets and predictions is fed back as the prediction error",
+        "bbox": [
+            169,
+            238,
+            823,
+            268
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\epsilon_ {l} = \\mathbf {x} _ {T, l} - \\mathbf {x} _ {F, l}.\\tag{4}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            434,
+            276,
+            560,
+            289
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "The errors from all layers are summed to compute the ’free-energy’ of a network and PC operates by minimizing this free-energy function",
+        "bbox": [
+            169,
+            301,
+            825,
+            332
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathcal {F} = \\sum_ {l = 1} ^ {L} \\| \\epsilon_ {l} \\| _ {2} ^ {2} = \\sum_ {l = 1} ^ {L} (\\mathbf {x} _ {T, l} - \\mathbf {x} _ {F, l}) ^ {2}.\\tag{5}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            369,
+            337,
+            625,
+            378
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Update steps. The main difference between PC and the gradient descent error backpropagation is that PC alternates between the two updates, the target and weight updates, which are computed locally and can be asynchronous. The synaptic weight update is",
+        "bbox": [
+            169,
+            391,
+            825,
+            435
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathbf {W} _ {l} ^ {(t + 1)} = \\mathbf {W} _ {l} ^ {(t)} - \\alpha \\frac {\\partial \\mathcal {F}}{\\partial \\mathbf {W} _ {l}} = \\mathbf {W} _ {l} ^ {(t)} + \\alpha \\epsilon_ {l} \\phi (\\mathbf {x} _ {T, l - 1}) ^ {\\top},\\tag{6}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            310,
+            450,
+            684,
+            481
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "where α is the learning rate, and the prediction update is",
+        "bbox": [
+            171,
+            484,
+            545,
+            500
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathbf {x} _ {T, l} ^ {(t + 1)} = \\mathbf {x} _ {T, l} ^ {(t)} - \\gamma \\frac {\\partial \\mathcal {F}}{\\partial \\mathbf {x} _ {T , l}} = \\left\\{ \\begin{array}{l l} \\mathbf {x} _ {T, l} ^ {(t)} - \\gamma \\left(\\epsilon_ {l} - \\mathbf {W} _ {l + 1} ^ {\\top} \\epsilon_ {l + 1} \\odot \\phi^ {\\prime} (x _ {T, l})\\right), & \\text {for l <   L}, \\\\ \\mathbf {x} _ {T, l} ^ {(t)} - \\gamma \\epsilon_ {l}, & \\text {for l = L} \\end{array} \\right.\\tag{7}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            218,
+            505,
+            769,
+            542
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "where $\\gamma$ is the prediction learning rate and ⊙ is the Hadamard product. Because updates only occur between adjacent layers, they must be performed iteratively to allow information to propagate throughout the entire network. See Appendix 7.1 for an intuitive explanation of predictive coding.",
+        "bbox": [
+            169,
+            550,
+            825,
+            594
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "4 THE DIFFERENCE PREDICTIVE CODING ALGORITHM (DIFFPC)",
+        "text_level": 2,
+        "bbox": [
+            171,
+            612,
+            720,
+            628
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "In this section, we propose the Difference Predictive Coding (DiffPC) algorithm that implements the standard PC on SNNs. To ensure that our algorithm can be deployed on a neuromorphic chip, we used the instruction set of the Intel Loihi 2 neuromorphic chip. The algorithm was verified in the official simulator because access to the actual Loihi 2 hardware is limited to Intel partners. We provide the full simulator code and the pseudocode is given in Algorithm 1.",
+        "bbox": [
+            169,
+            643,
+            825,
+            715
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "4.1 ALGORITHM OVERVIEW",
+        "text_level": 2,
+        "bbox": [
+            171,
+            729,
+            383,
+            744
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "To adapt the predictive coding framework from Section 3.2 for spiking neural networks, its floatingpoint computations and information transfer must be converted into discrete spikes (Algorithm 1). In this formulation, all information transmitted during the learning steps takes the form of a sequence of ternary values (-1, 0, 1).",
+        "bbox": [
+            169,
+            756,
+            825,
+            814
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "In DiffPC, each unit maintains a target state $x _ { T }$ and an actual state $x _ { A }$ . The target state $x _ { T }$ represents the desired (target) activity, while the actual state $x _ { A }$ attempts to follow $x _ { T }$ , aiming to minimize the difference between them. Their difference is reduced incrementally by steps proportional to an adaptive threshold $T _ { \\theta }$ . The difference-based adjustments are communicated as spikes to subsequent layers, which integrate the incoming spiking information.",
+        "bbox": [
+            169,
+            819,
+            825,
+            890
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Two error variables, $e _ { T }$ and $e _ { A }$ , function in the same way and represent the errors of the two states. $e _ { T }$ is the target error and $e _ { A }$ is the actual error that attempts to align with $e _ { T }$ . The error $e _ { A }$ is adjusted by steps proportional to $T _ { \\theta }$ , which are then transmitted to subsequent layers as spikes. Since the threshold $T _ { \\theta }$ determines the step size of these updates, its schedule is critical for convergence. In the next section, we will introduce specific scheduling strategies.",
+        "bbox": [
+            169,
+            895,
+            825,
+            925
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "page_number",
+        "text": "5",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            104,
+            825,
+            148
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Feed Forward Initialization. Before the iterative DiffPC process begins (as detailed in Algorithm 1), the network undergoes a feed forward initialization phase. In this phase, input spikes are propagated through the layers in a single pass without feedback error calculation. This rapidly establishes an initial estimate for the target activities $\\mathbf { x } _ { T }$ and predictions $\\mathbf { x } _ { F }$ , reducing the number of subsequent iterative steps required for convergence. This phase effectively mimics a standard feedforward SNN inference step to prime the network state and can be implemented by utilizing graded spikes on the Loihi 2 chip. See section 7.2 of the appendix for a more detailed explanation of the algorithm.",
+        "bbox": [
+            169,
+            152,
+            826,
+            266
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "code",
+        "sub_type": "algorithm",
+        "code_caption": [],
+        "code_body": "<div class=\"mineru-algorithm\" style=\"white-space: pre-wrap; font-family:monospace;\">\nAlgorithm 1 DiffPC Algorithm for Spiking Neural Network Training\nInput: Spike signals $s_{\\text{in}}, s_e$\nProcess parameters: threshold $T_\\theta(t)$, learning rate $\\gamma(t)$, weight lr $\\alpha$\nInitialize: $x_F, x_T, x_A, e_T, e_A, e_B, s_A, s_e$\n1: Feed Forward Initialization: Propagate input to prime $x_F$\n2: for each time step $t$ do\n3: $s_{\\text{in}}^l \\leftarrow W^l s_A^{l-1}$ ▷Receive spike input\n4: $x_F^l \\leftarrow x_F^l + s_{\\text{in}}^l \\cdot T_\\theta(t-1)$ ▷Update forward prediction\n5: if $\\gamma^l(t) &gt; 0$ then\n6: $e_T^l \\leftarrow x_T^l - x_F^l$ ▷Compute target error\n7: $x_T^l \\leftarrow x_T^l + \\gamma^l(t) \\cdot (-e_T^l + (x_T^l &gt; 0) \\odot e_B^l)$ ▷Update Target Activity\n8: if $\\gamma^l(t) &gt; 0$ then\n9: $e_T^l \\leftarrow x_T^l - x_F^l$ ▷Update target error\n10: $s_A^l \\leftarrow \\text{sign}(x_T^l - x_A^l) \\odot (|x_T^l - x_A^l| &gt; T_\\theta(t))$ ▷Generate spikes\n11: $s_A^l \\leftarrow s_A^l \\odot (x_A^l + s_A^l \\cdot T_\\theta(t) &gt; 0)$ ▷'Spiking ReLU'\n12: $x_A^l \\leftarrow x_A^l + T_\\theta(t) \\cdot s_A^l$ ▷Update Actual Activity\n13: s_out.send($s_A^l$) ▷Send state spikes\n14: ▷Propagate Error:\n15: e_out.send($s_e^l$) ▷Send error spikes\n16: e_in$^l \\leftarrow (W^{l+1})^\\top s_e^{l+1}$ ▷Receive error input\n17: $e_B^l \\leftarrow e_B^l + T_\\theta(t-1) \\cdot e\\_in^l$ ▷Accumulate incoming errors\n18: $s_e^l \\leftarrow \\text{sign}(e_T^l - e_A^l) \\odot (|e_T^l - e_A^l| &gt; T_\\theta(t))$ ▷Generate error spikes\n19: $e_A^l \\leftarrow e_A^l + T_\\theta(t) \\cdot s_e^l$ ▷Update actual error\n20: $W^l \\leftarrow W^l + \\alpha e_T^l \\phi(x_T^{l-1})^\\top$ ▷Update Weights\n</div>",
+        "bbox": [
+            169,
+            277,
+            826,
+            654
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "4.2 T<sub>θ</sub> AND γ SCHEDULES",
+        "text_level": 2,
+        "bbox": [
+            171,
+            680,
+            370,
+            695
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "We present a cyclic scheduler, which allows for accurate approximation of the standard PC algorithm,",
+        "bbox": [
+            169,
+            705,
+            825,
+            734
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "equation",
+        "text": "$$\nT _ {\\theta} (t) = \\frac {2 ^ {m}}{2 ^ {t \\bmod n}}, \\quad \\gamma (t) = g (t \\bmod n),\\tag{8}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            354,
+            733,
+            640,
+            763
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "where",
+        "bbox": [
+            171,
+            773,
+            218,
+            787
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "equation",
+        "text": "$$\ng (x) = \\left\\{ \\begin{array}{l l} \\gamma , & \\text { if } x = 0 \\\\ 0, & \\text { otherwise } \\end{array} \\right.,\\tag{9}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            406,
+            806,
+            588,
+            840
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "where $n , t \\in \\mathbb { N } ^ { + }$ denote the cycle length and timestep index, respectively, $m \\in \\mathbb { Z }$ sets the initial magnitude of the threshold via $\\mathbf { \\boldsymbol { T } } _ { \\theta } ( 0 ) = 2 ^ { m }$ , and t mod n denotes the modulo operation. The set of n steps starting with $\\gamma ( t ) = \\gamma$ is referred to as γ-cycle and a set of timesteps during which we train the network with a single input and output pair is called an iteration. A single iteration therefore consists of multiple γ-cycles.",
+        "bbox": [
+            169,
+            854,
+            826,
+            924
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "page_number",
+        "text": "6",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "To theoretically motivate the precision of this approach, we establish the following bound on the quantization error demonstrating that, in the absence of error, the spiking states exponentially converge to their floating-point targets within a cycle.",
+        "bbox": [
+            169,
+            104,
+            825,
+            147
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Theorem 4.1. Suppose that the target activity for layer l, denoted as $x _ { T } ^ { l }$ , satisfies $| x _ { T } ^ { l } - x _ { A } ^ { l } | < 2 ^ { m + 1 }$ and $x _ { T } ^ { l } > 0 .$ . Then, after one γ-cycle ofn timesteps ofa cyclic scheduler, the difference between the target activity and the actual activity $| x _ { T } ^ { l } - x _ { A } ^ { l } |$ is less than $2 ^ { m + 1 - n }$",
+        "bbox": [
+            169,
+            150,
+            825,
+            199
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Proof. See Appendix 7.3.",
+        "bbox": [
+            171,
+            219,
+            344,
+            234
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Though this method is able to attain great precision in the approximation of standard PC when we set n large, it comes at the cost of extra timesteps and spikes. In practice, we observe that as the PC network converges, the changes in $e _ { T }$ and $x _ { T }$ become smaller. Thus we should also scale the cyclic scheduler to be smaller as the network converges allowing us to use smaller n and still attain high accuracies. This is the motivation behind the cyclic decay scheduler defined as",
+        "bbox": [
+            169,
+            256,
+            826,
+            328
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "equation",
+        "text": "$$\nT _ {\\theta} (t) = d (t \\bmod T) \\frac {2 ^ {m}}{2 ^ {t \\bmod n}}, \\quad \\gamma (t) = g (t \\mod n),\\tag{10}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            308,
+            345,
+            687,
+            375
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "where $d ( t )$ is a decreasing function. We set",
+        "bbox": [
+            171,
+            382,
+            460,
+            397
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "equation",
+        "text": "$$\nd (t) = \\left(1 - (1 - a) \\frac {t}{T}\\right),\\tag{11}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            403,
+            407,
+            591,
+            439
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "where $a \\in ( 0 , 1 ]$ such that $d ( t$ mod $T ) \\in ( 0 , 1 ]$ and $T$ is the length of the iteration. In addition to the cyclic decay scheduler, we introduce the constant decay scheduler, defined as",
+        "bbox": [
+            169,
+            448,
+            823,
+            478
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "equation",
+        "text": "$$\nT _ {\\theta} (t) = d (t \\bmod T) c, \\quad \\gamma (t) = g (t \\bmod n),\\tag{12}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            344,
+            501,
+            650,
+            517
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "where $c \\in \\mathbf { R } ^ { + }$ . This schedule maintains a fixed threshold c that is scaled by the decay function d(t), thereby reducing the update size over the course of an iteration.",
+        "bbox": [
+            169,
+            530,
+            823,
+            560
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "5 EXPERIMENTS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            582,
+            328,
+            598
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "5.1 DATA AND SETTINGS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            614,
+            362,
+            628
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "We evaluate our method using Multi-Layer Perceptron (MLP) architectures as MLPs provide a clean and well-studied baseline for predictive coding, and we extend our evaluation to Convolutional Neural Networks (CNNs) on the CIFAR-10 dataset to demonstrate the method’s applicability to convolutional networks. For empirical validation, we use the MNIST, Fashion-MNIST, and CIFAR-10 benchmarks. MNIST and Fashion-MNIST comprise 60,000 training and 10,000 test grayscale images of size 28 × 28 across 10 classes. CIFAR-10 consists of 50,000 training and 10,000 test color images of size $3 2 \\times 3 2$ across 10 classes. We train fully connected networks with one or two hidden layers for the simpler tasks, utilizing dropout. For CIFAR-10, we utilize a convolutional architecture, consisting of two convolutional layers with $5 \\times 5$ kernels and stride 2 (with 10 and 5 filters respectively), followed by three fully connected layers. All models are optimized using AdamW. Data augmentation includes random translation jitter for MNIST and random horizontal flips for CIFAR-10. We assess performance by test-set classification accuracy and by spike efficiency, quantified as the average number of activity and error spikes per neuron per sample during training. Our CIFAR-10 implementation is based on code from Rosenbaum (2022); Millidge et al. (2020); Whittington & Bogacz (2017).",
+        "bbox": [
+            169,
+            642,
+            826,
+            852
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Selected baselines For comparison, we focus on Convolutional and MLP networks and include both conventional floating-point and spiking implementations. In addition, we report results from spiking networks trained with alternative learning rules beyond predictive coding, providing context on how our approach compares to state-of-the-art non-PC methods",
+        "bbox": [
+            169,
+            867,
+            826,
+            925
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "page_number",
+        "text": "7",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "5.2 RESULTS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            104,
+            279,
+            118
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Classification accuracy On MNIST, DiffPC achieves high accuracy that matches previously reported results for non-convolutional spike-based methods. For example, DiffPC-L attains 99.3% accuracy and DiffPC-S reaches 98.2%, placing them on par with or above several recent SNN models, as shown in Table 1. On Fashion-MNIST, which presents a greater challenge, DiffPC also achieves competitive accuracy (Table 2). Finally, on CIFAR-10, DiffPC demonstrates effective scaling to convolutional architectures; DiffPC-Long achieves 65.6% accuracy, surpassing the standard backpropagation baseline of 63.5%, while DiffPC-Efficient reaches 63.3% (Table 4).",
+        "bbox": [
+            169,
+            146,
+            826,
+            246
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Communication efficiency Communication efficiency provides further insight into the advantages of DiffPC. On modern hardware, the energy cost of moving data is often comparable to, and in many workloads higher than, the cost of arithmetic operations Horowitz (2014); Lian et al. (2023). Because memory access and interconnect traffic can be orders of magnitude more energy-intensive than a multiply–accumulate, the number of floating-point values transmitted during training and inference is a key proxy for communication energy. In addition, spiking implementations require computation to unfold in discrete timesteps, and the number of timesteps needed for convergence strongly predicts runtime performance Li et al. (2023).",
+        "bbox": [
+            169,
+            300,
+            826,
+            414
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Table 3 reports the average number of bits transmitted per neuron during error propagation and the corresponding timestep counts on the MNIST task. Standard backpropagation transmits 32 bits per neuron in a single timestep, while predictive coding (PC-SE) requires 960 bits across 15 timesteps. SNN-based predictive coding (PC-SNN) is similar as they use floating point numbers during the training stage of their network. In contrast, DiffPC achieves orders-of-magnitude improvements: DiffPC-L transmits only 0.18 bits (0.09 spikes) per neuron on average across 120 timesteps, and DiffPC-S reduces this further to 0.08 bits (0.04 spikes) per neuron across 75 timesteps. These results demonstrate that DiffPC combines competitive accuracy with substantially improved efficiency in terms of communication.",
+        "bbox": [
+            169,
+            419,
+            826,
+            545
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "We observe similar trends on the CIFAR-10 dataset, as detailed in Table 4. Here, we compare two configurations: DiffPC-Long, which utilizes a scheduler cycle length of n = 16, and DiffPC-Efficient, which employs a shorter cycle length of n = 12. Both configurations run for 15 cycles per sample. While the convolutional architecture utilizes higher-fidelity error messaging compared to the MLP used for MNIST, DiffPC retains a substantial efficiency advantage. DiffPC-Long requires only 1.9 bits per neuron, and DiffPC-Efficient further reduces this to 0.7 bits. Although these values are higher than those for MNIST, they remain significantly lower than the 32 bits required by backpropagation or the 960 bits used by standard PC, demonstrating that the communication sparsity of DiffPC scales effectively to convolutional networks.",
+        "bbox": [
+            169,
+            551,
+            826,
+            678
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "table",
+        "img_path": "images/764f7f5ecc2ae60bce362218b3db6955a58e8e29a6906912e8dde0399bf09086.jpg",
+        "table_caption": [
+            "Table 1: Comparison of the Test Accuracy of Different SNN and PC Models on the MNIST dataset. (FC denotes fully connected layers)"
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Method</td><td>Network Architecture</td><td>Acc. (%)</td></tr><tr><td>Backpropagation</td><td>784FC-1024FC-512FC-10FC</td><td>99.3</td></tr><tr><td>PC-SE (Standard PC) (Pinchetti et al. (2024))</td><td>784FC-128FC-128FC-128FC-10FC</td><td>98.3</td></tr><tr><td>STiDi-BP (Mirsadeghi et al. (2021))</td><td>40C5-P2-1000FC-10FC</td><td>99.2</td></tr><tr><td>SSTDP (Liu et al. (2021))</td><td>784FC-300FC-10FC</td><td>98.1</td></tr><tr><td>PC-SNN (Lan et al. (2022))</td><td>784FC-200FC-10FC</td><td>98.1</td></tr><tr><td>SRC-RNN (De Geeter et al. (2024))</td><td>784FC-512FC-512FC-512FC-10FC</td><td>98.4</td></tr><tr><td>FastSNN (Taylor et al. (2022))</td><td>784FC-1000FC-10FC</td><td>97.9</td></tr><tr><td>FastSNN (Taylor et al. (2022))</td><td>32C5-P2-64C5-P2-1000FC-10FC</td><td>99.3</td></tr><tr><td>DiffPC-L (Ours)</td><td>784FC-1024FC-512FC-10FC</td><td>99.3</td></tr><tr><td>DiffPC-S (Ours)</td><td>784FC-400FC-10FC</td><td>98.3</td></tr></table>",
+        "bbox": [
+            174,
+            765,
+            820,
+            920
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "page_number",
+        "text": "8",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "table",
+        "img_path": "images/d5a57516a08741587ac9d0d33d4c626465020fd97176674cb8ea62d267bc3079.jpg",
+        "table_caption": [
+            "Table 2: Comparison of the Test Accuracy of models on the Fashion-MNIST dataset."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Method</td><td>Network Architecture</td><td>Acc. (%)</td></tr><tr><td>FastSNN (Taylor et al. (2022))</td><td>784FC-1000FC-10FC</td><td>89.1</td></tr><tr><td>FastSNN (Taylor et al. (2022))</td><td>32C5-P2-64C5-P2-1000FC-10FC</td><td>90.6</td></tr><tr><td>SRC-RNN (De Geeter et al. (2024))</td><td>784FC-512FC-512FC-512FC-512FC-512FC-10FC</td><td>88.5</td></tr><tr><td>DiffPC-M (Ours)</td><td>784FC-1000FC-10FC</td><td>89.6</td></tr><tr><td>DiffPC-S (Ours)</td><td>784FC-400FC-10FC</td><td>89.2</td></tr></table>",
+        "bbox": [
+            174,
+            125,
+            818,
+            207
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "table",
+        "img_path": "images/6450fd28afd5f88dbd9ed3dc723f8523c36bdce5152d3d746389da5bfc721b0e.jpg",
+        "table_caption": [
+            "Table 3: Average bits transferred during the error propagation stage of different models, along with the timesteps used on the MNIST task. (fp: floating-point operations; sp: spikes)"
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Method</td><td>Ops</td><td>Network Architecture</td><td>Bits/N</td><td>Timesteps</td></tr><tr><td>Backpropagation</td><td>fp</td><td>784FC-1024FC-512FC-10FC</td><td>32</td><td>1</td></tr><tr><td>PC-SE (Pinchetti et al. (2024))</td><td>fp</td><td>784FC-1024FC-512FC-10FC</td><td>960</td><td>15</td></tr><tr><td>PC-SNN (Lan et al. (2022))</td><td>fp</td><td>784FC-200FC-10FC</td><td>960</td><td>15</td></tr><tr><td>DiffPC-L (Ours)</td><td>sp</td><td>784FC-1024FC-512FC-10FC</td><td>0.18</td><td>120</td></tr><tr><td>DiffPC-S (Ours)</td><td>sp</td><td>784FC-400FC-10FC</td><td>0.08</td><td>75</td></tr></table>",
+        "bbox": [
+            181,
+            285,
+            816,
+            373
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "table",
+        "img_path": "images/d2b38f8dfe205f26b45c11292e48c0f93cdf6af5ebb587e9632d487284b4be9a.jpg",
+        "table_caption": [
+            "Table 4: Comparison of Test Accuracy and Efficiency (average bits per neuron during error propagation) on the CIFAR-10 dataset. (fp: floating-point; sp: spikes)"
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Method</td><td>Ops</td><td>Network Architecture</td><td>Acc. (%)</td><td>Bits/N</td><td>Timesteps</td></tr><tr><td>Backpropagation</td><td>fp</td><td>10C5S2-5C5S2-50FC-30FC-10FC</td><td>63.5</td><td>32</td><td>1</td></tr><tr><td>PC-SE (Pinchetti et al. (2024))</td><td>fp</td><td>10C5S2-5C5S2-50FC-30FC-10FC</td><td>65.3</td><td>960</td><td>15</td></tr><tr><td>DiffPC-Long (Ours)</td><td>sp</td><td>10C5S2-5C5S2-50FC-30FC-10FC</td><td>65.6</td><td>1.9</td><td>240</td></tr><tr><td>DiffPC-Efficient (Ours)</td><td>sp</td><td>10C5S2-5C5S2-50FC-30FC-10FC</td><td>63.3</td><td>0.7</td><td>180</td></tr></table>",
+        "bbox": [
+            174,
+            453,
+            820,
+            530
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Numerical precision – We evaluated the numerical precision of DiffPC by comparing the final states x obtained with standard predictive coding (PCN) and with our method. To quantify the approximation, we measured the absolute difference between the hidden-layer activations produced by the two algorithms.",
+        "bbox": [
+            169,
+            561,
+            826,
+            619
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "In this experiment, we used a fixed multilayer perceptron (MLP) with architecture 128−200−10. For each trial, we initialized the synaptic weights randomly but shared them between PCN and DiffPC, ensuring that differences arise solely from the approximation scheme. As inputs, we used i.i.d. random vectors sampled uniformly from [−1, 1]<sup>128</sup> and as output we similarly had i.i.d. random vectors sampled uniformly from $[ - \\dot { 1 } , 1 ] ^ { 1 0 }$ . We repeated the evaluation over 300 random weight initializations and inputs.",
+        "bbox": [
+            169,
+            625,
+            826,
+            708
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "For each random trial, we computed the absolute difference between the final states x<sub>T</sub> of PCN and DiffPC. We observed that the error depends systematically on the scheduler parameters. Specifically, the error is larger when the number of approximation steps n is small and the limit-decay value a is large, and it decreases consistently as n increases and a decreases. This trend was robust across weight initializations and random inputs, showing that approximation precision can be tuned directly through scheduler parameters.",
+        "bbox": [
+            169,
+            714,
+            826,
+            800
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "This constitutes a general test of numerical fidelity within the specified architecture and activation function for three reasons. First, it eliminates dataset-specific structure and labels, so the comparison probes only the update rules rather than task semantics. Second, by combining random bounded inputs with many random weights, it explores a wide region of the state space. Third, the use of shared weights across both algorithms isolates the approximation error from any modeling differences.",
+        "bbox": [
+            169,
+            805,
+            826,
+            877
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "The results seen in Table 5 demonstrate that DiffPC provides a close approximation of standard PCN dynamics under random input conditions, confirming that the method faithfully reproduces PCN across a broad range of states for the given architecture.",
+        "bbox": [
+            169,
+            882,
+            826,
+            925
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "page_number",
+        "text": "9",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "table",
+        "img_path": "images/acc6de257c202a8d4d866b2bc4255a6db26c0d5e67a6b8f92cba8a2c1382ae42.jpg",
+        "table_caption": [
+            "Table 5: Mean absolute difference between DiffPC and standard PC, averaged over three seeds. The value after the ± symbol represents the sample standard deviation. Lower is better."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>n\\a</td><td>1.0</td><td>0.5</td><td>0.25</td><td>0.1</td></tr><tr><td>3</td><td> $0.1506 \\pm 0.0051$ </td><td> $0.0627 \\pm 0.0014$ </td><td> $0.0292 \\pm 0.0014$ </td><td> $0.0168 \\pm 0.0004$ </td></tr><tr><td>4</td><td> $0.0750 \\pm 0.0018$ </td><td> $0.0312 \\pm 0.0005$ </td><td> $0.0158 \\pm 0.0005$ </td><td> $0.0106 \\pm 0.0003$ </td></tr><tr><td>5</td><td> $0.0373 \\pm 0.0006$ </td><td> $0.0169 \\pm 0.0006$ </td><td> $0.0102 \\pm 0.0004$ </td><td> $0.0083 \\pm 0.0006$ </td></tr><tr><td>6</td><td> $0.0197 \\pm 0.0005$ </td><td> $0.0107 \\pm 0.0005$ </td><td> $0.0083 \\pm 0.0005$ </td><td> $0.0075 \\pm 0.0006$ </td></tr><tr><td>7</td><td> $0.0117 \\pm 0.0002$ </td><td> $0.0085 \\pm 0.0005$ </td><td> $0.0075 \\pm 0.0006$ </td><td> $0.0072 \\pm 0.0006$ </td></tr></table>",
+        "bbox": [
+            205,
+            140,
+            787,
+            253
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "6 CONCLUSION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            279,
+            321,
+            294
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "In this work, we presented Difference Predictive Coding, a learning framework that reformulates standard predictive coding for native implementation in spiking neural networks. By replacing dense floating-point communication with sparse, event-driven ternary spikes, DiffPC addresses the data movement bottleneck that typically constrains on-chip training.",
+        "bbox": [
+            169,
+            309,
+            825,
+            368
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "Our results on MNIST, Fashion-MNIST, and CIFAR-10 indicate that DiffPC approximates continuous predictive coding dynamics with high precision. Crucially, it achieves competitive classification accuracy while greatly reducing the number of transmitted bits compared to backpropagation and standard predictive coding baselines. These findings suggest that DiffPC offers a viable pathway for spiking based learning on neuromorphic systems.",
+        "bbox": [
+            169,
+            372,
+            825,
+            444
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "Looking forward, a primary direction for future research in this domain is the evaluation of DiffPC on significantly deeper architectures. Recent advancements, such as $\\mu { \\mathrm { - } } \\mathrm { P C }$ Innocenti et al. (2025a), have shown that predictive coding can scale to deep ResNets when inference dynamics are stabilized. Since DiffPC is designed as a faithful discretization of PC, it is reasonable to hypothesize that these stabilization techniques would transfer to this spike-based framework. A valuable extension of this work would be to quantify the layer-wise deviation between DiffPC and continuous PC states in deep networks, establishing how the spike-communication window must scale to maintain approximation fidelity.",
+        "bbox": [
+            169,
+            449,
+            825,
+            561
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "A complementary future direction concerns temporally correlated data. Recent work shows that when inputs evolve smoothly over time, PC inference can be warm-started from previous states, reducing inference iterations by half and substantially lowering the number of weight updates Zadeh-Jousdani et al. (2025). Prototype-based continual-learning methods similarly demonstrate that reducing update frequency yields large energy benefits on neuromorphic hardware such as Loihi 2 Hajizada et al. (2024; 2025). Since DiffPC is intrinsically event-driven—remaining silent during steady states and emitting spikes only on changes—leveraging temporal priors may further reduce both inference steps and plasticity operations. Quantifying these temporal-sparsity benefits represents another natural extension of the present work.",
+        "bbox": [
+            169,
+            566,
+            826,
+            694
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "Finally, beyond algorithmic scalability and temporality, transitioning DiffPC from simulation to physical neuromorphic hardware remains a critical milestone. Deployment on platforms such as Intel Loihi 2 would allow for the assessment of the protocol under real-world hardware constraints and provide a rigorous verification of its potential energy efficiency advantages.",
+        "bbox": [
+            169,
+            699,
+            826,
+            758
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "ACKNOWLEDGMENTS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            771,
+            328,
+            785
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "This work was supported by the Academy of Finland (project no. 336357, PROFI 6 - TAU Imaging Research Platform).",
+        "bbox": [
+            169,
+            794,
+            825,
+            824
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "REFERENCES",
+        "text_level": 2,
+        "bbox": [
+            173,
+            844,
+            287,
+            859
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "ref_text",
+        "text": "Filipp Akopyan, Jun Sawada, Andrew Cassidy, Rodrigo Alvarez-Icaza, John Arthur, Paul Merolla, Nabil Imam, Yutaka Nakamura, Pallab Datta, Gi-Joon Nam, et al. Truenorth: Design and tool flow of a 65 mw 1 million neuron programmable neurosynaptic chip. IEEE transactions on computer-aided design ofintegrated circuits and systems, 34(10):1537–1557, 2015.",
+        "bbox": [
+            173,
+            867,
+            823,
+            924
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "page_number",
+        "text": "10",
+        "bbox": [
+            490,
+            948,
+            509,
+            960
+        ],
+        "page_idx": 9
+    }
+]

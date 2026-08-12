@@ -1,0 +1,8 @@
+Given Topic: Safety alignment of large language models remains hindered by shallow refusal behaviors and heavy reliance on supervised reasoning distillation. Existing methods either induce superficial pattern-matching shortcuts or require labor-intensive annotation of safety rationales, leading to poor generalization, over-refusal, and degraded utility. The core challenge lies in how to elicit the model's intrinsic latent safety awareness to enable robust, generalizable harm detection without sacrificing helpfulness on benign queries.
+
+Given Inspiration:
+1. Pretrained language models possess latent safety self-awareness, as evidenced by their internal differentiation of harmful and benign inputs, indicating that safety capabilities may be elicited rather than externally instilled.
+2. Outcome-verification methodologies from general reasoning domains suggest that automatable correctness signals can drive the emergence of intermediate reasoning without explicit supervision of thought processes.
+3. The inherent conflict between refusing harmful queries and preserving benign utility necessitates a dual-objective perspective that treats safety and helpfulness as jointly optimizable goals rather than isolated constraints.
+4. Structured deliberation prior to final response generation serves as a cognitive scaffold for surfacing dormant knowledge, suggesting that latent capabilities can be unlocked through enforced explicit reasoning.
+5. The discreteness of safety labels enables minimal, verifiable supervision, implying that binary outcome checking may suffice to guide complex safety reasoning behaviors.

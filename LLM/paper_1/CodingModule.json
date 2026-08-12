@@ -1,0 +1,81 @@
+{
+  "overview": "This paper systematically demonstrates that Warmup-Stable-Only (WSO) learning rate scheduling—removing the decay phase during LLM pre-training—preserves flatter loss landscape minima and consistently yields superior downstream performance after supervised fine-tuning, despite producing worse pre-training metrics compared to decay-based schedulers (Cosine, Linear, WSD).",
+  "count": 15,
+  "modules": [
+    {
+      "id": 1,
+      "name": "Learning Rate Scheduler Implementations",
+      "description": "Implements all four LR schedulers (WSO, WSD, Cosine, Linear) parameterized by minimum LR factor α_pre and α_mid, with configurable warmup steps, stable-phase ratio, and total training steps. WSO is derived from WSD by setting α_pre=1.0 (no decay). Mid-training schedulers extend from the final pre-training LR with an independent α_mid controlling decay behavior in the mid-training stage."
+    },
+    {
+      "id": 2,
+      "name": "Llama-3 Style Model Architecture",
+      "description": "Implements the Transformer-based Llama 3 architecture supporting both 1B and 8B parameter configurations, including RMSNorm, SwiGLU activation, Rotary Position Embeddings (RoPE), grouped-query attention (GQA) with configurable KV head count, and the 128K vocabulary tokenizer. Manages architecture hyperparameters (hidden dim, FFN dim, layers, heads, head dim) for both scales."
+    },
+    {
+      "id": 3,
+      "name": "Data Preprocessing and Tokenization Pipeline",
+      "description": "Handles data loading and tokenization for all training stages: pre-training data (FineWeb-Edu, olmo-mix-1124), mid-training data (dolmino-mix-1124), and SFT data (Tulu-3 SFT mixture). Includes sequence packing/truncation to fixed length, train/validation splitting for SFT data, and format conversion from raw text to tokenized sequences compatible with the Llama 3 tokenizer."
+    },
+    {
+      "id": 4,
+      "name": "Pre-training Pipeline",
+      "description": "Orchestrates the main pre-training loop with AdamW optimizer, mixed-precision (bfloat16) training, gradient clipping, and configurable LR schedulers from Module 1. Supports variable training durations (standard ~350B–500B tokens and over-training ~2T tokens), batch size configuration, and checkpoint saving at regular intervals for downstream stage consumption."
+    },
+    {
+      "id": 5,
+      "name": "Mid-training Pipeline",
+      "description": "Implements the intermediate training stage on curated high-quality data (dolmino-mix-1124), loading checkpoints from pre-training and applying extended LR schedules parameterized by α_mid. Supports both decay (α_mid=0.0) and constant (α_mid=1.0) configurations, enabling systematic comparison of mid-training LR strategies while preserving model initialization from pre-training."
+    },
+    {
+      "id": 6,
+      "name": "Supervised Fine-tuning Pipeline with LR Sweep",
+      "description": "Implements the SFT stage using the Tulu-3 mixture with full-parameter fine-tuning, Cosine-with-warmup LR schedule, and an automated learning rate sweep across a wide range. Selects the best LR for each pre-trained model based on AlpacaEval performance, ensuring fair comparison across different pre-training configurations without scheduler-specific advantage."
+    },
+    {
+      "id": 7,
+      "name": "Pre-training Evaluation Suite",
+      "description": "Evaluates pre-trained models in zero-shot setting on standard benchmarks: ARC-Easy, ARC-Challenge, BoolQ, HellaSwag, OpenBookQA, PIQA, and WinoGrande. Computes both per-task accuracy and aggregate average (PT Task Avg), alongside validation loss on held-out data. Provides normalized relative performance comparison against the best decay-based scheduler."
+    },
+    {
+      "id": 8,
+      "name": "SFT Evaluation Suite",
+      "description": "Comprehensive evaluation of fine-tuned models across multiple dimensions: instruction-following (AlpacaEval with architecture-matched reference model), truthfulness (TruthfulQA), multi-task understanding (MMLU 5-shot), mathematical reasoning (GSM8K 1-shot and 8-shot CoT), reading comprehension (DROP 5-shot), general intelligence (AGIEval 3-shot), and challenging reasoning (BigBench-Hard 3-shot CoT). Computes SFT Task Avg and relative performance deltas."
+    },
+    {
+      "id": 9,
+      "name": "Loss Landscape Sharpness Computation",
+      "description": "Computes Hessian trace (sharpness) as a measure of loss landscape flatness using Hutchinson's unbiased stochastic trace estimator with Rademacher random vectors. Efficiently computes Hessian-vector products via automatic differentiation without constructing the full Hessian. Measures sharpness at regular intervals during pre-training on both pre-training validation sets and SFT datasets, supporting billion-parameter models."
+    },
+    {
+      "id": 10,
+      "name": "Sharpness-Performance Correlation Analysis",
+      "description": "Analyzes the empirical relationship between pre-training sharpness values and downstream SFT performance across all LR scheduler configurations. Computes Pearson correlation coefficient between final sharpness and SFT Task Avg, generates scatter plots with scheduler-specific markers, and validates the hypothesis that flatter minima (lower sharpness) correspond to better downstream adaptability."
+    },
+    {
+      "id": 11,
+      "name": "Over-training Configuration Module",
+      "description": "Extends the pre-training pipeline to support over-training regimes (2T tokens for 1B models, approximately 100x Chinchilla-optimal), with adjusted batch sizes, step counts, and memory management. Ensures all LR scheduler configurations can be evaluated under this extended compute regime, and coordinates with mid-training (500B additional tokens) for the full three-stage over-training pipeline."
+    },
+    {
+      "id": 12,
+      "name": "Experiment Configuration Management",
+      "description": "Centralized YAML/JSON-based configuration system managing all experiment variants: model sizes (1B/8B), LR schedulers (WSO/WSD/Cosine/Linear), minimum LR factors (α_pre, α_mid), training stages (pre/mid/post), data scales (standard/over-training), and evaluation benchmarks. Supports configuration inheritance for mid-training and SFT stages deriving from pre-training configs."
+    },
+    {
+      "id": 13,
+      "name": "Distributed Training and Mixed Precision Support",
+      "description": "Wraps the training pipelines with DDP (Distributed Data Parallel) support for multi-GPU training of 8B-scale models, gradient accumulation for effective large-batch training, bfloat16 mixed-precision training, and distributed evaluation. Handles device placement, gradient synchronization, and memory-efficient forward/backward passes for billion-parameter models."
+    },
+    {
+      "id": 14,
+      "name": "Checkpoint Management and Stage Transition",
+      "description": "Manages model checkpoint saving and loading across the multi-stage pipeline: saving pre-training checkpoints at scheduled intervals, loading them for mid-training with proper LR state initialization, and preparing final checkpoints for SFT. Handles optimizer state, LR scheduler state, and training step counters to ensure seamless stage transitions and reproducibility."
+    },
+    {
+      "id": 15,
+      "name": "Results Aggregation and Comparative Reporting",
+      "description": "Aggregates evaluation results across all experiments and generates comparative analysis: computes relative performance deltas (Δ) from the best decay-based scheduler for each metric and model size, produces formatted tables for pre-training vs. SFT performance inversion, generates sharpness trajectory plots, and outputs LaTeX-ready tables and figures for all experimental configurations (two-stage, three-stage, over-training)."
+    }
+  ]
+}

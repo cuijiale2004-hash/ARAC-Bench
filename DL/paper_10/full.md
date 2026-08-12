@@ -1,0 +1,263 @@
+## ABSTRACT
+
+While message-passing NNs (MPNNs) are naturally invariant on graphs, they are fundamentally limited in expressive power, oversmooth, and oversquash. Canonicalization offers a powerful alternative by mapping each graph to a unique, invariant representation on which expressive non-invariant encoders can operate. However, existing approaches rely on a single canonical sequence that distorts graph distances and restricts expressivity. To address these limitations, we introduce Canonical Tree Cover Neural Networks (CTNNs), which represent the graph with a canonical spanning tree cover. Each tree is then processed with an expressive tree encoder. Theoretically, tree covers better preserve graph distances in comparison to sequences, and on sparse graphs, the cover recovers all edges with a logarithmic number of trees in the graph size, making CTNNs strictly more expressive than sequence-based canonicalization approaches. Empirically, CTNNs consistently outperform invariant GNNs and sequence-based canonical GNNs across sparse molecular and protein graph classification benchmarks. Overall, CTNNs advance graph learning by providing an efficient, invariant, and expressive representation learning framework on sparse graphs via tree cover-based canonicalization.
+
+## 1 INTRODUCTION
+
+In graph representation learning, capturing a graph’s natural symmetries (i.e., isomorphism invariance) is essential for learning and generalization. One way to enforce this invariance is to bake it directly into the architecture: message-passing neural networks (MPNNs) (Duvenaud et al., 2015; Gilmer et al., 2017; Kipf and Welling, 2017) achieve architectural invariance by iteratively aggregating neighbor embeddings, but are provably equivalent in expressive power to the 1-dimensional Weisfeiler–Leman test (Xu et al., 2019; Morris et al., 2019), and suffer from oversmoothing (Li et al., 2018; Chen et al., 2020) and oversquashing (Oono and Suzuki, 2020; Di Giovanni et al., 2024), and are thus fundamentally limited. A second approach achieves invariance via random sampling: random walk neural networks (RWNNs) (Tönshoff et al., 2023; Chen et al., 2025; Kim et al., 2025; Ito et al., 2025) sample walks as input to powerful sequence models, overcoming MPNN limitations but incurring potentially prohibitive sampling costs when training on large datasets. A complementary line of work relies on canonicalization, which maps each graph to a unique representative, allowing any expressive, non-invariant model to operate on a fixed, invariant input, bypassing expensive sampling (Bloem-Reddy and Teh, 2020; Kaba et al., 2023). In this work, we establish the limitations of existing canonicalization approaches on graphs and propose a new canonicalization.
+
+Existing graph canonicalization approaches first assign labels to each node, flatten the graph into a single sequence, either via learned sorting layers (Niepert et al., 2016; Zhang et al., 2018; Grover et al., 2019) or through traversal as in canonical SMILES (Goh et al., 2017; Honda et al., 2019), and
+
+then feed the sequence into a powerful downstream sequence model. In this work, we formally quantify how flattening into a sequence distorts graph distance. To illustrate this limitation, consider $S _ { n } .$ , the n-node star (Figure 1, $n = 7 )$ . Each leaf node in the graph has distance 1 to the center node, while leaf nodes in the sequence necessarily have distance $O ( n )$ to
+
+![](images/3290a952054147a6618ee57421a3a25b8e25bc95e3e60b1a548ab1aa579f2984.jpg)  
+Figure 1: Canonical sequence representations introduce significant stretch and contraction.
+
+the center node (stretch). Moreover, while leaves have distance 2 to each other in $S _ { n }$ , certain leaves have distance 1 in the sequence (contraction). Thus, the sequence-based canonicalization can stretch and contract original distances, making structure harder to capture. We further establish that the reduction of the graph into a single sequence limits the expressivity of the overall approach to that of its node labeler, discarding the benefits of using powerful downstream models.
+
+To address these limitations, we propose Canonical Tree Cover Neural Networks (CTNNs), which construct a canonical spanning tree cover via minimum spanning tree extraction and coverage-aware edge label refinement. Each tree in the cover is processed by an existing expressive tree encoder (Tai et al., 2015) and aggregating over the cover yields an invariant representation. Importantly, CTNNs leverage coverage-aware edge labelers that are initialized by a node labeler: when using a canonical graph node labeler that assigns unique labels to all nodes (e.g., NAUTY (McKay and Piperno, 2014)), the resulting tree cover is fully deterministic and invariant; when using inexpensive, structurally meaningful labelers $( \mathrm { e . g . }$ ., degree, centrality, or 1-WL), tie-breaking introduces randomness, leading to probabilistic invariance while preserving useful inductive biases. By leveraging tree representations and capturing structure across a set of canonical representatives, CTNNs better capture graph distances and are more expressive than sequence-based canonical GNNs. Across sparse molecular and protein graph classification tasks, CTNNs consistently outperform architecturally invariant GNNs and existing canonical GNNs. In summary, we make the following contributions:
+
+• Current Limitations of Canonical GNNs. We establish that sequence-based graph canonicalization methods fail to preserve graph distance and are limited in expressivity.
+
+• New Canonical GNN: Canonical Tree Cover Neural Networks (CTNNs). We introduce CTNNs, which construct a canonical tree cover. Each tree is then processed by expressive recurrent tree encoders and aggregated to obtain an invariant representation.
+
+• Theory: Invariance, Distance Preservation, and Expressivity Guarantees. We prove that CTNNs produce invariant graph representations, preserve graph distance information, and exceed the expressivity of sequence-based canonical GNNs and MPNNs. With universal tree encoders, CTNNs achieve universality on invariant graph functions.
+
+• Extensive Empirical Evaluation. Across molecular and protein graph classification benchmarks, CTNNs outperform architecturally invariant GNNs and canonical baselines.
+
+## 2 BACKGROUND AND PRELIMINARIES
+
+We first introduce notation and review canonical approaches on graphs, the primary family of models under investigation. These approaches typically produce a single sequence that is fed to a sequence model. We then formalize recurrent sequence models, which often outperform attention and convolution on graphs by better matching the traversal inductive bias. Despite their practical performance, however, recurrent sequence models can suffer from long graph-derived sequences. These limitations lead us to consider recurrent tree models that instead propagate information along trees, which we will later demonstrate better capture graph distance.
+
+## 2.1 NOTATION ON GRAPHS AND TREES
+
+Let $G = ( V , E , \mathbf { X } )$ be an undirected graph with $n = | V |$ nodes, $m = | E |$ edges, and node features $\mathbf { X } \in \mathbb { R } ^ { n \times d }$ . For ${ \mathrm { ~ \boldsymbol { v } ~ } } \in \ { \boldsymbol { V } } .$ , let $\mathbf { x } _ { v }$ denote the v-th row of $\mathbf { X } , \mathcal { N } ( v ) = \left\{ \acute { u } \in \mathsf { \bar { V } } : ( u , v ) \in E \right\}$ its neighborhood, and $\deg ( v ) = | \mathcal { N } ( v ) |$ and $d _ { G } ( u , v )$ the shortest path distance in $G . \mathrm { \ r { A } }$ rooted tree is $T = ( V , E , \mathbf { X } , r )$ with root $r \in V$ . Each non-root node $v \neq r$ has a unique parent p(v), and we write $C ( v ) = \{ u \in V : p ( u ) = v \}$ for its children. Leaf nodes of the tree satisfy $C ( v ) = $
+
+## 2.2 MESSAGE-PASSING GRAPH NEURAL NETWORKS AND GNN EXPRESSIVITY
+
+Message-passing GNNs (MPNNs) update node representations by pooling representations from local neighborhoods via a permutation-invariant aggregator (Duvenaud et al., 2015; Gilmer et al., 2017; Kipf and Welling, 2017). Concretely, for a graph G and node $i \in V$ , one layer takes the form
+
+$$
+f _ {\mathrm{MPNN}} (G) _ {i} = f _ {\text { agg }} \big (\{\mathbf {x} _ {j}: j \in \hat {\mathcal {N}} (i) \} \big),
+$$
+
+where $\hat { \mathcal { N } } ( i )$ denotes the self-loop augmented neighborhood of i and $f _ { \mathrm { a g g } }$ is permutation-invariant. While this invariance is desirable, it also limits distinguishability, and MPNNs cannot separate certain families non-isomorphic graphs (Xu et al., 2019; Azizian and Lelarge, 2021). To compare model expressivity, we use the standard preorder on graph-level maps: for two GNNs $f _ { 1 } , f _ { 2 }$ , define
+
+$$
+f _ {2} \preceq f _ {1} \quad \Longleftrightarrow \quad \forall G, H: f _ {1} (G) = f _ {1} (H) \Rightarrow f _ {2} (G) = f _ {2} (H).
+$$
+
+Equivalently, $f _ { 1 }$ is at least as discriminative as $f _ { 2 }$ . We write $f _ { 2 } \prec f _ { 1 }$ if $f _ { 2 } \preceq f _ { 1 }$ and the inclusion is strict $( \mathrm { i . e . }$ , some $G , H$ are separated by $f _ { 1 }$ but not by $f _ { 2 } )$ , and $f _ { 1 } \simeq f _ { 2 }$ if both $f _ { 2 } \preceq f _ { 1 }$ and $f _ { 1 } \preceq f _ { 2 }$ hold. This ordering aligns with approximation power: if $f _ { 2 } \prec f _ { 1 }$ , then any target representable by $f _ { 2 }$ is representable by $f _ { 1 }$ , while the converse fails in general.
+
+## 2.3 CANONICAL GRAPH NEURAL NETWORKS
+
+Graph canonicalization aims to obtain a unique isomorphism–invariant node labeling (McKay, 1981). Because computing an exact canonical labeling is as hard as the graph isomorphism problem, practical methods adopt soft approximations (e.g., GNN embeddings). After obtaining an approximate labeling, these pipelines typically flatten the graph into a single sequence either via sorting layers (Niepert et al., 2016; Zhang et al., 2018) or through traversal such as canonical SMILES (Goh et al., 2017; Honda et al., 2019; Chithrananda et al., 2020), allowing expressive sequence models to process the sequence. Formally, let $\pi _ { V } : V \to \mathbb { R }$ be a node labeling function $( \mathrm { e . g . }$ ., MPNN), $\mathcal { C } _ { \mathrm { s e q } }$ be a single-sequence canonicalizer that maps the labeled graph $( G , \pi _ { V } )$ to a sequence depending only on $\pi _ { V }$ and carrying only the node features $\mathbf { X }$ , and $f _ { \mathrm { s e q } }$ be a sequence model. A general sequence–based canonical GNN is defined as
+
+$$
+f _ {\text { CanSeq }} (G) = f _ {\text { seq }} (\mathcal {C} _ {\text { seq }} (G, \pi_ {V})).
+$$
+
+As a concrete instance, if $\pi _ { V }$ is an MPNN, $\mathcal { C } _ { \mathrm { s e q } }$ is a differentiable sorting layer, and $f _ { \mathrm { s e q } }$ is a 1D CNN, then $f _ { \mathrm { C a n S e q } }$ recovers Deep Graph Convolutional Neural Network (Zhang et al., 2018).
+
+## 2.4 RECURRENT SEQUENCE AND TREE MODELS
+
+Recent RWNNs find that recurrence often outperforms attention and convolution by better matching the traversal inductive bias (Wang and Cho, 2024; Chen et al., 2025; Ito et al., 2025). Given inputs $( \mathbf { x } _ { t } ) _ { t = 1 } ^ { T }$ , initial state $\mathbf { h } _ { 0 }$ , and state transition map Φ $: \mathbb { R } ^ { d } \times \mathbb { R } ^ { d }  \mathbb { R } ^ { d }$ , the recurrent update is defined
+
+$$
+\mathbf {h} _ {t} = \Phi (\mathbf {h} _ {t - 1}, \mathbf {x} _ {t}), \quad \text { for } t = 1, \dots , T.
+$$
+
+Recurrent models suffer on long sequences that exacerbate vanishing/exploding gradients, which motivates our use of recurrent tree models that shorten dependency paths and mitigate these instabil ities. Recurrent tree models generalize sequence recurrence to rooted trees (Tai et al., 2015; Xiao et al., 2024), propagating information bottom–up from children to their parent. Given $T = \left( V , E , r \right)$ with L levels and node inputs $\{ \mathbf { x } _ { v } \} _ { v \in V }$ , recurrent tree models compute hidden states $\{ \mathbf { h } _ { v } \} _ { v \in V }$ by applying a local transition to child states and aggregating with a permutation–invariant operator $f _ { \mathrm { a g g } } \colon$
+
+$$
+\mathbf {h} _ {v} = f _ {\text { agg }} \left(\left\{\Phi \left(\mathbf {h} _ {c}, \mathbf {x} _ {v}\right) \mid c \in C (v) \right\}\right) \quad \text { for } \ell = L, \dots , 0 \text {   and   all   } v \text {   with   } d _ {T} (v, r) = \ell ,
+$$
+
+with $f _ { \mathrm { a g g } } ( \emptyset ) = 0$ for leaves. Setting $\Phi \big ( \mathbf { h } _ { c } , \mathbf { x } _ { v } \big )$ as a standard LSTM update recovers the Tree LSTM of Tai et al., 2015. The tree representation is taken as h<sub>r</sub> at the root. In Section 4, we propose a canonicalization of graphs via spanning tree covers that can be used as input to recurrent tree models.
+
+## 3 LIMITATIONS OF SEQUENCE-BASED CANONICALIZATIONS
+
+In this section, we characterize the limitations of single-sequence canonical GNNs. First, we quantify how sequence canonicalization distorts graph structure, stretching and contracting graph distances. We next turn to expressivity and demonstrate that even when the sequence model is universal, the canonical GNN is no more expressive than its node labeler because it relies on a single canonical representative. Together, these limitations motivate our tree cover–based canonicalization, which better preserves distances and increases expressivity by operating on a cover of spanning trees.
+
+## 3.1 DISTANCE DISTORTION UNDER SEQUENCE CANONICALIZATION
+
+To formalize how sequence canonicalization fails to preserve structure, we use distortion (Matoušek, 2013), which quantifies the stretch/contraction in distance after mapping points between spaces. Intuitively, we prefer canonicalizations with lower distortion, better preserving the original distances.
+
+![](images/92ef2e9e0f36cdc49c3c6d20723e69eaa6aab7d44ea799dfd2aaad673e73918c.jpg)  
+Figure 3: Sequence canonicalization is only as expressive as its labeler $\pi _ { V }$ despite using a universal downstream sequence model. $f _ { \mathrm { C a n S e q } }$ thus fails to distinguish graphs $\pi _ { V }$ fails to distinguish.
+
+Definition 3.1 (Distortion). Let $( X , d _ { X } )$ and $( Y , d _ { Y } )$ be metric spaces. A mapping $f : ( X , d _ { X } ) $ $( Y , d _ { Y } )$ has distortion $D \geq 1$ if there exists $r > 0$ such that for all $x , y \in X$
+
+$$
+r d _ {X} (x, y) \leq d _ {Y} (f (x), f (y)) \leq D r d _ {X} (x, y).
+$$
+
+Let $( G , d _ { G } )$ denote a graph $G$ with shortest–path distance $d _ { G }$ , and let ${ \mathcal { C } } _ { \mathrm { s e q } } ( G , \pi _ { V } )$ be its single canonical sequence under $\pi _ { V }$ . Equip $\mathcal { C } _ { \mathrm { s e q } }$ with the distance $d _ { \mathrm { s e q } } ( u , v ) = \lvert \sigma ( u ) - \sigma ( v ) \rvert$ , where $\sigma : V \to \{ 1 , \ldots , | V | \}$ is the induced ordering. Let $\varphi ( G )$ be the graph bandwidth (Díaz et al., 2002), which measures the smallest maximum stretch over any edge when G is laid out on a line:
+
+$$
+\varphi (G) = \min _ {\sigma} \max _ {(u, v) \in E} | \sigma (u) - \sigma (v) |.
+$$
+
+Existing work studies embeddings $f : V \to \mathbb { R }$ into the real line and imposes a non-contractive constraint, under which the distortion reduces to max stretch and is lower bounded by graph bandwidth (Heggernes et al., 2011; Dragan et al., 2014). In our setting, however, we consider permutations $\sigma : V  \bar { \{ 1 , \dots , n \} }$ , which are the natural inputs to sequence models and can exhibit both stretch and contraction. Under permutation embeddings, we provide an analogous result.
+
+Corollary 3.2 (Graph bandwidth lower bounds sequence distortion). Let $D _ { \mathrm { s e q } }$ be the distortion of $\mathcal { C } _ { \mathrm { s e q } } ( G , \bar { \pi _ { V } } ) f r o m \left( \bar { G } , d _ { G } \right)$ to the line with distance $d _ { \mathrm { s e q } } .$ Then, for any π<sub>V</sub>, $\varphi ( { \hat { G } } ) \leq D _ { \mathrm { s e q } }$
+
+All proofs are in Appendix A. The bandwidth lower bound gives a concrete, well-studied graph metric to evaluate the distortion of $\mathcal { C } _ { \mathrm { s e q } } .$ Although $\varphi ( G )$ is hard to compute in general, it is known for many families (Figures 1, 2): on n-node stars $S _ { n }$ and cliques $K _ { n }$ one has $\varphi ( S _ { n } ) = \varphi ( K _ { n } ) = \Theta ( n )$ , so any single–sequence canonicalization incurs the worst-case linear distortion; on complete binary trees $\varphi ( \bar { T } _ { 2 , \ell } ) \stackrel { - } { = } \Theta ( 2 ^ { \ell } / \ell ) = \Theta ( n / \log n )$ , and on cycles $C _ { n }$ and paths $P _ { n }$ one has $\varphi ( P _ { n } ) = \varphi ( C _ { n } ) = \Theta ( 1 )$ Beyond specific families, the bound offers general insights. Given that $\varphi ( G ) \geq ( n - 1 ) / \operatorname { d i a m } ( G )$
+
+$D _ { \mathrm { s e q } }$ is at least $( n - 1 ) /$ diam(G). It is also monotone under edge addition, indicating that highly connected graphs, reflected by larger algebraic connectivity $\lambda _ { 2 } .$ , force larger distortion. These effects negatively impact the sequence model: distorted distances make structure more difficult to capture. Importantly, any method relying on sequences, including canonicalizations and sampling approaches like RWNNs, inherits these limitations. To address the limitations of sequences, we turn to tree representations.
+
+![](images/ac836ff0c6d66c680a5635d3122bf3ef4c528c0239aa8b6af655a4a34dc906d9.jpg)  
+Figure 2: φ(G) for n-node clique, $K _ { n }$ , and complete binary tree with ℓ levels, $T _ { 2 , \ell } .$
+
+## 3.2 EXPRESSIVE LIMITATIONS OF SEQUENCE-BASED CANONICAL GNNS
+
+Beyond the limitations of sequence representations due to distortion, we characterize the expressive limitations of the canonical GNN due to relying only on a single sequence. Formally, we show that $f _ { \mathrm { C a n S e q } }$ when equipped with universal $f _ { \mathrm { S e q } }$ is only as expressive as its node labeler $\pi _ { V }$
+
+Proposition $3 . 3 \ : ( \pi _ { V }$ and $f _ { \mathrm { C a n S e q } }$ are equally expressive). Let $f _ { \mathrm { C a n S e q } }$ be a canonical sequence–based model with universal $f _ { \mathrm { s e q } }$ and $l e t \pi _ { V }$ be its labeling function. Then, $f _ { \mathrm { C a n S e q } } \simeq \pi _ { V }$
+
+$\operatorname { I f } \pi _ { V }$ is an MPNN, its power matches 1-WL; consequently, $f _ { \mathrm { C a n S e q } }$ inherits 1-WL limitations and fails on the same graph families (Figure 3). Crucially, this holds even when $f _ { \mathrm { s e q } }$ is universal: once information is lost at the labeling stage, no downstream single-sequence canonicalization can recover it, limiting the expressivity of the full pipeline. Although multiple labelers and sequences could be used to improve expressivity, sequences remain limited by distortion. Thus, in order to address the limitations of the single labeler and sequence, we instead consider multiple labelers and trees.
+
+![](images/191a1e8567810eb534c95508eb173be39374f50552cecba223a95bd3085d758f.jpg)  
+Figure 4: Canonical spanning-tree cover. At iteration k, compute $\mathrm { M S T } ( G , \pi _ { E } ^ { ( k ) } )$ using coverageaware edge weights (thicker = larger magnitude weight). Edges missed in k (red) are up-weighted to bias their inclusion in $k + 1$ . On sparse graphs, the union of ${ \dot { O } } ( \log | V | )$ trees covers all edges.
+
+## 4 CANONICAL TREE COVER NEURAL NETWORKS (CTNNS)
+
+To address the representation limitations of sequences due to distortion and the expressive limitations due to a single sequence, we introduce Canonical Tree Cover Neural Networks (CTNNs), which construct a canonical spanning tree cover. In Section 5, we demonstrate that tree representations better preserve graph distances in comparison to sequences, while a set of canonical trees allows for complete graph reconstruction and is strictly more expressive than a single sequence.
+
+## 4.1 CANONICAL SPANNING TREE COVERS
+
+To construct a canonical spanning tree cover, we leverage coverage-aware edge labelers and minimum spanning tree (MST) samplers rather than a fixed node labeler and sequence canonicalizer. By updating edge weights across rounds, later trees are biased toward edges not yet selected, yielding provable coverage across the union of sampled trees. Formally, let $\bar { G }$ be a graph and at iteration $k \in \{ 0 , \ldots , K - 1 \}$ for hyperparameter K let $\pi _ { E } ^ { ( k ) } : E \to \mathbb { I }$ R be an edge labeler. Let $\mathcal { C } _ { \mathrm { t r e e } }$ be an MST extractor that maps an edge–labeled graph $( G , \pi _ { E } ^ { ( k ) } )$ to a spanning tree $T ^ { ( k ) }$ according to weights $\pi _ { E } ^ { ( k ) }$ , setting the root node as the center of $T ^ { ( k ) }$ . To promote edge coverage across the set, we update the weights by penalizing edges used in the last tree $T ^ { ( k ) }$ with hyperparameter τ. We initialize with any isomorphism-invariant node labeler π (e.g., degree), which biases MSTs towards edges incident to high label nodes. Formally, the update and initialization can be written:
+
+$$
+\pi_ {E} ^ {(0)} (e) = - \big (\pi_ {V} (e _ {u}) + \pi_ {V} (e _ {v}) \big), \pi_ {E} ^ {(k + 1)} (e) = \pi_ {E} ^ {(k)} (e) + \tau \mathbb {1} \{e \in T ^ {(k)} \}
+$$
+
+We refer to further implementation and pseudocode details of the construction in Appendix B.
+
+## 4.2 INVARIANT CANONICAL TREE NEURAL NETWORKS
+
+Given a canonical cover of MSTs, $\mathcal { T } = \{ T ^ { ( k ) } \} _ { k = 0 } ^ { K - 1 }$ , we process each tree with a recurrent tree encoder and augment it with message passing over the remaining non–tree edges to capture the local connectivity missed by each individual spanning tree. Let the residual graph be $G \backslash T ^ { ( k ) } : =$ $( V , E \setminus E ( T ^ { ( k ) } ) )$ ) and denote $f _ { \mathrm { t r e e } }$ as a recurrent tree encoder $( \mathrm { e . g . }$ , Tree LSTM (Tai et al., 2015)) and $f _ { \mathrm { M P N N } }$ an MPNN (e.g., GIN (Xu et al., 2019)). For each $k \in \{ 0 , \ldots , K - 1 \}$ and node $i \in V$
+
+$$
+f _ {\mathrm{TreeMPNN}} \big (T ^ {(k)} \big) _ {i} = f _ {\mathrm{tree}} \big (T ^ {(k)} \big) _ {i} + f _ {\mathrm{MPNN}} \big (G \backslash T ^ {(k)} \big) _ {i}
+$$
+
+We then aggregate across the set of trees with a permutation–invariant operator $f _ { \mathrm { a g g } }$ to obtain
+
+$$
+f _ {\mathrm{CTNN}} (G) := f _ {\text {agg}} \left(\left\{f _ {\text {TreeMPNN}} \left(T ^ {(k)}\right): T ^ {(k)} = \mathcal {C} _ {\text {tree}} \left(G, \pi_ {E} ^ {(k)}\right), k = 0, \dots , K - 1 \right\}\right).
+$$
+
+Probabilistic invariance. When CTNNs use an inexpensive, structurally meaningful node labeler that does not uniquely distinguish vertices (e.g., degree), we obtain probabilistic invariance (Bloem-Reddy and Teh, 2020; Kim et al., 2025; Ito et al., 2025). Such labelers are isomorphism-invariant but may assign identical scores to nodes, so we resolve ties using random tie-breaking. This induces an isomorphism-invariant distribution over spanning tree covers. Formally, for any permutation $g \in \mathbb { S } _ { n }$ acting on G by relabeling nodes, the random output $f _ { \mathrm { C T N N } } ( G )$ has the same distribution as $f _ { \mathrm { C T N N } } ( g \cdot G )$ . Consequently, the averaged predictor $\mathbb { E } \left[ f _ { \mathrm { C T N N } } ( G ) \right]$ is an invariant function on graphs. In this regime, CTNN relies on a small amount of randomness to break symmetries, but that randomness is controlled by the underlying canonicalization (i.e., node labeler).
+
+![](images/a7398488fd128107a1763849a98a1b6c45f3af9d06ecb2713707e4d7915ad45c.jpg)  
+Figure 5: Single tree distortion is $O ( n )$ on $C _ { n }$ , while expected distortion is constant over a spanning tree distribution since on average the distance between any two nodes is small.
+
+Theorem 4.1 (Probabilistic invariance of CTNNs). A randomized graph representation $X ( G )$ is probabilistically invariant ifits distribution is unchanged under any node relabeling, i.e., $X ( G ) { \overset { d } { = } }$ $X ( g \cdot G )$ for every permutation $g \in \mathbb { S } _ { n }$ . The random output $f _ { \mathrm { C T N N } } ( G )$ is probabilistically invariant:
+
+$$
+f _ {\mathrm{CTNN}} (G) \stackrel {{d}} {{=}} f _ {\mathrm{CTNN}} (g \cdot G) \quad \text { for   all } g \in \mathbb {S} _ {n}.
+$$
+
+Then, $\Phi ( G ) : = \mathbb { E } \left[ f _ { \mathrm { C T N N } } ( G ) \right]$ is an invariant function satisfying $\Phi ( G ) = \Phi ( g \cdot G )$ for all $g \in \mathbb { S } _ { n }$
+
+Deterministic invariance. At the other end of the spectrum, one can instantiate CTNN with a true graph canonicalization tool such as NAUTY (McKay and Piperno, 2014), which computes a canonical labeling that separates all nodes up to isomorphism. With such a canonical node labeler and an injective initialization of edge weights the induced tree cover becomes a deterministic canonical representation: isomorphic graphs are mapped to exactly the same set of trees, and $f _ { \mathrm { C T N N } } ( G ) \overset { = } { = } f _ { \mathrm { C T N N } } ( g \cdot G )$ holds for all permutations $g .$ This is particularly beneficial when the graph exhibits a high degree of symmetry such as complete or regular graphs, where weaker node labelers result in many ties. CTNN thus provides a unified framework that interpolates between fully deterministic canonicalization and probabilistic invariance, depending on the choice of node labeler.
+
+## 4.3 RUNTIME COMPLEXITY
+
+CTNN preprocessing is primarily dominated by constructing the K MSTs and cost of $\pi _ { V }$ . Using Kruskal’s algorithm (Kruskal, 1956), the total cost is $O ( K$ m log $n + \pi _ { V } )$ , which is efficient on sparse graphs where $m = { \cal { O } } ( n )$ and for inexpensive $\pi _ { V }$ (e.g., degree). A major practical advantage of canonicalization is that these trees are computed once before training and reused across epochs, eliminating on-the-fly sampling incurred by sampling approaches. The computation parallelizes naturally across graphs, and the memory cost is small $( { \bar { O ( } } K n )$ edges per graph). Empirically, we show this preprocessing time is efficient across datasets (Appendix E.2).
+
+## 5 DISTORTION AND EXPRESSIVITY BOUNDS FOR CTNNS
+
+We first analyze distance preservation: because CTNNs aggregate over spanning trees, they yield distortion bounds that better preserve graph distance in comparison to single-sequence canonicalization. We then turn to expressivity, establishing the benefits of sets of canonical representatives. On sparse graphs our tree cover recovers the full edge set with only $O ( \log m )$ trees, which has two immediate consequences for expressivity: (i) CTNNs are strictly more expressive than single–sequence canonicalizations, and (ii) when paired with universal tree encoders, CTNNs become universal.
+
+## 5.1 EXPECTED DISTORTION BOUNDS FOR CTNNS
+
+We first analyze how well CTNNs preserve distances, establishing distortion bounds for $\mathcal { C } _ { \mathrm { t r e e } }$ . Because CTNNs sample MSTs, we use probabilistic distortion (Fakcharoenphol et al., 2003).
+
+Definition 5.1 (Expected distortion). Let $( X , d _ { X } )$ be a metric space and let $\mu$ be a distribution on metrics $M ( X )$ . The expected distortion of $\mu$ is the least $D \geq 1$ s.t for $r > 0$ and for all $x , y \in X$
+
+$$
+r d _ {X} (x, y) \leq \mathbb {E} _ {\rho \sim \mu} [ \rho (x, y) ] \leq D r d _ {X} (x, y).
+$$
+
+![](images/fc817ee274a78a93171f40011844a39998e7686753f7371451f30b986a7478f5.jpg)  
+Figure 6: Two non-isomorphic stably colored graphs indistinguishable to 1-WL (left). The first extracted MST $T ^ { ( 1 ) }$ for $G$ is isomorphic to $T ^ { ( 1 ) }$ from H and the distributions are equal, but after reweighting and extracting $T ^ { ( 2 ) }$ , the MST distributions diverge, illustrating that multiple canonical trees can be more informative than a single canonical tree (right).
+
+As a baseline, we analyze distortion for uniform spanning trees (USTs). In this regime, the expected tree distance between nodes u and v is upper bounded by their hitting times, the expected number of steps a random walk takes to travel from u to v. Empirically, we verify that CTNN tree distributions inherit and can improve upon the low-distortion behavior established by USTs (Appendix E.3):
+
+Theorem 5.2 (UST expected distortion). Let G be a graph, and let T be a uniform random spanning tree ofG. Denote by $\boldsymbol { \bar { H } } ( \boldsymbol { u } , \boldsymbol { v } )$ the random walk hitting timefrom u to v. Then,
+
+$$
+D _ {\mathrm{UST}} = \max _ {u, v} \mathbb {E} \big [ d _ {T} (u, v) \big ] / d _ {G} (u, v), \quad \mathbb {E} \big [ d _ {T} (u, v) \big ] \leq H (u, v) + H (v, u) / 2.
+$$
+
+In contrast to the bandwidth lower bound for single–sequence canonicalization, which can force worst-case distortion, the expected UST distortion aligns with random walk distance and preserves structure significantly better on sparse families. Every tree admits a unique spanning tree, so on trees $D _ { \mathrm { U S T } } = 1$ . By comparison, $\mathcal { C } _ { \mathrm { s e q } }$ incurs distortion $\Theta ( n / \log n )$ on balanced trees and $\Theta ( n )$ on stars. On $C _ { n }$ , distortion is also constant, highlighting the benefit of averaging over trees (Figure 5). Our bounds also provide general insights: tree distances behave well in sparse graphs, where the square root of hitting times and shortest paths scale comparably. In highly dense graphs, however, shortest paths are smaller than hitting times and distortion worsens. Overall, CTNNs yield expected distortion that is small on many sparse structures where in comparison single sequences stretch distances, better capturing graph structure for downstream encoders.
+
+## 5.2 COVERAGE AND EXPRESSIVITY GUARANTEES VIA MST CANONICALIZATION
+
+We now turn to the expressive benefits of CTNNs. Instead of relying on a single canonical representative, CTNNs build a spanning tree cover, providing downstream encoders access to full structure. We first show our coverage–aware MST scheme needs only logarithmically many trees to cover all edges on sparse graphs. We then leverage coverage to show CTNN expressivity is strictly greater than sequence–based canonical GNNs and establish its universality on graph functions.
+
+Lemma 5.3 (Logarithmic spanning–tree cover). Let $G = ( V , E )$ be a graph with $m = | E |$ and arboricity $\Upsilon ( G )$ , the minimum number offorests required to cover G. Fix any node labeler π with $\tau >$ max<sub>e</sub> $\bar { \pi } _ { E } ^ { ( 0 ) } ( e ) - \operatorname* { m i n } _ { e } \pi _ { E } ^ { ( 0 ) } ( e )$ . Denote $\mathcal { T } = \{ T ^ { ( k ) } \} _ { k = 0 } ^ { K - 1 }$ as the set of trees produced by a CTNN. $I f K \geq \Upsilon ( G )$ ln m iterations, the union ofthe MSTs covers all edges: $\textstyle \bigcup _ { k = 0 } ^ { K - 1 } E { \bigl ( } T ^ { ( k ) } { \bigr ) } \ = \ E$
+
+Importantly, on sparse graphs, arboricity is constant, and CTNNs obtain full coverage with $K \geq$ $O ( \log ( | V | ) )$ . As established in Section 3, $f _ { \mathrm { C a n S e q } }$ is only as expressive as $\pi _ { V }$ . CTNNs, by contrast, operate on a tree cover enabled by coverage-aware edge label refinement, and as a result, are strictly more expressive than their initial labeler. In this setting, $f _ { \mathrm { C a n T r e e } }$ is a randomized function due to the randomness induced by $\pi _ { V }$ . Hence, we use the following probabilistic notion of distinguishability.
+
+Proposition 5.4 $( f _ { \mathrm { M P N N } } \prec f _ { \mathrm { C a n T r e e } } )$ . Let $f _ { \mathrm { C a n T r e e } }$ be a CTNN satisfying Lemma 5.3, equipped with $\pi _ { V } \simeq f _ { \mathrm { M P N N } }$ . Then, G, H, $f _ { \mathrm { C a n T r e e } } ( G ) \stackrel { d } { = } f _ { \mathrm { C a n T r e e } } ( H ) \Longrightarrow f _ { \mathrm { M P N N } } ( G ) = f _ { \mathrm { M P N N } } ( H )$ Moreover, $\exists G \cong H$ such that $f _ { \mathrm { C a n T r e e } } ( G ) \stackrel { d } { \neq } f _ { \mathrm { C a n T r e e } } ( H )$ while $f _ { \mathrm { M P N N } } ( G ) = f _ { \mathrm { M P N N } } ( H )$
+
+In cases where the graphs exhibit a high degree of symmetry, and $\pi _ { V }$ fails to distinguish them initially, the reweighting scheme and tree cover allow CTNNs to distinguish the graphs, exceeding the expressivity of $\pi _ { V } \ ( { \mathrm { F i g u r e } } 6 )$ . When CTNNs are equipped with a canonical node labeler $\pi _ { V }$ that separates all nodes, universal tree encoder, and full coverage, they are universal.
+
+Theorem 5.5 (CTNN Universality). Let  be a finite class of graphs. Assume: (i) K satisfies Lemma 5.3, (ii) the tree encoder $f _ { \mathrm { t r e e } }$ and aggregation $f _ { \mathrm { a g g } }$ are universal on their domains, and (iii) π is a canonical node labeler that separates all nodes. Thenfor any continuous invariant graph function $f : { \mathcal { G } }  \mathbb { R }$ and any $\varepsilon > 0 ,$ , there exists a CTNN such that
+
+$$
+\sup _ {G \in \mathcal {G}} \left| f _ {\mathrm{CTNN}} (G) - f (G) \right| \leq \varepsilon .
+$$
+
+## 6 EXPERIMENTS AND RESULTS
+
+Through empirical evaluation, we aim to answer the following research questions, extending our theory by testing CTNNs on datasets with factors not explicitly addressed in the theoretical analysis (e.g., class imbalance), and including domain–specific canonicalizations beyond our theory, such as molecular fingerprints (Rogers and Hahn, 2010) commonly used in molecular analysis.
+
+• RQ1 (Discriminative performance). How does CTNN compare to (i) invariant GNNs upper bounded by 1-WL expressivity (GCN, GAT, GIN), (ii) expressive GNNs more powerful than 1-WL (GT, RWSE, GSN, ESAN) and (iii) canonicalization baselines?
+
+• RQ2 (Distance distortion). Do CTNNs reduce metric distortion relative to sequence-based canonicalizations, and does this reduction translate into improved task performance?
+
+• RQ3 (Ablations and sensitivity). Which components of CTNN contribute most to performance, and how sensitive is performance to their settings?
+
+## 6.1 EXPERIMENTAL SETUP
+
+Datasets. We evaluate on molecular and protein benchmarks, domains where canonicalization is widely adopted and frequently used in practice (Goh et al., 2017; Alley et al., 2019) and where long–range dependencies and high expressivity are critical (Dwivedi et al., 2022a). For molecules, we use ClinTox, BACE, BBBP, HIV, and PCBA datasets from MoleculeNet (Wu et al., 2018). For proteins, we adopt ProteinShake (Kucera et al., 2023) datasets: SCOP, GO MOL, and GO BIO. These tasks span diverse molecule and protein tasks such as molecular activity and protein structure classification. Notably, proteins are larger than molecules, making structure more difficult to capture. To demonstrate CTNNs are applicable to domains in which canonicalization is not yet widely adopted, we evaluate on a larger and denser brain graph classification benchmark (Said et al., 2023), where the task is to predict 1 of 7 mental states (e.g., emotion processing) (Appendix E.4).
+
+Baselines. We consider invariant GNNs upper bounded by 1-WL expressivity: (1) GCN (Kipf and Welling, 2017), (2) GAT (Velickoviˇ c et al., 2018), (3)´ GIN (Xu et al., 2019). We next consider expressive GNNs strictly more powerful than 1-WL message passing: (4) GT (Dwivedi and Bresson, 2021), graph transformers, (5) RWSE (Dwivedi et al., 2022b) and (6) GSN (Bouritsas et al., 2022), which augment message-passing with additional structural features, and (7) ESAN (Bevilacqua et al., 2022), which decompose the graph into subgraphs, processing each component with an MPNN. We also evaluate canonicalization approaches: (8) Fingerprint (Rogers and Hahn, 2010), stacking an MLP on hand-crafted chemical descriptors, (9) SMILES (Goh et al., 2017), applying sequence models over canonical SMILES, (10) Primary Seq. (Alley et al., 2019), applying sequence models to the primary sequence, (11) DGCNN (Zhang et al., 2018), a representative sequence-based canonical approach leveraging MPNNs as $\pi _ { V }$ and sorting as $\mathcal { C } _ { \mathrm { s e q } } .$ , and (12) RCM (Diamant et al., 2023), applying sequence models to the ordering determined by the Cuthill-McKee algorithm. We provide a summary of the design space for all canonicalizations in Appendix C.
+
+Training and Evaluation. For all benchmarks, we set $f _ { \mathrm { t r e e } }$ as a Tree-LSTM, f as a GIN, $f _ { \mathrm { a g g } }$ as SUM, $\pi _ { V } ( v ) = \deg ( v )$ , and $\tau = 1$ . For molecular datasets, we set $K = 4$ , and for proteins, we use $K = 8$ . Following each dataset’s protocol, performance is computed as AUC or accuracy. We report median (min, max) performance over five random splits (60/20/20), which is more robust than mean and standard deviation for small sample sizes. We compute stretch as max $_ { i , j } \{ d _ { \mathrm { { e m b } } } ( i , j ) / d _ { G } ( i , j ) \}$ and contraction as ma $\mathrm { x } _ { i , j } \{ d _ { G } ( i , j ) \bar { / } d _ { \mathrm { e m b } } ( i , j ) \}$ . For sequence canonicalizations, $d _ { \mathrm { e m b } } = d _ { \mathrm { s e q } } .$ . For CTNNs, we report expected distortion as the average across the trees (i.e., max<sub>i,j</sub> mean<sub>k</sub> $\{ d _ { T ^ { ( k ) } } ( i , j ) / d _ { G } ( i , j ) \}$ for stretch). We provide remaining details in Appendix $\mathrm { D } ^ { 1 }$
+
+Table 1: Median (min, max) of model performance ( 100) across test splits. We highlight in blue the best model. “NA” indicates not applicable; “OOT” denotes training exceeds the time limit (24h).
+
+<table><tr><td rowspan="2" colspan="2"></td><td colspan="3">Small Molecular Benchmarks</td><td colspan="2">Large Molecular Benchmarks</td><td colspan="3">Protein Benchmarks</td></tr><tr><td>ClinTox</td><td>BACE</td><td>BBBP</td><td>HIV</td><td>PCBA</td><td>SCOP</td><td>GO BIO</td><td>GO MOL</td></tr><tr><td colspan="2"># Graphs</td><td>1.5K</td><td>1.5K</td><td>2K</td><td>41K</td><td>440K</td><td>10K</td><td>22K</td><td>32K</td></tr><tr><td colspan="2">Avg. |V|</td><td>26.1</td><td>34.1</td><td>23.9</td><td>25.5</td><td>26.0</td><td>217.5</td><td>254.5</td><td>250.1</td></tr><tr><td colspan="2">Avg. |E|</td><td>28.0</td><td>36.9</td><td>26.0</td><td>27.5</td><td>28.1</td><td>593.8</td><td>698.5</td><td>687.5</td></tr><tr><td colspan="2">Metric</td><td>AUC ↑</td><td>AUC ↑</td><td>AUC ↑</td><td>AUC ↑</td><td>AUC ↑</td><td>ACC ↑</td><td>AUC ↑</td><td>AUC ↑</td></tr><tr><td rowspan="7">MPNN/GT</td><td>GCN</td><td>62.4 (56.9, 74.7)</td><td>59.2 (53.9, 64.3)</td><td>73.9 (68.9, 81.4)</td><td>60.1 (57.6, 60.5)</td><td>78.5 (78.0, 79.3)</td><td>63.4 (62.8, 64.9)</td><td>59.2 (57.9, 69.7)</td><td>60.6 (49.8, 84.5)</td></tr><tr><td>GAT</td><td>62.1 (55.8, 65.9)</td><td>60.8 (52.0, 75.1)</td><td>77.5 (74.1, 82.8)</td><td>66.3 (63.5, 71.0)</td><td>78.5 (77.2, 79.2)</td><td>58.9 (51.6, 59.9)</td><td>57.0 (53.2, 58.7)</td><td>57.6 (50.3, 81.1)</td></tr><tr><td>GIN</td><td>59.7 (54.1, 72.4)</td><td>59.9 (51.4, 71.8)</td><td>75.3 (49.4, 85.3)</td><td>47.7 (45.9, 62.6)</td><td>80.4 (80.1, 81.2)</td><td>68.0 (67.9, 69.2)</td><td>66.3 (59.9, 79.0)</td><td>83.7 (81.5, 85.6)</td></tr><tr><td>GT</td><td>57.1 (46.5, 73.5)</td><td>67.1 (57.6, 75.7)</td><td>75.8 (62.6, 84.0)</td><td>69.4 (67.5, 70.6)</td><td>80.6 (79.6, 80.9)</td><td>OOT</td><td>OOT</td><td>OOT</td></tr><tr><td>RWSE</td><td>63.6 (56.4, 74.6)</td><td>57.7 (42.3, 69.6)</td><td>73.7 (69.7, 86.5)</td><td>59.4 (54.4, 68.0)</td><td>83.5 (82.5, 83.7)</td><td>74.5 (72.1, 75.5)</td><td>74.0 (69.8, 75.0)</td><td>85.8 (85.0, 86.1)</td></tr><tr><td>GSN</td><td>63.7 (55.6, 68.2)</td><td>70.1 (64.9, 79.1)</td><td>71.4 (64.3, 79.7)</td><td>54.2 (46.3, 69.8)</td><td>83.1 (82.6, 83.4)</td><td>74.5 (73.4, 76.7)</td><td>71.2 (59.0, 77.5)</td><td>85.0 (76.6, 85.3)</td></tr><tr><td>ESAN</td><td>61.8 (56.7, 66.7)</td><td>55.8 (52.3, 69.2)</td><td>74.9 (70.5, 80.6)</td><td>71.9 (55.9, 73.0)</td><td>83.7 (83.5, 84.3)</td><td>66.6 (66.5, 68.5)</td><td>79.6 (78.3, 81.5)</td><td>85.7 (85.6, 86.4)</td></tr><tr><td rowspan="5">Canonical</td><td>Fingerprint</td><td>66.5 (52.3, 74.9)</td><td>82.9 (78.7, 87.8)</td><td>86.2 (83.4, 92.5)</td><td>76.2 (73.1, 81.6)</td><td>84.7 (84.6, 85.2)</td><td>NA</td><td>NA</td><td>NA</td></tr><tr><td>SMILES</td><td>62.5 (45.7, 68.6)</td><td>76.5 (68.4, 80.3)</td><td>71.9 (65.5, 75.3)</td><td>65.8 (62.9, 68.0)</td><td>80.4 (80.1, 80.7)</td><td>NA</td><td>NA</td><td>NA</td></tr><tr><td>Primary Seq.</td><td>NA</td><td>NA</td><td>NA</td><td>NA</td><td>NA</td><td>63.0 (60.8, 63.5)</td><td>74.3 (69.2, 79.5)</td><td>85.2 (84.5, 85.8)</td></tr><tr><td>DGCNN</td><td>60.1 (27.6, 69.6)</td><td>67.2 (64.1, 74.8)</td><td>75.0 (42.8, 86.4)</td><td>66.6 (61.5, 67.9)</td><td>84.9 (84.0, 85.3)</td><td>65.3 (64.6, 67.8)</td><td>62.0 (59.7, 68.9)</td><td>84.5 (84.0, 84.7)</td></tr><tr><td>RCM</td><td>70.7 (48.6, 87.0)</td><td>76.3 (73.3, 81.2)</td><td>84.3 (75.1, 89.1)</td><td>75.5 (73.8, 83.7)</td><td>84.6 (84.5, 84.9)</td><td>57.0 (56.5, 57.8)</td><td>68.4 (66.7, 69.3)</td><td>83.3 (82.6, 83.7)</td></tr><tr><td></td><td>CTNN (ours)</td><td>84.7 (78.5, 91.0)</td><td>79.3 (75.4, 85.0)</td><td>86.1 (80.6, 90.4)</td><td>75.2 (70.3, 83.3)</td><td>87.4 (87.0, 87.5)</td><td>72.1 (70.5, 74.0)</td><td>82.0 (81.2, 83.2)</td><td>86.6 (86.4, 87.1)</td></tr></table>
+
+Table 2: Mean s.d. of empirical stretch and contraction across 50 random samples for canonicalizations. In comparison to all canonicalizations, CTNNs significantly reduce stretch and contraction.
+
+<table><tr><td rowspan="2" colspan="2"></td><td colspan="8">Max Stretch ↓</td></tr><tr><td>ClinTox</td><td>BACE</td><td>BBBP</td><td>HIV</td><td>PCBA</td><td>SCOP</td><td>GO BIO</td><td>GO MOL</td></tr><tr><td rowspan="5">Canonical</td><td>SMILES</td><td>17.62 ± 11.91</td><td>24.34 ± 8.33</td><td>15.22 ± 8.29</td><td>20.02 ± 11.31</td><td>18.82 ± 7.15</td><td>NA</td><td>NA</td><td>NA</td></tr><tr><td>Primary Seq.</td><td>NA</td><td>NA</td><td>NA</td><td>NA</td><td>NA</td><td>172.6 ± 34.11</td><td>165.72 ± 44.51</td><td>173.08 ± 37.83</td></tr><tr><td>DGCNN</td><td>18.2 ± 9.10</td><td>23.92 ± 6.91</td><td>14.96 ± 6.09</td><td>19.16 ± 10.33</td><td>19.04 ± 5.35</td><td>196.44 ± 16.03</td><td>192.56 ± 15.54</td><td>192.84 ± 14.62</td></tr><tr><td>RCM</td><td>3.92 ± 1.65</td><td>4.48 ± 0.75</td><td>3.76 ± 1.06</td><td>4.36 ± 1.41</td><td>3.76 ± 0.97</td><td>34.68 ± 7.68</td><td>33.76 ± 9.11</td><td>33.44 ± 8.71</td></tr><tr><td>CTNN (ours)</td><td>2.36 ± 0.90</td><td>2.40 ± 0.44</td><td>2.37 ± 0.47</td><td>2.51 ± 0.56</td><td>2.29 ± 0.27</td><td>17.85 ± 3.15</td><td>17.56 ± 4.56</td><td>18.12 ± 4.45</td></tr><tr><td colspan="2"></td><td colspan="8">Max Contraction ↓</td></tr><tr><td rowspan="5">Canonical</td><td>SMILES</td><td>4.88 ± 3.16</td><td>5.32 ± 2.45</td><td>4.12 ± 2.57</td><td>4.70 ± 2.07</td><td>5.26 ± 2.01</td><td>NA</td><td>NA</td><td>NA</td></tr><tr><td>Primary Seq.</td><td>NA</td><td>NA</td><td>NA</td><td>NA</td><td>NA</td><td>2.72 ± 2.86</td><td>4.44 ± 5.62</td><td>5.44 ± 6.31</td></tr><tr><td>DGCNN</td><td>11.34 ± 5.25</td><td>12.78 ± 2.98</td><td>9.68 ± 3.00</td><td>11.74 ± 5.14</td><td>12.36 ± 3.03</td><td>16.32 ± 3.25</td><td>16.04 ± 4.12</td><td>16.16 ± 4.15</td></tr><tr><td>RCM</td><td>5.66 ± 2.74</td><td>6.90 ± 2.65</td><td>4.92 ± 2.09</td><td>6.20 ± 3.00</td><td>5.66 ± 2.23</td><td>12.56 ± 2.04</td><td>12.16 ± 2.37</td><td>11.92 ± 2.34</td></tr><tr><td>CTNN (ours)</td><td>1.00 ± 0.00</td><td>1.00 ± 0.00</td><td>1.00 ± 0.00</td><td>1.00 ± 0.00</td><td>1.00 ± 0.00</td><td>1.00 ± 0.00</td><td>1.00 ± 0.00</td><td>1.00 ± 0.00</td></tr></table>
+
+## 6.2 RQ1 & RQ2: DISCRIMINATIVE PERFORMANCE AND DISTANCE DISTORTION
+
+CTNNs significantly outperform architecturally invariant MPNNs and GTs, consistent with the theoretical expressivity gains established in Section 5.2 (Table 1). Subgraph GNNs (RWSE, GSN, ESAN) are strong baselines and are particularly competitive on protein datasets, but CTNN exceeds their performance on molecular benchmarks. We attribute this to the fact that, although subgraph GNNs increase theoretical expressivity beyond 1-WL, they still rely on message-passing and inherit known limitations such as oversmoothing and oversquashing. CTNN mitigates these issues by operating on low-distortion spanning tree covers with powerful recurrent tree encoders.
+
+While some canonicalizations are competitive, they depend on domain knowledge and lack generality (e.g., Fingerprint). CTNNs outperform or match all sequence-based canonicalizations, including those that are domain-driven and provide one-to-one encodings of their graphs (SMILES, Primary Seq.), allowing for maximal expressivity. We attribute CTNNs’ gains to distortion (Table 2). Across molecular and protein benchmarks, CTNN tree covers achieve substantially smaller stretch than sequence-based canonicalizations. Crucially, trees never contract distances, obtaining optimal contraction = 1. In contrast, sequences exhibit both large stretch and nontrivial contraction. A noteworthy case is RCM: its ordering reduces bandwidth and lowers stretch on molecular graphs, yet it still doesn’t reach CTNN performance because it incurs contraction. Moreover, on larger protein graphs its stretch increases, underscoring a fundamental limitation of single sequence canonicalization. Collectively, these results align with our theory: canonical spanning-tree covers preserve graph distances significantly better than sequences, enabling stronger downstream models.
+
+On a larger and denser brain graph classification benchmark from NeuroGraph (Said et al., 2023), CTNN also obtains the best performance in comparison to MPNNs (GIN) and canonicalization baselines (RCM and DGCNN) (Appendix E.4). These results demonstrate that CTNN is applicable beyond sparse biochemical domains, where canonicalization is not yet widely adopted.
+
+Table 3: Median (max-min) performance for ablations on benchmarks across test splits. CTNN (full) obtains or matches the best performance across all datasets, supporting each design choice.
+
+<table><tr><td rowspan="2">Ablation</td><td colspan="5">Molecular Benchmarks</td><td colspan="3">Protein Benchmarks</td></tr><tr><td>ClinTox</td><td>BACE</td><td>BBBP</td><td>HIV</td><td>PCBA</td><td>SCOP</td><td>GO BIO</td><td>GO MOL</td></tr><tr><td>Single tree vs. cover</td><td>78.2 (72.2, 88.9)</td><td>78.7 (75.5, 82.1)</td><td>87.4 (80.9, 91.3)</td><td>76.5 (71.3, 81.6)</td><td>87.0 (86.0, 87.5)</td><td>68.7 (67.3, 70.0)</td><td>69.4 (68.5, 70.3)</td><td>79.9 (78.2, 81.7)</td></tr><tr><td>MPNN vs. TreeMPNN</td><td>82.6 (73.3, 90.0)</td><td>78.2 (71.9, 86.1)</td><td>81.3 (72.4, 85.3)</td><td>73.8 (69.3, 77.1)</td><td>84.9 (84.5, 85.3)</td><td>57.1 (56.3, 58.3)</td><td>78.4 (78.0, 79.2)</td><td>83.9 (83.6, 84.0)</td></tr><tr><td>TreeRNN vs. TreeMPNN</td><td>84.3 (80.1, 92.0)</td><td>83.5 (80.5, 86.7)</td><td>86.8 (82.6, 92.0)</td><td>77.9 (74.5, 82.4)</td><td>87.0 (86.7, 87.4)</td><td>64.8 (62.5, 65.1)</td><td>78.7 (77.3, 79.1)</td><td>85.3 (84.4, 85.7)</td></tr><tr><td>CTNN (full)</td><td>84.7 (78.5, 91.0)</td><td>79.3 (75.4, 85.0)</td><td>86.1 (80.6, 90.4)</td><td>75.2 (70.3, 83.3)</td><td>87.4 (87.0, 87.5)</td><td>72.1 (70.5, 74.0)</td><td>82.0 (81.2, 83.2)</td><td>86.6 (86.4, 87.1)</td></tr></table>
+
+## 6.3 RQ3: ABLATIONS AND SENSITIVITY
+
+Ablations. We evaluate three CTNN variants to isolate which design choices matter most in which settings, including (i) replacing the cover with a single tree, (ii) replacing the TreeMPNN with an MPNN, and (iii) replacing the TreeMPNN with a TreeRNN (Table 3). On molecular benchmarks, the ablations are often competitive with the full model, suggesting CTNN is robust in very sparse tree-like regimes. In contrast, on protein benchmarks the differences are more significant, highlighting when each component becomes important. (i) Using a single canonical tree instead of a cover reduces edge coverage and increases distortion. This has limited impact on sparse molecules, where graph structures are tree-like, but it underperforms on proteins, where additional trees substantially improve coverage and distance preservation on average. (ii) Using an MPNN instead of TreeMPNN processes trees with MPNNs and reintroduces message-passing inductive biases, contributing to oversmoothing and oversquashing, which leads to a consistent drop across most benchmarks, including molecular benchmarks. (iii) Using a TreeRNN instead of TreeMPNN removes the MPNN on residual edges and has little effect on molecules, where few edges remain after MST extraction, but can degrade performance on denser proteins, where residual edges carry meaningful local connectivity. Overall, CTNN (full) matches or achieves the best performance across datasets. The performance gaps across ablations are small on molecular graphs, but increase on protein graphs, indicating that the cover, tree encoder, and residual-edge message passing are primarily important in larger and denser regimes.
+
+Sensitivity. We also conduct sensitivity analyses for different choices of number of trees, K, node labeler, π , and penalty, τ (Appendix E.1). Increasing K yields consistent gains on proteins: edge coverage rises rapidly, average distortion decreases, and performance improves. These results align with our theory that only a small number of trees is needed for full coverage on sparse graphs and additional trees better capture original graph distances on average, resulting in increased performance for larger K. CTNN is also robust to node labeler π : degree, closeness centrality, and BLISS (Junttila and Kaski, 2007), a canonical node labeler, are each close in performance. In the main experiments, we default to degree for its efficiency. Lastly, CTNN is also stable across the penalty τ, where coverage, distortion, and accuracy follow similar trends across choices of τ.
+
+## 7 CONCLUSION
+
+In this work, we developed the first theoretical analysis of sequence-based canonicalization for graphs, establishing that sequences distort distances and that single-representative approaches are constrained by the expressivity of their labelers. This analysis covered canonicalizations widely used in practice such as domain-driven sequences including SMILES (Goh et al., 2017; Honda et al., 2019) and primary protein sequences (Alley et al., 2019; Rao et al., 2019), learnable orderings based on GNNs and differentiable sorting (Niepert et al., 2016; Zhang et al., 2018), and algorithmic orderings that optimize bandwidth (Cuthill and McKee, 1969; Diamant et al., 2023). Motivated by this analysis, we introduced Canonical Tree Cover Neural Networks, which construct canonical spanning-tree covers and leverage expressive tree encoders. CTNNs are provably invariant, better preserve graph distances, and are more expressive than sequence-based canonical GNNs. Empirically, CTNNs outperform invariant GNNs and canonicalization baselines on molecular and protein benchmarks.
+
+Our coverage and expressivity guarantees rely on sparsity assumptions, and thus, characterizing CTNNs in dense regimes remains open. Despite the focused scope, CTNNs consistently maintain advantages in our experiments, highlighting the value of spanning-tree covers over sequences. More broadly, our results underscore the importance of canonical representations that respect underlying graph geometry. By leveraging canonical tree covers, CTNNs offer an expressive, invariant, and efficient framework for learning on sparse graphs.

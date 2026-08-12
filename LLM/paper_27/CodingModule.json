@@ -1,0 +1,86 @@
+{
+  "overview": "TITOK transfers LoRA adapter knowledge from a source model to a target model by computing token-wise contrastive excess scores between the source model with and without LoRA, then selectively training the target LoRA on the most informative samples and tokens from synthetically generated data, without requiring any additional discriminator model.",
+  "count": 16,
+  "modules": [
+    {
+      "id": 1,
+      "name": "Synthetic Data Generation",
+      "description": "Generate synthetic query-label pairs using the source expert model (backbone + LoRA) via few-shot prompting. Queries are first synthesized conditioned on seed exemplars, then labels are generated conditioned on each query. Supports configurable few-shot seed count and generation hyperparameters."
+    },
+    {
+      "id": 2,
+      "name": "ROUGE-L Diversity Filtering & Deduplication",
+      "description": "Apply ROUGE-L based filtering with a configurable threshold to encourage diversity among synthetic queries, and perform deduplication to remove redundant samples. Handles task-specific exceptions where ROUGE-L filtering is infeasible (e.g., restricted-format tasks, history tasks)."
+    },
+    {
+      "id": 3,
+      "name": "Token-wise Contrastive Excess Score Computation",
+      "description": "Compute per-token excess scores as the log-likelihood difference between the expert role (source backbone + LoRA) and the amateur role (source backbone only). This quantifies the knowledge discrepancy introduced by the LoRA adapter at each token position, identifying tokens where the adapter injects decisive task-specific knowledge."
+    },
+    {
+      "id": 4,
+      "name": "Sample-level Filtering",
+      "description": "Rank all synthetic samples by their mean token-wise contrastive excess score across all tokens in the response, and retain only the top-M samples with the highest mean scores. This removes less informative examples from the synthetic pool before token-level refinement."
+    },
+    {
+      "id": 5,
+      "name": "Token Selection & Masking",
+      "description": "Within each retained sample, rank tokens by their individual excess scores and construct a binary indicator mask selecting the top-k% of tokens. This mask determines which token positions contribute to the training loss, enabling the target model to focus only on the most knowledge-enriched regions."
+    },
+    {
+      "id": 6,
+      "name": "Tokenizer Alignment",
+      "description": "Handle cross-tokenizer transfer using a dual-pointer alignment algorithm that maps source token-level masks to target token sequences. Implements four alignment rules: direct copy (one-to-one), replication (one-to-many), averaging (many-to-one), and averaging with replication (many-to-many), followed by a top-k% re-selection step on the target token scores."
+    },
+    {
+      "id": 7,
+      "name": "TITOK Masked Training Loss",
+      "description": "Implement the masked training objective that sums the negative log-likelihood loss only on selected token positions as determined by the token selection mask. The target LoRA adapter is trained exclusively on these filtered tokens, ensuring efficient knowledge acquisition from the source adapter."
+    },
+    {
+      "id": 8,
+      "name": "LoRA Adapter Configuration & Integration",
+      "description": "Implement LoRA adapter modules with configurable rank, scaling factor, and dropout. Support attaching LoRA to the target model's linear layers, initializing fresh adapters for training, and separating learnable LoRA parameters from the frozen backbone during optimization."
+    },
+    {
+      "id": 9,
+      "name": "Source Expert Model Training",
+      "description": "Train the source LoRA adapter on the downstream task data using standard supervised fine-tuning. This produces the source expert model (backbone + LoRA) that will be used for synthetic data generation and excess score computation."
+    },
+    {
+      "id": 10,
+      "name": "Dataset Construction & Preprocessing",
+      "description": "Handle dataset loading, train-evaluation splitting (90%/10%), task-specific formatting, and tokenization for BBH, MMLU, and LaMP benchmarks. Includes user-specific data selection for personalization tasks and sampling for MMLU tasks."
+    },
+    {
+      "id": 11,
+      "name": "Evaluation Metrics",
+      "description": "Implement evaluation pipelines for both reasoning and personalization tasks. For BBH and MMLU, compute exact-match accuracy via LM-Eval Harness in zero-shot setting. For LaMP generation tasks, compute ROUGE-1 and ROUGE-L scores against gold references."
+    },
+    {
+      "id": 12,
+      "name": "Baseline Implementations",
+      "description": "Implement comparison baselines including: Vanilla (untrained target model), Knowledge Distillation with Minimum-Edit-Distance tokenizer alignment (KD + MinED) using synthetic data, and TransLoRA (target-model query generation + source expert labeling + discriminator filtering)."
+    },
+    {
+      "id": 13,
+      "name": "Ablation Study Framework",
+      "description": "Support controlled ablation experiments that selectively enable or disable the sample filtering and token selection components, as well as token subgroup analysis (top/bottom/random percentage of tokens), to validate each component's contribution to overall performance."
+    },
+    {
+      "id": 14,
+      "name": "Sensitivity & Robustness Analysis",
+      "description": "Provide analysis tools for: token selection ratio (k%) sensitivity across different tasks and transfer settings; impact of query generation model choice (source expert vs. target model); transfer effectiveness using external data (other-user, mixed-user, cross-task); robustness to synthetic data quality variations and prompt design changes."
+    },
+    {
+      "id": 15,
+      "name": "Experiment Configuration Management",
+      "description": "Manage experiment configurations including transfer settings (same-family, cross-family, cross-size, cross-version), model specifications, hyperparameters (learning rate, epochs, batch size, LoRA parameters), data generation settings, and evaluation protocols via structured configuration files."
+    },
+    {
+      "id": 16,
+      "name": "End-to-End Pipeline Orchestration",
+      "description": "Orchestrate the complete TITOK workflow: source expert training, synthetic data generation, excess score computation, sample filtering, token selection (with optional tokenizer alignment), target LoRA training, and evaluation. Support multiple random seeds, result aggregation with variance reporting, and automated comparison table generation."
+    }
+  ]
+}

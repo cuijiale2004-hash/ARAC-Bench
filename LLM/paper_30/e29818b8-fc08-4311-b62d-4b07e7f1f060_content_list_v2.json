@@ -1,0 +1,2292 @@
+[
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "ABSTRACT"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                450,
+                277,
+                547,
+                295
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Multi-LLM systems harness the complementary strengths of diverse Large Language Models, achieving performance and efficiency gains that are not attainable by a single model. In existing designs, LLMs communicate through text, forcing internal representations to be transformed into output token sequences. This process both loses rich semantic information and incurs token-by-token generation latency. Motivated by these limitations, we ask: Can LLMs communicate beyond text? Oracle experiments show that enriching the KV-Cache semantics can improve response quality without increasing cache size, supporting KV-Cache as an effective medium for inter-model communication. Thus, we propose Cache-to-Cache (C2C), a new paradigm for direct semantic communication between LLMs. C2C uses a neural network to project and fuse the source model’s KV-cache with that of the target model to enable direct semantic transfer. A learnable gating mechanism selects the target layers that benefit from cache communication. Compared with text communication, C2C utilizes the deep, specialized semantics from both models, while avoiding explicit intermediate text generation. Experiments show that C2C achieves 6.4-14.2% higher average accuracy than individual models. It further outperforms the text communication paradigm by approximately 3.1-5.4%, while delivering an average 2.5× speedup in latency. Our code is available at https://github.com/thu-nics/C2C."
+                    }
+                ]
+            },
+            "bbox": [
+                228,
+                309,
+                767,
+                575
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "1 INTRODUCTION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                173,
+                601,
+                338,
+                617
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/83aa00dc4dafaef7fa7952b9e339b62788969b26dd809d27e6430340152ff7a3.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 1: (a) Previous Text-to-Text (T2T) communication passes information through explicit text generation. (b) Our Cache-to-Cache (C2C) communication directly projects and merges KV-Cache with rich semantics from different LLMs."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                174,
+                637,
+                820,
+                696
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "With the rapid progress of Large Language Models (LLMs) (Guo et al., 2025; Yang et al., 2025a; OpenAI, 2025), they are now applied across increasingly diverse domains and tasks. To meet versatile demands, LLMs are trained with distinct focuses, such as coding (Hui et al., 2024), mathematics (Yang et al., 2024a), visual understanding (Bai et al., 2025), edge computing (Zhang et al., 2024b), and so on. Meanwhile, general-purpose LLMs can also simulate specialized capabilities through prompt engineering, enabling flexible role adaptation across downstream applications."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                768,
+                826,
+                854
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Leveraging the diversity of LLMs, many multi-LLM systems are proposed to further enhance overall performance and efficiency (Guo et al., 2024; Tran et al., 2025). In collaborative multi-LLM systems (Li et al., 2023; Wu et al., 2023), LLMs are assigned distinct roles and proactively exchange text messages. Mirroring human collaboration, these systems accumulate partial understandings or sub-solutions from different agents via verbal communication. They harness the collective capabilities of multiple LLMs to solve complex problems that a single model cannot. By contrast, routingbased multi-LLM inference systems rely on passive context inheritance rather than active message exchange. These systems coordinate models of varying parameter sizes or reasoning depths for more dynamic and efficient responses (Li et al., 2024; Fu et al., 2025a; Ong et al., 2024; OpenAI, 2025). Downstream models inherit the context from preceding models in multi-round conversations, then generate follow-up responses to the new questions based on their own understanding of the conversation history."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                859,
+                826,
+                888
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "<sup>∗</sup>Equal contribution."
+                    }
+                ]
+            },
+            "bbox": [
+                192,
+                895,
+                318,
+                909
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "<sup>†</sup>Corresponding author: Yu Wang (yu-wang@tsinghua.edu.cn)."
+                    }
+                ]
+            },
+            "bbox": [
+                191,
+                909,
+                568,
+                925
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "1"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/5537fba3393450c9e4537a1a83d84f08da7d212c9aed66ffdd1f9118b8d7d335.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 2: Conceptual comparison of T2T and C2C communication in a Coder-Writer collaboration example. In T2T, the Coder’s ambiguous text instruction fails to convey the structural semantics of <p> as a paragraph separator, causing the Writer to misplace the content. C2C directly projects the Coder’s KV-Cache into the Writer, transferring both the semantic understanding and precise insertion location without intermediate text generation."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                174,
+                103,
+                820,
+                193
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                290,
+                826,
+                430
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "However, current text-to-text (T2T) interfaces restrict information exchange among LLMs, particularly when conveying rich or diverse semantic interpretations of a shared context. As illustrated in Figure 2, these limitations arise from several inherent constraints of T2T communication. First, as a low-bandwidth medium, text introduces an information bottleneck. The high-dimensional internal representations must be repeatedly compressed into linear strings and then decompressed by the receiver LLM. When models differ in knowledge or assigned roles, some signals may be irrecoverable (e.g., interpreting <p> as a section marker). Second, natural language is inherently ambiguous, with idioms, underspecified references, and vague expressions. Although recent agent protocols aim to standardize text messages (Anthropic, 2024; Surapaneni et al., 2025), rigid templates remain insufficient for flexible, open-domain collaboration. Third, T2T communication incurs noticeable latency. Every exchange requires exhaustive, token-by-token decoding of contextual explanations in sequence. These limitations motivate a key question:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                435,
+                826,
+                604
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "Can LLMs communicate beyond text?"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                372,
+                609,
+                625,
+                625
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this work, we explore using KV-Cache as the medium for LLM communication. KV-Cache is a naturally richer representation than text. It also enables fully parallel communication through direct projection, avoiding the slow sequential decoding in text exchanges. Our oracle experiments show that (1) enriching KV-Cache under the same context length increases accuracy, (2) KV-Cache is convertible between LLMs, (3) different LLMs encode distinct semantic understandings and contextual knowledge of the same input, reflecting their complementary strengths."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                631,
+                825,
+                715
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Encouraged by these findings, we propose Cache-to-Cache (C2C), a new paradigm for richer and faster multi-LLM communication. As shown in Figure 1(b), C2C projects the KV-Cache from a source model into the space of a target model and merges them through a neural cache fuser. Experiments show that C2C achieves 6.4-14.2% higher average accuracy than individual models. It further outperforms the T2T paradigm by approximately 3.1-5.4%, while delivering an average 2.5× speedup in latency."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                720,
+                826,
+                806
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2 RELATED WORK"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                825,
+                346,
+                840
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2.1 KV-CACHE SHARING AND REUSE"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                856,
+                452,
+                869
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Based on the similarity of KV-Cache between layers, intra-model cache sharing methods (Yang et al., 2024b; Wu & Tu, 2024; Sun et al., 2024; Brandon et al., 2024; Wu et al., 2025) have been proposed to reuse shallow layers’ KV-Cache for deeper layers to accelerate single LLM inference."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                882,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "2"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Another research focus is to reuse a portion of KV-Cache (e.g., common prefix, reference documents) for the same model in multiple user queries (Bang, 2023; Ye et al., 2024; Yao et al., 2024; Qin et al., 2024; Yang et al., 2025b; Ye et al., 2025; Eyuboglu et al., 2025). DroidSpeak (Liu et al., 2024a) extends cache reuse to models fine-tuned from the same base model. Unlike existing works that focus on computational efficiency through cache reuse, our approach leverages the KV-Cache as a medium for semantic transfer between LLMs. Furthermore, unlike existing cache sharing methods that are restricted to only a single model or models with identical structure and size, our method supports sharing across different model families and varying model sizes."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                104,
+                826,
+                217
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2.2 MULTI-LLM SYSTEMS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                231,
+                377,
+                246
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Collaborative multi-LLM systems. Collaborative systems treat multiple LLMs as peers that exchange information to improve collective performance. Chain-of-Agents (Zhang et al., 2024c) and MetaGPT (Hong et al., 2023) create sequential message flows where agents directly communicate using natural language interfaces. Mixture-of-Agents (Wang et al., 2024), DyLAN (Liu et al., 2024b), and Owl (Hu et al., 2025) introduce layered communication architectures. Target LLMs aggregate messages from multiple models using voting or summarization mechanisms. Multi-agent debate methods (Estornell & Liu, 2024; Liang et al., 2024; Du et al., 2023) involve iterative communication rounds, letting LLM agents discuss and refine responses. Recent works such as MCP Anthropic (2024) and A2A Surapaneni et al. (2025) establish formal text protocols beyond natural language, standardizing agent interaction and tool usage in collaborative multi-LLM systems. These approaches rely on text-level interfaces, where communication requires one model to generate text token-by-token and another to ingest it as input. Our work explores a deeper and more efficient collaboration (Pidkuiko & Starkov, 2025; Zheng et al., 2025b) by directly sharing internal KV-Cache representations."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                257,
+                826,
+                454
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Routing-based multi-LLM inference systems. To accelerate LLM inference, several systems leverage multiple models with different capabilities and costs. Dynamic model selection methods (OpenAI, 2025; Ong et al., 2024; Feng et al., 2024; Ning et al., 2024) route queries to different models with varying sizes and configurations to balance efficiency and performance. Token-level routing methods (Zhang et al., 2024a; Shen et al., 2024; Zheng et al., 2025a; Fu et al., 2025a) enable finer-grained selection, utilizing smaller models for simple token generation within the reasoning process of complex tasks. While these systems achieve efficiency through strategic model switching, they either completely drop context from other models, or simply rely on their own understandings of the context. Without understanding sharing, smaller models cannot benefit from the richer representations already computed by larger models."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                459,
+                826,
+                599
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3 METHOD"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                173,
+                617,
+                284,
+                633
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.1 PRELIMINARIES"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                173,
+                648,
+                328,
+                662
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "LLM inference. Autoregressive LLM inference involves two stages: prefill and decode. Prefill encodes the full input to produce the first output token; decode then generates subsequent tokens iteratively using the last token and the cached key–value (KV) states. Formally, let "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "X _ { [ 0 : n ] } ~ ="
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "[ x _ { 0 } , \\ldots , x _ { n - 1 } ]"
+                    },
+                    {
+                        "type": "text",
+                        "content": "be the input token sequence. After prefill, LLM produces a per-token KV-Cache "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\dot { \\mathcal { C } } ( X _ { [ 0 : n ] } ) = [ \\dot { c } _ { 0 } , \\dots , c _ { n - 1 } ] \\in \\mathbb { R } ^ { n \\times d }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". For notation brevity, d denotes the KV dimensionality that is flattened from all layers into a single vector per token. The range subscripts are omitted when clear. During decoding, with the current token "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "y _ { i }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and caches from the input and the generated prefix, the next token is predicted as"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                674,
+                825,
+                786
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "y _ {i + 1} = \\mathcal {P} \\left(y _ {i} \\mid \\mathcal {C} (X) \\oplus \\mathcal {C} \\left(Y _ {[ 0: i ]}\\right)\\right),\\tag{1}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/6bff73857e6757ff8d6e1f7cd0f46c43c156ce2dc1389492ac9a640d92596ae0.jpg"
+                }
+            },
+            "bbox": [
+                379,
+                785,
+                614,
+                801
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where ⊕ denotes sequence-wise concatenation. The cache updates as "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { C } ( Y _ { [ 0 : i + 1 ] } ) = \\mathcal { C } ( Y _ { [ 0 : i ] } ) \\oplus \\mathcal { C } ( y _ { i } )"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                804,
+                821,
+                820
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "LLM communication. In LLM communication scenarios, we define the LLM that provides contextual understanding or knowledge as Sharer, and the one that utilizes it as Receiver."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                824,
+                823,
+                854
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.2 ORACLES FOR CACHE-TO-CACHE COMMUNICATION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                869,
+                580,
+                883
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We aim to explore whether LLMs can have direct semantic communication through KV-Cache. Specifically, we design two oracle experiments to answer the following questions: (1) Benefit: can a model’s capabilities be improved through KV-Cache semantic enrichment without extending sequence length? (2) Convertibility: can the KV-Cache of one model be effectively utilized by another model?"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                895,
+                825,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "3"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/56d372279470f5c168230a07a6053abb5c7dbf31cf551d18521f3b9c53a546db.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 3: T-SNE visualization of KV-Cache representations from the source (Qwen3-4B), target (Qwen3-0.6B), and the transformed cache. After transformation, the source cache falls within the target’s representation space."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                174,
+                102,
+                486,
+                222
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/60539613e72e7c3b224693b44764ce464d510c958901d9c4ba009966729d40d7.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 4: Effect of selectively enriching different numbers of layers’ KV-Cache on accuracy. Enriching more best-performing layers yields increased accuracy, while enriching the worstperforming ones declines accuracy."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                513,
+                101,
+                821,
+                224
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/deb5d36506bdd1477f9658f11f7b99e908aa056baf9f1646380a975bc15ce96b.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 1: Cache enrichment experiment. Oracle prefills on exemplars (E) and question (X), then drops the exemplar cache before decoding, isolating semantic enrichment from cache length."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Method</td><td>Cache Len.</td><td>Cache Enrich.</td><td>Acc. (%)</td></tr><tr><td>Direct</td><td> $|X|$ </td><td>No</td><td>58.42</td></tr><tr><td>Few-shot</td><td> $|E| + |X|$ </td><td>Yes</td><td>63.39</td></tr><tr><td>Oracle</td><td> $|X|$ </td><td>Yes</td><td>62.34</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                179,
+                333,
+                480,
+                395
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/072de053a2801c6fee2cd39b051c8cfcd07280eb6136b4df1e1f5ac75d7ff23c.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 2: Average effective rank of KV-Cache from Sharer, Receiver, and the C2C-fused one. The increase after fusion indicates that C2C enriches the Receiver KV-Cache semantics."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\">Type</td><td colspan=\"3\">Average Effective Rank</td></tr><tr><td>Sharer</td><td>Receiver</td><td>C2C</td></tr><tr><td>K Cache</td><td>539</td><td>388</td><td>395</td></tr><tr><td>V Cache</td><td>689</td><td>532</td><td>560</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                537,
+                325,
+                795,
+                397
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                500,
+                826,
+                541
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.2.1 CACHE ENRICHMENT ORACLE"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                564,
+                444,
+                579
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To validate the benefit of cache enrichment, we first explore whether the semantic quality of KV-Cache can be improved without increasing its size. Few-shot prompting suggests this might work: providing exemplars E before the question X often improves accuracy. But does this arise from attending to more context tokens, or from E enriching how X is embedded in KV-Cache?"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                590,
+                825,
+                648
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We evaluate this via three setups: (1) Direct: prefill on X only and decode with "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { C } ( X ) ; ( 2 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "Few-shot: prefill on E ⊕X and decode with "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\mathcal { C } } ( E \\oplus X )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "(longer cache); (3) Oracle: prefill on "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\overset { \\cdot } { E } \\overset { \\cdot } { \\oplus } X"
+                    },
+                    {
+                        "type": "text",
+                        "content": "but discard the exemplar segment and keep only the question-aligned slice"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                654,
+                825,
+                699
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {C} ^ {*} (X) = \\mathcal {C} _ {[ | E |: | E | + | X | ]} (E \\oplus X),\\tag{2}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/07d6dcffa28068e46c3082d8640e7355b99191c1144c674aca07b466f02f84ce.jpg"
+                }
+            },
+            "bbox": [
+                379,
+                710,
+                616,
+                729
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "so that decoding uses a question-length cache with no extra tokens. Here, | · | denotes sequence length. In Equation 1, this corresponds to substituting "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal C ( X )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "with "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\mathcal { C } } ^ { * } ( X )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "before decoding."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                742,
+                823,
+                772
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Comparing Direct and Oracle isolates the effect of cache enrichment: any gain arises from the richer question embeddings induced by E, not from attending to additional token caches as in Few-shot. As shown in Table 1, the Oracle setup improves response quality at the same cache length."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                777,
+                825,
+                821
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Additionally, we analyze how cache enrichment affects different transformer layers. Our findings show substantial variation across layers: while some layers benefit from cache enrichment, others experience performance degradation (details in Appendix A.2.1). Furthermore, these layer-wise effects accumulate as more layers are augmented. As shown in Figure 4, selectively applying cache enrichment to the top-performing layers (e.g., top-5) yields slightly higher accuracy than enriching all layers, while targeting the worst-performing layers leads to accuracy decline. This finding guides the gating mechanism of our cache fuser (Section 3.3.2)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                825,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "4"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/e88838be24f1929824c209ff6251d65e690efdb2219444ea3dbb5758ac120ff3.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 5: Cache fuser architecture and training scheme. Fuser projects and combines KV-Caches, then adds the result to Receiver’s cache through a learnable gate. LLMs are frozen during training."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                176,
+                102,
+                820,
+                181
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.2.2 CACHE TRANSFORMATION ORACLE"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                252,
+                480,
+                268
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To verify that one model’s KV-Cache can be utilized by another, we conducted cross-model transformation experiments. We train a 3-layer MLP to map the KV-Cache from a source LLM (Qwen3-4B) to a target LLM (Qwen3-0.6B), with more setups detailed in Appendix A.3.2."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                277,
+                825,
+                321
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "T-SNE visualizations in Figure 3 reveal that the raw KV-Caches of the two LLMs are far apart in representation space. After transformation, the mapped KV-Cache lies inside the target model’s representation space. These results demonstrate that KV-Caches from different models are generally convertible, as the transformed cache is covered by the target model’s representation space."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                325,
+                826,
+                383
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "One thing to note is that the transformed cache occupies only a smaller subset of the target’s space. It indicates that the source model’s semantic information cannot fully cover the target’s, despite the source being larger. This reflects inherent differences in how each model encodes context. Another observation also supports this interpretation: the correct-answer sets of different models exhibit limited overlap (Figure 7), despite the comparable aggregated accuracy of respective models. These findings suggest that if specialized contextual understanding from different models can be successfully projected and fused, it may harness the complementary strengths of the respective models."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                388,
+                826,
+                489
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.3 C2C DESIGN"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                503,
+                308,
+                518
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.3.1 OVERVIEW"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                531,
+                307,
+                546
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Building on the oracle experiments, we propose the C2C scheme. Its core objective is to extract useful contextual understanding or knowledge from one model (the Sharer) and fuse it into another model (the Receiver)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                556,
+                825,
+                599
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In general, the C2C paradigm contains a set of key/value cache fusers "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { F }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and a layer mapping strategy G. During the prefill stage, fuser "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\mathcal { F } } _ { n }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "takes the nth layer cache of the Receiver Model "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\bar { \\mathcal { C } _ { n } } ( \\bar { X } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and the corresponding G(n)th layer cache of the Sharer Model "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\mathcal { C } } _ { { \\mathcal { G } } ( n ) } ^ { S } ( X )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and generates the corresponding fused cache with residual connection:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                604,
+                825,
+                664
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {C} ^ {\\mathcal {F}} = \\left\\{\\mathcal {C} _ {n} (X) + \\mathcal {F} _ {n} \\Big (\\mathcal {C} _ {n} (X), \\mathcal {C} _ {\\mathcal {G} (n)} ^ {\\mathcal {S}} (X) \\Big) \\right\\} _ {n = 1} ^ {N}\\tag{3}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/8b2a7cdcf2ee7e502963f0229859fce71683183e1fa8390d68a85d5e48ea6c4d.jpg"
+                }
+            },
+            "bbox": [
+                336,
+                669,
+                656,
+                699
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "During decoding, with the current token "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "y _ { i }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and caches from the input and the generated prefix, the next token is predicted as:"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                713,
+                823,
+                742
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "y _ {i + 1} = \\mathcal {P} \\left(y _ {i} \\mid \\mathcal {C} ^ {\\mathcal {F}} (X) \\oplus \\mathcal {C} \\left(Y _ {[ 0: i ]}\\right)\\right)\\tag{4}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/f25d8989384a72576e408e7b94b8f93b801609755a80b4c6c0cac7d618344916.jpg"
+                }
+            },
+            "bbox": [
+                382,
+                761,
+                611,
+                780
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.3.2 FUSER STRUCTURE"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                800,
+                367,
+                815
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To enhance the Receiver’s KV-Cache without destructive overwriting of its information, the fuser is designed under a residual integration principle. As shown in Figure 5, it contains three key modules:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                825,
+                825,
+                854
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "(1) Projection module concatenates the Receiver’s KV-Cache with the Sharer’s KV-Cache, then processes the concatenated features through a projection layer followed by a feature fusion layer."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                859,
+                825,
+                888
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "(2) Dynamic weighting module applies an input-aware head modulation layer to dynamically reweight the projected information."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                895,
+                825,
+                924
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "5"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "(3) Learnable gate introduces a trainable per-layer gate value that decides whether to inject the Sharer’s context. The gate applies a Gumbel-sigmoid with temperature annealing to smoothly transition from differentiable during training to binary at inference."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                104,
+                825,
+                147
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We also explore a more complex yet potentially more powerful fuser variant in Appendix A.1.3."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                152,
+                803,
+                169
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.3.3 MODEL ALIGNMENT"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                188,
+                375,
+                203
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Fusing KV-Caches across model families and sizes requires alignment at two levels: tokens and layers. For token alignment, different tokenizers may produce slightly varied token sequences for the same input. We align them by decoding each Receiver token into its string form and re-encoding it using the Sharer’s tokenizer. When one-to-many mappings occasionally occur, we select the Sharer token with maximal string coverage to preserve information. For layer alignment, we adopt a terminal alignment strategy: the final layers of both models are aligned first, then the penultimate layers, and so on in reverse order until reaching the shallower model’s first layer. Details in Appendices A.1.1 and A.1.2."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                215,
+                826,
+                327
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.3.4 TRAINING SCHEME"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                347,
+                367,
+                362
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "During training, we freeze both the Sharer and Receiver models, training only the C2C module for KV-Cache fusion. We employ standard next-token prediction loss on the Receiver’s response predictions, similar to supervised fine-tuning (SFT). The key difference is that the Receiver predicts responses conditioned on fused KV-Cache rather than its own."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                375,
+                825,
+                431
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The training procedure consists of three stages: (1) Forward: both models encode the input context to produce their respective KV-Caches. (2) Fusion: the C2C module fuses both KV-Caches and replaces the Receiver’s cache. (3) Supervision: the Receiver prefills the response using the fused cache, and gradients backpropagate through C2C to minimize prediction loss."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                436,
+                826,
+                494
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4 EXPERIMENT"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                518,
+                320,
+                534
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.1 SETUP"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                554,
+                263,
+                568
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We brief the experiment setups here, with more details in Appendix A.3."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                583,
+                650,
+                598
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Models. We evaluate C2C across various model families, including Qwen2.5 (Yang et al., 2024a; Hui et al., 2024), Qwen3 (Yang et al., 2025a), Llama3.2 (Dubey et al., 2024), and Gemma3 (Team et al., 2025). To test generalizability, we select different configurations for the Sharer-Receiver model combinations, including models of different generations (Qwen3 and Qwen2.5), different families (Qwen, Llama, and Gemma), different sizes (0.6B to 14B), different specializations (general, code, and math model), and different training stages (pretrained and instruction fine-tuned models). For ablative and diagnostic analyses (scaling behavior, ablation study, behavior analysis), we fix the Receiver and Sharer to Qwen3 models unless otherwise specified. This consistency eliminates confounders from model alignment and isolates the core impact of C2C."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                604,
+                826,
+                729
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Baselines. We compare C2C with two LLM collaboration methods to contextualize performance: (1) Text-to-Text (T2T) communication: models collaborate through an analyze-then-respond handoff for each query. The Sharer generates an analytical text of key information to solve the input question. This text is concatenated with the original question and fed to the Receiver to mirror standard collaborative pipelines. Corresponding prompts are in Appendix A.3.6. (2) Query-level routing (Ong et al., 2024): models collaborate by selecting the appropriate LLM for different queries. We also include individual model performance (Sharer or Receiver alone) to establish a lower bound for collaborative gains."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                734,
+                826,
+                849
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Benchmarks. We evaluate on four widely used benchmarks spanning reasoning, knowledge, and language domains to ensure comprehensive coverage. OpenBookQA (Mihaylov et al., 2018) for fact-based reasoning, MMLU-Redux (Gema et al., 2025) for knowledge in the general domain, ARC-Challenge (ARC-C) (Clark et al., 2018) for scientific and logistic reasoning, and C-Eval (Huang et al., 2023) for comprehensive knowledge in the Chinese domain."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                854,
+                825,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "6"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/abe69e58727eb78a436a085f985f6e170d32f16fcaa4745b17086cb54539725d.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 3: Average token count and inference time breakdown on MMLU-Redux (Sharer: Qwen2.5- 0.5B-Instruct, Receiver: Qwen3-0.6B). <sup>∗</sup>Includes 90ms KV-Cache fusion time."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\">Metric</td><td rowspan=\"2\">Receiver-only</td><td rowspan=\"2\">Sharer-only</td><td colspan=\"2\">Text-to-Text</td><td colspan=\"2\">Cache-to-Cache</td></tr><tr><td>Sharer</td><td>Receiver</td><td>Sharer</td><td>Receiver</td></tr><tr><td>Input Tokens</td><td>170</td><td>187</td><td>103</td><td>332</td><td>170</td><td>170</td></tr><tr><td>Output Tokens</td><td>11</td><td>19</td><td>80</td><td>10</td><td>0</td><td>12</td></tr><tr><td>Prefill Time (ms)</td><td>27</td><td>20</td><td>21</td><td>32</td><td>20 + 90*</td><td>27</td></tr><tr><td>Decode Time (ms)</td><td>281</td><td>326</td><td>1312</td><td>231</td><td>0</td><td>308</td></tr><tr><td>Total Time (ms)</td><td>308</td><td>346</td><td colspan=\"2\">1596</td><td colspan=\"2\">445</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                218,
+                141,
+                777,
+                263
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Training dataset. To ensure the generalizability of C2C, we utilize the first 500k samples of the OpenHermes2.5 Dataset (Teknium, 2023), a general finetuning dataset, to train C2C fusers. To reduce training cost, we use MMLU as the training set for scaling behavior and behavior analysis experiments, unless otherwise specified."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                292,
+                826,
+                349
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Evaluation settings. We use average accuracy as the performance metric. We use text generation and answer extraction as the evaluation mode for C2C and baselines, with the max generation length set to 64 for multi-choice benchmarks. All experiments are conducted in the zero-shot setting with zero generation temperature to ensure reproducibility. We use average inference time as the efficiency metric, measured using a single NVIDIA A100 GPU with batch size one."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                354,
+                826,
+                428
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.2 MAIN RESULTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                445,
+                326,
+                460
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Performance. As shown in Table 4, C2C consistently improves the Receiver model performance across different settings and benchmarks. Representative example output is provided in Appendix A.4.4. After applying C2C, accuracy increases by an average of 11.00%, 9.64%, and 11.88% across the three Sharers. Compared with text-to-text communication, C2C achieves an average accuracy increase of 5.36%, 4.15%, and 3.06%. Query-level routing prioritizes efficiency but limits accuracy to the better of the two original models. Notably, Qwen3-4B Base as the Sharer often ignores instructions, resulting in poor standalone performance and excessively long T2T communication times. In contrast, C2C bypasses this issue, highlighting an interesting use case in which a weaker instruction-tuned Receiver can leverage a stronger base model’s knowledge via C2C, even when base model cannot follow instructions. We also explore strong-to-weak communication (details in Appendix A.2.2) using Qwen3-4B as the Sharer, showing that C2C effectively enables the Receiver to benefit from a stronger Sharer."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                473,
+                826,
+                641
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Efficiency. As shown in Table 4, C2C achieves significant speedups of 3.46×, 1.51×, and 14.41× over T2T by eliminating intermediate text generation. As detailed in Table 3, T2T requires the Sharer to decode 80 output tokens, incurring 1312ms of decoding overhead, whereas C2C replaces this sequential decoding with parallel cache fusion in 90ms. Further analysis of Llama3.2-1B’s exceptionally fast inference is provided in Appendix A.4.3."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                646,
+                826,
+                718
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.3 SCALING BEHAVIOR"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                736,
+                359,
+                751
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Scaling sequence lengths. We evaluate how C2C scales with respect to sequence length on longcontext tasks from the LongBenchV1 benchmark. All C2C fusers are trained and tested on different sets of LongBenchV1. As shown in Table 5, C2C consistently outperforms text-to-text communication across all sequence-length intervals. This demonstrates C2C’s advantages across input length ranges. More detailed setups and results are in Appendices A.2.2 and A.3.4."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                763,
+                826,
+                835
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Scaling model sizes. We investigate how C2C scales with respect to the Sharer and Receiver model sizes. All C2C fusers are trained on MMLU’s auxiliary train split and evaluated on MMLU-Redux. As shown in Figure 6, the x-axis denotes Sharer size (Qwen2.5-Instruct series), the y-axis shows accuracy gains of C2C over Receiver-only baselines (∆ Accuracy), and each curve represents a Receiver from the Qwen3 series. We find that the accuracy improvements of C2C generally increase faster than T2T. This trend shows that when the Sharer possesses richer knowledge, C2C is able to more effectively transmit useful information to the Receiver. Note that the relative gains for larger Receivers are less pronounced due to their stronger baselines and higher overlap with the Sharer’s knowledge."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                840,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "7"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/ffc70b12efbbda6f64c31326adcc25af4043134566535edace681517fc212991.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 4: Accuracy (%) and inference time (seconds) of different communication methods across four benchmarks. The Receiver is fixed as Qwen3-0.6B, paired with three different Sharers."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Sharer</td><td>Task</td><td>Metric</td><td>Receiver</td><td>Sharer</td><td>Routing</td><td>Text-to-Text</td><td>Cache-to-Cache</td></tr><tr><td rowspan=\"8\">Qwen2.5-0.5B</td><td rowspan=\"2\">MMLU-Redux</td><td>Acc</td><td>35.53</td><td>38.42</td><td>35.58</td><td>41.03</td><td>42.92</td></tr><tr><td>Time</td><td>0.29</td><td>0.34</td><td>0.27</td><td>1.52</td><td>0.40</td></tr><tr><td rowspan=\"2\">OpenBook</td><td>Acc</td><td>39.20</td><td>45.60</td><td>40.80</td><td>44.00</td><td>52.60</td></tr><tr><td>Time</td><td>0.27</td><td>0.35</td><td>0.29</td><td>0.81</td><td>0.30</td></tr><tr><td rowspan=\"2\">ARC-C</td><td>Acc</td><td>41.04</td><td>42.09</td><td>40.70</td><td>49.48</td><td>54.52</td></tr><tr><td>Time</td><td>0.29</td><td>0.39</td><td>0.29</td><td>1.00</td><td>0.36</td></tr><tr><td rowspan=\"2\">C-Eval</td><td>Acc</td><td>32.04</td><td>40.21</td><td>34.61</td><td>35.88</td><td>41.77</td></tr><tr><td>Time</td><td>0.26</td><td>0.31</td><td>0.26</td><td>1.51</td><td>0.34</td></tr><tr><td rowspan=\"8\">Llama3.2-1B</td><td rowspan=\"2\">MMLU-Redux</td><td>Acc</td><td>35.53</td><td>32.30</td><td>33.38</td><td>43.32</td><td>44.42</td></tr><tr><td>Time</td><td>0.29</td><td>0.06</td><td>0.18</td><td>0.75</td><td>0.50</td></tr><tr><td rowspan=\"2\">OpenBook</td><td>Acc</td><td>39.20</td><td>32.60</td><td>36.40</td><td>41.20</td><td>47.80</td></tr><tr><td>Time</td><td>0.26</td><td>0.07</td><td>0.17</td><td>0.70</td><td>0.43</td></tr><tr><td rowspan=\"2\">ARC-C</td><td>Acc</td><td>41.04</td><td>33.57</td><td>37.22</td><td>50.00</td><td>53.39</td></tr><tr><td>Time</td><td>0.28</td><td>0.07</td><td>0.18</td><td>0.70</td><td>0.47</td></tr><tr><td rowspan=\"2\">C-Eval</td><td>Acc</td><td>32.04</td><td>31.31</td><td>31.92</td><td>35.27</td><td>40.77</td></tr><tr><td>Time</td><td>0.25</td><td>0.04</td><td>0.15</td><td>0.71</td><td>0.49</td></tr><tr><td rowspan=\"8\">Qwen3-4B-Base</td><td rowspan=\"2\">MMLU-Redux</td><td>Acc</td><td>35.53</td><td>1.03</td><td>16.39</td><td>43.87</td><td>43.95</td></tr><tr><td>Time</td><td>0.29</td><td>2.06</td><td>0.28</td><td>7.54</td><td>0.45</td></tr><tr><td rowspan=\"2\">OpenBook</td><td>Acc</td><td>39.20</td><td>2.20</td><td>22.20</td><td>46.40</td><td>53.20</td></tr><tr><td>Time</td><td>0.26</td><td>1.98</td><td>0.27</td><td>5.08</td><td>0.34</td></tr><tr><td rowspan=\"2\">ARC-C</td><td>Acc</td><td>41.04</td><td>1.48</td><td>19.65</td><td>53.91</td><td>55.39</td></tr><tr><td>Time</td><td>0.28</td><td>2.06</td><td>0.28</td><td>6.56</td><td>0.40</td></tr><tr><td rowspan=\"2\">C-Eval</td><td>Acc</td><td>32.04</td><td>5.65</td><td>15.10</td><td>38.92</td><td>42.79</td></tr><tr><td>Time</td><td>0.25</td><td>2.02</td><td>0.26</td><td>3.59</td><td>0.39</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                173,
+                142,
+                833,
+                537
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/b88ec2c46c8fcb0484e8f27eb7f42bf221bec9f9a973e0bcd6add0037af0705c.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                194,
+                571,
+                500,
+                691
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/cc8c5777a7ad7ddded269d6a60dcde22ffbe0b072dbf6e70cc088c7d1247fc21.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 6: Accuracy improvements (∆Accuracy) on the MMLU-Redux benchmark. (a) C2C communication. (b) T2T communication. The x-axis denotes the Sharer model from the Qwen2.5-Instruct series, while the curves correspond to Receiver models from the Qwen3 series. The accuracy improvements of C2C generally increase faster than T2T."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                517,
+                571,
+                808,
+                693
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                791,
+                826,
+                834
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Different model combinations. We test different Sharer-Receiver combinations, including different model families and different task-specific models. The result in Table 7 shows that C2C outperforms text-to-text communication on all five combinations by an average of 8.59% on MMLU-Redux. This supports that by employing C2C, the Receiver model can effectively utilize contextual understanding from different models to enhance performance. Notably, when using Qwen2.5-Math as the Sharer, the communication text becomes substantially longer, as analyzed in Appendix A.4.3. To further test the generalizability of C2C, we swap the Sharer and Receiver models. The results show that C2C robustly brings a 5.05% increase in accuracy while applying T2T results in a 6.30% decrease in performance."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                840,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "8"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/2dfdb7fe951fcc1087907be22748eba753fdaf11ecf7add6b46f11c64ef24e78.jpg"
+                },
+                "table_caption": [],
+                "table_footnote": [],
+                "html": "<table><tr><td>Length</td><td>Receiver</td><td>Sharer</td><td>T2T</td><td>C2C</td></tr><tr><td>0-4k</td><td>30.52</td><td>24.94</td><td>33.46</td><td>37.31</td></tr><tr><td>4-8k</td><td>26.03</td><td>23.18</td><td>29.70</td><td>34.01</td></tr><tr><td>8k+</td><td>25.99</td><td>16.44</td><td>25.64</td><td>30.72</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                179,
+                102,
+                429,
+                165
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/1f4c1819b594fa459a5ba3fd79326d66a276c3426b07037e40df5dbaf87dc6c2.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 5: Performance scaling with sequence length on LongBenchV1, using Qwen3-0.6B Receiver and Qwen2.5- 0.5B Sharer."
+                    },
+                    {
+                        "type": "text",
+                        "content": "Table 6: Ablation of C2C improvement sources. Single: fine-tunes Receiver without any Sharer. Identical: C2C with the same LLM as both Sharer and Receiver. C2C: use different LLMs as Sharer and Receiver."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Setting</td><td>#Param.</td><td>OpenBook</td><td>ARC-C</td><td>MMLU</td><td>C-Eval</td></tr><tr><td>Single</td><td>596M</td><td>45.80</td><td>47.65</td><td>36.81</td><td>35.81</td></tr><tr><td>Identical</td><td>529M</td><td>50.60</td><td>52.52</td><td>42.17</td><td>40.34</td></tr><tr><td>C2C</td><td>478M</td><td>52.60</td><td>54.52</td><td>42.92</td><td>41.77</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                455,
+                102,
+                813,
+                165
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                261,
+                826,
+                304
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/1f08377b4a6b967779d420f13ee61e401e54ed525fab0dcb1b3b9823a6e57227.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Together, these experiments support the scalability of C2C as an effective and efficient new LLM communication paradigm."
+                    },
+                    {
+                        "type": "text",
+                        "content": "Table 7: Comparison of Receiver-only, Sharer-only, T2T, and C2C across accuracy and time. The pairs are grouped into heterogeneous settings (where the Receiver is paired with Sharers of different capabilities) and swap settings (where Receiver and Sharer roles are exchanged)."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Pair Type</td><td>Receiver</td><td>Sharer</td><td>Metric</td><td>Receiver</td><td>Sharer</td><td>T2T</td><td>C2C</td></tr><tr><td rowspan=\"6\">Heterogeneous</td><td rowspan=\"2\">Qwen3-0.6B</td><td rowspan=\"2\">Gemma3-1B</td><td>Acc</td><td>35.53</td><td>31.75</td><td>41.35</td><td>45.90</td></tr><tr><td>Time</td><td>0.29</td><td>0.54</td><td>1.04</td><td>0.30</td></tr><tr><td rowspan=\"2\">Qwen3-0.6B</td><td rowspan=\"2\">Qwen2.5-Math-1.5B</td><td>Acc</td><td>35.53</td><td>39.86</td><td>43.71</td><td>46.13</td></tr><tr><td>Time</td><td>0.29</td><td>8.71</td><td>6.60</td><td>0.27</td></tr><tr><td rowspan=\"2\">Qwen3-0.6B</td><td rowspan=\"2\">Qwen2.5-Coder-0.5B</td><td>Acc</td><td>35.53</td><td>25.09</td><td>39.74</td><td>46.89</td></tr><tr><td>Time</td><td>0.29</td><td>0.26</td><td>1.59</td><td>0.27</td></tr><tr><td rowspan=\"4\">Swap</td><td rowspan=\"2\">Qwen2.5-0.5B</td><td rowspan=\"2\">Qwen3-0.6B</td><td>Acc</td><td>38.42</td><td>35.53</td><td>32.12</td><td>43.47</td></tr><tr><td>Time</td><td>0.34</td><td>0.29</td><td>0.98</td><td>0.21</td></tr><tr><td rowspan=\"2\">Qwen3-0.6B</td><td rowspan=\"2\">Qwen2.5-0.5B</td><td>Acc</td><td>35.53</td><td>38.42</td><td>41.03</td><td>46.50</td></tr><tr><td>Time</td><td>0.29</td><td>0.34</td><td>1.52</td><td>0.26</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                181,
+                352,
+                815,
+                542
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.4 ABLATION STUDY"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                625,
+                343,
+                638
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Sources of improvement. In Table 6, we ablate the source of C2C performance gain by fixing the Receiver (Qwen3-0.6B) and varying the Sharer. Single denotes standard full fine-tuning of the Receiver without Sharer. Identical denotes C2C where both Sharer and Receiver are Qwen3-0.6B. Our default C2C uses Qwen2.5-0.5B as the Sharer. Under the same training configuration, C2C consistently attains higher accuracy than both Single and Identical. This confirms that C2C improvements do not purely come from added trainable capacity or overfitting to the training set. Instead, it points to complementary contextual understanding contributed by the heterogeneous Sharer. Identical still outperforms Single, indicating that cache-level self-communication can provide useful auxiliary understanding, echoing effects observed in latent reasoning and looped transformers (Saunshi et al., 2025; Fu et al., 2025b)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                648,
+                826,
+                790
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Fuser architecture. In Table 8 we show the effect of different components in the C2C design. Compared with pure projection that discards the Receiver’s cache, fusing both models’ KV-Caches and retaining the Receiver’s via residual connection increases accuracy by 24.18%. Adding a gate for fused layer selection further increases the average accuracy by 3.07%."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                796,
+                826,
+                854
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.5 BEHAVIOR ANALYSIS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                869,
+                367,
+                883
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Effective rank analysis. We analyze the effective rank of KV-Cache before and after cache-to-cache communication. Effective rank (Roy & Vetterli, 2007) is a common measure of the intrinsic dimensionality of model weights or activation values; a higher intrinsic dimension means richer semantic information, as formalized in Appendix A.4.1. As Table 2 shows, after cache-to-cache fusing, the effective ranks of K and V increased from 388 to 395 and from 532 to 560, respectively. This indicates that C2C enriches the semantic space by successfully transforming the Sharer’s representations and injecting knowledge into the Receiver model."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                895,
+                826,
+                924
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "9"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/a35d6e6926a6224928c0418e530b1a4ab233f4a1925ee7dd8b88abcf72a75dc3.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 8: Ablation of C2C fuser components. Project: directly replacing the Receiver’s KV-Cache with projected Sharer cache. +Fuse: fusing both caches and adding the result back to Receiver’s via residual. +Gate: adding per-layer learnable gating."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Method</td><td>MMLU</td><td>ARC-C</td><td>OpenBook</td><td>CEval</td><td>Average</td></tr><tr><td>Project</td><td>20.01</td><td>19.57</td><td>21.80</td><td>21.41</td><td>20.70</td></tr><tr><td>+Fuse</td><td>43.36</td><td>51.65</td><td>47.60</td><td>36.91</td><td>44.88</td></tr><tr><td>+Gate (=C2C)</td><td>42.92</td><td>54.52</td><td>52.60</td><td>41.77</td><td>47.95</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                259,
+                101,
+                738,
+                170
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                253,
+                826,
+                324
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Accuracy breakdown. Our analysis reveals that the source of C2C’s accuracy gains depends on the relative capacity of the communicating models and varies across task subcategories. Details can be found in Appendix A.2.3. We also find that in some specific cases, C2C may fail as the contextual understanding from the Sharer model is not always accurate and can mislead the Receiver into generating the wrong answer. Representative example is provided in Appendix A.4.6."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                329,
+                826,
+                401
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Progressive behavior. We analyze the progressive behavior of C2C by gradually increasing the percentage of context KV-Cache being updated by C2C (details in Appendix A.2.4). When the percentage is above 50%, increasing the percentage continuously yields better performance."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                406,
+                825,
+                450
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Gate behavior. We analyze the behavior of C2C ’s learnable gates under different training regimes in Appendix A.4.2. We can draw the conclusion that general-purpose training favors broad gate activation with fine-grained modulation via weights, whereas task-specific training favors sparse gate activation with stronger reliance on the selected layers."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                455,
+                826,
+                513
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5 DISCUSSION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                531,
+                313,
+                547
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Future work. C2C opens several directions for future research. (1) Cache communication in multiagent systems: C2C may serve as a better communication primitive for real-world agentic tasks with complex multi-round reasoning, coding, and tool use. A preliminary case study on mathematical problem solving is provided in Appendix A.5.3. (2) Cross-modal collaboration: beyond text-only models, fusing caches among vision–language models (VLMs) and vision–language–action (VLA) models may enable richer multi-modal collaboration. (3) Inference acceleration: C2C can enhance speculative decoding and enable token-level routing across heterogeneous models for lower latency and cost. (4) Privacy-aware collaboration: LLMs can transmit KV-Cache segments without explicit text, limiting content exposure and improving privacy."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                561,
+                826,
+                690
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Limitations. (1) Multi-LLM systems experience performance degradation when a much weaker Sharer provides noisy information to a stronger Receiver. This limitation is shared by both T2T and C2C, as Sharer semantic quality directly impacts Receiver performance. (2) While pairwise KV-Cache communication is feasible and advantageous, scaling up the number of communicating LLMs with O(N) training cost remains an open problem. Preliminary efforts towards this goal are in Appendix A.5.1 and A.5.2."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                694,
+                826,
+                780
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "6 CONCLUSION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                799,
+                321,
+                815
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We demonstrate that LLMs can communicate beyond text. We introduce Cache-to-Cache (C2C), a general paradigm that transforms and fuses key–value (KV) caches across models to enable direct semantic communication. Across diverse tasks and model configurations, C2C consistently achieves higher task performance and better efficiency than text-to-text communication. These results establish cache-to-cache as a practical alternative to token-based communication and highlight its promise for scalable, low-latency multi-LLM systems."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                830,
+                826,
+                916
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "10"
+                    }
+                ]
+            },
+            "bbox": [
+                490,
+                948,
+                509,
+                960
+            ]
+        }
+    ]
+]

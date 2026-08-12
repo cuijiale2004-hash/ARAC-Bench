@@ -1,0 +1,1304 @@
+[
+    {
+        "type": "text",
+        "text": "ABSTRACT",
+        "text_level": 2,
+        "bbox": [
+            450,
+            268,
+            547,
+            282
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Multimodal large language models (MLLMs) demonstrate strong video understanding by attending to visual tokens relevant to textual queries. To directly adapt this for localization in a training-free manner, we cast video reasoning segmentation as a video QA task and extract attention maps via rollout mechanism. However, raw attention maps are noisy and poorly aligned with object regions. We propose Decomposed Attention Fusion (DecAF), which refines these maps through two mechanisms: (1) contrastive object-background fusion and (2) complementary video-frame fusion. This method suppresses irrelevant activations and enhances object-focused cues, enabling direct conversion of attention maps into coarse segmentation masks. In addition, we introduce attention-guided SAM2 prompting for obtaining fine-grained masks. Unlike existing methods that jointly train MLLMs with SAM, our method operates entirely without retraining. DecAF outperforms training-free methods and achieves performance comparable to training-based methods on both referring and reasoning VOS benchmarks.",
+        "bbox": [
+            230,
+            299,
+            767,
+            497
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "1 INTRODUCTION",
+        "text_level": 2,
+        "bbox": [
+            174,
+            523,
+            338,
+            537
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "In recent years, Multimodal Large Language Models (MLLMs) (Lin et al., 2023; Chen et al., 2024; Zhang et al., 2024; Bai et al., 2025; Wang et al., 2024a) have rapidly advanced, demonstrating strong performance on challenging video QA benchmarks (Mangalam et al., 2023; Fu et al., 2025). These advances reveal their ability to process temporal visual cues and perform complex reasoning over natural language queries. Such capabilities imply that MLLMs may also possess inherent localization ability in videos, enabling training-free video reasoning segmentation, a task that localizes objects corresponding to text-based queries requiring complex reasoning.",
+        "bbox": [
+            169,
+            554,
+            826,
+            652
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Recent studies (Yan et al., 2024; Bai et al., 2024; Gong et al., 2025b; Lin et al., 2025) have attempted to adapt MLLMs and segmentation foundation models (e.g., SAM (Lin et al., 2024), SAM2 (Ravi et al., 2024)) for video reasoning segmentation by joint training through efficient fine-tuning methods such as LoRA (Hu et al., 2022). However, these methods require model-specific training and joint optimization of two foundation models, resulting in significant computation cost and limited generalization capability.",
+        "bbox": [
+            169,
+            659,
+            826,
+            744
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Meanwhile, a training-free approach, Loc-Head (Kang et al., 2025a), explores the localization ability of MLLMs in the image domain by selecting attention heads responsible for grounding. However, it assumes the presence of a single object referring object and selects heads based on spatial entropy, making extension to multi-object and temporal video data difficult. Moreover, it relies on heuristics to mitigate the visual attention sink phenomenon (Kang et al., 2025b), where certain regions consistently receive dominant attention scores regardless of the instruction, limiting its generalization across MLLMs. These observations motivate us to directly examine how attention mechanisms within MLLMs contribute to localization, without model-specific modification or training.",
+        "bbox": [
+            169,
+            750,
+            826,
+            862
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "To obtain attention maps for object localization without relying on model- or task-specific design, we start with attention rollout (Abnar & Zuidema, 2020). Rollout aggregates attention weights across layers, revealing visual cues to which the MLLM attends when producing answers. Its applicability across attention-based MLLMs makes it a plausible approach to probing localization ability. However, since the rollout integrates signals from all heads, irrelevant regions and visual attention sinks often dominate, reducing the relative strength of object cues.",
+        "bbox": [
+            171,
+            867,
+            826,
+            897
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_footnote",
+        "text": "<sup>\\*</sup>Equal contribution.",
+        "bbox": [
+            192,
+            905,
+            316,
+            919
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_footnote",
+        "text": "Code is available at https://github.com/HYUNJS/DecAF",
+        "bbox": [
+            197,
+            917,
+            594,
+            931
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_number",
+        "text": "1",
+        "bbox": [
+            493,
+            948,
+            503,
+            959
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "image",
+        "img_path": "images/773352543f2d65365f40a472fe048d5d8459aa0332d6e036138b6da89dc78a2c.jpg",
+        "image_caption": [
+            "Figure 1: Visualization of our method. (a) Noise in irrelevant regions is suppressed by contrastive fusion with the background attention map. As shown in the first frame, background activations are removed, and the target object is emphasized. (b) Video attention map captures temporal cues, while frame attention map highlights object-centric details. Their fusion resolves conflicts (e.g., identifying the server vs. the hitting player) and produces more consistent localization. The attention mask is obtained directly from the attention map while the SAM mask is generated by SAM2."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            176,
+            102,
+            825,
+            532
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            680,
+            826,
+            738
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "To overcome these limitations, we introduce Decomposed Attention Fusion (DecAF), which suppresses noise and enhances object-focused signals by decomposing and fusing attention maps in two distinct ways. First, contrastive object-backgroundfusion combines the object and background attention maps through a simple subtraction. The object attention map is obtained with a prompt focusing on the target object, while the background attention map is derived from a contrastive prompt excluding this object. This design effectively suppresses irrelevant activations and highlights the target object signal, as illustrated in Fig. 1 (a). Second, complementary video-framefusion leverages the distinct strengths of video and frame attention in a multi-scale manner. Video attention captures temporal context, which is essential when the object is temporarily absent or requires temporal reasoning, but its coarse granularity limits performance on small objects. In contrast, frame attention provides object-centric, fine-grained cues but lacks temporal coherence. By combining these two attentions, this fusion maintains clearer object focus while also leveraging temporal context, resulting in more robust attention maps that accurately localize the target object across the video.",
+        "bbox": [
+            169,
+            743,
+            826,
+            925
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "page_number",
+        "text": "2",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "With the object localization attention map obtained from our two fusion methods, we first generate video object masks through simple thresholding, which provides reliable localization of the target object but remains coarse due to the low granularity of attention. To obtain denser masks, we extract point prompts from the attention map and apply SAM2 (Ravi et al., 2024). However, these coarse prompts, derived from spurious activations in the attention map, often produce false positives. To address this issue, we propose an attention consistency score that evaluates the alignment between the predicted mask and the underlying attention map, enabling unreliable segmentation masks to be filtered out. As shown in Fig. 1, this process transforms a noisy attention map into a precise and reliable segmentation mask.",
+        "bbox": [
+            169,
+            104,
+            826,
+            229
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "We evaluate DecAF across three MLLM families and five datasets, including three referring VOS datasets (Khoreva et al., 2018; Seo et al., 2020; Ding et al., 2023) and two reasoning VOS datasets (Yan et al., 2024; Bai et al., 2024). DecAF consistently outperforms prior training-free approaches (Li et al., 2025; Kang et al., 2025a), both with and without SAM. In addition, the dense video object masks achieve performance comparable to training-based methods (Lai et al., 2024; Yan et al., 2024; Bai et al., 2024; Lin et al., 2025; Gong et al., 2025b;a). These results highlight that decomposed attention fusion offers a simple and effective framework for training-free video reasoning segmentation.",
+        "bbox": [
+            169,
+            236,
+            826,
+            349
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "2 RELATED WORK",
+        "text_level": 2,
+        "bbox": [
+            171,
+            396,
+            346,
+            412
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Multimodal Large Language Models. LLMs demonstrate powerful reasoning and cognition capabilities (Brown et al., 2020; Dubey et al., 2024; Yang et al., 2024), leading to the development of MLLMs (Wang et al., 2024b; Google, 2024; Team, 2024; Liu et al., 2024). These models, built on the transformer architecture (Vaswani et al., 2017), rely on the attention mechanism. Due to the quadratic cost of attention, some MLLMs firstly compress video tokens into a fixed number of tokens via a lightweight modules (Jin et al., 2024; Song et al., 2024; Maaz et al., 2024). However, this token compression inevitably sacrifices fine-grained spatial information, unlike LLaVA-style models (Liu et al., 2023), which use a linear projector to preserve dense spatial features. More recently, Qwen2VL (Wang et al., 2024b) further advances this line by supporting native-resolution video inputs, maintaining both aspect ratio and fine-grained visual details. In this work, we build on such models and focus on exploring the inherent localization ability of MLLMs.",
+        "bbox": [
+            169,
+            444,
+            826,
+            599
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Text-conditioned Video Object Segmentation. Early research on referring VOS (RVOS) focuses on localizing the target object from simple textual expressions, typically describing appearance. Datasets such as Ref-DAVIS (Khoreva et al., 2018) and Ref-YouTube-VOS (Seo et al., 2020) were designed for this setting and only cover single-object cases. More recently, MeViS (Ding et al., 2023) introduces motion-centric and more challenging scenarios, including cases where the referred object is absent or where multiple candidates match the expression.",
+        "bbox": [
+            169,
+            604,
+            826,
+            689
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "With the advent of powerful MLLMs (Liu et al., 2023), video reasoning segmentation has emerged, targeting complex expressions that extend beyond appearance or motion cues and require reasoning over world knowledge and temporal context (Yan et al., 2024; Bai et al., 2024). To address this, existing approaches adapt pretrained MLLMs to RVOS via lightweight finetuning strategies such as LoRA (Hu et al., 2022), and integrate them with segmentation model such as SAM (Kirillov et al., 2023) for precise mask generation, often requiring full finetuning of the mask decoder (Gong et al., 2025b; Lin et al., 2025). In contrast, we leverage MLLMs and SAM in a training-free manner.",
+        "bbox": [
+            169,
+            694,
+            826,
+            794
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Training-free Text-to-Visual Grounding with MLLMs. Recently, MLLMs have been studied for training-free visual grounding tasks (Lin et al., 2024; Li et al., 2025; Kang et al., 2025a). VL-SAM (Lin et al., 2024) and TAM (Li et al., 2025) leverage the attention rollout mechanism (Abnar & Zuidema, 2020) to localize objects in images, with VL-SAM further refining the masks using SAM. Both methods identify all objects by enumerating categories during MLLM decoding. In contrast, Kang et al. (2025a) proposed a method that selects specific attention heads responsible for localization, enabling direct grounding of the object referred to by the given expression. However, this head-selection method shows poor generalization: attention heads identified on referring datasets transfer poorly and yield low accuracy on reasoning-intensive datasets.",
+        "bbox": [
+            169,
+            799,
+            826,
+            925
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "page_number",
+        "text": "3",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "image",
+        "img_path": "images/eafb23dab8e6f4d608b5571a464c0619f1be6739d870885ce85c8a39f59977e9.jpg",
+        "image_caption": [
+            "Figure 2: Overview of DecAF. (a) Attention rollout with our V-Max normalization produces a rollout matrix that accumulates attention across layers, from which visual-token scores for the final query token are extracted as attention maps for grounding. (b) Contrastive fusion suppresses attention scores on background regions. (c) Complementary fusion integrates video- and frame-level cues. (d) These fusion methods are combined into the full pipeline to refine noisy attention maps."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            176,
+            99,
+            821,
+            296
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3 METHODOLOGY",
+        "text_level": 2,
+        "bbox": [
+            171,
+            404,
+            343,
+            420
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3.1 OVERVIEW",
+        "text_level": 2,
+        "bbox": [
+            171,
+            436,
+            292,
+            450
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Given a video and a text instruction referring to an object, our framework produces segmentation masks of the target object(s). The pipeline consists of two stages. First, coarse segmentation masks are obtained from attention score maps computed in an MLLM. Second, fine-grained dense segmentation masks are generated using SAM conditioned on these attention maps. In the first stage, we propose Decoupled Attention Fusion (DecAF), illustrated in Fig. 2, which integrates contrastive and complementary fusion strategies with tailored prompting methods. To obtain the attention scores, we adopt attention rollout (Abnar & Zuidema, 2020) with a new normalization technique designed for MLLMs. In the second stage, we introduce a training-free SAM2 prompting pipeline guided by attention maps (Fig. 3). Point queries are first selected by thresholding the attention maps, and SAM2 generates mask tracklets for each query. These tracklets are then evaluated with the proposed attention consistency score, which measures whether the predicted masks consistently overlap with high-attention regions across frames. The resulting scores are used to rank and tracklet candidates.",
+        "bbox": [
+            169,
+            464,
+            826,
+            633
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3.2 ATTENTION ROLLOUT WITH VISION-AWARE NORMALIZATION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            650,
+            650,
+            665
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "We trace the influence of visual tokens on the model’s output by propagating attention scores through the transformer layers of MLLMs. To better capture language-conditioned grounding, we modify the standard attention rollout (Abnar & Zuidema, 2020) with a vision-aware normalization scheme.",
+        "bbox": [
+            171,
+            676,
+            825,
+            720
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Standard rollout. Given the attention tensor $\\mathbf { A } ^ { ( l ) } \\in \\mathbb { R } ^ { h \\times N \\times N }$ from the l-th transformer layer, where h is the number of heads and N is the total number of tokens, the head-wise averaged attention matrix is computed as Eq. 1, and the residual connection is incorporated by adding the identity matrix as Eq. 2. This reflects that a token can either propagate its own representation through the skip connection or attend to other tokens via the attention mechanism. The rollout matrix is then recursively accumulated across layers as Eq. 3, starting from the initialization $\\mathbf { R } ^ { ( 1 ) } = \\hat { \\mathbf { A } } ^ { ( 1 ) }$ and producing $\\mathbf { R } ^ { ( L ) }$ , which encodes how information flows from each token to every other token throughout the network.",
+        "bbox": [
+            169,
+            724,
+            826,
+            842
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\bar {\\mathbf {A}} ^ {(l)} = \\frac {1}{h} \\sum_ {i = 1} ^ {h} \\mathbf {A} _ {i} ^ {(l)}.\\tag{1}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            212,
+            849,
+            344,
+            888
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\hat {\\mathbf {A}} ^ {(l)} = (\\bar {\\mathbf {A}} ^ {(l)} + \\mathbf {I}) / 2.\\tag{2}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            426,
+            859,
+            571,
+            878
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathbf {R} ^ {(l)} = \\hat {\\mathbf {A}} ^ {(l)} \\mathbf {R} ^ {(l - 1)}.\\tag{3}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            650,
+            859,
+            782,
+            878
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Head-wise weighted aggregation. To reduce the effect of noisy heads, we assign a weight to each head based on the strength of its vision attention. For each layer l, let the original attention tensor before aggregation be denoted as $\\mathbf { A } ^ { ( l ) } \\in \\mathbb { R } ^ { h \\times N \\times ( N _ { v } + N _ { t } ) }$ , where $N _ { v }$ and $N _ { t }$ indicate the number of visual and textual tokens, respectively. From $\\mathbf { A } ^ { ( l ) }$ , the vision block is extracted: $\\mathbf { A } _ { v } ^ { ( l ) } \\in \\mathbb { R } ^ { h \\times N \\times N _ { v } }$ The maximum value over the visual token dimension is then computed as:",
+        "bbox": [
+            169,
+            895,
+            825,
+            924
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "page_number",
+        "text": "4",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            102,
+            823,
+            150
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathbf {m} ^ {(l)} = \\max _ {j = 1} ^ {N _ {v}} \\mathbf {A} _ {v} ^ {(l)} [:,:, j ], \\quad \\mathbf {m} ^ {(l)} \\in \\mathbb {R} ^ {h \\times N}.\\tag{4}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            356,
+            156,
+            638,
+            184
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Averaging $\\mathbf { m } ^ { ( l ) }$ over the token dimension finally produces the head-wise weight vector, $\\mathbf { w } ^ { ( l ) } \\in \\mathbb { R } ^ { h }$ The weights are normalized so that max<sub>h</sub> $( w _ { h } ^ { ( l ) } ) = 1$ , and these normalized weights are used to aggregate the heads, resulting in the final attention weights $\\hat { \\mathbf { A } } ^ { ( l ) } \\in \\mathbb { R } ^ { N \\times ( N _ { v } + N _ { t } ) }$",
+        "bbox": [
+            171,
+            190,
+            826,
+            242
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "3.3 DECOMPOSED ATTENTION FUSION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            257,
+            460,
+            271
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "The attention rollout mechanism quantifies token-to-token influence. To perform text-conditioned video reasoning segmentation, we cast the task as video question answering, where the goal is to identify a category of the object in a video referred to by the text instruction. We then exploit the rollout matrix values with the last token as query and visual tokens as keys, using them as attention scores that indicate how visual tokens contribute to answering the video QA, as shown in Fig. 2 (a).",
+        "bbox": [
+            169,
+            282,
+            826,
+            354
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "However, the rollout matrix aggregates signals across all heads and layers and is too noisy to serve directly as a segmentation score map. In addition to pervasive noise, we observe strong activations in irrelevant regions, known as the visual attention sink phenomenon. To address this, we introduce Decomposed Attention Fusion (DecAF) to obtain cleaner, object-focused attention maps. As shown in Fig. 2 (d), DecAF applies contrastive fusion within each modality (video and frame) in parallel, followed by complementary fusion after upscaling the video-level attention maps to match the frame-level size. The resulting attention maps are then converted into coarse segmentation masks via thresholding. Here, we explain with shortened prompts, but the full prompts are in the Appendix.",
+        "bbox": [
+            169,
+            359,
+            826,
+            473
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Contrastive Object–Background Attention Fusion. A key challenge of using attention maps for segmentation is that irrelevant regions often receive very high scores, which cannot be suppressed by simple thresholding. Such visual attention sinks frequently appear regardless of the given instruction. To address this issue, we introduce contrastivefusion, which contrasts attention maps obtained from object-focused and background-focused prompts. Subtracting background from object attention effectively highlights the target region while suppressing spurious responses.",
+        "bbox": [
+            169,
+            477,
+            826,
+            564
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "The specific process follows Fig. 2 (b). The object attention map is obtained by prompting the model to identify the target object category from the referring expression using an object-focused prompt template, “What is the main object referred to in the given expression?” The rollout attention weights from this response form the positive map. For the background attention map, we first use a background-focused prompt such as “Describe the background scene of the video.” However, this may cause the target object to be mistakenly attended when it is not the main salient object but still appears in the background. To mitigate this, we additionally insert the identified category $O _ { \\mathrm { n a m e } }$ into the template, to explicitly exclude the target object from the background attention map. The rollout attention map from this response serves as the negative map.",
+        "bbox": [
+            169,
+            568,
+            826,
+            695
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Both object and background attention maps are reshaped into $( T , H _ { p } , W _ { p } )$ , where T is the number of frames and $( H _ { p } , W _ { p } )$ is the patch grid. Before fusion, Gaussian smoothing is applied to both maps to mitigate the sparsity of raw attention weights. The contrastive map, $\\mathbf { V } ^ { c t r }$ , is then computed by subtracting the background map from the object map, clamped to remove negative values. Finally, min–max normalization is applied to scale the values into the [0, 1] range.",
+        "bbox": [
+            169,
+            700,
+            826,
+            773
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Complementary Video–Frame Attention Fusion. The softmax operation in attention enforces that all token scores sum to one. With video inputs, this constraint spreads attention across a large number of tokens, yielding maps that are relatively sparse and shaped by temporal context. In contrast, with image inputs, attention is concentrated on fewer tokens and tends to emphasize object-centric spatial details. We therefore exploit these complementary properties of video- and frame-level attention maps to achieve more robust localization.",
+        "bbox": [
+            169,
+            777,
+            826,
+            863
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "As shown in Fig. 2 (c), we apply the identical attention rollout pipeline individually to the video and frame modalities, where each frame in the image modality is processed along the batch axis. This mixed-modality design introduces two modifications in the contrastive fusion step. (1) Since background prompting requires an object category, we select a single prediction by aggregating outputs from both video- and frame-level inputs with object category choice prompt. (2) For min–max normalization, we normalize frame-level maps independently per frame, while video-level maps are normalized globally across all frames. Finally, the two sets of maps are fused by simple averaging, combining the global temporal context of video attention with the spatial precision of frame attention.",
+        "bbox": [
+            169,
+            867,
+            826,
+            926
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "page_number",
+        "text": "5",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "image",
+        "img_path": "images/5382a4bca76057b56c617318586fe08f92b5e57af3e3582b11ba928713625e3b.jpg",
+        "image_caption": [
+            "Figure 3: Overview of our SAM prompting pipeline with attention maps. (1) Point queries for SAM2 are obtained from attention maps via thresholding $( \\tau _ { p q } )$ . (2) During mask propagation, highly overlapping masks are removed. (3) Spurious mask tracklets are removed using our scoring method."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            174,
+            101,
+            825,
+            237
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            320,
+            825,
+            390
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Our video–frame decoupled prompting enables multi-scale processing, allowing higher-resolution inputs to be used for frame attention. Recent MLLMs, such as InternVL and LLaVA-NeXT, support dynamic image resolutions via tiling, whereas video inputs remain constrained to lower resolutions $( e . g .$ , 448). In contrast, QwenVL supports native resolutions for both video and image; in this case, we simply double the width and height for image inputs. To align modalities, low-res video attention maps are upsampled to match the frame-level resolution before fusion.",
+        "bbox": [
+            169,
+            396,
+            826,
+            481
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "3.4 SAM2 PROMPTING WITH ATTENTION MAPS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            498,
+            524,
+            512
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "After DecAF process, we obtain the spatio-temporal attention maps, $\\mathbf { V } \\in \\mathbb { R } ^ { T _ { s } \\times H _ { p } \\times W _ { p } }$ , where $T _ { s }$ is the number of sampled frames and $( H _ { p } , W _ { p } )$ is spatial resolution of visual token grid. Since this resolution is coarse, we introduce a method to prompt SAM2 using the attention maps to produce fine-grained object masks, $\\hat { \\mathbf { M } } \\in \\mathbb { R } ^ { T \\times H \\times W }$ . Here, we use full frames at high-resolution, rather than the sampled frames used in the MLLM. The overall pipeline is illustrated in Fig. 3.",
+        "bbox": [
+            169,
+            523,
+            825,
+            598
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Point Query Generation. Since SAM requires spatial prompts, we generate point queries directly from attention maps to guide object mask prediction. We select visual tokens with attention scores above a threshold $\\tau _ { p q }$ and use their center coordinates as point queries. The set of point queries is defined as in Eq. 5, where $o _ { x }$ and $o _ { y }$ denote half the token width and height, respectively, ensuring that each point corresponds to the token center.",
+        "bbox": [
+            169,
+            603,
+            825,
+            674
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathcal {P} = \\{p = (t, y + o _ {y}, x + o _ {x}) \\mid \\mathbf {V} _ {t, y, x} \\geq \\tau_ {p q} \\}.\\tag{5}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            341,
+            680,
+            653,
+            698
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Frame-wise Prompting and Propagation. Starting from the first frame, the point queries are fed sequentially to SAM2 which produces frame-level masks and propagates them through subsequent frames. This process generates a video mask for each point query (p<sub>i</sub>), denoted as $\\mathbf { M } _ { i } \\in \\mathbb { R } ^ { T _ { s } \\times H ^ { \\bullet } W }$ together with its confidence score, $s _ { i } ^ { \\mathrm { S A M } }$ , predicted by SAM2.",
+        "bbox": [
+            169,
+            710,
+            823,
+            770
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Naive thresholding may generate a large number of redundant masks. To reduce computation, we assign an object score $\\overset { \\cdot } { s _ { i } ^ { o b \\bar { j } } } = \\mathbf { V } _ { p _ { i } } + s _ { i } ^ { \\mathrm { S A \\bar { M } } }$ for each predicted mask, where $\\mathbf { V } _ { p _ { i } }$ is attention score of $\\dot { p } _ { i }$ We then apply non-maximum suppression (NMS) using this object score. Two masks are considered overlapping if their IoU exceeds a threshold (e.g., 0.7), and the one with the lower score is removed. If a propagated mask from previous frames highly overlaps with a new mask in the current frame, we retain only the one with the higher object score. Through this process, we obtain K video mask tracklets, where $K < < | \\mathcal { P } |$ , effectively reducing redundancy while keeping high-quality candidates.",
+        "bbox": [
+            169,
+            775,
+            825,
+            877
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Mask Tracklet Scoring and Selection. Since attention maps are at low resolution, point queries are not spatially precise and may fall on background regions. Nevertheless, SAM often produces high-confidence masks from such queries (e.g., walls), leading to false positives. To suppress these cases, we evaluate each mask tracklet using an attention consistency score $( s ^ { a c } )$ , which measures whether the mask consistently overlaps with high-attention regions across frames.",
+        "bbox": [
+            169,
+            881,
+            826,
+            925
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "page_number",
+        "text": "6",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "table",
+        "img_path": "images/a6abd5787fdbe7ab43742c7a902a8281390c2928ad8b3e36e090e66e616ae296.jpg",
+        "table_caption": [
+            "Table 1: Comparison of MLLM-based text-conditioned VOS methods that directly compute masks from attention maps (Attn Mask). All methods are training-free and grouped by MLLM."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td rowspan=\"2\">Method</td><td rowspan=\"2\">MLLM</td><td colspan=\"3\">Ref-DAVIS</td><td colspan=\"3\">ReasonVOS</td><td colspan=\"3\">ReVOS (Overall)</td><td colspan=\"3\">ReVOS (Referring)</td><td colspan=\"3\">ReVOS (Reasoning)</td></tr><tr><td>J&amp;F</td><td>J</td><td>F</td><td>J&amp;F</td><td>J</td><td>F</td><td>J&amp;F</td><td>J</td><td>F</td><td>J&amp;F</td><td>J</td><td>F</td><td>J&amp;F</td><td>J</td><td>F</td></tr><tr><td>Loc-Head [CVPR&#x27;25]</td><td>LLaVA-7B</td><td>18.9</td><td>23.2</td><td>14.5</td><td>12.2</td><td>14.1</td><td>10.2</td><td>12.6</td><td>15.0</td><td>10.2</td><td>14.1</td><td>17.4</td><td>10.8</td><td>11.1</td><td>12.7</td><td>9.5</td></tr><tr><td>Loc-Head [CVPR&#x27;25]</td><td>LLaVA-OV-7B</td><td>15.9</td><td>14.1</td><td>17.7</td><td>12.3</td><td>11.2</td><td>13.4</td><td>13.1</td><td>12.0</td><td>14.3</td><td>14.9</td><td>13.8</td><td>16.0</td><td>11.4</td><td>10.3</td><td>12.5</td></tr><tr><td>DecAF [Ours]</td><td>LLaVA-OV-7B</td><td>21.6</td><td>24.0</td><td>19.1</td><td>17.2</td><td>19.4</td><td>15.0</td><td>15.6</td><td>17.6</td><td>13.7</td><td>16.9</td><td>19.5</td><td>14.4</td><td>14.3</td><td>15.6</td><td>12.9</td></tr><tr><td>Loc-Head [CVPR&#x27;25]</td><td>InternVL3-8B</td><td>19.0</td><td>24.1</td><td>14.0</td><td>14.1</td><td>15.6</td><td>12.6</td><td>14.6</td><td>16.8</td><td>12.4</td><td>16.5</td><td>19.3</td><td>13.7</td><td>12.7</td><td>14.2</td><td>11.1</td></tr><tr><td>DecAF [Ours]</td><td>InternVL3-8B</td><td>20.7</td><td>26.0</td><td>15.3</td><td>18.4</td><td>21.8</td><td>14.9</td><td>16.7</td><td>20.4</td><td>13.0</td><td>18.2</td><td>22.5</td><td>13.9</td><td>15.2</td><td>18.3</td><td>12.1</td></tr><tr><td>TAM [ICCV&#x27;25]</td><td>Qwen2VL-7B</td><td>2.5</td><td>1.8</td><td>3.3</td><td>2.8</td><td>2.8</td><td>2.9</td><td>2.8</td><td>2.9</td><td>2.6</td><td>2.9</td><td>3.1</td><td>2.7</td><td>2.7</td><td>2.8</td><td>2.6</td></tr><tr><td>Loc-Head [CVPR&#x27;25]</td><td>Qwen2VL-7B</td><td>18.8</td><td>23.8</td><td>13.8</td><td>9.0</td><td>11.1</td><td>6.8</td><td>13.2</td><td>17.5</td><td>8.9</td><td>16.5</td><td>22.2</td><td>10.7</td><td>10.0</td><td>12.9</td><td>7.2</td></tr><tr><td>DecAF [Ours]</td><td>Qwen2VL-7B</td><td>20.0</td><td>24.8</td><td>15.2</td><td>13.8</td><td>17.5</td><td>10.0</td><td>15.2</td><td>19.8</td><td>10.7</td><td>17.5</td><td>23.2</td><td>11.8</td><td>13.0</td><td>16.4</td><td>9.6</td></tr><tr><td>TAM [ICCV&#x27;25]</td><td>Qwen2.5VL-7B</td><td>3.5</td><td>2.8</td><td>4.3</td><td>3.7</td><td>3.4</td><td>3.9</td><td>4.0</td><td>4.0</td><td>4.0</td><td>4.1</td><td>4.1</td><td>4.1</td><td>3.8</td><td>3.8</td><td>3.8</td></tr><tr><td>Loc-Head [CVPR&#x27;25]</td><td>Qwen2.5VL-7B</td><td>19.1</td><td>24.2</td><td>14.0</td><td>10.7</td><td>13.1</td><td>8.3</td><td>14.1</td><td>18.6</td><td>9.6</td><td>16.9</td><td>22.7</td><td>11.0</td><td>11.4</td><td>14.5</td><td>8.3</td></tr><tr><td>DecAF [Ours]</td><td>Qwen2.5VL-7B</td><td>25.3</td><td>32.0</td><td>18.6</td><td>20.6</td><td>26.0</td><td>15.3</td><td>20.2</td><td>26.0</td><td>14.5</td><td>22.1</td><td>28.8</td><td>15.4</td><td>18.3</td><td>23.1</td><td>13.5</td></tr></table>",
+        "bbox": [
+            176,
+            133,
+            818,
+            297
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            325,
+            823,
+            354
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "For each tracklet i, we then compute a combined tracklet score, $s _ { i } ^ { t r k } \\ = \\ \\mathrm { A v g } ( \\mathbf { V } _ { p _ { i } } , s _ { i } ^ { \\mathrm { S A M } } , s _ { i } ^ { a c } )$ Tracklets with $s _ { i } ^ { t r k } \\geq \\tau _ { t r k }$ are retained and propagated across all video frames via SAM2 to generate the final dense segmentation masks. This procedure naturally supports both single-object and multiobject localization by treating each high-confidence query as an independent object hypothesis.",
+        "bbox": [
+            169,
+            359,
+            823,
+            420
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "The computation of $s ^ { a c }$ is as follows. First, we obtain a binary mask for each frame by thresholding the attention map at its mean score $\\mu _ { t } ( \\mathrm { E q . }  )$ . Second, we assign the negative maximum attention score per frame, $\\delta _ { t } = - \\operatorname* { m a x } ( \\mathbf { V } _ { t , : , : } )$ , to regions below $\\mu _ { t } , ( \\mathrm { E q . ~ } 7 )$ , penalizing low-attention areas. Finally, each mask tracklet is downampled to the attention map resolution, $\\tilde { \\mathbf { M } } _ { i } \\in \\mathbb { R } ^ { T _ { s } \\times H _ { p } \\times W _ { p } } ,$ and $s ^ { a c }$ is computed as a ratio of inner products $( \\mathrm { E q . } 8 )$ , where $\\langle \\cdot , \\cdot \\rangle$ denotes the tensor inner product.",
+        "bbox": [
+            169,
+            425,
+            825,
+            500
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathbf {M} _ {t, y, x} ^ {A t t n} = \\left\\{ \\begin{array}{l l} 1, & \\mathbf {V} _ {t, y, x} \\geq \\mu_ {t}, \\\\ 0, & \\text {otherwise.} \\end{array} \\right. \\quad (6) \\quad \\hat {\\mathbf {V}} _ {t, y, x} = \\left\\{ \\begin{array}{l l} \\mathbf {V} _ {t, y, x}, & \\mathbf {V} _ {t, y, x} \\geq \\mu_ {t}, \\\\ \\delta_ {t}, & \\text {otherwise.} \\end{array} \\right. \\quad (7) \\quad s _ {i} ^ {a c} = \\frac {\\langle \\tilde {\\mathbf {M}} _ {i} , \\hat {\\mathbf {V}} \\rangle}{\\langle \\mathbf {M} ^ {A t t n} , \\hat {\\mathbf {V}} \\rangle}\\tag{8}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            183,
+            516,
+            790,
+            547
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "4 EXPERIMENTS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            565,
+            328,
+            580
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "4.1 EVALUATION SETTING",
+        "text_level": 2,
+        "bbox": [
+            171,
+            597,
+            374,
+            611
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Datasets and Evaluation Metrics. We evaluate our method on three referring VOS datasets: Ref-DAVIS (Khoreva et al., 2018), Ref-YouTube-VOS (Seo et al., 2020), and MeViS (Ding et al., 2023). In addition, we validate it on two reasoning VOS datasets: ReasonVOS (Bai et al., 2024) and ReVOS (Yan et al., 2024). Note that ReasonVOS provides only a test set and is used for zeroshot evaluation, whereas the other datasets include training data. For evaluation, we employ the standard VOS metrics: region similarity (J), contour accuracy $( { \\mathcal { F } } )$ , and their mean $( \\mathcal { I } \\& \\mathcal { F } )$",
+        "bbox": [
+            169,
+            622,
+            825,
+            708
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Implementation Details. For mask generation directly from attention maps, we apply Otsu’s adaptive thresholding method (Otsu et al., 1975). By default, attention rollout starts from the middle LLM layer (e.g., 14 for 28 layers of Qwen2.5VL-7B), and SAM prompting threshold values of $\\tau _ { t r k } = 0 . 8$ and $\\tau _ { p q } = 0 . 8$ . We use publicly released MLLM checkpoints and the SAM2-hiera-large.",
+        "bbox": [
+            169,
+            713,
+            826,
+            772
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "4.2 COMPARISON WITH EXISTING METHODS USING MLLMS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            786,
+            612,
+            801
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Mask without SAM. We evaluate segmentation masks obtained directly from MLLM attention maps using simple upscaling and thresholding, and compare them with existing methods in Tab. 1. Uniformly sampled 16 frames are used here. TAM (Li et al., 2025) performs poorly due to its strong dependence on predicted word tokens, making it unable to reliably ground expressions under our object-focused prompt. Further analysis of TAM’s failure cases is provided in the Appendix. Loc-Head (Kang et al., 2025a) is also designed for text-conditioned segmentation, but operates in the image domain. Our method consistently outperforms Loc-Head across different MLLMs and datasets, with especially large margins on datasets require complex reasoning. This suggests that our method generalizes more effectively to reasoning-intensive scenarios, whereas localization heads rely on heuristic head selection and thus exhibit limited robustness.",
+        "bbox": [
+            169,
+            811,
+            826,
+            925
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "page_number",
+        "text": "7",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "table",
+        "img_path": "images/bf73d52c2a5d6f4bf7486e3d4b07fc70133a75790c7eadd870f6e3c80972cac3.jpg",
+        "table_caption": [
+            "Table 2: Comparison of MLLM-based text-conditioned VOS methods. The upper gray rows correspond to training-based methods, while the lower colored rows correspond to training-free methods."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td rowspan=\"2\">Method</td><td rowspan=\"2\">MLLM</td><td colspan=\"3\">Ref-DAVIS</td><td colspan=\"3\">ReasonVOS</td><td colspan=\"3\">ReVOS (Overall)</td><td colspan=\"3\">ReVOS (Referring)</td><td colspan=\"3\">ReVOS (Reasoning)</td></tr><tr><td>J&amp;F</td><td>J</td><td>F</td><td>J&amp;F</td><td>J</td><td>F</td><td>J&amp;F</td><td>J</td><td>F</td><td>J&amp;F</td><td>J</td><td>F</td><td>J&amp;F</td><td>J</td><td>F</td></tr><tr><td>LISA [CVPR&#x27;24]</td><td>LLaVA-7B</td><td>64.8</td><td>62.2</td><td>67.3</td><td>31.1</td><td>29.1</td><td>33.1</td><td>40.9</td><td>39.1</td><td>42.7</td><td>45.7</td><td>44.3</td><td>47.1</td><td>36.1</td><td>33.8</td><td>38.4</td></tr><tr><td>VISA [ECCV&#x27;24]</td><td>ChatUniVi-7B</td><td>69.4</td><td>66.3</td><td>72.5</td><td>-</td><td>-</td><td>-</td><td>46.9</td><td>44.9</td><td>49.0</td><td>50.9</td><td>49.2</td><td>52.6</td><td>43.0</td><td>40.6</td><td>45.4</td></tr><tr><td>VideoLISA [NeurIPS&#x27;24]</td><td>LLaVA-Phi-3-V</td><td>68.8</td><td>64.9</td><td>72.7</td><td>47.5</td><td>45.1</td><td>49.9</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr><tr><td>GLUS [CVPR&#x27;25]</td><td>LLaVA-7B</td><td>-</td><td>-</td><td>-</td><td>49.9</td><td>47.5</td><td>52.4</td><td>54.9</td><td>52.4</td><td>57.3</td><td>58.3</td><td>56.0</td><td>60.7</td><td>51.4</td><td>48.8</td><td>53.9</td></tr><tr><td>VRS-HQ [CVPR&#x27;25]</td><td>ChatUniVi-7B</td><td>76.0</td><td>72.6</td><td>79.4</td><td>54.9</td><td>52.6</td><td>57.3</td><td>59.1</td><td>56.6</td><td>61.6</td><td>62.1</td><td>59.8</td><td>64.5</td><td>56.1</td><td>53.5</td><td>58.7</td></tr><tr><td>Veason-R1 [arxiv&#x27;25.08]</td><td>Qwen2.5VL-7B</td><td>-</td><td>-</td><td>-</td><td>59.9</td><td>56.0</td><td>63.8</td><td>61.3</td><td>58.2</td><td>64.4</td><td>63.6</td><td>60.7</td><td>66.5</td><td>59.0</td><td>55.8</td><td>62.2</td></tr><tr><td>Loc-Head [CVPR&#x27;25]</td><td>LLaVA-7B</td><td>55.6</td><td>51.5</td><td>59.6</td><td>37.1</td><td>32.9</td><td>41.4</td><td>35.3</td><td>31.1</td><td>39.6</td><td>39.2</td><td>35.0</td><td>43.4</td><td>31.5</td><td>27.2</td><td>35.7</td></tr><tr><td>Loc-Head [CVPR&#x27;25]</td><td>LLaVA-OV-7B</td><td>24.2</td><td>21.3</td><td>27.1</td><td>32.6</td><td>29.7</td><td>35.4</td><td>31.7</td><td>28.3</td><td>35.1</td><td>32.8</td><td>29.2</td><td>36.5</td><td>30.6</td><td>27.4</td><td>33.7</td></tr><tr><td>DecAF [Ours]</td><td>LLaVA-OV-7B</td><td>59.4</td><td>54.8</td><td>64.0</td><td>52.8</td><td>49.3</td><td>56.3</td><td>40.0</td><td>35.8</td><td>44.1</td><td>43.4</td><td>39.1</td><td>47.6</td><td>36.6</td><td>32.6</td><td>40.7</td></tr><tr><td>Loc-Head [CVPR&#x27;25]</td><td>InternVL3-8B</td><td>66.3</td><td>62.4</td><td>70.2</td><td>44.3</td><td>41.0</td><td>47.5</td><td>43.7</td><td>39.9</td><td>47.5</td><td>46.7</td><td>42.9</td><td>50.6</td><td>40.7</td><td>36.9</td><td>44.5</td></tr><tr><td>DecAF [Ours]</td><td>InternVL3-8B</td><td>62.8</td><td>56.9</td><td>68.6</td><td>58.9</td><td>55.1</td><td>62.7</td><td>47.4</td><td>43.7</td><td>51.2</td><td>51.7</td><td>47.9</td><td>55.5</td><td>43.2</td><td>39.5</td><td>46.8</td></tr><tr><td>Loc-Head [CVPR&#x27;25]</td><td>Qwen2VL-7B</td><td>61.9</td><td>58.0</td><td>65.8</td><td>34.0</td><td>31.8</td><td>36.2</td><td>44.0</td><td>40.8</td><td>47.2</td><td>52.7</td><td>49.1</td><td>56.2</td><td>35.4</td><td>32.6</td><td>38.2</td></tr><tr><td>DecAF [Ours]</td><td>Qwen2VL-7B</td><td>64.1</td><td>59.4</td><td>68.9</td><td>52.5</td><td>49.0</td><td>56.0</td><td>45.3</td><td>41.6</td><td>49.0</td><td>52.7</td><td>48.9</td><td>56.4</td><td>37.9</td><td>34.3</td><td>41.5</td></tr><tr><td>Loc-Head [CVPR&#x27;25]</td><td>Qwen2.5VL-7B</td><td>64.6</td><td>60.2</td><td>68.9</td><td>41.1</td><td>37.9</td><td>44.3</td><td>47.0</td><td>43.3</td><td>50.7</td><td>53.1</td><td>49.3</td><td>56.9</td><td>40.8</td><td>37.2</td><td>44.4</td></tr><tr><td>DecAF [Ours]</td><td>Qwen2.5VL-7B</td><td>75.2</td><td>70.9</td><td>79.5</td><td>63.9</td><td>60.5</td><td>67.2</td><td>54.2</td><td>50.1</td><td>58.2</td><td>58.7</td><td>54.8</td><td>62.6</td><td>49.7</td><td>45.4</td><td>53.9</td></tr></table>",
+        "bbox": [
+            174,
+            133,
+            820,
+            330
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "table",
+        "img_path": "images/f51dc70ab9b112c817673209869ebf44402515cbf1f62ad8000a325c66a7dfdd.jpg",
+        "table_caption": [
+            "Table 3: Comparison on additional datasets."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td rowspan=\"2\">Method</td><td rowspan=\"2\">MLLM</td><td colspan=\"3\">MeViS</td><td colspan=\"3\">Ref-YTVOS</td></tr><tr><td> $\\mathcal{J}\\&\\mathcal{F}$ </td><td> $\\mathcal{J}$ </td><td> $\\mathcal{F}$ </td><td> $\\mathcal{J}\\&\\mathcal{F}$ </td><td> $\\mathcal{J}$ </td><td> $\\mathcal{F}$ </td></tr><tr><td>VISA [ECCV&#x27;24]</td><td>Chat-UniVi-7B</td><td>44.5</td><td>41.8</td><td>47.1</td><td>61.5</td><td>59.8</td><td>63.2</td></tr><tr><td>VideoLISA [NeurIPS&#x27;24]</td><td>LLaVA-Phi-3-V</td><td>44.4</td><td>41.3</td><td>47.6</td><td>63.7</td><td>61.7</td><td>65.7</td></tr><tr><td>GLUS [CVPR&#x27;25]</td><td>LLaVA-7B</td><td>51.3</td><td>48.5</td><td>54.2</td><td>67.3</td><td>65.5</td><td>69.0</td></tr><tr><td>VRS-HQ [CVPR&#x27;25]</td><td>Chat-UniVi-7B</td><td>50.6</td><td>47.6</td><td>53.7</td><td>70.4</td><td>68.3</td><td>72.5</td></tr><tr><td>Veason-R1 [arxiv&#x27;25.08]</td><td>Qwen2.5VL-7B</td><td>52.2</td><td>48.4</td><td>56.0</td><td>-</td><td>-</td><td>-</td></tr><tr><td>Loc-Head [CVPR&#x27;25]</td><td>Qwen2.5VL-7B</td><td>39.4</td><td>35.2</td><td>43.6</td><td>51.0</td><td>46.8</td><td>55.2</td></tr><tr><td>DecAF [Ours]</td><td>Qwen2.5VL-7B</td><td>48.1</td><td>44.0</td><td>52.1</td><td>59.9</td><td>56.2</td><td>63.5</td></tr></table>",
+        "bbox": [
+            294,
+            366,
+            702,
+            476
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            505,
+            825,
+            535
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Despite these relative improvements, attention maps remain very low resolution, and the resulting scores are still below those of conventional segmentation models. In particular, contour accuracy (F) is much lower than region similarity (J), reflecting the inability of low-resolution attention maps to capture fine-grained boundaries – opposite to the trend observed in segmentation-specialized models. These findings suggest that attention masks alone are too coarse for precise segmentation, but they provide a sufficient coarse localization signal to guide SAM prompting (Ravi et al., 2024).",
+        "bbox": [
+            169,
+            541,
+            826,
+            627
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Mask with SAM. We evaluate dense segmentation masks for all video frames using SAM2, and report the results in Tabs. 2 and 3, including both training-based and training-free methods. Loc-Head proposes its own SAM prompting method, but it is developed under a single-object assumption: the largest bounding box (bbox) is obtained using the convex hull algorithm. Also, prompting with an imprecise bbox may result in segmenting non-target objects. On Ref-DAVIS with LLaVA-7B, Loc-Head’s bbox prompting achieves 30.3, whereas our prompting achieves 55.6. This large gap highlights the advantage of our prompting method; thus, we adopt for all subsequent comparisons.",
+        "bbox": [
+            169,
+            631,
+            826,
+            731
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "In regards to training-free methods, our method outperforms Loc-Head across different MLLMs and datasets, including the additionally presented MeViS and Ref-YTVOS (Tab. 3). Although Loc-Head achieves slightly higher scores on Ref-DAVIS with InternVL3-8B, its performance drops substantially on ReasonVOS, which requires handling more complex expressions.",
+        "bbox": [
+            169,
+            734,
+            826,
+            794
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Compared with training-based methods, our method achieves comparable or even superior performance. On Ref-DAVIS, our method with Qwen2.5VL-7B outperforms VISA and VideoLISA by 5.8 and 6.4 J&F, respectively. On MeViS, our method achieves 48.1, outperforming both VISA (44.5) and VideoLISA (44.4), and reaching performance close to VRS-HQ (50.6). It is worth noting that recent state-of-the-art models (GLUS, VRS-HQ, Veason-R1) leverage trained keyframe selection modules, whereas our method simply employs uniform sampling. Even with this difference, our approach surpasses all training-based methods on ReasonVOS, despite Veason-R1 additionally training the same MLLM (Qwen2.5VL) with an RL-based algorithm. This clearly manifests the effectiveness of our method.",
+        "bbox": [
+            169,
+            799,
+            826,
+            924
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "page_number",
+        "text": "8",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "table",
+        "img_path": "images/9ab40f6f1b40c5a7cf3217976a55d313cb1398a5e979e124737cecb8172a3036.jpg",
+        "table_caption": [
+            "Table 4: Ablation study of decomposed attention fusion.",
+            "(a) Object-background contrasting"
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td rowspan=\"2\">MLLM</td><td rowspan=\"2\">Obj</td><td rowspan=\"2\">Bg</td><td colspan=\"2\">Attn Mask</td><td colspan=\"2\">SAM Mask</td></tr><tr><td>Ref-D</td><td>ReasV</td><td>Ref-D</td><td>ReasV</td></tr><tr><td rowspan=\"2\">IVL3</td><td>√</td><td></td><td>12.4</td><td>13.2</td><td>50.8</td><td>54.7</td></tr><tr><td>√</td><td>√</td><td>20.7</td><td>18.4</td><td>62.8</td><td>58.9</td></tr><tr><td rowspan=\"2\">QVL2.5</td><td>√</td><td></td><td>14.5</td><td>13.8</td><td>61.9</td><td>58.4</td></tr><tr><td>√</td><td>√</td><td>25.3</td><td>20.6</td><td>75.2</td><td>63.9</td></tr></table>",
+        "bbox": [
+            176,
+            138,
+            431,
+            223
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "table",
+        "img_path": "images/55b8767412d912552b62602bb21166c6ad6adc206912324e457b04ec8ad3e429.jpg",
+        "table_caption": [
+            "(b) Video-frame complementing (c) Multi-scale complementing"
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>MLLM</td><td>Vid</td><td>Frm</td><td>Ref-D</td><td>ReasV</td></tr><tr><td rowspan=\"3\">IVL3</td><td>√</td><td></td><td>46.0</td><td>50.2</td></tr><tr><td></td><td>√</td><td>60.0</td><td>50.8</td></tr><tr><td>√</td><td>√</td><td>62.8</td><td>58.9</td></tr><tr><td rowspan=\"3\">QVL2.5</td><td>√</td><td></td><td>65.9</td><td>58.6</td></tr><tr><td></td><td>√</td><td>67.4</td><td>58.2</td></tr><tr><td>√</td><td>√</td><td>75.2</td><td>63.9</td></tr></table>",
+        "bbox": [
+            450,
+            138,
+            620,
+            222
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "table",
+        "img_path": "images/5dd6b1d06164ec28f443d6903aedc867a40c91f4b7cc6fb7416efb180c802a3b.jpg",
+        "table_caption": [
+            "Table 7: Ablation study of computing attention consistency score $( s ^ { a c } )$ ."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>MLLM</td><td>MS</td><td>Ref-D</td><td>ReasV</td></tr><tr><td rowspan=\"2\">IVL3</td><td rowspan=\"2\">√</td><td>54.0</td><td>53.7</td></tr><tr><td>62.8</td><td>58.9</td></tr><tr><td rowspan=\"2\">QVL2.5</td><td rowspan=\"2\">√</td><td>72.4</td><td>60.5</td></tr><tr><td>75.2</td><td>63.9</td></tr></table>",
+        "bbox": [
+            638,
+            138,
+            816,
+            218
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "table",
+        "img_path": "images/017a970983e3b367cd8337d339789730f515d709287cb32058ac7fcee02e3079.jpg",
+        "table_caption": [
+            "Table 5: Ablation study of attention rollout. (a) Rollout method",
+            "Table 6: SAM prompting threshold values.",
+            "(b) Starting LLM layer for rollout"
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Method</td><td>Ref-D</td><td>ReasV</td></tr><tr><td>Rollout (Abnar &amp; Zuidema, 2020)</td><td>68.4</td><td>56.8</td></tr><tr><td>Rollout Max (Lin et al., 2024)</td><td>72.9</td><td>60.9</td></tr><tr><td>Rollout V-Max (Ours)</td><td>75.2</td><td>63.9</td></tr></table>",
+        "bbox": [
+            178,
+            268,
+            464,
+            325
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "table",
+        "img_path": "images/205d9d2b47d1fac3c6f6271ca67d1d32904dffa92df370d7dc8648ba47cc4138.jpg",
+        "table_caption": [],
+        "table_footnote": [],
+        "table_body": "<table><tr><td> $\\tau_{trk}$ </td><td> $\\tau_{pq}$ </td><td>Ref-D</td><td>ReasV</td></tr><tr><td>0.7</td><td>0.7</td><td>71.0</td><td>59.9</td></tr><tr><td>0.7</td><td>0.8</td><td>75.0</td><td>62.1</td></tr><tr><td>0.7</td><td>0.9</td><td>74.3</td><td>65.7</td></tr><tr><td>0.8</td><td>0.7</td><td>70.6</td><td>61.1</td></tr><tr><td>0.8</td><td>0.8</td><td>75.2</td><td>63.9</td></tr><tr><td>0.8</td><td>0.9</td><td>74.3</td><td>65.9</td></tr><tr><td>0.9</td><td>0.7</td><td>71.6</td><td>61.7</td></tr><tr><td>0.9</td><td>0.8</td><td>74.5</td><td>64.9</td></tr><tr><td>0.9</td><td>0.9</td><td>74.2</td><td>66.4</td></tr></table>",
+        "bbox": [
+            475,
+            272,
+            620,
+            402
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "table",
+        "img_path": "images/aa838a651cc90d1781d885e04beb3b13f58c252df5998682dc2dd53ac1dbc97d.jpg",
+        "table_caption": [],
+        "table_footnote": [],
+        "table_body": "<table><tr><td rowspan=\"2\">Layer index</td><td colspan=\"2\">Qwen2.5VL-7B</td><td colspan=\"2\">InternVL3-8B</td></tr><tr><td>Ref-D</td><td>ReasV</td><td>Ref-D</td><td>ReasV</td></tr><tr><td>7 (1/4)</td><td>69.2</td><td>62.8</td><td>62.1</td><td>56.8</td></tr><tr><td>14 (2/4)</td><td>75.2</td><td>63.9</td><td>62.8</td><td>58.9</td></tr><tr><td>21 (3/4)</td><td>73.6</td><td>64.1</td><td>55.8</td><td>60.1</td></tr></table>",
+        "bbox": [
+            178,
+            347,
+            464,
+            415
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "table",
+        "img_path": "images/1b571700bd798ea1ab450871463c36366cffae5c996a396ab4e8224a3cfb60f4.jpg",
+        "table_caption": [],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Thresh (μ)</td><td>Penalty (δ)</td><td>Ref-D</td><td>ReasV</td></tr><tr><td colspan=\"2\">Not Use</td><td>60.0</td><td>52.9</td></tr><tr><td>Otsu</td><td></td><td>68.3</td><td>59.6</td></tr><tr><td>Otsu</td><td>√</td><td>67.9</td><td>61.1</td></tr><tr><td>Mean</td><td></td><td>65.1</td><td>56.0</td></tr><tr><td>Mean</td><td>√</td><td>75.2</td><td>63.9</td></tr></table>",
+        "bbox": [
+            632,
+            287,
+            816,
+            356
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "table",
+        "img_path": "images/3c45443ba5bd4b28e7d3aafbf1c9cd0aae0272edd88d8c2241858c80b83b28e1.jpg",
+        "table_caption": [
+            "Table 8: Evaluation on other sizes of MLLMs."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td rowspan=\"2\">MLLM</td><td rowspan=\"2\">Size</td><td colspan=\"3\">Ref-DAVIS</td><td colspan=\"3\">ReasonVOS</td><td colspan=\"3\">ReVOS (Overall)</td><td colspan=\"3\">ReVOS (Referring)</td><td colspan=\"3\">ReVOS (Reasoning)</td></tr><tr><td>J&amp;F</td><td>J</td><td>F</td><td>J&amp;F</td><td>J</td><td>F</td><td>J&amp;F</td><td>J</td><td>F</td><td>J&amp;F</td><td>J</td><td>F</td><td>J&amp;F</td><td>J</td><td>F</td></tr><tr><td rowspan=\"3\">InternVL3</td><td>2B</td><td>53.5</td><td>48.1</td><td>58.9</td><td>54.1</td><td>50.7</td><td>57.6</td><td>38.1</td><td>34.0</td><td>42.2</td><td>42.3</td><td>38.2</td><td>46.5</td><td>33.9</td><td>29.9</td><td>38.0</td></tr><tr><td>8B</td><td>62.8</td><td>56.9</td><td>68.6</td><td>58.9</td><td>55.1</td><td>62.7</td><td>47.4</td><td>43.7</td><td>51.2</td><td>51.7</td><td>47.9</td><td>55.5</td><td>43.2</td><td>39.5</td><td>46.8</td></tr><tr><td>14B</td><td>63.3</td><td>58.3</td><td>68.4</td><td>65.6</td><td>62.2</td><td>68.9</td><td>47.0</td><td>43.0</td><td>51.0</td><td>51.3</td><td>47.2</td><td>55.4</td><td>42.7</td><td>38.8</td><td>46.6</td></tr><tr><td rowspan=\"2\">Qwen2VL</td><td>2B</td><td>41.8</td><td>37.1</td><td>46.6</td><td>47.6</td><td>44.4</td><td>50.8</td><td>30.2</td><td>26.4</td><td>34.0</td><td>37.1</td><td>33.0</td><td>41.2</td><td>23.3</td><td>19.8</td><td>26.8</td></tr><tr><td>7B</td><td>64.1</td><td>59.4</td><td>68.9</td><td>52.5</td><td>49.0</td><td>56.0</td><td>45.3</td><td>41.6</td><td>49.0</td><td>52.7</td><td>48.9</td><td>56.4</td><td>37.9</td><td>34.3</td><td>41.5</td></tr><tr><td rowspan=\"2\">Qwen2.5VL</td><td>3B</td><td>58.1</td><td>53.6</td><td>62.6</td><td>52.9</td><td>49.6</td><td>56.2</td><td>39.7</td><td>35.6</td><td>43.8</td><td>46.5</td><td>42.1</td><td>50.9</td><td>32.9</td><td>29.1</td><td>36.7</td></tr><tr><td>7B</td><td>75.2</td><td>70.9</td><td>79.5</td><td>63.9</td><td>60.5</td><td>67.2</td><td>54.2</td><td>50.1</td><td>58.2</td><td>58.7</td><td>54.8</td><td>62.6</td><td>49.7</td><td>45.4</td><td>53.9</td></tr></table>",
+        "bbox": [
+            176,
+            444,
+            820,
+            555
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "4.3 ABLATION STUDY",
+        "text_level": 2,
+        "bbox": [
+            171,
+            583,
+            344,
+            598
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "We use Qwen2.5-VL-7B (QVL2.5) and InternVL3-8B (IVL3) as models, and Ref-DAVIS (Ref-D) and ReasonVOS (ReasV) as datasets. By default, results are reported with QVL2.5 and J&F.",
+        "bbox": [
+            169,
+            608,
+            825,
+            638
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Decoupled Attention Fusion. We evaluate the effectiveness of DecAF. First, we examine objectbackground contrastive fusion (Tab. 4a), which substantially improves attention mask accuracy on both referring and reasoning VOS datasets (e.g., 12.4 → 20.7 and 14.5 → 25.3 on Ref-D) by suppressing the irrelevant regions. Similar improvements are also observed for SAM mask accuracy.",
+        "bbox": [
+            169,
+            643,
+            826,
+            702
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Second, video-frame complementary fusion (Tab. 4b) further enhances accuracy. For Qwen2.5VL, video-only and frame-only inputs yield 65.9 and 67.4 on Ref-D, respectively, whereas combining both achieves 75.2. Consistent gains are also observed on ReasV and with InternVL3.",
+        "bbox": [
+            169,
+            705,
+            826,
+            750
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "For video-frame fusion, we adopt a multi-scale scheme that leverages higher resolution inputs at the frame level. While Qwen2.5VL supports native resolutions, InternVL and LLaVA-OV models require a fixed input size but can handle dynamic high resolution image inputs through tiling. As shown in Tab. 4c, this multi-scale fusion brings additional improvements, particularly for InternVL, whose attention map resolution is very low without tiling.",
+        "bbox": [
+            169,
+            756,
+            826,
+            828
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Attention Rollout. Tab. 5a compares our method with previous attention rollout methods. Our vision-aware head-weighted normalization further improves accuracy over the method of Lin et al. (2024). We also evaluate different LLM layers for rollout (Tab. 5b), and observe that selecting a middle layer yields the best overall performance.",
+        "bbox": [
+            169,
+            833,
+            826,
+            890
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "SAM Prompting. Tab. 6 reports the results with different threshold values to filter point queries $( \\tau _ { p q } )$ and tracklets $( \\tau _ { t r k } )$ used in the SAM prompting process. Increasing $\\tau _ { p q }$ helps filter out nontarget objects or background regions, but a too high value may result in missing points. While the optimal threshold combination varies across datasets, our method remains substantially robust to threshold choices, and we use $\\tau _ { p q } = 0 . 8$ and $\\tau _ { t r k } = 0 . 8$ across all datasets and models.",
+        "bbox": [
+            171,
+            895,
+            826,
+            925
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "page_number",
+        "text": "9",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "image",
+        "img_path": "images/ef9304081904351c9b7ee6351e2bfcc4c2a7d3ef2784ed0cbb70850f242d4763.jpg",
+        "image_caption": [
+            "Exp: a man performing a headspin.",
+            "Figure 4: Qualitative results of DecAF. Visualization of refined attention maps, coarse attention masks, and dense SAM masks obtained through attention-guided prompting."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            178,
+            122,
+            823,
+            422
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            479,
+            825,
+            523
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "Mask Tracklet Scoring. As shown in Tab. 7, we ablate the attention consistency score $( s ^ { a c } )$ , which contributes to the mask tracklet score $( s ^ { t r k } )$ . Omitting $s ^ { a c }$ and relying only on the object score $s ^ { o b j }$ leads to a significant accuracy drop. For $\\mathbf { M } ^ { A t t n }$ , we compare Otsu thresholding and simple averaging to obtain $\\mu ,$ and for $\\hat { \\textbf { V } }$ , we evaluate both with and without the penalty term (δ). Without $\\delta ,$ Otsu thresholding yields higher accuracy than mean thresholding, as it produces tighter object masks. In contrast, with $\\delta ,$ mean thresholding performs better, as it tends to cover the entire object region, while any included background has low attention scores and low $s ^ { a c }$",
+        "bbox": [
+            169,
+            529,
+            826,
+            630
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "MLLM Scalability. Tab. 8 shows that larger MLLMs generally yield better performance. InternVL3 improves from 53.5 to 63.3 on Ref-D and 54.1 → 65.6 on ReasV while Qwen2.5VL also scales effectively, with its 7B model achieving the best results across all datasets.",
+        "bbox": [
+            169,
+            633,
+            825,
+            679
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "Qualitative Results. Fig. 4 illustrates the qualitative results of DecAF. Our method consistently produces refined attention maps that are precisely aligned with the referred target objects. These results demonstrate that DecAF effectively leverages the inherent localization capabilities of MLLMs without any additional training. Furthermore, our attention-guided SAM2 prompting successfully produces fine-grained dense masks. Detailed visualizations for diverse scenarios, including failure cases, are provided in the Appendix.",
+        "bbox": [
+            169,
+            684,
+            826,
+            768
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "5 CONCLUSION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            780,
+            321,
+            796
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "We explore the intrinsic localization ability of MLLMs by casting video reasoning segmentation as video QA. Based on the attention signals used for answering, we propose Decomposed Attention Fusion (DecAF), which produces robust attention maps convertible into coarse segmentation masks. To obtain fine-grained dense masks, we further introduce an attention-guided SAM2 prompting pipeline. Without training, our method surpasses training-based methods on ReasonVOS, demonstrating that MLLMs’ reasoning capability directly translates into stronger localization for complex expressions. More broadly, since DecAF is agnostic to the underlying modality, it can be extended to localization tasks beyond vision – a promising direction with emerging Omni-MLLMs.",
+        "bbox": [
+            169,
+            811,
+            826,
+            925
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "page_number",
+        "text": "10",
+        "bbox": [
+            490,
+            948,
+            509,
+            960
+        ],
+        "page_idx": 9
+    }
+]

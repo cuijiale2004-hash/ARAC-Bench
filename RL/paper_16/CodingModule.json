@@ -1,0 +1,91 @@
+{
+  "overview": "HyRea proposes a hybrid reasoning framework that enables LLMs to dynamically switch between explicit (token-based) and latent (embedding-based) reasoning during inference, trained via a two-stage pipeline: entropy-guided cold-start SFT that replaces low-entropy CoT steps with continuous embeddings, followed by GRPO-based reinforcement learning to refine the model's reasoning mode selection based on task-specific rewards.",
+  "count": 17,
+  "modules": [
+    {
+      "id": 1,
+      "name": "CoT Data Splitting and Formatting",
+      "description": "Preprocesses chain-of-thought mathematical reasoning data by splitting answers into independent reasoning steps based on newline and period delimiters, ensuring each equation is preserved as an isolated step, and structuring the data into the format [Question, Step1, Step2, ..., StepN, Answer] for downstream training."
+    },
+    {
+      "id": 2,
+      "name": "Reasoning Step Entropy Computation",
+      "description": "Computes token-level entropy for each reasoning step in the CoT data using a pretrained language model. For each step, calculates the entropy of the predicted token distribution to identify low-entropy (deterministic) steps that are suitable candidates for latent replacement, producing entropy scores per step for the replacement pipeline."
+    },
+    {
+      "id": 3,
+      "name": "Entropy-Guided Latent Step Replacement",
+      "description": "Selects reasoning steps for latent replacement based on entropy scores, prioritizing low-entropy steps. Replaces selected steps with a latent segment structure [<start-latent>, latent tokens, <end-latent>], where the number of latent tokens is controlled by a configurable parameter. Progressively increases the number of replaced steps during cold-start training from zero to a maximum threshold, and supports incremental data introduction at each iteration."
+    },
+    {
+      "id": 4,
+      "name": "Hybrid Reasoning Model Architecture",
+      "description": "Extends a standard Transformer-based LLM architecture to support hybrid reasoning by introducing special tokens <start-latent> and <end-latent> into the vocabulary, implementing a mode-switching mechanism in the decoding loop that routes between explicit token decoding and latent embedding-based forward passes, and applying scaled loss weighting on the boundary tokens to emphasize their importance during training."
+    },
+    {
+      "id": 5,
+      "name": "Explicit Reasoning Forward Pass",
+      "description": "Implements the standard autoregressive explicit reasoning mode where the model processes input token embeddings through Transformer blocks, projects the final-layer hidden state through the language modeling head to obtain logits over the vocabulary, and selects the next token via argmax, appending it to the input sequence for subsequent steps."
+    },
+    {
+      "id": 6,
+      "name": "Latent Reasoning Forward Pass",
+      "description": "Implements the Coconut-style latent reasoning mode where, instead of decoding tokens, the model feeds the hidden output from the final layer directly back into the first layer as input for the next position. This bypasses tokenization and operates entirely in the continuous embedding space, enabling compact representation during inference."
+    },
+    {
+      "id": 7,
+      "name": "Cold-Start SFT Loss Computation",
+      "description": "Computes the supervised fine-tuning loss exclusively over visible (non-latent) tokens, excluding all tokens within the latent segment including the <start-latent> and <end-latent> boundary tokens from the standard cross-entropy loss. The boundary tokens receive a scaled loss factor to emphasize their role in learning when to switch reasoning modes."
+    },
+    {
+      "id": 8,
+      "name": "Cold-Start Training Pipeline",
+      "description": "Orchestrates the cold-start supervised fine-tuning stage with progressive latent replacement scheduling. Manages the incremental increase in the number of replaced steps from zero to a maximum threshold across training iterations, handles the progressive introduction of new data at each iteration, and coordinates the SFT loss computation with the entropy-guided replacement strategy."
+    },
+    {
+      "id": 9,
+      "name": "GRPO Reward Function Suite",
+      "description": "Implements the multi-component reward function comprising three components: accuracy reward for correct final answers, format reward for proper structural compliance with the hybrid reasoning format (correct placement of latent boundary tokens), and latent usage reward that encourages the model to generate latent reasoning tokens, guiding the model toward efficient hybrid reasoning behavior."
+    },
+    {
+      "id": 10,
+      "name": "GRPO Loss Computation",
+      "description": "Implements the Group Relative Policy Optimization loss that stabilizes policy learning by evaluating sampled outputs within groups. Computes the advantage for each output by normalizing rewards within the group, applies a clipped surrogate objective with PPO-style clipping to prevent excessive policy updates, and excludes latent tokens from the loss computation to focus optimization on visible reasoning steps."
+    },
+    {
+      "id": 11,
+      "name": "RL Training Pipeline",
+      "description": "Orchestrates the reinforcement learning stage using GRPO. Manages the sampling of multiple outputs per query, evaluates rewards for each sampled output, computes the GRPO loss, and performs gradient-based parameter updates. Handles rollout generation with configurable temperature and group size, and coordinates between the old and updated policy networks."
+    },
+    {
+      "id": 12,
+      "name": "Hybrid Inference Engine",
+      "description": "Implements the inference-time decoding loop that dynamically switches between explicit and latent reasoning modes. When encountering a <start-latent> token, switches to latent reasoning mode using the Coconut-style continuous forward pass; when encountering <end-latent>, switches back to explicit token generation. Tracks mode transitions and supports configurable switching behavior."
+    },
+    {
+      "id": 13,
+      "name": "Evaluation Metrics Module",
+      "description": "Computes all evaluation metrics used in the paper: pass@1 accuracy for mathematical reasoning benchmarks, average output token count including both standard tokens and latent tokens, and average number of latent-explicit mode switches per sample. Supports evaluation across MATH-500, Minerva Math, AMC23, and Olympiad Bench benchmarks."
+    },
+    {
+      "id": 14,
+      "name": "Ablation Study Framework",
+      "description": "Implements ablation experiments including: (1) entropy-based vs. random step replacement comparison for latent step selection, (2) sensitivity analysis of the number of latent replacement tokens varying from 1 to 8 and its effect on accuracy and output length, (3) with-RL vs. without-RL comparison, and (4) cold-start convergence comparison between entropy-based and random sampling strategies."
+    },
+    {
+      "id": 15,
+      "name": "Generalization Evaluation Module",
+      "description": "Evaluates the HyRea-trained model on out-of-distribution generalization benchmarks including MMLU for broad multitask language understanding and GPQA for graduate-level reasoning, measuring both accuracy and output token count to assess the model's ability to transfer its hybrid reasoning capability beyond mathematical domains."
+    },
+    {
+      "id": 16,
+      "name": "Switching Pattern and Entropy Visualization",
+      "description": "Implements visualization of the model's hybrid reasoning behavior by plotting entropy over decoding steps with latent reasoning spans highlighted, analyzing switching frequency and the positioning of latent segments within reasoning trajectories, and generating reward curves (accuracy, format, latent) over training steps to monitor training dynamics."
+    },
+    {
+      "id": 17,
+      "name": "Configuration and Experiment Management",
+      "description": "Manages experiment configurations for all training stages (cold-start SFT and RL), including dataset paths, model specifications, hyperparameters, hardware configurations, and evaluation settings. Handles model checkpoint saving and loading, coordinates distributed training setup with DeepSpeed ZeRO Stage-2 and gradient checkpointing, and integrates with LLaMA-Factory and EasyR1 training frameworks."
+    }
+  ]
+}

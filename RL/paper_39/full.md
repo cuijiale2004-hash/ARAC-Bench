@@ -1,0 +1,213 @@
+## ABSTRACT
+
+We introduce COMPUTERRL, a framework for autonomous desktop intelligence that enables agents to operate complex digital workspaces skillfully. COMPUT-ERRL features the API-GUI paradigm, which unifies programmatic API calls and direct GUI interaction to address the inherent mismatch between machine agents and human-centric desktop environments. Scaling end-to-end RL training is crucial for improvement and generalization across diverse desktop tasks; however, it re mains challenging due to environmental inefficiency and instability during extended training. To support scalable and robust training, we develop a distributed RL infrastructure capable of orchestrating thousands of parallel virtual desktop environments to accelerate large-scale online RL. Furthermore, we propose Entropulse, a training strategy that alternates reinforcement learning with supervised fine-tuning, effectively mitigating entropy collapse during extended training runs. We employ COMPUTERRL on open models GLM-4-9B-0414 and GLM-4.1V-9B-Thinking, and evaluate them on the OSWorld benchmark. The GLM-COMPUTERRL-9B achieves a new state-of-the-art accuracy of 48.9%, demonstrating significant improvements for general agents in desktop automation. Our code is available at https://github.com/THUDM/ComputerRL.
+
+![](images/380d90f42011681f5ad8145c128c6f994e1a42525f9336d224aa8e4b154ed8bc.jpg)  
+(a) The success rates of agents on OSWorld.
+
+![](images/5141d56e568c43543f5620f76ded9913d1db09282b3fcdb6d2aba053fa1b9dbc.jpg)  
+(b) COMPUTERRL training reward curves (95% CIs).
+
+Figure 1: COMPUTERRL enables efficient end-to-end online policy optimization for OS agents. (a) On OSWorld (Xie et al., 2024), GLM-COMPUTERRL, trained with COMPUTERRL, outperforms state-of-the-art agents. (b) Our Entropulse approach yields higher average training rewards and improves both learning efficiency and final performance over conventional methods.
+
+## 1 INTRODUCTION
+
+Large Language Models (LLMs) (Achiam et al., 2023; Touvron et al., 2023b; Zeng et al., 2022; GLM et al., 2024; Team et al., 2023; Guo et al., 2025; Bai et al., 2023a; Yang et al., 2025) have dramatically expanded the scope and depth of artificial intelligence capabilities, driving a profound re-examination of our understanding of machine intelligence. Among all scenarios, the emergence of LLM-based GUI (graphical user interface) agents, capable of independently perceiving, reasoning, and executing complex tasks on user devices, has aroused particular interest from researchers (Xi et al., 2023; Wang et al., 2023; Liu et al., 2023). Given that desktops remain central to intelligence-intensive tasks, developing computer use agents is crucial for fundamentally transforming human-computer interactions and elevating AI capabilities (Agashe et al., 2025; Wu et al., 2024a).
+
+Despite previous attempts to develop computer use agents (Agashe et al., 2025; Lei et al., 2024; Xie et al., 2025), enabling them to operate autonomously over extended periods in real-world scenarios remains a significant challenge. The first primary obstacle arises from the fact that GUIs are inherently designed for human interaction, making the simulation of human actions by GUI agents (Liu et al., 2024b; OpenAI, 2025; Qin et al., 2025) a non-trivial and cumbersome endeavor. Second, current mainstream approaches of behavior cloning (BC) (Bain & Sammut, 1995; Bratko et al., 1995), including manual annotation (He et al., 2025) and model distillation (Sun et al., 2024; Xu et al., 2024), are limited in scalability and effectiveness. Manual annotation, while precise, is prohibitively laborintensive for complex tasks. Model distillation, on the other hand, is constrained by the performance of the teacher models, limiting overall capability. Both methods typically exhibit poor generalization and limited error recovery abilities. Finally, although reinforcement learning (RL) has shown potential for desktop automation tasks (Lu et al., 2025; Feng et al., 2025), its practical application remains restricted due to computational complexity and methodological challenges. Complex environments, slow convergence, and known inefficiencies in RL training (Xie et al., 2024; Bonatti et al., 2024; Yu et al., 2025; Fu et al., 2025) severely limit its large-scale adoption in training computer use agents.
+
+In this work, we propose COMPUTERRL, an end-to-end algorithmic framework designed to advance desktop-level planning, reasoning, and device operation. This framework includes a new API-GUI interaction paradigm, a scalable RL training infrastructure for computer environments, and an RL algorithm for extended effective training. First, we introduce API-GUI, a large-scale, automatically constructed API ecosystem that enables the agent to transcend the inherent biases of human-oriented operational paradigms. It instead leverages a more machine-oriented approach for device interaction, which combines API calls and GUI actions, thereby significantly enhancing both the versatility and overall performance of the agent. Second, we develop a distributed training infrastructure utilizing virtual machine clusters based on Docker and gRPC protocols for scalability, which is fully compatible with AgentBench (Liu et al., 2023). This infrastructure supports thousands of parallel environments, ensuring high scalability and consistent interactions across all environments. Additionally, we integrate the training infrastructure with the AgentRL framework (Zhang et al., 2025) to facilitate efficient asynchronous training, thereby accelerating the training process. Finally, to counteract stagnation and convergence issues in RL training—specifically, entropy collapse and rising KL divergence—we propose Entropulse, which alternates between RL and SFT phases periodically. This approach maintains exploratory capacity and ensures continuous performance gains (Figure 1b).
+
+As a result, by harnessing end-to-end RL and optimization in the desktop environment, COMPUTERRL has achieved remarkable improvement in understanding and operating GUIs. Evaluation on the OSWorld benchmark (Xie et al., 2024) shows COMPUTERRL’s significant improvements (see Figure 1a) in computer use challenges, achieving a success rate of 48.9% (with 66% performance gain from RL), outperforming other state-of-the-art models including OpenAI CUA o3 (42.9%), UI-TARS-1.5 (42.5%), and Anthropic Claude Sonnet 4 (30.7%).
+
+In summary, our contributions are as follows:
+
+• We propose a new interaction paradigm, a shift from human-centric to machine-oriented interaction by introducing a large-scale, automatically constructed API ecosystem integrated with conventional GUI operations. This approach addresses the inherent mismatch between human-designed interfaces and artificial agent capabilities, while achieving superior operational efficiency and generalization performance on computer-based tasks.
+
+• We establish a large-scale, distributed RL infrastructure for computer use agents by reconstructing virtual machine clusters, achieving unprecedented scalability with thousands of parallel environments and seamless AgentBench compatibility, thereby overcoming the critical bottleneck that has limited RL-based computer use agent training to scale experiments and enabling breakthrough results in large-scale agent training.
+
+![](images/490333c9f052384a4ca604e783603242a5a9d62240dd30a8bf672dce2bbeea08.jpg)  
+Figure 2: Overview of COMPUTERRL framework. We introduce an API-GUI action paradigm that seamlessly integrates automatically constructed APIs with GUI actions to improve agent efficiency and effectiveness. A large-scale parallel desktop environment with 1,000+ real-world instances, combined with an asynchronous RL framework, enables efficient sampling and robust agent training.
+
+• We introduce Entropulse, a novel training methodology that systematically addresses the challenges of entropy collapse and KL divergence accumulation in extended RL training through strategic alternation between RL and SFT phases, enabling sustained performance improvements and achieving state-of-the-art performance in computer automation.
+
+## 2 THE COMPUTERRL FRAMEWORK
+
+The human-oriented design of GUIs hinders agent efficiency, while limited environment scalability restricts large-scale training. This section presents the COMPUTERRL framework (see Figure 2), which features an API-GUI paradigm that integrates human-like GUI interactions with efficient API invocation. Additionally, we develop a scalable Ubuntu desktop environment for parallelism and utilize a fully asynchronous RL framework for efficient training.
+
+## 2.1 GENERAL API-GUI PARADIGM
+
+Existing GUI agents face challenges due to their reliance on human-like interactions, while APIbased control offers efficiency but introduces implementation complexity and security restrictions. To address these issues, we propose an API-GUI paradigm that unifies both action spaces, enabling agents to leverage API efficiency while retaining GUI versatility.
+
+We develop an LLM-based automated workflow for application API development (Yang et al., 2024a; Wang et al., 2024), significantly lowering the barrier for API creation. Users provide exemplar tasks, and our system autonomously generates API code and test cases through three stages:
+
+• Requirement Analysis: Users provide task examples for the target application. Our LLM analyzes these instances, extracts essential functionalities, and compares against existing API in terfaces to identify gaps. New interfaces are automatically generated for uncovered functionalities, with a focus on general-purpose functions to minimize complexity and enhance usability.
+
+• API Implementation: The workflow iterates over each interface definition, implementing API functionalities using designated Python libraries. Error-handling mechanisms and logging are implemented for debugging and maintenance purposes.
+
+• Test Case Generation: Similar to Li & Yuan (2024), we verify API correctness by checking: (1) runtime error-free invocation and (2) correct results across parameter inputs; failed APIs receive error feedback for autonomous correction.
+
+This methodology enables the creation of application-specific APIs with minimal human intervention. We have developed API sets for multiple Ubuntu applications and validated their effectiveness through experiments. Detailed API development workflow is provided in Appendix A. The agent action space and prompt formulation are detailed in Appendix B and C.
+
+## 2.2 STABLE UBUNTU ENVIRONMENT FOR LARGE-SCALE PARALLELISM
+
+A stable and scalable Ubuntu environment is essential for constructing behavior cloning data and large-scale RL training. Building on OSWorld (Xie et al., 2024), we identify key limitations:
+
+• Resource Intensiveness and Stability: VMs are CPU-intensive and unstable under high concurrency, causing performance degradation and system freezes.
+
+• Network Bottlenecks: Heavy workloads cause network overhead, connection failures, and IP address loss, hindering agent interaction and logging.
+
+• Lack of Native Distributed Support: OSWorld lacks multi-node clustering support, preventing efficient distributed deployment.
+
+To address these limitations, we build a robust and parallelizable OSWorld infrastructure (see Figure 2) with the following innovations:
+
+• Standardized, Decoupled Interface: We refactor the environment via AgentBench API, provid ing a unified interface that decouples environment execution from the computational back-end and enables flexible resource management.
+
+• Lightweight VM Deployment: Using qemu-in-dockere, we deploy containerized Ubuntu VMs with streamlined images that reduce network issues and optimize resource usage, significantly lowering per-instance CPU consumption.
+
+• Distributed Multi-Node Clustering: We employ gRPC-based communication to link CPU nodes into a distributed cluster with centralized resource allocation and orchestration.
+
+• Web-based Visualization and Monitoring: A web interface provides real-time visualization of environment statuses, agent states, and resource allocation, improving usability and debugging capabilities.
+
+Through these technical improvements, our system supports deployment of several thousands of concurrent environments on a multi-node CPU cluster, as validated by extensive empirical evaluation. Results confirm our platform’s superior stability, resource efficiency, and scalability, making it an enabling infrastructure for large-scale RL and agent-based research.
+
+## 2.3 FULL-ASYNCHRONOUS RL FRAMEWORK FOR EFFICIENT TRAINING
+
+Existing RL frameworks rely on synchronous training paradigms, where rollout collection and parameter updates are alternated, resulting in training inefficiencies. To address the limitation, we use the AgentRL framework (Zhang et al., 2025) for fully asynchronous RL training with the following designs:
+
+• Resource Partitioning: Data collection runs on dedicated resources while the trainer streams data from the replay engine, preventing mutual blocking.
+
+• Dynamic Batch Sizing: The trainer processes incoming data with flexible batch sizes, reducing idle time and improving efficiency.
+
+• Modular Component Isolation: Actor, reference, and critic modules run independently with dedicated resources. We utilize PyTorch distributed groups and NCCL for efficient parameter sharing.
+
+• Off-policy Bias Mitigation: We limit the replay buffer size and sync trajectories after each update, ensuring trajectories remain close to the latest policy.
+
+Through a stable, high-concurrency desktop environment and the decoupling of training from rollout, we markedly enhance the efficiency of sampling and RL training. Our system achieves a high average power consumption per GPU, reflecting optimal resource utilization. This design supports scalable, high-throughput RL training by enabling dynamic workload balancing, resulting in a significant improvement in hardware efficiency and overall training throughput.
+
+## 3 THE COMPUTERRL TRAINING
+
+In Section 2, we establish a robust foundation for large-scale agent training. However, scaling end-to-end training still faces challenges in initializing a capable base policy and entropy collapse during RL. This section details our scalable COMPUTERRL training approach and its algorithmic innovations for extended training in desktop environments.
+
+![](images/7c0ed072d51ab21b0112c704da1e6e308c96273b5c5e943a1439d08ba8c0579d.jpg)  
+Figure 3: Overview of COMPUTERRL, which includes three stages: (1) BC cold start with trajectories collected from general LLMs; (2) RL with step-level GRPO using verifiable, rule-based rewards; (3) Entropulse, which alternates RL with SFT on correct rollouts to restore entropy and sustain learning.
+
+## 3.1 BEHAVIOR CLONING SETUP
+
+To perform a cold start for our model, we employ BC as the initial stage of training. By imitating user interactions, BC enables agents to acquire foundational competencies, thereby facilitating rapid adaptation to computer operations and tasks.
+
+Trajectory Collection with Multiple LLMs. We manually collect extensive tasks with corresponding evaluation functions (see Appendix F) and augment to construct an 8k-task dataset. However, the large scale collection of high-quality trajectories remains challenging. Manual annotation is prohibitively expensive, and relying on a single model for trajectory generation results in limited and homogeneous data distribution constrained by that model’s capabilities. To address these limitations, we leverage the complementary strengths of multiple advanced models to collect a diverse and high-quality set of interaction trajectories. Concretely, our data pipeline consists of three key stages:
+
+1. Initial Sampling: For each task, we utilize closed-source LLMs to sample several trajectories per task independently. We record both the complete interaction trajectories and the outputs produced by the respective evaluation functions. This procedure yields a rich set of diverse trajectories that serve as the foundation for subsequent data augmentation and model adaptation.
+
+2. Outcome Stratification: Following initial data collection, we perform a stratified analysis of task outcomes by categorizing all tasks into three groups based on achieved accuracy: Fully Solved (acc = 100%), Partially Solved (0 < acc < 100%), and Unsolved (acc = 0%).
+
+3. Task-Oriented Augmentation with Stratified Sampling: For partially solved tasks, we conduct SFT on our backbone model using the initial trajectories as input. The fine-tuned model is then used to sample additional trajectories for each task, thereby substantially expanding the coverage and quality of trajectories for tasks where model proficiency was previously limited.
+
+For tasks classified as unsolved, we build a model pool of high-performing models and randomly select one to determine each action. This approach leverages inter-model variance at the task level, as different models exhibit distinct areas of expertise despite comparable aggregate performance, enabling trajectory generation that is unattainable by any single model.
+
+We systematically aggregate and filter the collected interaction data, retaining only successful trajectories (180k+ correct steps), and employ them for supervised fine-tuning of the model. This strategy equips the model with robust desktop manipulation capabilities and foundational reasoning abilities, significantly enhancing the performance of the base model.
+
+## 3.2 REINFORCEMENT LEARNING WITH VERIFIABLE REWARDS
+
+Step-Level Group Relative Policy Optimization. We extend the GRPO algorithm (Shao et al., 2024) to the step-level, making it more suitable for agent RL training. For each task τ, the policy π<sub>θ</sub> interacts with the desktop environment and samples G trajectories $\mathcal { T } _ { 1 } , \mathcal { T } _ { 2 } , \ldots , \mathcal { T } _ { G }$ . The i-th trajectory consists of $L _ { i }$ step-level actions $o _ { i , 1 } , . . . , o _ { i , L { i } }$ . All steps from the same task are grouped, and the advantage $A _ { i , j }$ is computed for each step. The overall loss aggregates all step advantages as follows:
+
+$$
+\begin{array}{l}\mathcal {J} _ {S t e p G R P O} (\theta) = \mathbb {E} _ {\mathcal {T} \sim P (\mathcal {T}), \left\{\{o _ {i, j} \} _ {j = 1} ^ {L _ {i}} \right\} _ {i = 1} ^ {G} \sim \pi_ {\theta_ {o l d}}} \left[ \frac {1}{\sum_ {i = 1} ^ {G} L _ {i}} \sum_ {i = 1} ^ {G} \sum_ {j = 1} ^ {L _ {i}} \left(\min \left(\frac {\pi_ {\theta} (o _ {i , j} | q _ {i , j})}{\pi_ {\theta_ {o l d}} (o _ {i , j} | q _ {i , j})} A _ {i, j}, \right. \right.   \right.\\\left.\left. \operatorname{clip} \Bigl (\frac {\pi_ {\theta} (o _ {i , j} | q _ {i , j})}{\pi_ {\theta_ {o l d}} (o _ {i , j} | q _ {i , j})}, 1 - \epsilon , 1 + \epsilon \Bigr) A _ {i, j}\right) - \beta \mathbb {D} _ {K L} (\pi_ {\theta} \| \pi_ {r e f})\right)\left. \right],\\A _ {i, j} = \frac {r _ {i , j} - \mathrm{mean} (\mathcal {R})}{\mathrm{std} (\mathcal {R})}, \quad \mathcal {R} = \{r _ {u, v} \mid u = 1, \ldots , G,   v = 1, \ldots , L _ {u} \}\end{array}
+$$
+
+Reward Design. We select a subset of the constructed human-annotated data (in Section 3.1) for RL and employ a rule-based verification function to provide verifiable training signals for each trajectory. Successfully solved trajectories receive a reward of 1 for every correctly formatted action that contributes to the solution; failed trajectories or improperly formatted actions receive a reward of 0. Unlike conventional approaches that propagate step-wise returns via the Bellman equation, our methodology treats each prompt-response pair as an independent training instance with rewards based on the final trajectory outcome. This direct reward assignment provides explicit feedback by coupling agent behaviors with task success, facilitating effective policy optimization.
+
+## 3.3 ENTROPULSE FOR SCALING RL TRAINING
+
+In the RL training in Section 3.2, we observe that model performance plateaus after hundreds of training steps, with stagnating task completion rates and decreasing entropy. This premature convergence motivates us to investigate strategies for extending effective training and enhancing policy exploration. Inspired by DAPO (Yu et al., 2025), we experiment with increasing the clipping threshold, which attenuates the decline in entropy but significantly slows down policy improvement.
+
+To address the issue, we propose Entropulse, motivated by the observation that SFT and RL objectives differ markedly during training. As entropy decreases during RL optimization, integrating SFT at critical junctures enhances exploration and trajectory diversity, facilitating further policy optimization. During initial RL training, we aggregate and retain all successful rollout trajectories. While conventionally discarded after single use, these trajectories from various policies at different training steps represent valuable and diverse behavioral data.
+
+We process this dataset by randomly selecting successful trajectories per unique task to construct a new SFT training set, which exhibits the following attributes:
+
+1. High quality: All data comprises completed, high-fidelity trajectories.
+
+2. Diversity: Rollouts originate from heterogeneous policies in different training steps, offering a variety of problem-solving strategies.
+
+3. Computational efficiency: The dataset leverages existing interaction data, eliminating the need for additional environment rollouts.
+
+SFT on this dataset produces notable shifts in policy behavior. While evaluation task performance remains stable, the resulting policy shows increased entropy relative to the original one, indicating enhanced exploration. Building upon this enhanced exploration capability, we conduct a second round of RL training, which yields significant performance improvements and enables us to achieve state-of-the-art results in computer automation. The training and hardware details are in Appendix D.
+
+## 4 EXPERIMENTS
+
+We employ COMPUTERRL on GLM-4-9B-0414 (GLM et al., 2024) and GLM-4.1V-9B-Thinking (Hong et al., 2025), to produce GLM-COMPUTERRL-9b. We conduct extensive experiments across various scenarios to evaluate GLM-COMPUTERRL’s performance within the computer environment.
+
+Table 1: GLM-COMPUTERRL performance on OSWorld and OSWorld-Verified (updated in 2025.08). We compare GLM-COMPUTERRL with state-of-the-art agents, including both proprietary and open models.
+
+<table><tr><td>Agent Model</td><td>#Params</td><td>OSWorld</td><td>OSWorld-Verified</td></tr><tr><td colspan="4">Proprietary Models</td></tr><tr><td>Aria-UI w/ GPT-4o (Yang et al., 2024b)</td><td>-</td><td>15.2</td><td>-</td></tr><tr><td>Aguvis-72B w/ GPT-4o (Xu et al., 2024)</td><td>-</td><td>17.0</td><td>-</td></tr><tr><td>Claude 3.7 Sonnet (Anthropic, 2023)</td><td>-</td><td>28.0</td><td>35.8</td></tr><tr><td>Claude 4.0 Sonnet (Anthropic, 2023)</td><td>-</td><td>30.7</td><td>43.9</td></tr><tr><td>Agent S2 w/ Claude-3.7-Sonnet (Agashe et al., 2025)</td><td>-</td><td>34.5</td><td>-</td></tr><tr><td>InfantAgent (Lei et al., 2024)</td><td>-</td><td>35.3</td><td>-</td></tr><tr><td>OpenAI CUA 4o (OpenAI, 2025)</td><td>-</td><td>38.1</td><td>31.3</td></tr><tr><td>Agent S2 w/ Gemini-2.5-Pro (Agashe et al., 2025)</td><td>-</td><td>41.4</td><td>45.8</td></tr><tr><td>UI-TARS-1.5 (Qin et al., 2025)</td><td>-</td><td>42.5</td><td>-</td></tr><tr><td>OpenAI CUA o3 (OpenAI, 2025)</td><td>-</td><td>42.9</td><td>-</td></tr><tr><td colspan="4">Open Models</td></tr><tr><td>Qwen2.5-vl-72B (Bai et al., 2023b)</td><td>72B</td><td>8.8</td><td>5.0</td></tr><tr><td>PC Agent-E (He et al., 2025)</td><td>72B</td><td>14.9</td><td>-</td></tr><tr><td>UI-TARS-72B-SFT (Qin et al., 2025)</td><td>72B</td><td>18.8</td><td>-</td></tr><tr><td>UI-TARS-72B-DPO (Qin et al., 2025)</td><td>72B</td><td>24.6</td><td>27.1</td></tr><tr><td>UI-TARS-1.5-7B (Qin et al., 2025)</td><td>7B</td><td>26.9</td><td>27.4</td></tr><tr><td>Jedi-7B w/ GPT-4o (Xie et al., 2025)</td><td>7B+</td><td>27.0</td><td>29.3</td></tr><tr><td>UI-TARS-7B-1.5 + ARPO (Lu et al., 2025)</td><td>7B</td><td>29.9</td><td>-</td></tr><tr><td colspan="4">COMPUTERRL (ours)</td></tr><tr><td>w/ GLM-4-9B-0414</td><td>9B</td><td> $48.1 \pm 1.0$ </td><td> $47.3$ </td></tr><tr><td>w/ GLM-4.1V-9B-Thinking</td><td>9B</td><td> $48.9 \pm 0.5$ </td><td> $48.0$ </td></tr></table>
+
+## 4.1 MAIN RESULTS
+
+To closely reflect the real user experience, we evaluate GLM-COMPUTERRL on the OSWorld (Xie et al., 2024) and OSWorld-Verified benchmark, comparing its performance against state-of-the-art models, including CUA (OpenAI, 2025), Claude-4 (Anthropic, 2023), and UI-TARS (Qin et al., 2025), among others. The comparative results are in Table 1. The results indicate that GLM-COMPUTERRL achieves superior performance across a range of domains, with its advantages most pronounced in the challenging multi-apps setting. Moreover, by employing the API-GUI strategy, GLM-COMPUTERRL can accomplish tasks using at most 1/3 of the steps required by the strongest baseline approaches, demonstrating remarkable gains in execution efficiency. These results underscore the potential of COMPUTERRL to advance the state of the art in computer automation across various applications.
+
+## 4.2 OFFICE APPLICATION PERFORMANCE
+
+As a critical interface for delivering and presenting, office application constitutes an important testbed for evaluating computer use agents. To assess agent performance in this domain, we curate a set of 180 challenging tasks from three sources: SpreadsheetBench (Ma et al., 2024), PPTC (Guo et al., 2023), and in-house developed Writer domain tasks. These tasks are adapted as necessary to integrate them into the OSWorld framework. The resulting benchmark, termed OfficeWorld, enables systematic measurement of agent capabilities in office-oriented scenarios. The results are in Table 2.
+
+## 4.3 ABLATION STUDY
+
+To evaluate the influence of various algorithms and training datasets on agent performance, we present an ablation study on the OSWorld benchmark in Table 3.
+
+Framework Ablation. We compare the performance of the GUI-only approach with our proposed API-GUI paradigm using GPT-4o. The results demonstrate that the API-GUI paradigm substantially outperforms the GUI-only baseline across all domains. Specifically, the API-GUI strategy achieves an average success rate of 26.2%, representing a 134% improvement over the GUI-only approach (11.2%). The most significant gains are observed in the Office (27.9% vs. 6.2%) and Professional (41.6% vs. 14.3%) domains, where API-GUI provides 350% and 191% improvements, respectively. These results validate our core hypothesis that combining API calls with GUI interactions enables more efficient and reliable task execution, particularly for complex professional workflows that benefit from programmatic control.
+
+Table 2: GLM-COMPUTERRL performance on OfficeWorld compared to common baselines. We employ the same framework (with tools) and test settings to ensure a fair comparison.
+
+<table><tr><td>Agent Model</td><td>Word</td><td>Excel</td><td>PPT</td><td>Average</td></tr><tr><td>DeepSeek-V3.1 (Liu et al., 2024a)</td><td>6.7</td><td>35.0</td><td>21.7</td><td>21.1</td></tr><tr><td>DeepSeek-R1 Guo et al. (2025)</td><td>13.3</td><td>36.7</td><td>18.3</td><td>22.8</td></tr><tr><td>Claude 3.7 Sonnet (Anthropic, 2023)</td><td>15.0</td><td>25.0</td><td>25.0</td><td>21.7</td></tr><tr><td>Claude 4.0 Sonnet (Anthropic, 2023)</td><td>18.3</td><td>35.0</td><td>20.0</td><td>24.4</td></tr><tr><td>Gemini-2.5-Pro (Team et al., 2023)</td><td>5.0</td><td>11.7</td><td>20.0</td><td>12.2</td></tr><tr><td>GPT-4o (Hurst et al., 2024)</td><td>18.3</td><td>21.7</td><td>8.3</td><td>16.1</td></tr><tr><td>GPT-4.1 (Achiam et al., 2023)</td><td>21.7</td><td>25.0</td><td>28.3</td><td>25.0</td></tr><tr><td>OpenAI o3 (Jaech et al., 2024)</td><td>23.3</td><td>36.7</td><td>41.7</td><td>33.9</td></tr><tr><td>COMPUTERRL (ours)</td><td></td><td></td><td></td><td></td></tr><tr><td>w/ GLM-4-9B-0414</td><td>21.7</td><td>58.3</td><td>43.3</td><td>41.1</td></tr><tr><td>w/ GLM-4.1V-9B-Thinking</td><td>30.0</td><td>58.3</td><td>41.7</td><td>43.3</td></tr></table>
+
+Table 3: Ablation study on framework designs and training methods. We categorize OSWorld into five distinct domains to facilitate a granular comparison of different strategies across various domains.
+
+<table><tr><td>Method</td><td>OS</td><td>Office</td><td>Daily</td><td>Professional</td><td>Workflow</td><td>Avg.</td></tr><tr><td colspan="7">Framework Ablation (w/ GPT-4o)</td></tr><tr><td>GUI Only</td><td>41.7</td><td>6.2</td><td>12.3</td><td>14.3</td><td>7.5</td><td>11.2</td></tr><tr><td>API-GUI</td><td>52.6</td><td>27.9</td><td>25.7</td><td>41.6</td><td>10.8</td><td>26.2</td></tr><tr><td colspan="7">Training Ablation (w/ Qwen2.5-14B)</td></tr><tr><td>Untrained</td><td>20.8</td><td>17.2</td><td>19.7</td><td>22.9</td><td>3.3</td><td>15.2</td></tr><tr><td>+) Behavior Cloning</td><td>54.2</td><td>35.0</td><td>37.2</td><td>45.8</td><td>10.8</td><td>31.9</td></tr><tr><td>+) RL Phase 1</td><td>83.3</td><td>46.1</td><td>45.1</td><td>56.3</td><td>16.1</td><td>42.0</td></tr><tr><td>+) Entropulse</td><td>75.0</td><td>42.3</td><td>50.6</td><td>52.1</td><td>18.9</td><td>41.5</td></tr><tr><td>+) RL Phase 2</td><td>83.3</td><td>46.2</td><td>46.7</td><td>60.4</td><td>27.2</td><td>45.8</td></tr></table>
+
+Training Ablation. We study the progressive impact of different training stages using Qwen2.5-14B. Starting from the backbone, Behavior Cloning (BC) establishes a solid foundation with 31.9%. The first RL phase (RL1) yields substantial gains, increasing the performance to 42.0% (+10.1%). Interestingly, Entropulse phase maintains similar performance (41.5%) while significantly increasing action entropy, which enhances exploration diversity and enables the final RL2 phase to achieve further improvements. The RL2 phase achieves the best performance at 45.8% (+3.8% from RL1), benefiting from the increased exploration capacity introduced by Entropulse. Notably, the Workflow domain shows the most dramatic improvement throughout training (10.8% → 27.2%), while the other domains maintain consistently high performance, highlighting the importance of multi-stage training.
+
+RL Scalability. We present the RL training reward and entropy curves in Figure 4 to study the impact of Entropulse on the extended RL training dynamics. After the first RL phase converges, we compare the second RL phase with and without Entropulse. To ensure a fair comparison, we reset the reference model in both scenarios.
+
+The results demonstrate that incorporating Entropulse increases the model’s entropy, thereby restoring its exploratory capacity. This enhanced exploration substantially scales the effective training steps, ultimately leading to improved overall performance.
+
+## 4.4 CASE STUDY AND ERROR ANALYSIS
+
+![](images/8e71e9356f3fa913c4fedb9c8c04d240035126c2ff744fc85124ad9278c1350a.jpg)
+
+![](images/c7b6e611fa4fe2668e81b6cc6f61491a565646a9b73f3be7eeef4f219a4c2582.jpg)  
+Figure 4: COMPUTERRL training curves of reward (left) and entropy (right) with 95% confidence intervals. The red line denotes the training with entropy recovery via Entropulse after the first RL stage, while the grey line denotes continued training with only reference resetting.
+
+We conduct a case study in the desktop environment to identify potential avenues for system optimization. Although our model exhibits robust performance across most scenarios, several limitations have been identified. In particular, errors encountered during task execution can be categorized into four primary types: visual perception errors, multi-application coordination failures, operational illusions, and other errors. The distribution of these error types is presented in Figure 5.
+
+![](images/219caf42831403ffed62ab0f3834b87383d5ca5620c1839822aea9456479f14f.jpg)
+
+## 4.5 EXPERIMENTS WITH DIFFERENT BASE MODELS
+
+Figure 5: Error distribution.
+
+To further verify the effectiveness of our method, we conduct repetitive experiments with different base models (both text and multimodal),
+
+demonstrating the stability and superiority of our approach. The results are reported in Figure 6.
+
+![](images/e37708f38aeabf4008dfb97535d948f3679a2963129349555f6077a7fb6d99fe.jpg)  
+Figure 6: Repetitive experiments with different base models (95% CIs).
+
+Appendix E presents more experimental results. Additional examples (including both good and bad) are provided in Appendix H to further illustrate the model’s capabilities and limitations.
+
+## 5 RELATED WORK
+
+Large Language Models. LLMs, such as GPT (Achiam et al., 2023), Gemini (Team et al., 2023), Claude (Anthropic, 2023), Llama (Touvron et al., 2023a), GLM (Zeng et al., 2022; Du et al., 2022), Qwen (Team, 2024), and Deepseek (Liu et al., 2024a), have demonstrated remarkable capabilities in knowledge representation and language understanding, leading to diverse downstream applications. Vision-Language Models (VLMs) (Hong et al., 2023; 2025; Bai et al., 2023b; Hurst et al., 2024) further extend LLMs to multimodal inputs, enabling joint reasoning over text and images.
+
+Computer Use Agents. CogAgent (Hong et al., 2023) introduces multimodal GUI understanding. AutoGLM (Liu et al., 2024b) decouples planning and grounding with online RL improvement. OS-Atlas (Wu et al., 2024b) proposes a foundational GUI action model. Aguvis (Xu et al., 2024) enables cross-platform interaction through visual training. PC-Agent-E (He et al., 2025) utilizes trajectory boosting for enhanced proficiency. UI-TARS (Qin et al., 2025) performs human-like GUI interactions from screenshots. Agent S2 (Agashe et al., 2025) integrates grounding with hierarchical reasoning. CUA (OpenAI, 2025) offers programmable desktop automation.
+
+Computer Use Benchmarks. WebArena (Zhou et al., 2023) provides simulated websites for online interactions, but has limitations: discrepancies from real-world environments and a web-only focus. Similar issues exist in other web-focused benchmarks (Yao et al., 2022; Koh et al., 2024; Chezelles et al., 2024; Miyai et al., 2025). Software engineering benchmarks (Jimenez et al., 2023; Yang et al., 2024a; Li et al., 2024; Zan et al., 2025; Padigela et al., 2025) lack comprehensive desktop evaluation. OSWorld (Xie et al., 2024) addresses these gaps with 369 tasks with 134 evaluation functions. Windows Agent Arena (Bonatti et al., 2024) expands this with 150+ Windows-based tasks.
+
+RL and Entropy Management for LLMs. PPO (Schulman et al., 2017) addresses instability in policy gradients for RL training. GRPO (Guo et al., 2025) extends PPO with group sampling and removes value updates. Maximum entropy RL (Haarnoja et al., 2018) and ensemble methods (Lee et al., 2021; De Paola et al., 2025) maintain diversity through regularization or multiple models. Recent work identifies entropy collapse as a critical challenge in LLM RL (Cui et al., 2025), with proposed solutions including DAPO (Yu et al., 2025) with adaptive clipping and token-level interventions (Hao et al., 2025). Entropulse takes a different approach by actively restoring collapsed entropy through targeted SFT training on diverse rollout data, achieving extended training.
+
+## 6 CONCLUSION
+
+In this work, we present COMPUTERRL, a novel computer use agent that integrates API-based and GUI-based actions with scalable RL training. Our experiments on OSWorld and OfficeWorld demonstrate superior performance compared to prior approaches, laying the groundwork for more capable autonomous computer use agents.
+
+## ACKNOWLEDGMENT
+
+This work was supported by Fundamental and Interdisciplinary Disciplines Breakthrough Plan of the Ministry of Education of China (No. JYB2025XDXM101), Natural Science Foundation of China (NSFC) 62425601 and 62495063, the New Cornerstone Science Foundation through the XPLORER PRIZE.

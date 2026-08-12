@@ -1,0 +1,2351 @@
+[
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "ABSTRACT"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                450,
+                266,
+                547,
+                282
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Reinforcement Learning with Verifiable Rewards (RLVR) has proven effective for complex reasoning tasks with clear correctness signals such as math and coding. However, extending it to real-world reasoning tasks is challenging, as evaluation depends on nuanced, multi-criteria judgments rather than binary correctness. Instance-specific rubrics have recently been used in evaluation benchmarks to capture such judgments, but their potential as reward signals for on-policy posttraining remains underexplored. We introduce Rubrics as Rewards (RaR), an on-policy reinforcement learning method that extends RLVR beyond verifiable domains by using rubric-based feedback. Across both medical and science domains, we evaluate multiple strategies for aggregating rubric feedback into rewards. The best RaR variant achieves relative improvements of up to 31% on HealthBench and 7% on GPQA-Diamond over popular LLM-as-judge baselines that rely on direct Likert-based rewards. These results demonstrate that RaR-trained policies adapt well to diverse evaluation formats, performing strongly on both rubric-based and multiple-choice tasks. Moreover, we find that using rubrics as structured reward signals yields better alignment for smaller judges and reduces performance variance across judge scales."
+                    }
+                ]
+            },
+            "bbox": [
+                230,
+                297,
+                767,
+                536
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "1 INTRODUCTION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                174,
+                565,
+                338,
+                580
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Reinforcement Learning with Verifiable Rewards (RLVR) has enabled large language models to elicit complex reasoning on tasks with clear verifiable outcomes. This is especially effective in domains like math and code, where reward models can be replaced by scoring functions or test cases that automatically verify correctness (Lambert et al., 2024; Guo et al., 2025a; Cui et al., 2025). However, extending RLVR to unstructured, real-world reasoning is challenging because such tasks lack easily verifiable answers. A common workaround is to use preference-based reward models, but they tend to overfit superficial artifacts (e.g. response length, formatting quirks, annotator biases) (Singhal et al., 2023; Wang et al., 2024a; Chen et al., 2024b; Ye et al., 2024; Gudibande et al., 2023) and require large volumes of pairwise comparisons (Ouyang et al., 2022). Instance-specific rubrics have recently emerged for nuanced evaluation in expert domains (Arora et al., 2025), yet their application in on-policy training for expert-level reasoning is largely unexplored."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                597,
+                826,
+                753
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To address this gap, we explore a paradigm shift that introduces a middle ground between the simplicity of verifiable rewards and the expressiveness of preference rankings, which often come with human artifacts and operational overhead. We introduce Rubrics as Rewards (RaR), a framework for on-policy Reinforcement Learning that uses structured criteria or rubrics as the core reward mechanism. Rather than using rubrics only for evaluation (Arora et al., 2025; Sirdeshmukh et al., 2025), we treat them as checklist-style supervision that produces reward signals for on-policy RL. Each rubric is composed of modular, interpretable subgoals that provide automatable feedback aligned with expert intent. By decomposing “what makes a good response” into tangible, humaninterpretable criteria, rubrics offer a middle ground between binary correctness signals and coarse preference rankings."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                758,
+                826,
+                898
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "<sup>1</sup>Work conducted while at Scale AI."
+                    }
+                ]
+            },
+            "bbox": [
+                192,
+                909,
+                408,
+                922
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "1"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                503,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/a654ed90fe35714c99efe058a1437d6c2eb0938a78e77e667f4e24f48b807bc0.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 1: Overview of Rubrics as Rewards (RaR). (i) Rubric Generation: We synthesize promptspecific, self-contained rubric criteria using a strong LLM guided by four core design principles, with reference answers serving as proxies for expert supervision. (ii) GRPO Training: These rubrics are used to prompt an LLM judge for reward estimation, which drives policy optimization via the GRPO on-policy learning loop."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                223,
+                117,
+                800,
+                241
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Previous works train generative reward models that learn to evaluate reasoning or final outputs with interpretable scores (Chen et al., 2025; Whitehouse et al., 2025; Anugraha et al., 2025; Guo et al., 2025b), and some have even used a model’s internal confidence estimates as a proxy for reward (Zhao et al., 2025). More recent efforts have extended verifiable datasets beyond STEM domains, broadening the applicability of RLVR methods to a wider range of tasks (Su et al., 2025b; Ma et al., 2025). Yet a general-purpose approach for specifying reliable reward signals remains elusive, particularly in tasks without a single ground truth where both subjective and objective criteria must be considered. In contrast, we treat rubrics as instance-specific, reusable reward functions. Once generated, rubrics provide interpretable and automatable supervision that can be applied consistently across new rollouts, offering a scalable and transparent alternative to opaque reward modeling in onpolicy learning."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                368,
+                826,
+                522
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Recent concurrent works explore checklists and principled rubric criteria for preference tuning and LLM safety (Gallego, 2025; Viswanathan et al., 2025; Dineen et al., 2025), highlighting a growing trend toward structured supervision. In contrast, we convert rubrics into reward functions for onpolicy RL, targeting expert reasoning and applied real-world domains. This closes the rubric-tolearning loop and improves performance on both rubric-guided evaluations and tasks with verifiable answers. Figure 1 illustrates our framework."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                527,
+                826,
+                612
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Our key contributions are as follows: (i) We introduce Rubrics as Rewards (RaR), an on-policy reinforcement learning framework that uses checklist-style rubrics for multi-criteria supervision in reasoning and real-world domains. (ii) We synthesize instance-specific rubrics for medicine and science and release the corresponding training sets, RaR-Medicine and RaR-Science. <sup>1</sup> (iii) RaRtrained models consistently outperform strong baselines and yield a stable, generalizable training signal, with gains on both rubric-scored and verifiable multiple-choice evaluation settings. (iv) Our results demonstrate that rubric-based rewards provide stable supervision across judge sizes, helping smaller models align effectively with human preferences and maintaining robust evaluation performance from small to large judges."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                618,
+                826,
+                744
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2 RUBRICS AS REWARDS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                773,
+                398,
+                789
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2.1 PROBLEM FORMULATION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                810,
+                393,
+                824
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Let x denote an input prompt and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\hat { y } } \\sim \\pi _ { \\theta } ( \\cdot \\mid x )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "be a sampled response from a model parameterized by θ. In domains without single ground-truth answers or automatic correctness signals, we define a structured reward function using instance-specific rubric criteria."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                840,
+                826,
+                883
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "<sup>1</sup>Datasets released at https://huggingface.co/collections/ScaleAI/rar."
+                    }
+                ]
+            },
+            "bbox": [
+                192,
+                909,
+                665,
+                924
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "2"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Each prompt x is associated with a set of k rubric items "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{ ( w _ { j } , c _ { j } ) \\} _ { j = 1 } ^ { k }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "w _ { j } \\in \\mathbb { R }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denotes the weight of criterion "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "j ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "c _ { j } : ( x , { \\hat { y } } ) \\mapsto \\{ 0 , 1 \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is a binary correctness function that indicates whether the response "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat { y }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "satisfies that criterion given the prompt."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                103,
+                825,
+                148
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2.2 REWARD AGGREGATION STRATEGIES"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                164,
+                478,
+                179
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We investigate two complementary approaches for combining rubric feedback into scalar rewards:"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                189,
+                818,
+                205
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Explicit Aggregation. Each criterion is independently evaluated using an LLM-as-judge, and the final normalized reward is computed as:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                219,
+                825,
+                250
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "r (x, \\hat {y}) = \\frac {\\sum_ {j = 1} ^ {k} w _ {j} \\cdot c _ {j} (x , \\hat {y})}{\\sum_ {j = 1} ^ {k} w _ {j}}\\tag{1}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/440267ef8c7c40ccae4a517154796d7855d9623b7e121c548c3723243de2d945.jpg"
+                }
+            },
+            "bbox": [
+                395,
+                252,
+                598,
+                294
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Normalization makes rewards comparable across prompts that differ in rubric count or weights. Although we use binary checks for "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "c _ { j }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "in our experiments, the formulation can be extended to continuous-valued scores."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                304,
+                825,
+                348
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Implicit Aggregation. All rubric criteria along with categorical weights are passed to an LLMas-judge, delegating the aggregation to the model itself to produce a single scalar reward:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                361,
+                823,
+                391
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "r _ {\\text { implicit }} (x, \\hat {y}) = f _ {\\phi} (x, \\hat {y}, \\{d _ {j} \\} _ {j = 1} ^ {k})\\tag{2}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/ebf7b1e9db55ec2cf519f4da08565f303885cf29d047fead4abc5ab01bec436e.jpg"
+                }
+            },
+            "bbox": [
+                383,
+                393,
+                611,
+                412
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Here, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "f _ { \\phi }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denotes an LLM-based judge that takes the prompt x, the response "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat { y } ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and the set of rubric criteria "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{ d _ { j } \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "as input. This formulation allows the model to compute a holistic reward score directly, avoiding the need to manually tune rubric weights."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                415,
+                825,
+                459
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The prompts used for each method are detailed in Appendix A.7."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                464,
+                599,
+                479
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2.3 GENERALIZATION OF RLVR WITH RUBRICS AS REWARDS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                494,
+                619,
+                510
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Rubric-based reinforcement learning extends the standard RLVR (Reinforcement Learning with Verifiable Rewards) setting by supporting multi-dimensional, prompt-specific evaluation criteria. We formalize this relationship below."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                521,
+                825,
+                564
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Remark 1 (Rubrics as Rewards subsumes RLVR). The RLVR setting is a special case of rubricbased rewards defined in Equation 1, where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "k = 1 , w _ { 1 } = 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "c _ { 1 } ( x , \\hat { y } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "reduces to a single verifiable correctness function that compares the model output yˆ against the known correct answer y. For example, this could involve exact match or test case execution. Formally:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                566,
+                826,
+                625
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "r _ {\\mathrm{RLVR}} (x, \\hat {y}) = \\mathrm{match} (y, \\hat {y})\\tag{3}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/8095b6fa41d2a6acc2030908e1ad06ec79d30c5fa07a266102c3978a8f3a88ae.jpg"
+                }
+            },
+            "bbox": [
+                405,
+                627,
+                589,
+                643
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where match "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( y , \\hat { y } ) \\in \\{ 0 , 1 \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "indicates whether the response satisfies the verifiable correctness condition."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                652,
+                823,
+                681
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Rubric-based reward functions thus generalize RLVR by enabling multi-dimensional supervision, flexible weighting across criteria, and the incorporation of both objective and subjective aspects of response quality. This formalization highlights that RLVR can be seen as a restricted instance of rubric-guided RL with a single essential criterion. In contrast, rubric-based rewards further enable structured supervision in settings where correctness is multifaceted and may not be strictly verifiable."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                691,
+                826,
+                763
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3 RUBRIC GENERATION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                781,
+                390,
+                797
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.1 DESIDERATA"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                813,
+                305,
+                827
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "A rubric specifies criteria for high-quality responses and provides human-interpretable supervision. We identify four desiderata for effective rubric generation:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                839,
+                823,
+                868
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Grounded in Expert Guidance. Rubrics should reflect domain expertise by capturing the essential facts, reasoning steps, and conclusions necessary for correctness. Ideally, this grounding comes from human experts or their high-quality proxies."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                881,
+                825,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "3"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Comprehensive Coverage. Rubrics should span multiple dimensions of response quality, including factual accuracy, logical coherence, completeness, style, and safety. Negative criteria (pitfalls) help identify frequent or high-risk errors that undermine overall quality."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                104,
+                825,
+                148
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Criterion Importance. Rubrics should reflect that some dimensions of response quality are more critical than others. For example, factual correctness must outweigh secondary aspects such as stylistic clarity. Assigning weights to criteria ensures this prioritization, whether through simple categorical tags, explicit numeric values, or learned weighting schemes."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                160,
+                825,
+                219
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Self-Contained Evaluation. Each rubric item should be independently actionable, allowing either human annotators or automated judges to assess it in isolation without requiring external context or domain-specific knowledge."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                231,
+                826,
+                273
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.2 RUBRICS CREATION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                289,
+                357,
+                304
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We apply these desiderata to datasets for reasoning tasks in medicine and science. Given the scarcity of human-annotated rubric datasets in these domains, we use LLMs to generate instance-specific rubrics from golden reference answers at scale, enabling the study of structured rewards without costly human annotation."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                315,
+                825,
+                372
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "For each prompt, an LLM generates a rubric of 7–20 self-contained items. Each item is assigned both a numeric and a categorical weight reflecting its relative importance. While numeric weights provide fine-grained prioritization, in our experiments we adopt categorical labels (Essential, Important, Optional, Pitfall) for ease of implementation and interpretability in controlled settings. The resulting rubrics are then used directly as reward functions through either explicit aggregation (Eq. 1) or implicit aggregation (Sec. 2.2)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                378,
+                826,
+                464
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In practice, we generate rubrics using OpenAI’s o3-mini and GPT-4o (OpenAI o3-mini, 2025; Jaech et al., 2024; Hurst et al., 2024), conditioning generation on reference answers from the underlying datasets to approximate expert grounding. The resulting collections—RaR-Medicine and RaR-Science—are released publicly. These rubric sets supervise policy models with GRPO using both explicit and implicit reward aggregation."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                469,
+                825,
+                540
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4 EXPERIMENTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                559,
+                328,
+                574
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.1 DATASETS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                589,
+                290,
+                604
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We investigate the utility of rubrics as rewards across two reasoning domains, medicine and science."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                614,
+                823,
+                631
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• RaR-Medicine: A dataset of 20k prompts drawn from diverse medical reasoning sources, including medical-o1-reasoning-SFT (Chen et al., 2024a), natural reasoning (Yuan et al., 2025), SCP-116K (Lu et al., 2025), and GeneralThought-430K (General Reasoning, 2025). Instancespecific rubrics for this dataset are generated with GPT-4o (see Appendix A.2)."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                638,
+                825,
+                696
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• RaR-Science: A dataset of ∼20k prompts curated to align with GPQA-Diamond categories. Prompts are sourced from natural reasoning (Yuan et al., 2025), SCP-116K (Lu et al., 2025), and GeneralThought-430K (General Reasoning, 2025), covering a broad range of scientific reasoning tasks (Appendix A.3). Rubrics for this dataset are synthesized with o3-mini."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                699,
+                825,
+                756
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.2 TRAINING DETAILS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                771,
+                354,
+                786
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We conduct all experiments using on-policy reinforcement learning with the GRPO algorithm (Shao et al., 2024), taking Qwen2.5-7B as the base policy. Models are trained with a batch size of 96, a learning rate of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "5 \\times 1 0 ^ { - 6 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and a constant schedule with 10% linear warmup. Complete hyperparameter settings are listed in Appendix A.4. Training runs are executed on a single compute node equipped with 8 NVIDIA H100 GPUs."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                797,
+                826,
+                868
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Our training pipeline consists of the following key components:"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                875,
+                593,
+                888
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Response Generation: For each prompt q, we sample k = 16 responses from the current policy π<sub>θ</sub>, using a context length of 3584 and a sampling temperature of 1.0."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                895,
+                823,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "4"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Reward Computation with Rubrics: We use gpt-4o-mini as the judge model to assign rewards "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "R _ { q }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to the sampled responses. We experiment with various reward computation and aggregations strategies further described in Sections 4.3 and 4.4."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                104,
+                825,
+                147
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/96eda0467d3cab1a75547361c4bdcf99eae305dae7c94eba4c22b6796df8f787.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Policy Update: The policy weights are updated using GRPO based on the computed rewards."
+                    },
+                    {
+                        "type": "text",
+                        "content": "Table 1: Overview of rubric-free and rubric-based methods and baselines."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Category</td><td>Method/Baseline</td><td>Trained</td><td>Aggregation Type</td><td>Reward Grounding</td></tr><tr><td>Rubric-Free</td><td>OFF-THE-SHELF</td><td>×</td><td>N/A</td><td>N/A</td></tr><tr><td>Rubric-Free</td><td>DIRECT-LIKERT</td><td>√</td><td>Single Likert score</td><td>N/A</td></tr><tr><td>Rubric-Free</td><td>REFERENCE-LIKERT</td><td>√</td><td>Single Likert score</td><td>Reference answer</td></tr><tr><td>Rubric-Based</td><td>RaR-PREDEFINED</td><td>√</td><td>Explicit aggregation</td><td>Instance-agnostic rubrics</td></tr><tr><td>Rubric-Based</td><td>RaR-EXPLICIT</td><td>√</td><td>Explicit aggregation</td><td>Instance-specific rubrics</td></tr><tr><td>Rubric-Based</td><td>RaR-IMPLICIT</td><td>√</td><td>Implicit aggregation</td><td>Instance-specific rubrics</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                191,
+                180,
+                803,
+                282
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.3 RUBRIC-FREE BASELINES"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                330,
+                398,
+                344
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We consider various rubric-free baselines and off-the-shelf post-trained models. Rubric-free baselines are trained with Qwen2.5-7B as the base policy."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                356,
+                825,
+                385
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "OFF-THE-SHELF: For off-the-shelf baselines we evaluate performance on Qwen2.5-7B. We also include the performance of Qwen2.5-7B-Instruct to compare with instruction-tuned variant of the base policy."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                396,
+                825,
+                438
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "DIRECT-LIKERT: An LLM-as-judge provides a direct assessment for each response–prompt pair on a 1–10 Likert scale (Zheng et al., 2023; Kim et al., 2024), normalized to [0, 1]. The resulting score is used directly as the reward signal for training."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                441,
+                826,
+                484
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "REFERENCE-LIKERT: An LLM-as-judge compares the generated response against a reference answer (written by experts or stronger LLMs) and assigns a 1–10 Likert score (Zheng et al., 2023), normalized to [0, 1]. This reference-guided score is used as the reward signal for policy updates. The reward for each (prompt, response, reference) triplet is defined as:"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                488,
+                826,
+                545
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "R _ {\\text { ref }} (q, x) = \\text { Norm } (\\text { LikertScore } (q, x, x ^ {*}))",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/7fa1fa6b0776872dff6d76d0859d18fcb6dc326014ce99a1da19f6ae5be559a7.jpg"
+                }
+            },
+            "bbox": [
+                359,
+                549,
+                640,
+                566
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "x ^ { * }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denotes the reference answer."
+                    }
+                ]
+            },
+            "bbox": [
+                174,
+                571,
+                437,
+                585
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.4 RUBRIC-GUIDED METHODS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                602,
+                408,
+                616
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "RaR-PREDEFINED: This method uses a fixed set of generic rubrics for all prompts (e.g. response is concise, response contains correct information). It employs the Explicit Aggregation method (Equation 1) with all criteria weighted uniformly (see Appendix A.6)."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                628,
+                826,
+                671
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "RaR-EXPLICIT: This variant also uses Explicit Aggregation using a weighted sum (Equation 1) but applies it to instance-specific rubrics from Section 3. We manually assign numerical weights based on the generated categorical labels: {\"Essential\": 1.0, \"Important\": 0.7, \"Optional\": 0.3, \"Pitfall\": 0.9}<sup>2</sup>."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                674,
+                825,
+                731
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "RaR-IMPLICIT: This variant uses the Implicit Aggregation method (Equation 2). It leverages promptspecific rubrics, where a judge model evaluates the response as a whole to assign a single Likert rating (1–10), avoiding the need for hand-tuned weights. The reward is normalized to the [0, 1] range during training."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                734,
+                825,
+                791
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "An overview of all baselines and methods is summarized in Table 1."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                803,
+                620,
+                818
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.5 EVALUATION SETUP"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                834,
+                357,
+                849
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Rubric-Based Evaluation We evaluate models trained with RaR-Medicine on Health-Bench (Arora et al., 2025), a benchmark of 5,000 clinical conversations designed to assess model safety and helpfulness in realistic medical scenarios. Performance is measured using detailed, physician-authored rubrics. We generate responses with greedy decoding (temperature = 0) and report both overall scores and per-axis scores following the original setup. For ablation studies, we sample a subset of 1,000 prompts (hereafter referred as HealthBench-1k) and use the rest for training."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                859,
+                825,
+                888
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "(e.g."
+                    }
+                ]
+            },
+            "bbox": [
+                447,
+                898,
+                475,
+                911
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "<sup>2</sup>Pitfall criteria are phrased in positive form (e.g., “The response avoids misinformation”), so satisfying them contributes positively to the score. If a pitfall is not satisfied, the corresponding reward is reduced or penalized."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                897,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "5"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/bf3809111e5432ddc9858614caf8c42b74fb80820de918ae1c6705c29b5871b8.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                176,
+                104,
+                566,
+                286
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/8099a3350c2de54acd4261ce978a78f1ccfd21f9308e7f960a34571272d4b1bd.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 2: Performance of baselines and RaR (Rubrics as Rewards) variants for the medicine and science domains. HealthBench (left): shows per-axis scores across five core axes, with a thin dashed gray line indicating the overall score (all values shown as percentages). GPQA-Diamond (right): mean accuracy over 10 runs; error bars represent 95% confidence intervals. All policies are evaluated using gpt-4o-mini as the LLM-as-Judge. Across both domains, RaR-Implicit consistently outperforms Direct-Likert and demonstrates a competitive advantage over Reference-Likert."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                598,
+                103,
+                820,
+                296
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                426,
+                826,
+                498
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Multiple-Choice Evaluation Each model is evaluated across 10 independent runs, using greedy decoding (temperature=0) to sample one response per prompt. Answer choices are permuted per example to reduce positional bias, and outputs are parsed for boxed answer formats (e.g., boxed{A}). If extraction fails, we fall back to a GPT-4o verifier that checks whether the response contains the correct option letter or text (see Appendix A.5). Final accuracy is reported as the mean over 10 runs, and we include 95% confidence intervals to account for run-to-run variance."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                513,
+                826,
+                599
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "LLM-Judge Alignment Evaluation To measure how well LLM judges align with human preferences, we build a paired evaluation set from roughly 3,000 HealthBench prompts. For each prompt, we take the practitioner-approved answer as the preferred response and create a perturbed alternative via controlled edits (see Appendix A.10 for method used for perturbation and prompt selection). The metric is pairwise preference accuracy i.e. the fraction of pairs where the preferred response scores higher reported across judge models of varying sizes."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                614,
+                826,
+                700
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5 RESULTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                720,
+                284,
+                736
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We now present the main findings of our study."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                752,
+                483,
+                768
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Rubrics as Rewards shows strong gains across evaluation settings. Table 2 reports results on HealthBench (rubric-based, free-form) and GPQA-Diamond (multiple-choice). RaR-Implicit consistently outperforms Direct-Likert, with relative gains up to 31% on HealthBench and 7% on GPQA. Both rubric-guided variants achieve higher scores than the base and instruction-tuned policies. Gains on GPQA-Diamond show that rubric-induced skills generalize beyond rubric-based evaluation. The RaR-Predefined variant, which applies a fixed list of generic rubrics to every prompt (no instance-specific synthesis), underperforms because generic criteria miss prompt-specific requirements and common failure modes, producing misaligned reward signals. Hence, effective training requires instance-specific rubric synthesis as they better capture task context and typical failure modes."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                784,
+                826,
+                924
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "6"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                946,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/79b2e84cb46587e3f7061dac4c4e33dae6d70f5a02cd6f06288b2e336ac04785.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "LLM Judge Alignment Across Model Scales"
+                    },
+                    {
+                        "type": "text",
+                        "content": "Figure 3: Alignment Study of LLM Judges across Model Scales. Rubrics as Rewards (orange) consistently improves alignment with human preferences across LLM judge sizes compared to direct Likert-based scoring (blue). Judge Alignment using synthetic rubrics without expert grounding (green) outperform the direct Likert baseline, but still fall short of expert-grounded rubrics (orange). The rubric structure especially benefits smaller judge models, helping them close the gap with larger models when guided by checklist-style criteria."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                269,
+                119,
+                728,
+                296
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Beyond these gains, RaR-Implicit also shows small but consistent gains over Reference-Likert. In our setup, rubrics are generated with stronger LLMs using reference answers as proxies for expert supervision, so rubric quality is impacted by reference quality. Even so, converting open-ended answers into explicit criteria yields effective, well-aligned reward signals."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                424,
+                825,
+                483
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Between the two rubric-guided methods, RaR-Implicit attains the strongest results overall; fixed weighted sums in RaR-Explicit offer more control but can be brittle. Explicit weighting can be difficult to tune but offers greater interpretability; we view the choice as application-dependent and leave it to practitioners. Future work could explore learned or dynamic weighting strategies that maintain interpretability while improving adaptability."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                487,
+                826,
+                560
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Rubrics enhance alignment with human preferences across model scales We evaluate alignment with humans by having LLM judges of varying sizes score chosen vs. rejected HealthBench-1k responses on a 1–10 scale under two settings: (i) rubric-guided (RaR-IMPLICIT), where the instancespecific rubric is provided, and (ii) rubric-free (DIRECT-LIKERT), where only the prompt and answers are shown. Figure 3 reports pairwise preference accuracy (the fraction of pairs where the preferred response receives the higher score). Rubric guidance improves accuracy for every judge size, with the largest gains for smaller judges, narrowing the gap to larger models. This indicates that explicit, context-specific criteria help judges distinguish subtle quality differences better than direct Likert scoring. Further analysis of judge-scale effects on GRPO training is detailed in Appendix A.9."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                574,
+                826,
+                703
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Expert guidance is crucial for synthetic rubric generation Human guidance significantly influences the effectiveness of rubrics in capturing subtle human preferences. Figure 3 highlights performance differences between rubric-based evaluations that include reference answers and those without them. The data shows that rubrics developed with reference answers achieve higher accuracy, emphasizing that human insights integrated during rubric generation enable granular criteria and improved alignment with human preferences."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                715,
+                826,
+                801
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "6 ABLATIONS AND ADDITIONAL ANALYSES"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                821,
+                557,
+                838
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Impact of Rubric Generation Strategies in Real-World Domains How does the method of rubric generation affect downstream training in challenging, real-world settings? To investigate this, we hold out HealthBench-1k for evaluation and use 3.5k prompts from the remaining Health-Bench pool to generate rubrics for training as it has access to human generated rubrics. Results are summarized in Table 2."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                854,
+                826,
+                924
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "7"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/fbbb37ff1cce32759ef90f864922f0282d3ac6b974aad38bfe2782a2ce0e7db8.jpg"
+                },
+                "table_caption": [],
+                "table_footnote": [],
+                "html": "<table><tr><td>Training Method</td><td>Overall Score</td></tr><tr><td>Expert-Answer-SFT</td><td>20.4%</td></tr><tr><td>Simple-Likert</td><td>23.9%</td></tr><tr><td>Reference-Likert</td><td>31.7%</td></tr><tr><td>RaR-Implicit-Synthetic-NoRef</td><td>32.0%</td></tr><tr><td>RaR-Implicit-Synthetic</td><td>35.9%</td></tr><tr><td>RaR-Implicit-Human</td><td>34.8%</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                331,
+                101,
+                668,
+                219
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/02d055f92b0b47f52d4196cc1f338c32b349cb5ab8d9050aab8fbd0cd5370799.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 2: Evaluation on HealthBench: Comparison of human- vs. synthetic-generated rubrics (with and without reference answers). RaR methods trained with GRPO significantly outperform Likertonly, Reference-based-likert and SFT baselines. Synthetic rubrics generated without access to reference answers perform notably worse, highlighting the importance of human-grounded guidance. Notably, human-authored rubrics and synthetic rubrics with access to references yield comparable performance."
+                    },
+                    {
+                        "type": "text",
+                        "content": "Table 3: Ablation results for elements of rubric design on HealthBench-1k (trained on HealthBench-3.5k subset with Qwen2.5-7B base policy). Rubrics generated using o3-mini with access to reference answers."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Ablation Setting</td><td>Overall Score</td></tr><tr><td>Essential-Only Rubrics</td><td>34.9%</td></tr><tr><td>No Categorical Labels</td><td>38.8%</td></tr><tr><td>No Pitfall Criteria</td><td>37.2%</td></tr><tr><td>All Rubrics</td><td>37.2%</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                354,
+                327,
+                643,
+                411
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In-domain testing on HealthBench-1k amplifies RaR’s gains: every instance-specific rubric-based method outperforms rubric-free baselines. Notably, even the weakest RaR variant significantly surpasses Reference-Likert, underscoring the advantage of structured supervision in subjective, open-ended domains like healthcare. We attribute this to the finer granularity and clarity rubrics provide in assigning rewards-especially when correctness is not binary and answers may vary in tone, completeness, or safety relevance."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                489,
+                826,
+                574
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Moreover, we find that rubric quality is crucial: synthetic rubrics generated with reference-answer guidance consistently outperform those generated without it. This highlights the importance of incorporating expert signal, whether via human-in-the-loop annotations or high-quality reference completions, for generating effective and aligned rubrics. Purely synthetic rubrics, while scalable, currently fall short in capturing the subtle criteria required for robust training in high-stakes domains."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                579,
+                826,
+                652
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Elements of Rubric Design This ablation study examines how the structure and weighting of synthetic rubrics affect downstream performance on HealthBench-1k. As shown in Table 3, rubrics that include a broader range of criteria outperform those limited to essential checks, suggesting that richer evaluation signals lead to better learning. Interestingly, we observe minimal performance differences when including rubric weights or pitfall criteria during training. One possible explanation is that synthetically generating effective pitfall criteria is inherently difficult, as it requires anticipating the most common or critical failure modes of the model, a task that often demands human intuition and domain expertise. As a result, these synthetic negative criteria may lack the specificity or relevance needed to meaningfully penalize undesirable responses."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                664,
+                826,
+                792
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Impact of LLM Expertise on Rubric Quality To assess how the capabilities of rubric-generating LLMs affect downstream performance, we generate synthetic rubrics without access to reference answers and use them to train policies on HealthBench. This isolates the effect of LLM quality on reference-free rubric utility. Specifically, we evaluate on the HealthBench-1k subset, using models trained on rubrics generated for the remaining 4k training examples from HealthBench."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                805,
+                826,
+                877
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "As shown in Table 4, larger or more capable LLMs generally produce more effective rubrics, with GPT-4o yielding the best performance among reference-free models. However, all remain below the performance of rubrics generated with reference guidance (e.g., O3-mini with access to reference answers). Additionally, model attributes such as instruction tuning and reasoning capabilities play a key role in the effectiveness of rubric generation."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                882,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "8"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/321948c2e7e6cd0e53df63ed3d26d58004ad67402bbad2de6a3026614f44fca4.jpg"
+                },
+                "table_caption": [],
+                "table_footnote": [],
+                "html": "<table><tr><td>Rubric Generation Model</td><td>Overall Score</td></tr><tr><td>O3-mini (Rubrics with reference)</td><td>35.9%</td></tr><tr><td>GPT-4o</td><td>34.2%</td></tr><tr><td>GPT-4o-mini</td><td>32.7%</td></tr><tr><td>O3-mini</td><td>32.4%</td></tr><tr><td>Qwen-72B-Instruct</td><td>32.7%</td></tr><tr><td>Qwen-32B-Instruct</td><td>31.1%</td></tr><tr><td>Qwen-7B-Instruct</td><td>31.9%</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                331,
+                101,
+                668,
+                232
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/e811c97d62ab932f7263d526f0c97c9752650347e0ffe7757b52253b50c42f6f.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 4: Policy performance on HealthBench-1k when trained with GRPO using rubrics generated by different LLMs without reference answers. GPT-4o-generated rubrics yield the strongest performance, though they still fall short of rubrics generated with expert (reference-guided) supervision. Smaller aligned models (e.g., GPT-4o-mini, O3-mini) remain competitive with larger open-weight models, underscoring the importance of alignment and reasoning ability in rubric generation."
+                    },
+                    {
+                        "type": "text",
+                        "content": "Table 5: Performance on HealthBench-1k comparing methods trained on an alternative policy model (Qwen2.5-3B) shows that rubric-based reward training (RaR-Implicit) continues to outperform Likert-based baselines."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Baseline/Method</td><td>Overall Score</td></tr><tr><td>Qwen2.5-3B (Base Policy)</td><td>4.13%</td></tr><tr><td>Direct-Likert</td><td>13.74%</td></tr><tr><td>Reference-Likert</td><td>17.95%</td></tr><tr><td>RaR-Implicit (ours)</td><td>21.55%</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                357,
+                327,
+                640,
+                404
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                479,
+                826,
+                510
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Robustness to policy model choice To assess whether our findings on rubrics as rewards remain agnostic to policy models, we repeat the training procedure using a smaller base model, Qwen2.5-3B. We train this model on the HealthBench-3k prompts using Direct-Likert, Reference-Likert, and RaR-Implicit, and evaluate on the held-out HealthBench-1k set. As shown in Table 5, the relative performance trends are consistent with the 7B model: RaR-Implicit achieves the strongest performance among the compared methods. This provides an additional data point suggesting that rubric-based rewards remain effective when applied to a smaller policy models."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                523,
+                826,
+                623
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "7 RELATED WORK"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                641,
+                346,
+                657
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "RLVR across domains Reinforcement learning with verifiable rewards (RLVR) is expanding beyond math and code. GENERAL-REASONER trains on a 200k mixed corpus spanning physics, finance, and policy, and reports a ten-point gain on MMLU-Pro after GRPO fine-tuning (Ma et al., 2025). A follow-up extends RLVR to medicine, chemistry, psychology, and economics, showing that a single cross-domain reward model can supervise all four without task-specific tweaks (Su et al., 2025a). In healthcare, MED-RLVR applies similar methods to multiple-choice clinical QA, improving accuracy over supervised baselines while eliciting chain-of-thought from a 3B base model (Zhang et al., 2025). These results indicate steady progress, yet sparse signals, verifier reliability, and limited benchmark coverage remain open challenges."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                672,
+                826,
+                800
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Rubrics for evaluation and training Task-specific rubrics are increasingly used to evaluate LLMs in difficult-to-verify domains (Arora et al., 2025; Ruan et al., 2025; Hashemi et al., 2024; Pathak et al., 2025). Pathak et al. show that rubric-prompted LLM graders are more accurate and consistent than a question-agnostic checklist (Pathak et al., 2025). HEALTHBENCH scales this idea in medicine, pairing 48k clinician-written criteria with GPT-4 judges to score various axes (Arora et al., 2025). Beyond evaluation, rubrics are used to condition preference pairs for DPO (CPT; (Gallego, 2025)) and to guide checklist-based preference tuning in safety, instruction-following, and creativewriting settings (Viswanathan et al., 2025; Dineen et al., 2025; Kim et al., 2025). These lines of work primarily use rubrics to grade outputs or to condition preference data, often in non-reasoning domains such as safety, instruction following, or creative writing. In contrast, we use rubric criteria directly as reward signals for on-policy RL in expert-reasoning and real-world domains."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                811,
+                826,
+                926
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "9"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                825,
+                148
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Learning from feedback signals RLHF trains policies with large numbers of human comparisons, which introduces subjectivity and can lead to reward hacking (Ouyang et al., 2022). RLVR reduces these issues by using programmatic checks, from exact matches on GSM8K and MATH to mixed-domain verifiers in GENERAL-REASONER and CROSS-DOMAIN RLVR (Ma et al., 2025; Su et al., 2025a), although signals can be sparse. Process supervision (Lightman et al., 2023) provides denser guidance via step-level labels, and MCTS-generated annotations or generative reward models such as THINKPRM improve performance, but with high annotation cost (Li et al., 2025; Khalifa et al., 2025). Rubric-based RL finds a middle ground by turning multiple rubric criteria into structured verifiers and using their scalar scores as denser rewards."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                165,
+                826,
+                292
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "8 CONCLUSION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                314,
+                321,
+                329
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We introduced Rubrics as Rewards (RaR), a framework for post-training language models using structured, checklist-style rubrics as reward signals. By decomposing response evaluation into transparent, multi-criteria objectives—both subjective and objective—RaR provides a modular and interpretable alternative to preference-based methods. Our experiments demonstrate that rubricguided training achieves strong performance across domains, significantly outperforming Likertbased baselines and matching or exceeding the performance of reference-based reward generation. Additionally, we show that RaR improves alignment with human preferences while reducing dependence on large judge models."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                347,
+                826,
+                460
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "9 LIMITATIONS AND FUTURE WORK"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                482,
+                493,
+                500
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Our work focuses on medicine and science to enable controlled experiments. This choice allows us to run controlled experiments, but broader validation across dialogue, tool use, or other agentic tasks remains an important direction. We evaluate only two reward aggregation strategies, implicit and explicit, since they capture complementary extremes of flexibility and control; future work could explore more advanced ways of combining rubric criteria, such as learning continuous weights for each criterion or dynamically adjusting weights over the course of training to mimic a curriculum (e.g., prioritizing essential correctness early, then gradually emphasizing more subtle qualities like style or safety). Finally, we use off-the-shelf LLMs as judges for accessibility and reproducibility; exploring specialized evaluators with stronger reasoning or generative reward models may yield further gains."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                516,
+                826,
+                657
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "REPRODUCIBILITY STATEMENT"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                679,
+                439,
+                695
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Our datasets RaR-Medicine and RaR-Science datasets with per-prompt rubrics are released at https://huggingface.co/collections/ScaleAI/rar. We document data construction and rubric synthesis in Sections 2 and 3, with full prompt templates in Appendices A.6, A.8, and A.10. Training settings for on-policy GRPO (model, batch size, schedule, hardware) appear in Section 4.2 and Table 12. All judge prompts used to compute rewards for rubric-guided and Likert baselines are in Appendix A.7. Evaluation protocols, metrics, and prompts are detailed in Section 4.5 and Appendix A.5; we report means with 95% confidence intervals and use the open-source simple-evals framework for evaluation."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                713,
+                826,
+                825
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "ACKNOWLEDGMENTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                173,
+                849,
+                357,
+                864
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We thank Qin Lyu, Nikhil Barhate, and Zijian Hu for supporting this research through the development of the in-house post-training platform RLXF. We also thank Robert Vacareanu for valuable early feedback and discussions."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                882,
+                825,
+                924
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "10"
+                    }
+                ]
+            },
+            "bbox": [
+                490,
+                948,
+                509,
+                960
+            ]
+        }
+    ]
+]

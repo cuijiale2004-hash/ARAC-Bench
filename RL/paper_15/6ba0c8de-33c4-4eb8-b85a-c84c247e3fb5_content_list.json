@@ -1,0 +1,1612 @@
+[
+    {
+        "type": "text",
+        "text": "ABSTRACT",
+        "text_level": 2,
+        "bbox": [
+            450,
+            273,
+            547,
+            289
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "We consider the problem of robustness against adversarial attacks in cooperative multi-agent reinforcement learning (c-MARL) at deployment time, where agents can face an adversary with an unknown objective. We address the uncertainty about the adversarial objective by proposing a Bayesian Dec-POMDP game model with a continuum of adversarial types, corresponding to distinct attack objectives. To compute a perfect Bayesian equilibrium (PBE) of the game, we introduce a novel partitioning scheme of adversarial policies based on their performance against a reference c-MARL policy. This allows us to cast the problem as finding a PBE in a finite-type Bayesian game. To compute the adversarial policies, we introduce the concept of an externally constrained reinforcement learning problem and present a provably convergent algorithm for solving it. Building on this, we propose to use a simultaneous gradient update scheme to obtain robust Bayesian c-MARL policies. Experiments on diverse benchmarks show that our approach, called BATPAL, outperforms state-of-the-art baselines under a wide variety of attack strategies, highlighting its robustness and adaptiveness. <sup>1</sup>",
+        "bbox": [
+            230,
+            303,
+            767,
+            513
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "1 INTRODUCTION",
+        "text_level": 2,
+        "bbox": [
+            174,
+            537,
+            338,
+            551
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Cooperative multi-agent reinforcement learning (c-MARL) has achieved remarkable performance in areas such as autonomous driving, 5G networks, robotics, and smart grids (Canese et al., 2021), as it allows agents to learn distributed policies for complex sequential tasks. Nonetheless, the failure or the compromise of even a single agent, either through direct manipulation of its actions or by corrupting its observations, can degrade the overall team performance (Lin et al., 2020), calling for policies that are robust against faults and adversarial attacks.",
+        "bbox": [
+            169,
+            566,
+            826,
+            652
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Existing approaches for obtaining robust policies rely on dataset augmentation or on adversarial training (Gleave et al., 2019; Pattanaik et al., 2017; Havens et al., 2018; Pinto et al., 2017; Phan et al., 2021; Liu et al., 2024a; Li et al., 2024). Dataset augmentation involves introducing one or more adversarial perturbations during training, allowing agents to learn under adversarial and nominal conditions simultaneously (Gleave et al., 2019; Pattanaik et al., 2017; Havens et al., 2018). The alternative approach is based on jointly training the benign and the adversarial agents, typically formulated as a zero-sum Stackelberg game, and a saddle-point equilibrium in policies is sought after (Pinto et al., 2017; Phan et al., 2021; Liu et al., 2024a). These approaches typically yield a single policy optimized for adversarial conditions and thus they are typically suboptimal when all agents are cooperative. Even if the trained policy can maintain a belief about the presence of an adversary, as in Li et al. (2024), robust learning based on saddle-point equilibria against a worst case adversary found using gradient descent has three fundamental limitations.",
+        "bbox": [
+            169,
+            657,
+            826,
+            825
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "First, it relies on the assumption of a worst case adversary, which fails to capture adversaries with an objective other than minimizing the team reward as well as non-cooperative behavior due to failure. These may deviate substantially from worst-case attacks (Liu et al., 2024b; Kokolakis et al., 2020), and thus the defender’s max–min policy may be far from optimal considering the actual adversarial strategy, resulting in poor team performance.",
+        "bbox": [
+            169,
+            832,
+            826,
+            902
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_footnote",
+        "text": "<sup>1</sup>Code available at https://github.com/kiarashkaz/BATPAL",
+        "bbox": [
+            192,
+            909,
+            540,
+            924
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_number",
+        "text": "1",
+        "bbox": [
+            493,
+            948,
+            503,
+            959
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Second, the optimization problem solved is inherently non-convex, and learning algorithms are prone to converge to local stationary points, which may not be globally optimal (Kalogiannis et al., 2022; Fiez et al., 2020; Reddi et al., 2024). As a result, the saddle-point policies are local Stackelberg equilibria (Loftin et al., 2024), potentially far from the equilibrium sought after.",
+        "bbox": [
+            169,
+            104,
+            825,
+            161
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Third, exposure to perturbed versions of a single adversarial policy during training can cause the agents’ representation of adversarial dynamics to overfit. Consequently, when faced with a different type of adversarial behavior at deployment, the agents may fail to adapt their policies to the previously learned max–min strategy (Liu et al., 2024a). In such cases, they may not even achieve the minimum performance guarantee that the max–min strategy is theoretically expected to provide.",
+        "bbox": [
+            169,
+            166,
+            825,
+            238
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "To address these limitations, we introduce a novel approach for training robust MARL policies that can adapt to a diverse set of adversarial behaviors. Instead of learning a single max–min policy, our approach partitions the set of adversarial policies into disjoint subsets, defined by the range of team reward they would impose, and then computes a policy that is robust to a representative adversarial policy from each subset. Although our approach cannot completely eliminate the problem of local stationary points described above, it mitigates the problem by restricting the search to smaller, isolated feasible sets. Moreover, the subsets are constructed so that adversarial policies in different subsets exhibit distinct behaviors. The defender’s MARL policy is then trained to adapt based on its belief of adversarial behavior. Our main contributions are as follows.",
+        "bbox": [
+            169,
+            243,
+            826,
+            369
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "(1) We introduce a Bayesian Dec-POMDP game model with a continuum of adversarial types and propose a novel criterion for discretizing the type space to ensure exposure to a diverse set of adversarial policies during training. Based on the perfect Bayesian equilibrium of the game, we formulate the Bayesian regret as the objective to characterize the robustness of a policy.",
+        "bbox": [
+            169,
+            375,
+            825,
+            433
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "(2) To compute an equilibrium, we introduce the concept of an externally-constrained RL to find the adversarial policies of different types. We propose both a provably convergent algorithm and a practically efficient variant to solve this problem. Building on these, we design an end-to-end adversarial learning framework, termed BATPAL, to derive Bayesian robust c-MARL policies.",
+        "bbox": [
+            169,
+            438,
+            826,
+            496
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "(3) Through extensive simulations, we demonstrate the effectiveness of BATPAL in adapting to unseen adversarial policies across various benchmark MARL environments, and show that it consistently outperforms state-of-the-art robust MARL algorithms.",
+        "bbox": [
+            169,
+            501,
+            825,
+            545
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Related Work: In robust learning the agent–adversary interaction is modeled as a game, and the agents seek a max–min policy for execution-time robustness. RARL (Pinto et al., 2017) and RARAL (Pan et al., 2019) focus on adversarial disturbances with alternating optimization, while Tessler et al. (2019) and RAP (Vinitsky et al., 2020) study adversarial manipulation of actions. Although effective against worst-case attacks, such approaches can be overly conservative; recent work (Liu et al., 2024b) addresses this by considering non-worst-case adversaries, but in a lifelong learning context.",
+        "bbox": [
+            169,
+            550,
+            825,
+            636
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "For execution-time robustness in MARL, M3DDPG (Li et al., 2019) adopts a max–min value function, while RAT (Phan et al., 2020) and RADAR (Phan et al., 2021) consider environments with a subset of adversarial agents. Yuan et al. (2023) and Lee et al. (2025) model budget-limited attacks, and Liu et al. (2024a) studies adjustable, non-worst-case adversaries in two-agent scenarios. Most recently, Li et al. (2024) propose to maintain belief states about what teammates are compromised, but considers a worst case adversary only, leaving agents undefended against unseen adversaries.",
+        "bbox": [
+            169,
+            641,
+            826,
+            726
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "2 MODEL AND PROBLEM FORMULATION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            758,
+            529,
+            773
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "2.1 C-MARL MODEL",
+        "text_level": 2,
+        "bbox": [
+            171,
+            795,
+            339,
+            809
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "We consider a Dec-POMDP $\\begin{array} { r c l } { \\mathcal { M } } & { = } & { ( \\mathcal { N } , \\mathcal { S } , \\{ A ^ { i } \\} _ { i \\in \\mathcal { N } } , R , P , \\{ \\Omega ^ { i } \\} _ { i \\in \\mathcal { N } } , \\mathcal { O } , \\mu , \\gamma ) } \\end{array}$ , where $\\begin{array} { r l } { \\mathcal { N } } & { { } = } \\end{array}$ $\\{ 1 , 2 , . . . , N \\}$ is the set of agents, S is the set of states, and A<sup>i</sup> and $\\Omega ^ { i }$ are the set of actions and the set of observations of agent $i ,$ respectively. We assume that $s$ and $\\mathcal { A } ^ { i }$ are finite sets. Furthermore, $R ( s _ { t } , \\mathbf { a } _ { t } ) , P ( s _ { t + 1 } | s _ { t } , \\mathbf { a } _ { t } )$ , and $\\mathcal { O } ( \\mathbf { \\bar { o } } _ { t } | s _ { t } )$ denote the reward function, the state transition probability, and the conditional observation probabilities, respectively. Finally, $\\mu$ and $\\gamma < 1$ denote the initial state distribution and the discount factor, respectively. We denote the history of observations, rewards and own actions of agent i up to time t by $\\tau _ { t } ^ { i }$",
+        "bbox": [
+            169,
+            825,
+            825,
+            925
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "page_number",
+        "text": "2",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "We assume that the reward is bounded such that, without loss of generality, $| R ( s , \\mathbf { a } ) | \\leq 1 , \\forall ( s , \\mathbf { a } ) \\in$ $s \\times \\mathcal A$ . The value function when the agents follow a joint policy $\\pi \\stackrel { \\cdot } { = } ( \\dot { \\pi } ^ { 1 } , . . . , \\pi ^ { N } )$ is defined as: $\\begin{array} { r } { V ^ { \\pi } ( s ) ~ = ~ \\mathbb { E } [ \\sum _ { t = 0 } ^ { \\infty } \\gamma ^ { t } R ( s _ { t } , \\mathbf { a } _ { t } ) ~ \\vert ~ \\bar { s _ { 0 } } ~ = ~ s ] } \\end{array}$ . We define the expected initial state value as $V ^ { \\pi } = \\mathbb { E } _ { s _ { 0 } \\sim \\mu } [ V ^ { \\pi } ( s _ { 0 } ) ]$ . Throughout the paper, we use the game-theoretic notation $\\mathbf { x } ^ { - i }$ to denote the collection of $x ^ { j }$ for all agents $j \\neq i ,$ , where x can be actions, observations, or any other quantity.",
+        "bbox": [
+            169,
+            103,
+            825,
+            178
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "2.2 BAYESIAN DEC-POMDP AS A MODEL OF ADVERSARIAL ROBUSTNESS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            196,
+            710,
+            210
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "During deployment, agents may deviate from their pre-trained policies due to hardware or software error and due to adversarial activity (Lin et al., 2020; Kazari et al., 2023; 2025). The identity and the objective of non-cooperative agents is, however, unknown to the cooperative agents. Yet, most of the literature on robust single agent and multi agent RL focuses on worst case adversaries, i.e., one that minimizes the team reward (Gleave et al., 2019; Tessler et al., 2019; Li et al., 2019; 2024). Only a few recent works considered robustness to non-worst case adversaries in a single agent setting, $\\mathrm { e . g . }$ ., assuming the adversary may not fully control the victim (Liu et al., 2024a), via a population of adversaries (Vinitsky et al., 2020), or via repeated encounters in a bandit setting (Liu et al., 2024b).",
+        "bbox": [
+            169,
+            224,
+            826,
+            337
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "To capture diversity of adversarial agents’ objectives and the resulting uncertainty, we propose the Bayesian Dec-POMDP defined as",
+        "bbox": [
+            169,
+            342,
+            825,
+            371
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathcal {M} _ {B} = (\\mathcal {N}, \\mathcal {S}, \\{\\Theta^ {i} \\} _ {i \\in \\mathcal {N}}, \\{\\mathcal {A} ^ {i} \\} _ {i \\in \\mathcal {N}}, R, P, \\{\\Omega^ {i} \\} _ {i \\in \\mathcal {N}}, \\mathcal {O}, \\mu , \\gamma),\n$$",
+        "text_format": "latex",
+        "bbox": [
+            294,
+            378,
+            700,
+            397
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "where $\\Theta ^ { i }$ is the type space of agent i, extending the Dec-POMDP formulation. The type $\\Theta ^ { i }$ captures the uncertainty about the reward function of agent i, and is a subset o $\\mathrm { ~ f ~ } \\mathbb { R } ^ { | \\boldsymbol { S } | \\times | \\mathcal { A } ^ { i } | }$ , in general. Nonetheless, as every compact subset of a Euclidean space is equinumerous to [0, 1], we can consider $\\Theta ^ { i } = [ 0 , 1 ]$",
+        "bbox": [
+            169,
+            405,
+            825,
+            465
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "The type $\\theta ^ { i } \\in \\Theta ^ { i }$ of agent i is drawn at the beginning of each episode. We denote by $b _ { 0 }$ the agents’ prior about the types and the initial system state, obtained based on $\\mu .$ . The type $\\theta ^ { i } = 0$ corresponds to agent i aiming to maximize the team reward, each $\\theta ^ { i } > 0$ corresponds to an agent that aims to maximize some other reward function. For notational convenience, we use $\\theta ^ { i } = 1$ as the type of an adversarial agent that aims to minimize the team reward. The policy $\\pi ^ { i } ( a _ { t } ^ { i } | \\tau _ { t } ^ { i } , \\theta ^ { i } )$ of agent i is thus a function of its type $\\theta ^ { i }$ , and the joint action of the agents has distribution $\\begin{array} { r } { a _ { t } \\sim \\dot { \\Pi } _ { i \\in \\mathcal { N } } \\overline { { \\pi } } ^ { i } ( a _ { t } ^ { i } | \\tau _ { t } ^ { i } , \\theta ^ { i } ) } \\end{array}$ and it governs the state transitions. Importantly, even if states are fully observable, the policies of the agents need not be stationary due to incomplete information; they depend on their beliefs $b ^ { i } ( \\tau _ { t } ^ { i } )$ about the types of the other agents and their policies, maintained based on the observation history.",
+        "bbox": [
+            169,
+            470,
+            825,
+            599
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Our Bayesian Dec-POMDP formulation generalizes existing formulations in the literature (Li et al., 2024; 2019; Yuan et al., 2023). A Dec-POMDP with only cooperative agents corresponds to $\\Theta =$ $0 _ { N }$ , mixed cooperative-competitive settings with $N _ { A }$ victim agents correspond to $| | \\bar { \\Theta } | | _ { 0 } = N _ { A }$ (Li et al., 2024), and a single worst case adversary corresponds to $\\mathbf { \\bar { \\rho } } _ { | | \\Theta | | _ { 0 } } = | | \\hat { \\Theta | | } _ { 1 } = 1$",
+        "bbox": [
+            169,
+            604,
+            823,
+            661
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "2.3 THREAT MODEL AND PROBLEM STATEMENT",
+        "text_level": 2,
+        "bbox": [
+            171,
+            679,
+            526,
+            694
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Aligned with the game model $\\mathcal { M } _ { B }$ we consider that the identity of the victims and the adversarial objective are unknown to benign agents, and the types of the agents do not change during an episode. For ease of notation we consider that the adversary takes control of a single victim agent $v \\in \\mathcal N$ and we denote the adversarial policy by $\\rho ^ { v , \\theta ^ { v } } = \\pi ^ { \\overline { { v } } } ( \\cdot | \\tau ^ { v } , \\theta ^ { v } )$ . Game $\\mathcal { M } _ { B }$ is a Bayesian game with imperfect information, its solution is thus a perfect Bayesian equilibrium (PBE), defined as follows.",
+        "bbox": [
+            169,
+            705,
+            823,
+            777
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Definition 2.1. A perfect Bayesian equilibrium (PBE) is a profile of cooperative policies $( \\pi ^ { i } ) _ { i \\in \\mathcal { N } }$ and of adversarial policies $( \\bar { \\rho ^ { v , \\theta _ { v } } } ) _ { v \\in \\dot { N } , \\theta _ { v } \\in \\Theta ^ { v } }$ , and a beliefsystem $( b ^ { i } ( \\tau ^ { i } ) ) _ { i \\in \\mathcal { N } }$ and $( b ^ { v } ( \\tau ^ { v } , \\theta ^ { \\dot { v } } ) ) _ { v \\in \\mathcal { N } } ,$ that satisfies (i) each policy is optimal in expectation at every history given the beliefs (sequential rationality) (ii) beliefs are updated using Bayes rule based on the equilibrium policies for on-path histories, as well asfor off-path histories whenever possible.",
+        "bbox": [
+            169,
+            782,
+            825,
+            854
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "To evaluate agent policies, with a slight abuse of notation, let us denote the expected initial state value when non-victim agents follow the joint policy $\\pi ^ { - v }$ and the victim follows policy $\\rho ^ { v , \\theta _ { v } }$ by $V ^ { \\pi , \\rho ^ { v , \\theta _ { v } } }$ . Intuitively, for any victim agent v and policy $\\rho ^ { v , \\theta ^ { v } }$ , the non-victim agents should perform optimally, i.e., as close as possible to the optimal policy against $\\rho ^ { v , \\theta ^ { v } }$ . We can thus evaluate the policies in terms of the Bayesian regret defined as",
+        "bbox": [
+            169,
+            864,
+            825,
+            925
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "page_number",
+        "text": "3",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            104,
+            504,
+            119
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathcal {R} (\\boldsymbol {\\pi}) = \\mathbb {E} _ {(v, \\theta^ {v}) \\sim b _ {0}} [ \\mathcal {R} _ {\\rho^ {v, \\theta^ {v}}} (\\boldsymbol {\\pi}) ] = \\mathbb {E} _ {(v, \\theta^ {v}) \\sim b _ {0}} [ \\max _ {\\boldsymbol {\\pi} ^ {\\prime}} (V ^ {\\boldsymbol {\\pi} ^ {\\prime}, \\rho^ {v, \\theta^ {v}}}) - V ^ {\\boldsymbol {\\pi}, \\rho^ {v, \\theta^ {v}}} ],\\tag{1}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            248,
+            119,
+            746,
+            143
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "where expectation is taken over the prior $b _ { 0 }$ . Observe that a PBE minimizes (1) by definition, and our objective is to learn such an equilibrium policy profile $( \\pi ^ { i } ) _ { i \\in \\mathcal { N } }$",
+        "bbox": [
+            169,
+            148,
+            823,
+            178
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3 BAYESIAN TYPE-PARTITIONED ADVERSARIAL LEARNING (BATPAL)",
+        "text_level": 2,
+        "bbox": [
+            171,
+            196,
+            792,
+            212
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Ideally, the defender would learn a policy that minimizes the Bayesian regret. However, since the attacker can choose from (possibly infinitely) many adversarial policies, finding a policy that corresponds to a PBE is computationally infeasible. To overcome this issue, we propose a novel approach that partitions the adversarial type space into a finite number of subsets, resulting in a Bayesian Dec-POMDP $\\hat { \\mathcal { M } } _ { B }$ with type space $\\hat { \\Theta } ^ { i } = \\{ 0 , 1 , , \\ldots , K \\}$ for agent i. Assuming at most one victim agent, the support of $p$ is the set of all $\\hat { \\theta }$ such that $| | \\hat { \\theta } | | _ { 0 } \\leq 1$ . This set can be equivalently represented by",
+        "bbox": [
+            169,
+            226,
+            825,
+            316
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathcal {Z} = \\{(v, k): v \\in \\mathcal {N}, k \\in \\{1, 2,..., K \\} \\} \\cup \\{\\mathbf {0} \\},\\tag{2}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            336,
+            316,
+            656,
+            333
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "where 0 represents the non-adversarial type for all agents. We denote by $p ( { \\hat { \\theta } } )$ the common prior over $\\hat { \\theta } = ( \\hat { \\theta } ^ { 1 } , . . . , \\hat { \\theta } ^ { N } )$ . With a slight abuse of notation, we use both $b ^ { i } ( { \\hat { \\theta } } | \\tau ^ { i } )$ and $b ^ { i } ( z | \\tau ^ { i } )$ for $z \\in { \\mathcal { Z } }$ to denote the beliefs.",
+        "bbox": [
+            169,
+            337,
+            825,
+            382
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "While partitioning itself is conceptually simple, it is not straightforward how to map adversarial types $\\Theta ^ { i }$ to $\\hat { \\Theta } ^ { i }$ , and how to choose adversarial policies that would be representative for each discrete adversarial type ${ \\hat { \\theta } } ^ { i }$ . Our proposed solution is to partition adversarial types based on their severity, defined appropriately, and to use the worst-case policy in each partition as representative. The core idea is then to train a single policy that performs optimally against the worst-case adversarial policies in all partitions, i.e., a PBE of game $\\hat { \\mathcal { M } } _ { B }$ . This approach allows us to explore a rich set of adversarial policies during training, which is essential for obtaining a PBE policy profile.",
+        "bbox": [
+            169,
+            388,
+            825,
+            494
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3.1 REFERENCE-VALUE BASED PARTITIONING",
+        "text_level": 2,
+        "bbox": [
+            171,
+            508,
+            513,
+            523
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "The main issue in partitioning the type space is that the reward function for each type $\\Theta ^ { v }$ is private to agent v, and other agent cannot know it. If the other agents were to distinguish between two different types in $\\Theta ^ { v }$ , they only could do it by playing against these two types with a fixed policy and observing the rewards they get. This motivates us to define our partitioning based on how well different adversarial types perform against a reference baseline policy.",
+        "bbox": [
+            169,
+            534,
+            825,
+            606
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Let $\\pi _ { 0 } \\in$ arg max $V ^ { \\pi }$ be a cooperative policy profile. We refer to $\\pi _ { 0 }$ as the reference policy and denote $V _ { \\mathrm { m a x } } \\bar { = } V ^ { \\pi _ { 0 } ^ { . . } }$ . Given a victim agent v of type $\\theta ^ { v }$ , let us denote the minimum expected initial state value by $\\begin{array} { r } { V _ { \\operatorname* { m i n } } ^ { v } = \\operatorname* { m i n } _ { \\rho ^ { v } } V ^ { \\pi _ { 0 } , \\rho ^ { v } } } \\end{array}$ . Note that $\\bar { V } _ { \\operatorname* { m i n } } ^ { \\bar { v } }$ is the lowest value an adversarial policy played by v can impose while the other players use $\\pi _ { 0 }$ . Thus, under the reference policy of the non-victim agents, the expected initial state value induced by an attack on v lies in $[ \\dot { V } _ { \\operatorname* { m i n } } ^ { v } , \\dot { V } _ { \\operatorname* { m a x } } ]$ . We can thus define the severity of an adversarial policy $\\rho ^ { v }$ as",
+        "bbox": [
+            169,
+            611,
+            825,
+            695
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\eta_ {\\rho^ {v}} = \\frac {V _ {\\max} - V ^ {\\pi_ {0} , \\rho^ {v}}}{V _ {\\max} - V _ {\\min} ^ {v}}.\\tag{3}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            419,
+            696,
+            575,
+            732
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "The severity of every adversarial policy satisfies $\\eta _ { \\rho ^ { v } } \\in [ 0 , 1 ]$ by definition. Essentially, assuming that the adversary plays optimally with respect to its private reward function, η provides a mapping from $\\Theta ^ { v }$ to [0, 1], by which the type 0 (non-adversarial) remains unchanged.",
+        "bbox": [
+            169,
+            734,
+            823,
+            777
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "We use the above to partition adversarial policies according to their severity and the victim agent. A policy $\\rho ^ { v }$ belongs to adversarial type $z = ( v , k )$ if $\\eta _ { \\rho ^ { v } } \\in \\big ( \\frac { \\tilde { k } - 1 } { K } , \\frac { k } { K } \\big ]$ , and we denote the set of all such policies by $\\Pi _ { z }$ . Note that any adversarial policy belongs to exactly one of the sets $\\Pi _ { z }$ for $z \\in { \\mathcal { Z } }$ The following proposition shows that such a partitioning is possible.",
+        "bbox": [
+            169,
+            782,
+            823,
+            839
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Proposition 3.1. Ifstates are observable, then $\\Pi _ { z }$ is a nonempty setfor all $z \\in { \\mathcal { Z } }$",
+        "bbox": [
+            171,
+            840,
+            714,
+            856
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Given this partitioning, the discrete adversarial types ${ \\hat { \\theta } } ^ { v }$ correspond to sets $\\Pi _ { z }$ , and it can be shown that the PBE in $\\hat { M } _ { B }$ corresponds a policy $\\pmb { \\pi } ^ { * } = ( \\pi ^ { * 1 } , \\dots , \\pi ^ { * N } )$ such that",
+        "bbox": [
+            171,
+            867,
+            823,
+            898
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\pi^ {* i} (. | \\tau^ {i}, \\theta^ {i} = 0) \\in \\arg \\max _ {\\pi^ {i}} \\mathbb {E} _ {b ^ {i} (z | \\tau^ {i})} \\big [ \\min _ {\\rho^ {v} \\in \\Pi_ {z}} V ^ {\\pi^ {*}, \\rho^ {v}} \\big ], \\forall i \\in \\mathcal {N}, \\forall \\tau^ {i}.\\tag{4}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            274,
+            900,
+            720,
+            926
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "page_number",
+        "text": "4",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "That is, each adversarial policy is a worst case policy in the corresponding partition, and $\\pi ^ { * }$ minimizes the Bayesian regret (see Appendix B.1 for proof).",
+        "bbox": [
+            169,
+            104,
+            823,
+            133
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Before presenting our solution to (4), we first elaborate on how such categorization enhances the robustness of MARL compared to learning a single max-min policy. First, as empirically showed by Kazari et al. (2023), there is a general trade-off between the impact of an attack and the abnormality of the victim agent’s behavior as perceived by non-victim agents. Here, the abnormality refers to a difference between what the non-victim agents expect to observe based on the reference policy and what the victim actually does. Thus, one would expect that if two adversarial policies have a large difference in $V ^ { \\pi _ { 0 } , \\rho ^ { \\tau } }$ , and accordingly belong to very distinct severity levels, their behavior would be easy to distinguish from the non-victim agents’ perspective. This would help MARL training to encounter a diverse set of adversarial policies. The next two propositions provide theoretical support for this reasoning. Proposition 3.2 establishes a bound on the KL divergence between two arbitrary policies in terms of their reference initial state values. The KL divergence quantifies the discrepancy between two probability distributions and is commonly employed as a metric for evaluating policy diversity in regularized reinforcement learning tasks (Yuan et al., 2023; Derek & Isola, 2021).",
+        "bbox": [
+            169,
+            138,
+            826,
+            321
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Proposition 3.2. Consider a victim agent v and any two adversarial policies $\\rho ^ { v , \\theta _ { 1 } }$ and $\\rho ^ { v , \\theta _ { 2 } }$ . If states are observable then we have",
+        "bbox": [
+            169,
+            321,
+            826,
+            351
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathbb {E} _ {s \\sim d _ {\\mu} ^ {\\pi_ {0}, \\rho^ {v, \\theta_ {1}}}} \\left[ D _ {\\mathrm{KL}} (\\rho^ {v, \\theta_ {1}} (s) | | \\rho^ {v, \\theta_ {2}} (s)) \\right] \\geq \\frac {(1 - \\gamma) ^ {2}}{2} | V ^ {\\pi_ {0}, \\rho^ {v, \\theta_ {1}}} - V ^ {\\pi_ {0}, \\rho^ {v, \\theta_ {2}}} | ^ {2},\\tag{5}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            241,
+            354,
+            754,
+            385
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "where $d _ { \\mu } ^ { \\pi _ { 0 } , \\rho ^ { v } }$ is the discounted state visitation distribution under $( \\rho ^ { v } , \\pi _ { 0 } ^ { - v } )$",
+        "bbox": [
+            171,
+            392,
+            669,
+            409
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Following Cohen et al. (2019), we define the diversity of a set of policies $\\{ \\rho ^ { v , \\theta _ { k } } \\} _ { k = 1 } ^ { K }$ as Div $\\begin{array} { r } { ( \\{ \\rho ^ { v , \\theta _ { k } } \\} _ { k = 1 } ^ { K } ) = \\frac { 1 } { K ( K - 1 ) } \\sum _ { i \\neq j } \\mathbb { E } _ { s } [ D _ { \\mathrm { K L } } ( \\rho ^ { v , \\theta _ { i } } ( s ) | | \\rho ^ { v , \\theta _ { j } } ( s ) ) ] } \\end{array}$ ]. Proposition 3.3 provides a lower bound on the diversity of adversarial policies generated by our partitioning through solving (4).",
+        "bbox": [
+            169,
+            420,
+            825,
+            469
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Proposition 3.3. $H \\rho ^ { * v , k }$ denotes the best response of adversarial type k against $\\pi ^ { * }$ in (4) then",
+        "bbox": [
+            171,
+            470,
+            799,
+            487
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\operatorname{Div} \\left(\\left\\{\\rho^ {* v, k} \\right\\} _ {k = 1} ^ {K}\\right) \\geq \\frac {(1 - \\gamma) ^ {2} \\left(V _ {\\max} - V _ {\\min} ^ {v}\\right) ^ {2} (K - 2)}{1 2 K}\\tag{6}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            321,
+            489,
+            674,
+            522
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Recall that one of the issues with learning a single max-min policy over the entire set of adversarial policies is its sub-optimality when the c-MARL team faces an arbitrary non-worst case attack. The next proposition demonstrates how the proposed partitioning mitigates this issue.",
+        "bbox": [
+            169,
+            532,
+            825,
+            577
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Proposition 3.4. Let $\\hat { \\rho } ^ { v } \\in \\Pi _ { \\cdot }$ <sub>z</sub> be an arbitrary adversarial policy for some $z = ( v , k )$ and $\\pi _ { z } ^ { \\ast } \\in$ arg ma $\\mathrm { x } _ { \\pi } \\operatorname* { m i n } _ { \\rho ^ { v } \\in \\Pi _ { z } } V ^ { \\pi , \\rho ^ { v } }$ . Then, assumingfully observable states, we have",
+        "bbox": [
+            169,
+            578,
+            823,
+            611
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathcal {R} _ {\\hat {\\rho} ^ {v}} (\\boldsymbol {\\pi} _ {z} ^ {*}) \\leq \\frac {k (V _ {m a x} - V _ {m i n} ^ {v})}{K}.\\tag{7}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            400,
+            614,
+            594,
+            646
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "The proof is provided in Appendix C.4. To interpret this result, let us compare the case of $K = 1$ with $K > 1$ . Note the case with $K = 1$ is equivalent to learning a max-min policy over the set of all adversarial policies with v as the victim. When $K = 1$ , the bound on the regret for any arbitrary adversarial policy can get as large as $V _ { \\mathrm { m a x } } - V _ { \\mathrm { m i n } } ^ { v }$ . In contrast, when $K > 1 , ( 7 )$ gives a severity-dependent bound. In particular, for attacks belonging to lower severity levels, i.e., small k, the optimality gap becomes smaller, as the ratio $\\frac { k } { K }$ becomes smaller.",
+        "bbox": [
+            169,
+            656,
+            825,
+            742
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Finally, although the issue of getting stuck in local optima remains, our partitioning-based approach improves the likelihood of finding better solutions by restricting the search to a collection of smaller, non-overlapping feasible subsets that together cover the entire feasible space of adversarial policies.",
+        "bbox": [
+            169,
+            746,
+            826,
+            791
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "4 ROBUST LEARNING",
+        "text_level": 2,
+        "bbox": [
+            171,
+            809,
+            372,
+            825
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "4.1 LEARNING ADVERSARIAL POLICIES VIA EXTERNALLY CONSTRAINED RL",
+        "text_level": 2,
+        "bbox": [
+            171,
+            840,
+            728,
+            854
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "To solve (4), we first focus on solving the inner minimization problem, i.e., for a given $z = ( v , k )$ a non-victim policy π and reference policy $\\pi _ { 0 }$ , find a policy $\\begin{array} { r } { \\rho ^ { v * } = \\arg \\operatorname* { m i n } _ { \\rho ^ { v } \\in \\Pi _ { z } } V ^ { \\pi , \\rho ^ { v } } } \\end{array}$ . Since throughout the subsection we focus on a single adversarial policy, we drop superscript v for notational simplicity. Observe that from the adversary’s perspective, fixing the non-victim policies to any given policy induces a specific POMDP (see (21) and (22) in the Appendix for the corresponding reward and transition kernel). Thus, the inner minimization is a constrained problem of the form",
+        "bbox": [
+            169,
+            866,
+            825,
+            925
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "page_number",
+        "text": "5",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            104,
+            823,
+            133
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\begin{array}{l} \\min _ {\\rho} \\mathbb {E} _ {s \\sim \\mu} [ V _ {(1)} ^ {\\rho} (s) ] \\\\ \\text {s.t.} l \\leq \\mathbb {E} _ {s \\sim \\mu} [ V _ {(0)} ^ {\\rho} (s) ] \\leq h, \\end{array}\\tag{8}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            400,
+            135,
+            596,
+            179
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "where $V _ { ( 1 ) } ^ { \\rho }$ and $V _ { ( 0 ) } ^ { \\rho }$ denote the initial state value function of policy $\\rho$ when it is applied to two different POMDPs, namely POMDP<sub>1</sub> and $\\mathrm { P O M D P _ { 0 } }$ , respectively, and l and h are some real numbers. Here, $\\mathrm { P O M D P _ { 0 } }$ and $\\mathrm { P O M D P _ { 1 } }$ refer to POMDPs induced by fixing $\\pi _ { 0 }$ and π, respectively, and l and h are the boundaries of severity type $k .$ For notational simplicity, in the rest of the subsection we consider that states are observable, hence we refer to these as $\\mathrm { M D P _ { 1 } }$ and $\\mathrm { M D P _ { 0 } }$",
+        "bbox": [
+            169,
+            183,
+            825,
+            258
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Observe that $\\mathrm { M D P _ { 1 } }$ and $\\mathrm { M D P _ { 0 } }$ share the same action and state spaces, but differ in the reward function and the transition dynamics. Thus, although problem (8) resembles the constrained RL problem in the context of safe learning (Paternain et al., 2019; Liu et al., 2020), there is a fundamental difference. In constrained RL, the costs that define the constraints are essentially obtained through the same trajectory as the rewards in the objective function. On the contrary, in our problem, the objective and the constraints correspond to different MDPs, and consequently, different trajectories. To highlight this difference, henceforth we refer to (8) as the externally constrained RL problem.",
+        "bbox": [
+            169,
+            262,
+            825,
+            362
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "We propose to use the log barrier method to approximate (8) via an unconstrained problem. That is, we define $V _ { ( j ) } ^ { \\rho } = \\mathbb { E } _ { s \\sim \\mu } [ \\breve { V } _ { ( j ) } ^ { \\rho } ( s ) ]$ ] for $j = 0 , 1$ , and obtain",
+        "bbox": [
+            171,
+            367,
+            823,
+            398
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\min _ {\\rho} V _ {(1)} ^ {\\rho} - \\lambda \\log (V _ {(0)} ^ {\\rho} - l) - \\lambda \\log (h - V _ {(0)} ^ {\\rho}),\\tag{9}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            334,
+            401,
+            660,
+            424
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "where $\\lambda$ is a hyperparameter controlling the optimality-feasibility trade off. We propose to solve (9) using a gradient descent approach on policy $\\rho _ { \\psi }$ parametrized by parameter vector $\\psi .$ . The gradient of the objective function can then be expressed as follows.",
+        "bbox": [
+            171,
+            428,
+            825,
+            470
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Proposition 4.1. The policy gradient ofthe objectivefunction (9) is",
+        "bbox": [
+            171,
+            473,
+            620,
+            488
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\begin{array}{r l} & g _ {\\psi} = \\frac {1}{1 - \\gamma} \\mathbb {E} _ {s \\sim d _ {(1)}, a \\sim \\rho_ {\\psi} (. | s)} [ \\nabla_ {\\psi} \\log \\rho_ {\\psi} (a | s) A _ {(1)} ^ {\\rho_ {\\psi}} (s, a) ] \\\\ & - \\frac {\\lambda}{1 - \\gamma} (\\frac {1}{\\mathbb {E} _ {s \\sim \\mu} [ V _ {(0)} ^ {\\rho_ {\\psi}} (s) ] - l} - \\frac {1}{h - \\mathbb {E} _ {s \\sim \\mu} [ V _ {(0)} ^ {\\rho_ {\\psi}} (s) ]}) \\mathbb {E} _ {s \\sim d _ {(0)}, a \\sim \\rho_ {\\psi} (. | s)} [ \\nabla_ {\\psi} \\log \\rho_ {\\psi} (a | s) A _ {(0)} ^ {\\rho_ {\\psi}} (s, a) ] \\end{array}\\tag{10}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            176,
+            493,
+            818,
+            559
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "where $A _ { ( j ) } ^ { \\rho _ { \\psi } }$ and $d _ { ( j ) }$ denote the advantage function and the discounted state visitation distribution under $\\rho _ { \\psi }$ corresponding to $M D P _ { j }$ , respectively. (Proof in Appendix C.5)",
+        "bbox": [
+            171,
+            578,
+            823,
+            611
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Then, the stochastic update rule for the policy parameters would be",
+        "bbox": [
+            171,
+            619,
+            616,
+            633
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\psi_ {n + 1} = \\psi_ {n} - \\alpha_ {n} \\hat {g} _ {\\psi_ {n}},\\tag{11}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            423,
+            638,
+            573,
+            654
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "where ${ \\hat { g } } _ { \\psi _ { \\tau } }$ is an estimate of $g _ { \\psi _ { \\tau } }$ and $\\alpha _ { n }$ is the learning rate. To estimate the gradient $g _ { \\psi }$ , let $\\hat { V } _ { ( j ) } ^ { \\psi _ { n } }$ and $\\hat { \\nabla } _ { ( j ) } ^ { \\psi _ { n } }$ denote some unbiased estimators of $V _ { ( j ) } ^ { \\rho _ { \\psi _ { n } } }$ and $\\nabla _ { \\psi } V _ { ( j ) } ^ { \\rho _ { \\psi _ { r } } }$ , respectively, where $j = 0 , 1$ . Then, our proposed estimate is",
+        "bbox": [
+            171,
+            659,
+            825,
+            710
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\hat {g} _ {\\psi_ {n}} = \\frac {1}{1 - \\gamma} \\left[ \\hat {\\nabla} _ {(1)} ^ {\\psi_ {n}} - \\lambda (\\frac {1}{\\hat {V} _ {(0)} ^ {\\psi_ {n}} - l} - \\frac {1}{h - \\hat {V} _ {(0)} ^ {\\psi_ {n}}}) \\hat {\\nabla} _ {(0)} ^ {\\psi_ {n}} \\right].\\tag{12}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            310,
+            714,
+            684,
+            755
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "To obtain the estimates, we collect trajectories of M episodes in the form $\\{ ( s _ { t , m , ( j ) } , a _ { t , m , ( j ) } , r _ { t , m , ( j ) } ) _ { t = 0 } ^ { T _ { m } - 1 } \\} _ { m = 1 } ^ { M }$ by executing $\\rho _ { \\psi }$ on MDP for $j \\in \\{ 0 , 1 \\}$ . In practice, $T _ { m }$ could be the time to reach a terminal state or the episodic time limit. We propose to maintain two parametrized functions, namely $V _ { \\phi _ { ( 0 ) } }$ and $V _ { \\phi _ { ( 1 ) } }$ , as the critics to estimate $\\dot { V } _ { ( 0 ) } ^ { \\rho _ { \\psi } } ( s )$ and $V _ { ( 1 ) } ^ { \\rho _ { \\psi } } ( s )$ . Then, $\\hat { \\nabla } _ { ( j ) } ^ { \\psi }$ is obtained in the same way as a standard actor-critic algorithm (Sutton & Barto, 2018), using the empirical average of $\\nabla _ { \\psi }$ log $\\rho _ { \\psi } ( a | s ) A _ { \\phi _ { ( j ) } } ( s , a )$ , where $A _ { \\phi _ { ( j ) } }$ is the advantage function calculated based on $V ^ { \\phi } ( j )$ . Moreover, we can obtain $\\hat { V } _ { ( 0 ) } ^ { \\psi _ { n } }$ as",
+        "bbox": [
+            171,
+            765,
+            825,
+            881
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\frac {1}{M} \\sum_ {m = 1} ^ {M} \\left[ (\\sum_ {t = 0} ^ {T _ {m} - 1} \\gamma^ {t} r _ {t, m, (0)}) + V _ {\\phi_ {(0)}} (s _ {T _ {m}, m, (0)}) \\right].\\tag{13}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            334,
+            885,
+            663,
+            928
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "page_number",
+        "text": "6",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "A major difference between the proposed stochastic update and standard policy gradient methods is that our estimate of the gradient is not unbiased, as $\\mathbb { E } [ \\hat { g } _ { \\psi _ { n } } ] \\neq g _ { \\psi _ { n } }$ , even if $\\hat { V } _ { ( 0 ) } ^ { \\psi _ { n } }$ and $\\hat { \\nabla } _ { ( j ) } ^ { \\psi _ { n } }$ are unbiased estimators. Thus, our algorithm is not guaranteed to converge using standard arguments (Robbins & Monro, 1951). Yet, it does converge with a proper selection of the step sizes, as we show next.",
+        "bbox": [
+            169,
+            104,
+            825,
+            165
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Proposition 4.2. Assume thatfor a parameterization ψ, thefollowing conditions hold:",
+        "bbox": [
+            171,
+            169,
+            743,
+            184
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "$( l ) \\hat { V } _ { ( 0 ) } ^ { \\psi }$ and $\\hat { \\nabla } _ { ( j ) } ^ { \\psi }$ are unbiased estimators.(2) For any $s \\in S$ and $a \\in A ,$ the function log $\\rho _ { \\psi } ( a | s )$ is twice differentiable with respect to ψ, and both its first and second derivatives are bounded. (3) There exists a strictly feasible starting point ψ<sub>0</sub>, i.e., $l < V _ { ( 0 ) } ^ { \\rho _ { \\psi _ { 0 } } } < h$ . (4) There exists a constant $\\zeta > 0$ , such that $\\nabla _ { \\psi } V _ { ( 0 ) } ^ { \\rho _ { \\psi _ { n } } }$ is nonzero when $h - \\zeta \\leq V _ { ( 0 ) } ^ { \\rho _ { \\psi _ { n } } } \\leq h$ or $l \\leq V _ { ( 0 ) } ^ { \\rho _ { \\psi _ { n } } } \\leq l + \\zeta .$",
+        "bbox": [
+            171,
+            191,
+            825,
+            261
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Then, for any $\\epsilon , \\delta > 0 ,$ , there exists a sequence of adaptive step sizes $\\left\\{ \\alpha _ { n } \\right\\}$ and some values $N _ { i t e r }$ and M, such that after $N _ { i t e r }$ iterations of (11) using (12), we have mi $1 _ { n \\leq N _ { i t e r } } \\left| \\left| g _ { \\psi _ { n } } \\right| \\right| \\leq \\epsilon$ with probability at least 1-δ. Moreover, as $\\lambda  0$ the obtained point approaches a KKT point of the constrained problem (8) with probability at least 1-δ. (Proof and detailed expressions of $\\alpha _ { n } , N _ { i t e r }$ and M are available in Appendix C.6)",
+        "bbox": [
+            169,
+            267,
+            825,
+            339
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Despite the above convergence result, using (12) poses two practical challenges. First, computing the adaptive step size $\\alpha _ { n }$ is computationally expensive and requires estimating bounds on the gradient of log $\\rho _ { \\psi } ,$ , which is difficult in general. Second, estimating log-barrier gradients near the boundary of the feasible region is sensitive to noise (Usmanova et al., 2024). Mitigating the sensitivity requires a large number of episodic samples $M .$ , which is infeasible in practical RL settings.",
+        "bbox": [
+            169,
+            349,
+            825,
+            421
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "To address these issues, we propose to incorporate the PPO loss function (Schulman et al., 2017) into the policy updates. The key intuition is that the clipping mechanism in PPO constrains policy updates by preventing large deviations from the current policy. This implicitly mitigates the risk of crossing into the infeasible region due to high-variance gradient estimates, while also eliminating the need to compute adaptive step sizes in practice. Moreover, when the initial policy lies outside the feasible region, the update direction is reversed such that the gradient step encourages convergence toward the feasible set. Then the gradient calculation of our proposed algorithm, which we refer to as externally-constrained $P P O \\ : ( E \\bar { C } - P P O )$ , can be summarized as",
+        "bbox": [
+            169,
+            426,
+            826,
+            539
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\hat {g} _ {\\psi_ {n}} ^ {\\mathbf {E C - P P O}} = \\left\\{ \\begin{array}{l l} \\nabla_ {(1)} ^ {\\mathrm{PPO}, \\psi_ {n}} - \\lambda (\\frac {1}{\\hat {V} _ {(0)} ^ {\\psi_ {n}} - l} - \\frac {1}{h - \\hat {V} _ {(0)} ^ {\\psi_ {n}}}) \\hat {\\nabla} _ {(0)} ^ {\\psi_ {n}}, & \\text { if } l + \\zeta \\leq \\hat {V} _ {(0)} ^ {\\psi_ {n}} \\leq h - \\zeta \\\\ s i g n (\\hat {V} _ {(0)} ^ {\\psi_ {n}} - \\frac {1}{2} (l + h)) \\hat {\\nabla} _ {(0)} ^ {\\psi_ {n}}, & \\text { otherwise, } \\end{array} \\right.\\tag{14}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            236,
+            546,
+            758,
+            592
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "where $\\nabla _ { ( 1 ) } ^ { \\mathrm { P P O } , \\psi _ { n } }$ is the gradient of the PPO objective function $( \\mathrm { E q . } ( 7 )$ in Schulman et al. (2017)), and $\\zeta > 0$ is a small value to prevent gradient explosion.",
+        "bbox": [
+            169,
+            601,
+            825,
+            636
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "4.2 BAYESIAN ADVERSARIAL MARL TRAINING",
+        "text_level": 2,
+        "bbox": [
+            171,
+            652,
+            526,
+            666
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "To find the perfect Bayesian equilibrium policies in (4), recall that PBE policies are optimal in expectation given the beliefs. Thus, we incorporate $b ^ { i }$ as an input $\\tan \\pi ^ { i }$ , represented as $\\pi ^ { i } ( \\cdot | \\tau ^ { i } , b ^ { i } , \\theta ^ { i } = 0 )$",
+        "bbox": [
+            169,
+            678,
+            821,
+            708
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "It can be shown that $\\hat { \\mathcal { M } } _ { B }$ is equivalent to a partially observable stochastic game $\\mathcal { G }$ with $N + 1$ players, where player $N + 1$ plays adversarially against the others (details in Appendix B). This interpretation allows us to employ the framework of adversarial training with min-oracle (Kalogiannis et al., 2022; Liu et al., 2024a) for policy updates. Let $\\pi _ { \\omega ^ { i } } ( . | \\tau _ { i } , b _ { i } )$ be a policy parametrized by $\\omega ^ { i }$ that represents $\\pi ^ { i } ( . | \\tau ^ { i } , b ^ { i } , \\theta ^ { i } = \\dot { 0 } )$ . Also, let $\\rho _ { \\psi }$ be the adversarial policy parametrized by $\\pmb { \\psi } = ( \\psi ^ { z } ) _ { z \\in \\mathcal { Z } \\backslash \\mathbf { 0 } }$ , such that $\\psi ^ { z }$ corresponds to $\\pi ^ { v } ( . | s , \\theta ^ { v } = k )$ for $z = ( v , k )$ . Note that if $\\bar { V } ^ { \\omega , \\psi }$ represents the expected initial state value function of non-adversarial agents in $\\mathcal { G }$ , their objective is to find arg $\\operatorname* { m a x } _ { \\omega } \\dot { \\operatorname* { m i n } } _ { \\psi } \\bar { V } ^ { \\omega , \\psi }$ . Then, assuming that there is an oracle that for any given policy $\\pi _ { \\omega }$ returns a best response polic $\\psi ^ { * } ( \\omega ) =$ arg min ${ \\bf \\Omega } _ { \\psi } \\bar { V } ^ { \\omega , \\psi }$ , the MARL policy is updated as",
+        "bbox": [
+            169,
+            714,
+            825,
+            845
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\pmb {\\omega} _ {n + 1} = \\pmb {\\omega} _ {n} + \\beta_ {n} \\nabla_ {\\pmb {\\omega}} \\bar {V} ^ {\\pmb {\\omega} _ {n}, \\psi^ {*} (\\pmb {\\omega} _ {n})},\\tag{15}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            380,
+            854,
+            614,
+            873
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "where $\\beta _ { n }$ is a step size. It is straightforward to verify that minimizing $\\bar { V }$ is equivalent to minimizing $V ,$ , the expected initial state value function of the original game $\\hat { \\mathcal { M } } _ { B }$ . Consequently, our externally constrained RL algorithm can serve as an oracle to compute $\\psi ^ { z * }$ for each $z \\in { \\mathcal { Z } }$ , since fixing ω reduces the problem to 8. Moreover, note that for a fixed $\\psi$ and assuming updated beliefs, the problem reduces to the standard c-MARL setting.",
+        "bbox": [
+            171,
+            878,
+            825,
+            925
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "page_number",
+        "text": "7",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "chart",
+        "img_path": "images/6fac46ed913e0fd8be1b2372744fdb69a133c22d23d39c1b6ce32e466d6078a0.jpg",
+        "content": "",
+        "chart_caption": [
+            "(a) LBF"
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            181,
+            101,
+            338,
+            191
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "chart",
+        "img_path": "images/2de9173d5cf98a2370d8355adf2124d2ad2cf284fa22f8ec66074f7457437083.jpg",
+        "content": "",
+        "chart_caption": [
+            "(b) MPE-Spread"
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            343,
+            101,
+            496,
+            193
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "chart",
+        "img_path": "images/b8fe1c888b7c6998dd8180c62a994315f7f547eafcdda26d674745d93a9b9f34.jpg",
+        "content": "",
+        "chart_caption": [
+            "(c) SMAC-2s3z"
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            501,
+            101,
+            656,
+            193
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "chart",
+        "img_path": "images/0e1a1ca2fdac3df65e104055aa2317125751a2c7fb7549f098472986305b4e85.jpg",
+        "content": "",
+        "chart_caption": [
+            "(d) SMAC-MMM",
+            "Figure 1: Average episodic return of the proposed adversarial training, evaluated over 5 runs."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            661,
+            101,
+            815,
+            191
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            261,
+            823,
+            291
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Such policy optimization is theoretically guaranteed to converge to a Nash equilibrium of Markov games under simplified settings, such as direct parameterization and fully observable states (Kalogiannis et al., 2022; Daskalakis et al., 2020). However, these guarantees rely on performing exact minimization at each policy update and having access to exact gradients, both of which are infeasible in practice. To address this, we employ simultaneous gradient updates, also known as twotimescale stochastic simultaneous gradient descent–ascent (Daskalakis et al., 2020). Then assuming that ${ \\hat { g } } _ { \\omega } ( \\omega , \\psi )$ is an unbiased stochastic estimate of $\\nabla _ { \\omega } \\bar { V } ^ { \\omega _ { n } , \\psi ^ { * } ( \\omega _ { n } ) }$ , and that $\\hat { g } _ { \\psi } ^ { \\bf E C - P P O } ( \\omega , \\psi )$ is the adversarial gradient derived by (14), our policy updates can be summarized as",
+        "bbox": [
+            169,
+            296,
+            825,
+            412
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\pmb {\\psi} _ {n + 1} = \\pmb {\\psi} _ {n} - \\alpha_ {n} \\hat {g} _ {\\pmb {\\psi}} ^ {\\mathbf {E C - P P O}} (\\pmb {\\omega} _ {n}, \\pmb {\\psi} _ {n})\\tag{16}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            377,
+            414,
+            617,
+            433
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\pmb {\\omega} _ {n + 1} = \\pmb {\\omega} _ {n} + \\beta_ {n} \\hat {g} _ {\\pmb {\\omega}} (\\pmb {\\omega} _ {n}, \\pmb {\\psi} _ {n}).\\tag{17}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            377,
+            436,
+            586,
+            452
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "The intuition is that by selecting $\\alpha _ { n } \\geq \\beta _ { n } .$ , the adversary’s policy serves as an approximate minoracle, while from the adversary’s perspective the c-MARL policy appears nearly quasi-static. To compute ${ \\hat { g } } _ { \\omega } ( \\omega _ { n } , \\psi _ { n } )$ , we first need to obtain the agents’ beliefs. For this purpose, we employ a parametrized function approximator $b _ { \\chi _ { i } } ( \\theta ^ { - i } | \\tau ^ { i } )$ , implemented using a Recurrent Neural Network (RNN) that takes $\\tau ^ { i }$ as input. The belief model is trained against the true type $\\theta ^ { - i }$ using a crossentropy loss. Then, by feeding $( b ^ { i } , \\tau ^ { i } )$ into the policy network and using the value estimate provided by the critic $V _ { \\phi ( 1 ) } ( \\bar { s } ) ^ { - }$ , we compute ${ \\hat { g } } _ { \\omega } ( \\omega _ { n } , \\psi _ { n } )$ in the same way as in a standard actor-critic algorithm. We refer to our algorithm as Bayesian Type-Partitioned Adversarial Learning (BATPAL), and provide its pseudo-code in the Appendix.",
+        "bbox": [
+            169,
+            460,
+            826,
+            589
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "5 EVALUATION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            607,
+            316,
+            623
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "We evaluate BATPAL against various attack types in four c-MARL environments. We consider the 2s3z and MMM scenarios from the StarCraft II Multi-Agent Challenge (SMAC) (Samvelyan et al., 2019), with five and ten agents, respectively. We use scenario (10x10-5p-10f-c) in Level-Based Foraging (LBF) (Papoudakis et al., 2021) and the Spread scenario from Multi-Particle Environments (MPE) (Mordatch & Abbeel, 2017), involving five and three agents, respectively. Additionally, we include results for SMAC scenarios 1c3s5z and 11m in the Appendix.",
+        "bbox": [
+            169,
+            637,
+            825,
+            723
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "In all environments, we applied our algorithm to train a robust c-MARL policy and a set of adversarial policies with different severity indices. We used MAPPO (Yu et al., 2022) both for updating the c-MARL policy in adversarial learning and to obtain the reference policy π<sub>0</sub> in the pre-training phase. We assumed a uniform prior over all possible types in the training. Moreover, for a lowcomplexity implementation, we used parameter-sharing across all agents. Accordingly, we maintained a single neural network for c-MARL policy and K networks for different adversarial types. Moreover, during training, we update adversarial networks in a randomized way, i.e., only one of K networks is updated per each update of the c-MARL policy (see the pseudo code in Appendix E.1) For more details on implementation, we refer to Appendix E.2.",
+        "bbox": [
+            169,
+            728,
+            826,
+            854
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Baselines We compare our proposed method with state-of-the-art baselines including EIR-MAPPO (Li et al., 2024), Generalized Maxmin (Gen-Maxmin) (Liu et al., 2024a), and RAP (Vinitsky et al., 2020). We also include the evaluation of the vanilla MAPPO algorithm against the considered attacks. Moreover, to provide a comprehensive assessment of the results, we include for each attack the results obtained using an oracle defender that is aware of the type of the adversary and is trained against it. This baseline, referred to as Known Type (KT), serves as an empirical upper bound. Finally, we include a comparison with ROMANCE (Yuan et al., 2023) in Appendix D.2.",
+        "bbox": [
+            169,
+            867,
+            825,
+            924
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "page_number",
+        "text": "8",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "image",
+        "img_path": "images/58371e3642c2371f918a86bba58e2d1ff59bb0e9802b2539e9c6e121ac7e0e19.jpg",
+        "image_caption": [
+            "Figure 2: Performance in four environments against 10 adversarial policies (Best, 2nd best not considering KT). The episode rewards for MPE-Spread and LBF are in [-189, -47] and [0.4, 0.74]."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            181,
+            107,
+            816,
+            297
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            378,
+            826,
+            424
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Attacks We use 10 adversarial policies for the evaluation. On the one hand, the policies trained in the adversarial training process of BATPAL, these are indexed by their severity level. In addition, we use the adversarial policies trained against EIR-MAPPO, Gen-Maxmin and RAP, these are marked as “A-X,” where X corresponds to the name of the baseline. To assess generalization, we further evaluate all methods against three dynamic adversaries, unseen by all methods. These adversaries are trained by fixing non-victim policies and training an RL agent with a reward function that balances adversarial impact on c-MARL performance with detectability (Kazari et al., 2023). We consider three such adversaries: ACT, which minimizes team reward, and DYN-1 and DYN-2, with DYN-2 placing greater emphasis on close to normal behavior (low detectability). For all attacks, we apply the policy to any victim agent for 50 episodes and report the averages across all episodes.",
+        "bbox": [
+            169,
+            439,
+            826,
+            580
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "5.1 RESULTS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            598,
+            279,
+            613
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Figure 1 shows the learning curves of BATPAL with K = 4 severity levels. The curves show the episodic rewards of the learned policy when evaluated in both non-adversarial settings and against simultaneously trained adversarial policies. The results demonstrate the convergence of the proposed training scheme across all scenarios and adversarial types.",
+        "bbox": [
+            169,
+            625,
+            826,
+            683
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Figure 2 compares the performance of BATPAL with baselines. For SMAC environments, we use the team win rate of the c-MARL agents as the performance metric, while for the other environments we use the mean episodic total reward, normalized to enable unified comparison across environments. We can make several key observations based on the results. First, in terms of non-adversarial performance, the BATPAL performs at least as well as vanilla MAPPO, indicating that robustification does not compromise optimality under normal conditions. Second, although we train a single cooperative policy profile, it almost always outperforms the robust baselines policies when they face the attack they are trained against. This highlights the importance of exposing agents to a diverse set of adversarial policies in order to obtain robust policies. Third, from the adversary’s perspective, the worst performance of other baselines in many cases occurs when they face one of the attacks generated for training BATPAL, rather than their own adversarial policies. This can be attributed to adversarial training getting stuck in local stationary points, which further justifies our proposed method for adversarial search over disjoint sets. Fourth, although the upper bound represented by KT is obtained empirically and may not correspond to the true upper bound on the performance of a robust policy, the performance gap to KT provides an indication of the regret associated with each policy. In many cases, our algorithm achieves near no-regret, even against unseen attacks. It is also worth noting that, even for previously encountered attacks, uncertainty regarding both the adversary’s type and the identity of the victim agent (if any) prevents the defender from consistently executing an optimal policy. We provide more results in the Appendix.",
+        "bbox": [
+            169,
+            686,
+            826,
+            926
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "page_number",
+        "text": "9",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "table",
+        "img_path": "images/d075ae5394e83252ddd18b99ca46045d85fee88ac7d2f39098ee1b91e7adb1fc.jpg",
+        "table_caption": [
+            "Table 1: Results of ablation study on the MPE-Spread and SMAC-2s3z environments.",
+            "(a) MPE-Spread"
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Variation</td><td>No Attack</td><td>ACT</td><td>DYN 1</td><td>A-Gen-Maxmin</td></tr><tr><td>BATPAL</td><td>1.00</td><td>0.81</td><td>0.67</td><td>0.80</td></tr><tr><td>No Belief</td><td>0.81</td><td>0.70</td><td>0.67</td><td>0.61</td></tr><tr><td>Perfect Belief</td><td>1.02</td><td>0.75</td><td>0.78</td><td>0.68</td></tr><tr><td>EC PG</td><td>0.97</td><td>0.75</td><td>0.65</td><td>0.74</td></tr><tr><td>Fixed Types</td><td>0.95</td><td>0.78</td><td>0.59</td><td>0.67</td></tr></table>",
+        "bbox": [
+            176,
+            147,
+            488,
+            217
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "table",
+        "img_path": "images/fa3b2bd68382ccbd38341566f681ce16a0c098dd9d64f9a1fe14b88c2db4f866.jpg",
+        "table_caption": [
+            "(b) SMAC-2s3z"
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Variation</td><td>No Attack</td><td>ACT</td><td>DYN 1</td><td>A-Gen-Maxmin</td></tr><tr><td>BATPAL</td><td>0.98</td><td>0.72</td><td>0.52</td><td>0.50</td></tr><tr><td>No Belief</td><td>0.96</td><td>0.33</td><td>0.30</td><td>0.36</td></tr><tr><td>Perfect Belief</td><td>1.00</td><td>0.34</td><td>0.42</td><td>0.39</td></tr><tr><td>EC PG</td><td>0.96</td><td>0.41</td><td>0.38</td><td>0.41</td></tr><tr><td>Fixed Types</td><td>0.94</td><td>0.42</td><td>0.14</td><td>0.19</td></tr></table>",
+        "bbox": [
+            513,
+            147,
+            823,
+            217
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            246,
+            823,
+            276
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "5.2 ABLATION STUDY",
+        "text_level": 2,
+        "bbox": [
+            171,
+            292,
+            344,
+            306
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "In this section we evaluate the importance of various components of BATPAL by replacing each of them with some alternatives. Table 1 shows the results of evaluating different variations of our method against three representative unseen attacks and also in the non-adversarial setting in MPE-Spread and SMAC-2s3z.",
+        "bbox": [
+            169,
+            319,
+            826,
+            376
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "Beliefs We considered two variants of BATPAL to evaluate the effect of the belief network. The first variant is trained without a belief, while in the second variant the true type of the adversary is provided directly to the policy network instead of a belief estimate. In Table 1, these two variants are labeled No Belief and Perfect Belief, respectively. The results show that without the belief, the robustness of the c-MARL policy trained using BATPAL is significantly worse than when using the belief. In this case, even the performance in the non-adversarial setting can be affected as the results in MPE-Spread show. Interestingly, when the perfect belief is fed to the policies, robustness still suffers when facing attacks unseen during training. This is due to that the belief captures the severity level of the attack, but not the actual attack type. These results clearly show the importance of using the belief in BATPAL.",
+        "bbox": [
+            169,
+            391,
+            826,
+            532
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "EC RL Algorithm To evaluate the effect of PPO in the externally constrained updates of adversarial policies, we consider a variant in which the adversarial updates are performed using a simple policy gradient method without the clipping mechanism. We refer to this approach as EC PG. As shown in Table 1, although this method achieves performance close to BATPAL in non-adversarial settings, it is not generally robust against attacks with different adversarial types. This can be explained by the fact that, without the clipping mechanism, the policies can easily move far outside the feasible region. Consequently, the adversarial policies encountered during training are not representative of their designated types, which undermines overall robustness.",
+        "bbox": [
+            169,
+            546,
+            826,
+            660
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "Ensemble of Adversarial Types Finally, to evaluate the effect of the proposed partitioning method, we consider an alternative approach in which the c-MARL policies are trained against an ensemble of fixed adversarial policies. For this approach, we use four dynamic adversaries (Kazari et al., 2023) trained with different trade-offs between severity and detectability to ensure diversity among the adversaries used during training. Table 1b shows that this approach, called Fixed Types, can lead to significantly lower performance compared to BATPAL. This observation highlights that while diversity is necessary, it is not sufficient to achieve generalizable robustness against unknown adversaries.",
+        "bbox": [
+            169,
+            675,
+            826,
+            787
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "6 CONCLUSION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            808,
+            321,
+            824
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "We showed that reference-value–based partitioning of adversarial types enhances the adaptability of c-MARL agents to unseen adversaries by exposing the c-MARL team to a diverse set of adversarial policies, demonstrated both theoretically and empirically. We proposed EC-PPO to learn adversarial policies of different types and demonstrated that it can be effectively integrated into our Bayesian adversarial learning framework BATPAL. Our results show that BATPAL outperforms the state-ofthe-art by achieving almost no-regret performance against various unseen attacks.",
+        "bbox": [
+            169,
+            840,
+            826,
+            925
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "page_number",
+        "text": "10",
+        "bbox": [
+            490,
+            948,
+            509,
+            960
+        ],
+        "page_idx": 9
+    }
+]

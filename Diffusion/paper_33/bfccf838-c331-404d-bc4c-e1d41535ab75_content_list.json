@@ -1,0 +1,1392 @@
+[
+    {
+        "type": "text",
+        "text": "ABSTRACT",
+        "text_level": 2,
+        "bbox": [
+            450,
+            262,
+            547,
+            279
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "While traditional time-series classifiers assume full sequences at inference, practical constraints (latency and cost) often limit inputs to partial prefixes. The absence of class-discriminative patterns in partial data can significantly hinder a classifier’s ability to generalize. This work uses knowledge distillation (KD) to equip partial time series classifiers with the generalization ability of their full-sequence counterparts. In KD, high-capacity teacher transfers supervision to help student learning on the target task. When the generalization gap is due to limited parameter capacity, matching with teacher features has shown promise. However, when the generalization gap stems from training-data differences (full versus partial), the teacher’s full-context features can be an overwhelming target signal for the student’s short-context features. To provide progressive, diverse, and collective teacher supervision, we propose Generative Diffusion Prior Distillation (GDPD), a novel KD framework that treats short-context student features as degraded observations of the target full-context features. Inspired by the iterative restoration capability of diffusion models, we learn a diffusion-based generative prior over teacher features. Leveraging this prior, we (posterior-)sample target teacher representations that could best explain the missing long-range information in the student features and optimize the student features to be minimally degraded relative to these targets. GDPD provides each student feature with a distribution of task-relevant long-context knowledge, which benefits learning on the partial classification task. Extensive experiments across earliness settings, datasets, and architectures demonstrate GDPD’s effectiveness for full-to-partial distillation.",
+        "bbox": [
+            230,
+            295,
+            767,
+            603
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "1 INTRODUCTION",
+        "text_level": 2,
+        "bbox": [
+            174,
+            633,
+            338,
+            648
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Many real-world applications in healthcare and industrial automation rely on supervised classification of time series, where the goal is to accurately assign a class label to a given sequence. While traditional models assume access to the entire sequence during inference, this assumption often breaks down in practical settings. In many scenarios, models see only a prefix of the time series due to constraints such as latency, cost, or sensor dropout. For instance, in emergency arrhythmia detection from ECG, decisions may need to be made from 5–10 seconds of data rather than a full 60- second recording. However class-discriminative patterns may emerge at any point in the sequence, and missing these patterns under partial observability reduces class separability, causing classifiers trained and operated on partial data to generalize poorly. This work investigates how supervised classifiers, trained and operated on partial time series can be effectively equipped with the capacity to generalize from full-length series.",
+        "bbox": [
+            169,
+            666,
+            826,
+            821
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "For a partial (prefix) time series, the true class is ambiguous since multiple classes can appear iden tical in the early timesteps before diverging later. Therefore, when training a classifier on partial data, hard-label supervision alone can be misleading, causing the model to overfit to spurious early cues and form unstable decision boundaries. To prevent this, we propose to provide additional regularization signal from a teacher model trained on full-length sequences, inspired by Knowledge",
+        "bbox": [
+            169,
+            825,
+            826,
+            898
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_footnote",
+        "text": "<sup>∗</sup>Corresponding Author. Email: hewadehigaha@student.unimelb.edu.au",
+        "bbox": [
+            189,
+            909,
+            620,
+            924
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_number",
+        "text": "1",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Distillation (KD). KD, first introduced in Bucilua et al. (2006); Hinton et al. (2015), is a train-ˇ ing paradigm in which knowledge is transferred from a teacher to guide the training of a student network. The teacher is a model that learns representations which generalize well—an ability acquired through computationally intensive training or greater architectural capacity. This ability can be distilled into a student, which may lack the inductive biases to discover such representations from training data alone, often due to limited training resources or parameter capacity. The most widely adopted approach to KD trains the student to match the teacher’s output logits, providing an additional regularization signal during optimization on the target task (Hinton et al., 2015). Later works (Romero et al., 2015; Park et al., 2019; Zagoruyko & Komodakis, 2016) extended this idea to match intermediate features beyond the output logits.",
+        "bbox": [
+            169,
+            104,
+            826,
+            244
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "However, these direct feature/logit matching KD methods were proposed to address the generalization gap arising from differences in parameter capacity, with both the student and the teacher privileged to see the same data. In contrast, when distilling knowledge from a teacher trained on full-length sequences to a student trained on partial sequences, several fundamental concerns arise: 1) Can the distillation technique transfer the teacher knowledge effectively? Even when the teacher is a highly capable model with strong representational quality, the student may fail to properly comprehend the transferred knowledge, leading to limited gains from KD (Cho & Hariharan, 2019; Mirzadeh et al., 2020; Qiu et al., 2022; Stanton et al., 2021). Prior research has attributed this issue to the capacity/architectural gap between teacher and student, and proposed intermediate “teacher-assistant” models (Mirzadeh et al., 2020; Son et al., 2021) and student-friendly teacher training (Park et al., 2021; Rao et al., 2023; Cho & Hariharan, 2019). However, when the teacher and student are exposed to different input spaces (e.g., full versus partial data), an inherent representational gap is introduced even when the models have identical parameter capacity. In such scenarios, if the distillation loss is poorly designed by directly enforcing alignment with the teacher’s fullcontext features, it can overwhelm the student, which only encodes partial-context features, and thereby limit its ability to effectively absorb the transferred knowledge.",
+        "bbox": [
+            169,
+            250,
+            826,
+            474
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "2) Is a single teacher’s perspective diverse enough? Exposing students to diverse yet consistent views of the same underlying information enhances generalization and fosters robust inductive biases (You et al., 2017; Allen-Zhu & Li, 2020; Hossain et al., 2025). While existing works promote diversity through teacher ensembles (Allen-Zhu & Li, 2020; You et al., 2017) or mutual supervision among student ensembles (Zhang et al., 2018; Furlanello et al., 2018), a key concern remains whether supervision from a single model provides sufficient diversity of knowledge. Hossain et al. (2025) demonstrate that multiple augmented teacher views can be generated from a single model by perturbing its features with random noise. This increases knowledge diversity while avoiding the cost of retraining multiple models. Providing diverse perspectives of teacher knowledge is particularly important in full-to-partial distillation, where student features are degraded, incomplete, or ambiguous compared to those of the teacher, as we do not want to overcommit to a single possible interpretation of the missing or noisy information.",
+        "bbox": [
+            169,
+            479,
+            826,
+            648
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "3) Is the knowledge faithful? KD transfers limited knowledge leading students with very different predictive distributions from their teachers, hindering safe substitution (Stanton et al., 2021; Lamb et al., 2023; Hewa Dehigahawattage et al., 2025). Even though knowledge improves predictive accuracy, achieving good fidelity, the ability of the student to match teacher predictions, with existing methods is extremely difficult (Stanton et al., 2021). Stanton et al. (2021) observe that augmenting the distillation set with data samples not present in the teacher’s training data increases the drop in distillation fidelity. Similarly, the training-data mismatch that arises when the teacher is exposed to full-length data while the student is exposed to partial data can make it more challenging for the student to match the teacher’s predictive distribution.",
+        "bbox": [
+            169,
+            652,
+            826,
+            779
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "With these concerns in mind, we rethink distillation from a different lens and propose Generative Diffusion Prior Distillation (GDPD). In GDPD, we view student representations learned from partial sequences as degradations (partial measurements) of target teacher features derived from full-length sequences. Inspired by the iterative restoration power of diffusion models (Kawar et al., 2022), we train a diffusion model to serve as a generative prior over teacher features, capturing and storing their statistical structure. Using this prior, we search within the space of teacher features for target representations with optimal teacher knowledge, and train student features to become minimally degraded relative to these discovered targets. Unlike conventional KD, which provides a single teacher signal, we model knowledge as a distribution over target teacher signals. We discuss how this distributional knowledge helps GDPD to address above three concerns of KD, exacerbated in full-to-partial distillation, by generating teacher signals that 1) are dynamic and progressive with respect to the student’s current capability, 2) provide stochastic diversity of the same features, and 3) complete optimal knowledge through collective aggregation (Section 3.4).",
+        "bbox": [
+            169,
+            784,
+            826,
+            925
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "page_number",
+        "text": "2",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            104,
+            825,
+            148
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "In short, we make following contributions: 1) demonstrating that KD can equip early time-series classifiers, operating on partial time series, with the generalization ability of classifiers trained on full-length time series, establishing this direction as a pioneer effort, 2) being the first to model teacher knowledge as a generative distribution, formulating the target teacher–student feature relationship as an ill-posed problem 3) introducing a novel KD framework, GDPD, to provide dynamic, diverse, and collective knowledge for effective full-to-partial distillation, and 4) providing an in-depth analysis and discussion evaluating GDPD and baseline KD methods in full-to-partial distillation.",
+        "bbox": [
+            169,
+            152,
+            826,
+            265
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "2 PRELIMINARY",
+        "text_level": 2,
+        "bbox": [
+            171,
+            286,
+            325,
+            301
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Knowledge Distillation. KD seeks optimal student parameters by jointly minimizing the task loss $\\mathcal { L } _ { \\mathrm { T a s k } }$ and a distillation loss ${ \\mathcal { L } } _ { \\mathrm { K D } }$ that aligns the student with a pre-trained teacher:",
+        "bbox": [
+            171,
+            318,
+            823,
+            348
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\boldsymbol {\\theta} _ {*} = \\arg \\min _ {\\boldsymbol {\\theta}} \\lambda_ {\\text { Task }} \\mathcal {L} _ {\\text { Task }} (\\boldsymbol {\\theta}) + \\lambda_ {\\text { KD }} \\mathcal {L} _ {\\text { KD }} (\\boldsymbol {\\theta}),\\tag{1}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            339,
+            354,
+            655,
+            376
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "where $\\lambda _ { \\mathrm { T a s k } }$ and $\\lambda _ { \\mathrm { K D } }$ control the relative contributions of the two terms.",
+        "bbox": [
+            171,
+            385,
+            650,
+            401
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Diffusion Models. Given samples from the data distribution $p _ { \\mathrm { d a t a } } .$ , diffusion models are capable of learning a parameterized distribution $p _ { \\phi }$ that approximates $p _ { \\mathrm { d a t a } }$ and is easy to sample from (Song et al., 2020b). This is achieved through forward diffusion and reverse denoising processes. The Forward Process is a Markov chain that gradually corrupts data $\\mathbf { z } _ { 0 } ~ \\sim ~ p _ { \\mathrm { d a t a } }$ until it approaches Gaussian noise $\\mathbf { z } _ { T } \\sim p _ { \\mathrm { l a t e n t } } = \\mathcal { N } ( 0 , \\mathbf { I } )$ after $T$ diffusion steps. Corrupted latent variables ${ \\bf z } _ { 1 } , \\cdots , { \\bf z } _ { T }$ are sampled from $p _ { \\mathrm { d a t a } }$ with a diffusion process defined as a chain of Gaussian transitions:",
+        "bbox": [
+            169,
+            406,
+            825,
+            492
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\nq \\left(\\mathbf {z} _ {1: T} \\mid \\mathbf {z} _ {0}\\right) = \\prod_ {t = 1} ^ {T} q \\left(\\mathbf {z} _ {t} \\mid \\mathbf {z} _ {t - 1}\\right), \\quad q \\left(\\mathbf {z} _ {t} \\mid \\mathbf {z} _ {t - 1}\\right) = \\mathcal {N} \\left(\\mathbf {z} _ {t}; \\sqrt {1 - \\beta_ {t}} \\mathbf {z} _ {t - 1}, \\beta_ {t} \\mathbf {I}\\right),\n$$",
+        "text_format": "latex",
+        "bbox": [
+            233,
+            500,
+            761,
+            540
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "with a fixed or learned variance schedule $\\{ \\beta _ { t } \\} _ { t = 1 } ^ { T }$ . An important property of the forward noising process is that any marginal at step t has a closed form (Ho et al., 2020): $q ( \\mathbf { z } _ { t } \\mid \\mathbf { z } _ { 0 } ) =$ $\\mathcal { N } \\big ( \\mathbf { z } _ { t } ; \\sqrt { \\bar { \\alpha } _ { t } } \\mathbf { z } _ { 0 } , ( 1 - \\bar { \\alpha } _ { t } ) \\mathbf { I } \\big )$ , with $\\alpha _ { t } \\ : = \\ 1 - \\beta _ { t }$ and $\\textstyle { \\bar { \\alpha } } _ { t } : = \\prod _ { s = 1 } ^ { t } \\alpha _ { s }$ . Equivalently, any step $\\mathbf { z } _ { t }$ can be directly sampled from $\\mathbf { z } _ { 0 } \\colon \\mathbf { z } _ { t } = \\sqrt { \\bar { \\alpha } _ { t } } \\mathbf { z } _ { 0 } + \\sqrt { 1 - \\bar { \\alpha } _ { t } } \\epsilon$ , with $\\epsilon \\sim \\mathcal { N } ( 0 , \\mathbf { I } )$ . The Reverse Process is a Markov chain that iteratively denoises a sampled Gaussian noise to a clean data. Starting from ${ \\bf z } _ { T } \\sim \\mathcal { N } ( { \\bf z } _ { T } ; 0 , { \\bf I } )$ , we learn a parameterized reverse process from latent $\\mathbf { z } _ { T }$ to clean data $\\mathbf { z } _ { 0 } .$ as a chain of Gaussian transitions:",
+        "bbox": [
+            169,
+            550,
+            825,
+            652
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\np _ {\\phi} (\\mathbf {z} _ {0: T}) = p (\\mathbf {z} _ {T}) \\prod_ {t = 1} ^ {T} p _ {\\phi} (\\mathbf {z} _ {t - 1} \\mid \\mathbf {z} _ {t}), \\qquad p _ {\\phi} (\\mathbf {z} _ {t - 1} \\mid \\mathbf {z} _ {t}) = \\mathcal {N} \\bigl (\\mathbf {z} _ {t - 1};   \\mu_ {\\phi} (\\mathbf {z} _ {t}, t),   \\Sigma_ {\\phi} \\mathbf {I} \\bigr).\n$$",
+        "text_format": "latex",
+        "bbox": [
+            217,
+            660,
+            776,
+            700
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "The mean $\\mu _ { \\phi } ( \\mathbf { z } _ { t } , t )$ is primarily what we want to learn using a neural network (Ho et al., 2020). The variance $\\Sigma _ { \\phi }$ can be either time-dependent constants or learnable (Nichol & Dhariwal, 2021). A function approximator $\\epsilon _ { \\phi }$ predicts the noise from $\\mathbf { z } _ { t }$ and sets: $\\begin{array} { r } { \\mu _ { \\phi } ( \\mathbf { z } _ { t } , t ) = \\frac { 1 } { \\sqrt { \\alpha _ { t } } } \\Big ( \\mathbf { z } _ { t } - \\frac { \\beta _ { t } } { \\sqrt { 1 - \\bar { \\alpha } _ { t } } } \\mathbf { \\epsilon } _ { \\phi } ( \\mathbf { z } _ { t } , t ) \\Big ) } \\end{array}$ Training minimizes the $\\ell _ { 2 }$ loss between the true forward noise ϵ and the predicted noise $\\mathbf { \\epsilon } \\epsilon _ { \\phi } ( \\mathbf { z } _ { t } , t ) \\mathbf { \\mathrm { ; } }$",
+        "bbox": [
+            171,
+            709,
+            823,
+            777
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathcal {L} _ {\\text { diffusion }} (\\phi) = \\mathbb {E} \\left[ \\| \\boldsymbol {\\epsilon} - \\boldsymbol {\\epsilon} _ {\\phi} (\\mathbf {z} _ {t}, t) \\| _ {2} ^ {2} \\right].\\tag{2}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            370,
+            786,
+            624,
+            804
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Sampling/Guided Sampling. During inference, sampling is performed by running the learned reverse process starting from Gaussian noise. Guided sampling augments this process with external signals (e.g., labels or features) to steer generation toward desired conditions (Dhariwal & Nichol, 2021).",
+        "bbox": [
+            169,
+            819,
+            825,
+            875
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Inverse Diffusion Problem. Given a degraded measurement $\\mathbf { y } = \\mathcal { D } ( \\mathbf { z } _ { 0 } )$ , D defines the degradation of the clean signal $\\mathbf { z } _ { 0 }$ , the objective is to recover $\\mathbf { z } _ { 0 }$ by sampling from the posterior $p ( \\mathbf { z } _ { 0 } \\mid \\mathbf { y } )$ ∝ $p ( \\mathbf { y } \\mid \\mathbf { z } _ { 0 } ) p _ { \\phi } ( \\mathbf { z } _ { 0 } )$ , where $p _ { \\phi } ( \\mathbf { z } _ { 0 } )$ is a diffusion prior learned from data (Kawar et al., 2022).",
+        "bbox": [
+            169,
+            881,
+            823,
+            926
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "page_number",
+        "text": "3",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "3 METHOD",
+        "text_level": 2,
+        "bbox": [
+            173,
+            102,
+            282,
+            118
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3.1 PROBLEM FORMULATION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            133,
+            393,
+            147
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Let $\\mathcal { D } = \\{ ( \\mathbf { x } _ { i } , \\mathbf { y } _ { i } ) \\mid i = 1 , \\ldots , N \\}$ denote a time series dataset with N samples, where $\\mathbf { x } _ { i } \\in \\mathbb { R } ^ { M \\times L }$ is a time series with M channels and L time steps, and $\\mathbf { y } _ { i } ~ \\in ~ \\mathbb { R } ^ { C }$ is the one-hot encoded label corresponding to the ground-truth class $c \\in \\{ 1 , \\ldots , C \\}$ . We henceforth write a generic sample as x. We denote by $\\mathbf { x } _ { e } \\in \\mathbb { R } ^ { M \\times e }$ a partially observed time series containing only the first $e < L$ time steps. While our main focus is on timestep-wise partialness, i.e., observing only a prefix of the sequence, we also evaluate the case where channel-wise partialness is present, with only a subset of channels $m < M$ observed, with $\\mathbf { x } _ { e , m } \\in \\mathbb { R } ^ { m \\times e }$ . The goal of this work is to learn student classifier $\\scriptstyle { \\mathcal { S } } _ { \\theta }$ that can effectively map early, partially observed inputs $\\mathbf { x } _ { e }$ to their corresponding labels $\\mathbf { y } ,$ , while leveraging the knowledge of a teacher $\\dot { \\tau }$ trained on the full-length sequences x. We seek optimal student parameters $\\pmb { \\theta } _ { * } ^ { ( e ) }$ by minimizing",
+        "bbox": [
+            169,
+            157,
+            825,
+            300
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathcal {L} _ {\\text { Task }} (\\boldsymbol {\\theta}) = \\mathbb {E} _ {(\\mathbf {x}, \\mathbf {y}) \\sim \\mathcal {D}} \\left[ \\ell_ {\\text { CE }} (\\mathcal {S} _ {\\boldsymbol {\\theta}} (\\mathbf {x} _ {e}), \\mathbf {y}) \\right], \\quad \\text { and } \\quad \\mathcal {L} _ {\\text { KD }} (\\boldsymbol {\\theta}) = \\mathbb {E} _ {\\mathbf {x} \\sim \\mathcal {D}} \\left[ \\ell (\\phi_ {t} (\\mathbf {x}), \\phi_ {s} (\\mathbf {x} _ {e}; \\boldsymbol {\\theta})) \\right].\n$$",
+        "text_format": "latex",
+        "bbox": [
+            197,
+            303,
+            797,
+            320
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Here, $\\boldsymbol { \\ell } _ { \\mathrm { C E } }$ is the cross-entropy loss, and $\\phi _ { t } , \\phi _ { s }$ are functions to be determined that capture teacher and student behavior on full and partial inputs, respectively. By minimizing the discrepancy measure $\\ell ( \\cdot , \\cdot )$ , we encourage the student to behave on partially observed inputs as the teacher would on the full-length sequences.",
+        "bbox": [
+            171,
+            321,
+            825,
+            378
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3.2 GENERATIVE DIFFUSION PRIOR DISTILLATION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            393,
+            542,
+            407
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "We write the student model as $S _ { \\theta } = S _ { \\theta } ^ { \\mathrm { h e a d } } \\circ S _ { \\theta } ^ { \\mathrm { f e a t } }$ , where $S _ { \\theta } ^ { \\mathrm { f e a t } }$ denotes the mapping up to the feature extraction layer $k ,$ and $S _ { \\theta } ^ { \\mathrm { h e a d } }$ denotes the subsequent mapping from these features to the final prediction. Training the student on the partial sequences $\\mathcal { D } _ { e } = \\{ ( \\mathbf { x } _ { e } , \\mathbf { y } ) \\} ^ { N }$ , we define $S _ { \\theta } ^ { \\mathrm { f e a t } } ( { \\bf x } _ { e } ) = { \\bf z } _ { \\mathrm { s h o r t } }$ as the intermediate feature of the partially observed input $\\mathbf { x } _ { e } ,$ , referred to as the short-contextfeature. Let us assume there exists a feature $\\mathbf { z } _ { \\mathrm { l o n g - i d e a l } } ^ { \\ast } ,$ which encodes the optimal long-range information required for making accurate predictions from $\\mathbf { x } _ { e }$ , as would be obtained if the model had access to and were ideally trained on full-length sequences. During training, our goal is to guide the student model such that it produces features $\\mathbf { z } _ { \\mathrm { s h o r t } }$ that resemble $\\mathbf { z } _ { \\mathrm { l o n g - i d e a l } } ^ { \\ast }$ as closely as possible, as if its predictions were informed by the full-length sequences, with the aim that this behavior generalizes to partial sequences at inference time.",
+        "bbox": [
+            169,
+            419,
+            825,
+            566
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Teacher Knowledge as a Generative Prior. We denote by $\\mathbf { z } _ { \\mathrm { l o n g } }$ the features of a teacher model trained on the full-length sequences D, referred to as the long-context features. To capture the teacher’s knowledge, we train a diffusion model on $\\mathbf { z } _ { \\mathrm { l o n g } }$ to approximate the distribution of longcontext features, $p ( \\mathbf { z } _ { \\mathrm { l o n g } } )$ . We assume there exist features (possibly multiple) within the teacher’s feature manifold that can provide useful hints of $\\mathbf { z } _ { \\mathrm { l o n g - i d e a l } } ^ { \\ast }$ . We call these hint features and denote them by $\\mathbf { z } _ { \\mathrm { l o n g - h i n t } } \\sim p ( \\mathbf { z } _ { \\mathrm { l o n g } } )$ . We start by viewing $\\mathbf { z } _ { \\mathrm { s h o r t } }$ as a degraded or partial measurement of the underlying clean feature $\\mathbf { z } _ { \\mathrm { l o n g - i d e a l } } ^ { \\ast } .$ , which contains the optimal long-context knowledge and each $\\mathbf { z } _ { \\mathrm { l o n g - h i n t } }$ as a valid approximation (or completion) of $\\mathbf { z } _ { \\mathrm { l o n g - i d e a l } } ^ { \\ast }$ . The diffusion model trained on the teacher feature space serves as an effective prior $p _ { \\phi } ( \\mathbf { z } _ { \\mathrm { l o n g } } )$ , capturing the statistics of plausible long-context features. Using this prior knowledge, our goal is to guide the student model to produce $\\mathbf { z } _ { \\mathrm { s h o r t } }$ that retains as much information as possible about its underlying clean feature $\\mathbf { z } _ { \\mathrm { l o n g - i d e a l } } ^ { \\ast } .$ Accordingly, we aim for the student features to be minimally degraded relative to the hint features $\\mathbf { z } _ { \\mathrm { l o n g - h i n t } }$ , and thereby closer to $\\mathbf { z } _ { \\mathrm { l o n g - i d e a l } } ^ { \\ast } .$",
+        "bbox": [
+            169,
+            571,
+            826,
+            763
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "To define the relationship between student features and hint features, we model the diffusion posterior sampler $\\tilde { p } _ { \\mathrm { d i f f } } ( \\mathbf { z } _ { \\mathrm { l o n g } } \\mid \\mathbf { z } _ { \\mathrm { s h o r t } } )$ , where we utilize the pre-trained generative diffusion prior $p _ { \\phi } ( \\mathbf { z } _ { \\mathrm { l o n g } } )$ to search in the space of $\\mathbf { z } _ { \\mathrm { l o n g } } ,$ for an optimal $\\mathbf { z } _ { \\mathrm { l o n g } }$ that best matches $\\mathbf { z } _ { \\mathrm { s h o r t } } .$ , regarding z as degraded observation of $\\mathbf { z } _ { \\mathrm { l o n g } } . \\ \\mathrm { A }$ posterior reconstruction sample $\\hat { \\mathbf { z } } _ { \\mathrm { l o n g } } \\sim \\tilde { p } _ { \\mathrm { d i f f } } ( \\mathbf { z } _ { \\mathrm { l o n g } } \\ |$ $\\mathbf { z } _ { \\mathrm { s h o r t } } )$ represents a plausible completion (clean signal) consistent with the partial information present in $\\mathbf { z } _ { \\mathrm { s h o r t } }$ We argue that, if the student produce features that preserve sufficient information of hint features, that is when $\\mathbf { z } _ { \\mathrm { s h o r t } }$ is minimally degraded to $\\mathbf { z } _ { \\mathrm { l o n g - h i n t } }$ , then student features should recover hint features as their posterior reconstruction samples. In other words, if $\\mathbf { z } _ { \\mathrm { s h o r t } }$ are sufficiently informative with valid long-context knowledge, then they should provide the right conditioning to recover one such representation, $\\mathbf { z } _ { \\mathrm { l o n g } }$ <sub>-hint</sub>, as their plausible completion:",
+        "bbox": [
+            169,
+            768,
+            825,
+            907
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\hat {\\mathbf {z}} _ {\\mathrm{long}} ^ {*} \\sim \\tilde {p} _ {\\mathrm{diff}} (\\mathbf {z} _ {\\mathrm{long}} | \\mathbf {z} _ {\\mathrm{short}}; \\boldsymbol {\\theta} _ {*}) \\implies \\hat {\\mathbf {z}} _ {\\mathrm{long}} ^ {*} \\approx \\mathbf {z} _ {\\mathrm{long-hint}},\\tag{3}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            295,
+            909,
+            699,
+            926
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "page_number",
+        "text": "4",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "image",
+        "img_path": "images/0024bceec18d531167fe5580d54a0d6cb447f7020247999b3dd19eee98c7d571.jpg",
+        "image_caption": [
+            "Figure 1: Depiction of (a) the proposed GDPD framework, and (b) a comparison of KD vs. GDPD. KD provides a single static teacher signal, whereas GDPD provides each student feature with a collection of diverse and progressive teacher signals over the course of training."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            173,
+            101,
+            769,
+            239
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "where $\\pmb { \\theta } _ { \\ast }$ is the optimal student parameters, what we are after. Recall that hint features are functionally defined as teacher features that contain relevant long-context information necessary to assign the correct prediction to $\\mathbf { x } _ { e }$ . We characterize hint features by this predictive property, which posterior reconstructions are trained to emulate under optimal student parameters. Therefore, during training we optimize the student features by constraining their posterior reconstructions to output the correct label:",
+        "bbox": [
+            169,
+            328,
+            826,
+            412
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathcal {L} _ {\\mathrm{GDPD}} (\\pmb {\\theta}) = \\mathbb {E} _ {(\\mathbf {x}, \\mathbf {y}) \\sim \\mathcal {D}} \\Big [ \\ell_ {\\mathrm{CE}} \\Big (\\mathcal {S} _ {\\pmb {\\theta}} ^ {\\mathrm{head}} (\\hat {\\mathbf {z}} _ {\\mathrm{long}} ^ {(j)}), \\mathbf {y} \\Big) \\Big ], \\quad \\hat {\\mathbf {z}} _ {\\mathrm{long}} \\sim \\tilde {p} _ {\\mathrm{diff}} \\big (\\mathbf {z} _ {\\mathrm{long}} | \\mathbf {z} _ {\\mathrm{short}} = \\mathcal {S} _ {\\pmb {\\theta}} ^ {\\mathrm{feat}} (\\mathbf {x} _ {e}) \\big)\\tag{4}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            178,
+            421,
+            795,
+            446
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Conditional Generation with Unconditional Prior. To enable sampling from $p ( \\mathbf { z } _ { \\mathrm { l o n g } } \\mid \\mathbf { z } _ { \\mathrm { s h o r t } } )$ using an unconditional diffusion model, we adapt the reverse process to condition on $\\mathbf { z } _ { \\mathrm { s h o r t } }$ during inference, in line with guided sampling. Typically, guided sampling in inverse diffusion modifies the score function at each reverse step using an approximation of the likelihood gradients (Chung et al., 2023). In contrast to those settings, where the degraded measurements are fixed, our conditional signals are subject to optimization, which prompts us to require a simple and direct form of guidance from them (see Section A.4.1 for a detailed discussion). Therefore, we adopt a straightforward conditioning strategy by initializing the reverse diffusion process directly based on $\\mathbf { z } _ { \\mathrm { s h o r t } }$ . Specifically we match each student feature $\\mathbf { z } _ { \\mathrm { s h o r t } }$ to the initial noisy step $T$ by fusing Gaussian noise, and use this initialization to start the reverse process:",
+        "bbox": [
+            169,
+            464,
+            826,
+            604
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathbf {z} _ {\\mathrm{long}, T} = \\alpha \\mathbf {z} _ {\\mathrm{short}} + (1 - \\alpha) \\boldsymbol {\\epsilon}, \\quad \\boldsymbol {\\epsilon} \\sim \\mathcal {N} (\\mathbf {0}, \\mathbf {I})\\tag{5}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            339,
+            614,
+            655,
+            632
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "where α is the fusion weight between the two terms, which can be treated as a fixed hyperparameter or learned feature-wise during the distillation process. We choose to learn α during distillation, as this allows different features to be fused with different noise levels so that each is mapped appropriately to the initial noise step. With this initialization, reverse process is conditioned on $\\mathbf { z } _ { \\mathrm { s h o r t } }$ allowing the algorithm to explore the feature manifold, ideally staying close to the starting point $\\mathbf { z } _ { \\mathrm { s h o r t } }$ , so that it converges to a plausible clean feature $\\hat { \\bf z } _ { \\mathrm { l o n g } }$ consistent to initialization. Over the course of optimization, posterior sampling connects different long-context features to a student feature (Equation (4)). This enables the student feature to evolve toward optimality by leveraging their collective knowledge, which can better approximates the knowledge of $\\mathbf { z } _ { \\mathrm { l o n g - i d e a l } } ^ { \\ast } .$ . An overview of this proposed method is illustrated in Figure 1 (a).",
+        "bbox": [
+            169,
+            641,
+            826,
+            784
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Training. Our student training proceeds in two phases, separated by a warm-up epoch $E _ { \\mathrm { w a r m } } .$ For $\\mathrm { e p } < E _ { \\mathrm { w a r m } }$ , we train only the diffusion prior on teacher features with the student initialized on the partial classification task. For $\\mathrm { e p } \\geq E _ { \\mathrm { w a r m } }$ , the student is optimized to extract long-context knowledge using the learned diffusion prior.",
+        "bbox": [
+            169,
+            789,
+            825,
+            845
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathcal {L} _ {\\text {train}} = \\left\\{ \\begin{array}{l l} \\mathcal {L} _ {\\text {Task}} (\\boldsymbol {\\theta}) + \\mathcal {L} _ {\\text {diffusion}} (\\boldsymbol {\\phi}), & \\text {ep} <   E _ {\\text {warm}}, \\\\ \\lambda_ {\\text {Task}} \\mathcal {L} _ {\\text {Task}} (\\boldsymbol {\\theta}) + \\lambda_ {\\text {KD}} \\mathcal {L} _ {\\text {GDPD}} (\\boldsymbol {\\theta}), & \\text {ep} \\geq E _ {\\text {warm}}. \\end{array} \\right.\\tag{6}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            287,
+            868,
+            705,
+            910
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "page_number",
+        "text": "5",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "3.3 “KNOWLEDGE” AS A DISTRIBUTION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            104,
+            467,
+            119
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Conventional KD (deterministic / point knowledge). KD treats the teacher signal that each student state (feature, soft label, or relation) should match as a point target. For a student state ${ \\bf Z } _ { s } = { \\bf z } _ { s }$ , the “knowledge” is taken to be a single teacher state: $\\mathbf { k } ^ { \\star } = \\mathbf { z } _ { t }$ , with $\\mathbf { z } _ { t }$ the corresponding observed teacher state (equivalently, $P _ { { \\bf K } | { \\bf Z } _ { s } = { \\bf z } _ { s } } = \\delta _ { { \\bf k } ^ { \\star } } )$ . Supervision then enforces alignment of the student state with this single target, with a discrepancy loss: $\\ell ( { \\bf z } _ { s } ; \\theta , { \\bf k } ^ { \\star } )$ .",
+        "bbox": [
+            169,
+            128,
+            825,
+            203
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Common instances include:",
+        "bbox": [
+            171,
+            208,
+            359,
+            222
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\text {(Feature KD)} \\mathbf {z} _ {s} = f _ {s} (\\mathbf {x}; \\boldsymbol {\\theta}), \\quad \\mathbf {k} ^ {\\star} = f _ {t} (\\mathbf {x}), \\qquad \\ell = \\| f _ {s} (\\mathbf {x}; \\boldsymbol {\\theta}) - f _ {t} (\\mathbf {x}) \\| ^ {2},\n$$",
+        "text_format": "latex",
+        "bbox": [
+            215,
+            226,
+            704,
+            244
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "equation",
+        "text": "$$\n(\\text {Logit KD}) \\mathbf {z} _ {s} = p _ {s} (\\cdot | \\mathbf {x}; \\boldsymbol {\\theta}), \\quad \\mathbf {k} ^ {\\star} = p _ {t} (\\cdot | \\mathbf {x}), \\qquad \\ell = \\mathrm{KL} \\big (p _ {t} (\\cdot | \\mathbf {x}) \\| p _ {s} (\\cdot | \\mathbf {x}; \\boldsymbol {\\theta}) \\big),\n$$",
+        "text_format": "latex",
+        "bbox": [
+            228,
+            246,
+            782,
+            263
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\text {(Relational KD)} \\mathbf {z} _ {s} = r (f _ {s} (\\mathbf {x}; \\boldsymbol {\\theta}), f _ {s} (\\mathbf {x} ^ {\\prime}; \\boldsymbol {\\theta})), \\quad \\mathbf {k} ^ {\\star} = r (f _ {t} (\\mathbf {x}), f _ {t} (\\mathbf {x} ^ {\\prime})), \\qquad \\ell = (\\mathbf {z} _ {s} - \\mathbf {k} ^ {\\star}) ^ {2}.\n$$",
+        "text_format": "latex",
+        "bbox": [
+            197,
+            266,
+            795,
+            284
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "GDPD (generative / distributional knowledge). In contrast, GDPD provides a distribution of plausible teacher signals for each student state, consistent with what the student currently knows. Rather than treating knowledge as a single target, GDPD models it as a distribution from which the student can learn to sample in order to acquire optimal and diverse task-relevant knowledge. Formally, for a student state $\\mathbf { z } _ { s } .$ , the “knowledge” is a distribution over teacher states: k $\\sim p ( { \\bf K }$ ${ \\bf Z } _ { s } = { \\bf z } _ { s } )$ ). More robust supervision can be defined as the expected loss (approximated by a Monte Carlo average over J samples) under this distribution:",
+        "bbox": [
+            169,
+            296,
+            825,
+            395
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathbb {E} _ {\\mathbf {k} \\sim p (\\cdot | \\mathbf {z} _ {s})} [ \\ell (\\mathbf {z} _ {s}; \\pmb {\\theta}, \\mathbf {k}) ] \\approx \\frac {1}{J} \\sum_ {j = 1} ^ {J} \\ell (\\mathbf {z} _ {s}; \\pmb {\\theta}, \\mathbf {k} ^ {(j)}), \\quad \\mathbf {k} ^ {(j)} \\sim p (\\cdot | \\mathbf {z} _ {s}).\\tag{7}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            264,
+            400,
+            730,
+            441
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Since each forward pass in GDPD explores a different noise trajectory, the stochasticity across training naturally covers multiple samples over time. Therefore, it is sufficient in practice to use J = 1. See ablation over J in the Section 4.2.",
+        "bbox": [
+            169,
+            448,
+            825,
+            492
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "3.4 HOW GDPD ADDRESSES FUNDAMENTAL KD CONCERNS, EXACERBATED IN FULL-TO-PARTIAL DISTILLATION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            507,
+            748,
+            536
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "How Does GDPD Transfer the Teacher Knowledge Effectively? Since features derived from full and partial observations are not directly aligned in representation space, directly enforcing the partial-context student states z to match full-context teacher states $\\mathbf { k } ^ { * } = \\mathbf { z } _ { t }$ as point targets can overwhelm the student. GDPD alleviates this gap by providing dynamic and progressive teacher signals. Each student state $\\mathbf { z } _ { s }$ samples its target teacher signal $\\mathbf { \\bar { k } } \\sim p ( \\mathbf { K } \\mid \\mathbf { Z } _ { s } = \\mathbf { \\bar { z } } _ { s } ; \\pmb { \\theta } ^ { t } )$ from the teacher manifold, consistent with the student’s current knowledge as reflected in $\\mathbf { z } _ { s } ; \\theta ^ { t }$ during each forward pass. In this way, the teacher signal adapts over the course of training, allowing the student to progressively refine its ability to recover correct teacher features and ultimately absorb richer knowledge.",
+        "bbox": [
+            169,
+            546,
+            826,
+            674
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "How GDPD Provide Diverse Teacher Perspectives Using a Single Model? When the student operates with degraded, incomplete features compared to the teacher, overfitting to a single teacher perspective can be risky, i.e., a single set of features (or logits) binds only one possible interpretation of the missing or noisy information. One possible way to create diverse perspectives from a single teacher is through stochastic diversity, i.e., generating multiple noise-perturbed variants of the same feature (Hossain et al., 2025). However, hand-designed perturbations may produce distant, irrelevant teacher signals, outside the meaningful teacher manifold. GDPD use diffusion models which naturally works by generating samples in the close vicinity of the target distribution (Chen et al., 2024). Unlike randomly perturbed feature variants, the diversity of diffusion-generated teacher signals in GDPD is controlled: they are not arbitrary but sampled as plausible completions of the student features, k $\\sim p ( { \\bf K } \\mid { \\bf Z } _ { s } = { \\bf z } _ { \\mathrm { s h o r t } } )$",
+        "bbox": [
+            169,
+            679,
+            826,
+            834
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "How Does GDPD Transfer Faithful Knowledge? When the teacher’s training data and the distillation set differ, the knowledge from direct corresponding teacher signals $\\mathbf { z } _ { t }$ alone becomes very limited, making it difficult to faithfully replicate (predictive distributions of) the teacher (Stanton et al., 2021; Parchami-Araghi et al., 2024). In GDPD, as the student is trained toward optimal states, each student state interacts with a collection of teacher signals $\\left\\{ \\mathbf { k } ^ { ( j ) } \\right\\} ; \\mathbf { k } ^ { ( j ) } \\sim p ( \\mathbf { K } \\mid \\mathbf { Z } _ { s } = \\mathbf { z } _ { s } )$ which collectively construct comprehensive long-range knowledge for $\\mathbf { z } _ { s } .$ See Figure 1 (b). Unlike",
+        "bbox": [
+            169,
+            838,
+            825,
+            925
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "page_number",
+        "text": "6",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "chart",
+        "img_path": "images/870b2fac58e74c3d270e50b7911cd96ad569e73e07584f05bc4ff38fa0fdc740.jpg",
+        "content": "",
+        "chart_caption": [
+            "(a) Earliness = 0.2"
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            176,
+            104,
+            330,
+            193
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "chart",
+        "img_path": "images/c6407257b3cee0154706a0d828172ee8a6d79bd6361c04321c90663caa193229.jpg",
+        "content": "",
+        "chart_caption": [
+            "(b) Earliness = 0.4"
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            339,
+            104,
+            493,
+            193
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "chart",
+        "img_path": "images/6ffdc91c56c4a9145e9f872da8fcc025a7e9aaa1ee93558f89d4a3f37a9f6824.jpg",
+        "content": "",
+        "chart_caption": [
+            "(c) Earliness = 0.5"
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            504,
+            104,
+            656,
+            193
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "chart",
+        "img_path": "images/332ffab3007adc13adcf433849a0ad12a44762bfba6ea69d52dcd6744253934f.jpg",
+        "content": "",
+        "chart_caption": [
+            "(d) Earliness = 0.8",
+            "Figure 2: Fidelity comparisons across methods and earliness levels, with each boxplot summarizing 12 UCR datasets. Fidelity is measured as teacher–student top-1 agreement on the test set."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            668,
+            104,
+            818,
+            193
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "table",
+        "img_path": "images/61708dd5bc523fb9dfdcdc2d7f522cb406d1ea04417625a37b7ac322f53a30cb.jpg",
+        "table_caption": [
+            "Table 1: Summary of performance across different earliness levels on 12 UCR datasets. Best values are in bold. Rows marked with ↓ indicate lower-is-better."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td colspan=\"5\">Earliness=0.2L</td></tr><tr><td></td><td>Base</td><td>BaseKD</td><td>Fits</td><td>GDPD</td></tr><tr><td>Avg.AUC-PRC</td><td>63.64</td><td>69.23</td><td>67.47</td><td>73.83</td></tr><tr><td>Avg.Rank ↓</td><td>3.50</td><td>2.42</td><td>2.92</td><td>1.17</td></tr><tr><td>Num.Top-1</td><td>0</td><td>2</td><td>0</td><td>10</td></tr><tr><td>Wins/Draws</td><td>12</td><td>10</td><td>12</td><td>-</td></tr><tr><td>Losses ↓</td><td>0</td><td>2</td><td>0</td><td>-</td></tr></table>",
+        "bbox": [
+            174,
+            305,
+            383,
+            382
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "table",
+        "img_path": "images/7e50117866139b0a75becfd9f2651b664ba9998bb5d226309b54e9a70a186eff.jpg",
+        "table_caption": [],
+        "table_footnote": [],
+        "table_body": "<table><tr><td colspan=\"4\">Earliness=0.4L</td></tr><tr><td>Base</td><td>BaseKD</td><td>Fits</td><td>GDPD</td></tr><tr><td>70.44</td><td>78.03</td><td>75.36</td><td>81.70</td></tr><tr><td>3.58</td><td>2.50</td><td>2.67</td><td>1.25</td></tr><tr><td>0</td><td>1</td><td>1</td><td>10</td></tr><tr><td>12</td><td>11</td><td>10</td><td>-</td></tr><tr><td>0</td><td>1</td><td>2</td><td>-</td></tr></table>",
+        "bbox": [
+            397,
+            305,
+            532,
+            382
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "table",
+        "img_path": "images/ff40adfa76471a838cc4a0c0bb0a5f494a162d4cfc92905df647a9abda63d80a.jpg",
+        "table_caption": [],
+        "table_footnote": [],
+        "table_body": "<table><tr><td colspan=\"4\">Earliness=0.6L</td></tr><tr><td>Base</td><td>BaseKD</td><td>Fits</td><td>GDPD</td></tr><tr><td>76.79</td><td>83.70</td><td>81.15</td><td>86.00</td></tr><tr><td>3.58</td><td>2.58</td><td>2.42</td><td>1.33</td></tr><tr><td>0</td><td>3</td><td>2</td><td>8</td></tr><tr><td>12</td><td>10</td><td>10</td><td>-</td></tr><tr><td>0</td><td>2</td><td>2</td><td>-</td></tr></table>",
+        "bbox": [
+            542,
+            305,
+            679,
+            382
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "table",
+        "img_path": "images/81de810a39d042304071d4605fd9235d8c84fe683b954d0ed0d19f47bd212572.jpg",
+        "table_caption": [],
+        "table_footnote": [
+            "the supervision from a single corresponding teacher signal $\\mathbf { k } ^ { * } = \\mathbf { z } _ { t } .$ , this collection better reveals the statistical structure of teacher features (class separability, geometric relationships between features). We validate faithful knowledge empirically in Section 4.1."
+        ],
+        "table_body": "<table><tr><td colspan=\"4\">Earliness=0.8L</td></tr><tr><td>Base</td><td>BaseKD</td><td>Fits</td><td>GDPD</td></tr><tr><td>77.79</td><td>84.78</td><td>82.74</td><td>89.02</td></tr><tr><td>3.67</td><td>2.42</td><td>2.83</td><td>1.08</td></tr><tr><td>0</td><td>0</td><td>1</td><td>11</td></tr><tr><td>12</td><td>12</td><td>11</td><td>-</td></tr><tr><td>0</td><td>0</td><td>1</td><td>-</td></tr></table>",
+        "bbox": [
+            689,
+            306,
+            825,
+            381
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "4 EXPERIMENTS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            464,
+            328,
+            479
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "To reach generalizable conclusions across partialness levels, architectures, datasets, and runs, we evaluate multiple settings. Experiments are conducted on the UCR univariate (Dau et al., 2019), UEA multivariate (Bagnall et al., 2018), and a real-world PhysioNet mortality dataset (Silva et al., 2012). Notation Net1 → Net2 denotes teacher–student distillation. All students use the same training protocol, and results are averaged over five runs. Full experimental setup details are in Section A.2.",
+        "bbox": [
+            169,
+            494,
+            826,
+            579
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "4.1 MAIN RESULTS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            590,
+            325,
+            606
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "GDPD is Effective Across Varying Degrees of Partialness. We generate time series with varying earliness by truncating at e ∈ {0.2L, 0.4L, 0.5L, 0.6L, 0.8L, L}, where L is the full length. The teacher is trained on full-length series, while students are trained on truncated series using KD from logits (Base-KD) (Hinton et al., 2015), features (Fits) (Romero et al., 2015), and GDPD, along with a baseline student (Base) trained without distillation. Results for LSTM3-100 → LSTM3-100 on 12 UCR datasets are shown in Table 1 (and Table 19). At each earliness level, distilled students achieve higher AUC-PRC and lower rank than the Base student, showing that full-context teacher knowledge improves partial classification. GDPD attains the best AUC-PRC and rank, winning on over 80% of datasets, demonstrating its effectiveness over direct feature- and logit-KD across partialness levels.",
+        "bbox": [
+            169,
+            617,
+            826,
+            744
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "GDPD Outperforms Existing KD Variants. To further compare GDPD with different KD variants, we construct students using RKD (Park et al., 2019), Attention (Zagoruyko & Komodakis, 2016), DKD (Zhao et al., 2022), DT2W (Qiao et al., 2023), VID (Ahn et al., 2019), PKT (Passalis et al., 2020), TeKAP (Hossain et al., 2025), TTM (Zheng & Yang, 2024), Base-KD, Fits, and Base. Performance is evaluated at partialness e = 0.5L on 12 UCR datasets for LSTM3-100 → LSTM3- 100 (Table 2). All students improve over the Base, showing that they benefit from long-context knowledge. GDPD outperforms all methods, achieving top-3 performance on 80% datasets with an average rank of 2.25, while no other method achieves a rank close to 4.",
+        "bbox": [
+            169,
+            750,
+            826,
+            863
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "GDPD Improves Student Fidelity Beyond generalization across earliness levels, we also assess whether GDPD yields students with higherfidelity. Figure 2 summarizes student fidelity, measured as average top-1 agreement over 12 UCR datasets for LSTM3-100 → LSTM3-100 at different earliness levels. This metric is the percentage of instances where the student’s top-1 prediction (from partial data) matches the teacher’s top-1 prediction (from the full sequence), directly quantifying how well the student replicates the teacher’s behavior (Stanton et al., 2021). In all settings, GDPD students achieve higher fidelity than baseline KD, demonstrating its effectiveness in faithfully transferring desirable teacher behavior under different degrees of partialness.",
+        "bbox": [
+            169,
+            867,
+            826,
+            925
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "page_number",
+        "text": "7",
+        "bbox": [
+            493,
+            946,
+            504,
+            959
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "table",
+        "img_path": "images/3e1702e5d707a4b9c07617789b96f27f59bf634c53a5971a4c0747385fc0fe20.jpg",
+        "table_caption": [
+            "Table 2: Comparison of distillation methods at earliness $e = 0 . 5 L$ on 12 UCR datasets. Test-fidelity is reported as average top-1 agreement. Rows marked with ↓ indicate lower-is-better.",
+            "Table 3: Results on 12 multivariate datasets under: 1) time-wise $( e = 0 . 5 L )$ , and 2) time+channel $( e = 0 . 5 L , m = 0 . 5 M )$ partialness. Each cell reports Avg. AUC-PRC / Avg. Rank / #Top-1 wins."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td></td><td>Base</td><td>Base-KD</td><td>Fits</td><td>VID</td><td>DKD</td><td>Attention</td><td>DT2W</td><td>RKD</td><td>RKD-Angle</td><td>PKT</td><td>TeKAP</td><td>TTM</td><td>GDPD</td></tr><tr><td>Avg. AUC-PRC</td><td>71.6</td><td>78.14</td><td>77.28</td><td>77.19</td><td>74.29</td><td>75.47</td><td>55.32</td><td>79.89</td><td>79.26</td><td>76.86</td><td>76.54</td><td>78.05</td><td>84.64</td></tr><tr><td>Test-Fidelity</td><td>66.75</td><td>72.13</td><td>69.39</td><td>71.32</td><td>69.36</td><td>69.20</td><td>52.59</td><td>74.34</td><td>71.22</td><td>71.05</td><td>69.53</td><td>70.24</td><td>77.58</td></tr><tr><td>Avg. Rank ↓</td><td>9.67</td><td>5.83</td><td>7.58</td><td>6.33</td><td>8.25</td><td>7.25</td><td>11.42</td><td>6.33</td><td>6.42</td><td>6.67</td><td>6.75</td><td>6.17</td><td>2.25</td></tr><tr><td>Num. Top-1</td><td>0</td><td>2</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>2</td><td>2</td><td>0</td><td>1</td><td>0</td><td>5</td></tr><tr><td>Num. Top-3</td><td>0</td><td>5</td><td>2</td><td>1</td><td>1</td><td>2</td><td>0</td><td>4</td><td>4</td><td>3</td><td>2</td><td>2</td><td>10</td></tr><tr><td>Wins/Draws</td><td>12</td><td>10</td><td>12</td><td>11</td><td>11</td><td>11</td><td>12</td><td>9</td><td>9</td><td>10</td><td>11</td><td>11</td><td>-</td></tr><tr><td>Losses</td><td>0</td><td>1</td><td>0</td><td>1</td><td>1</td><td>1</td><td>0</td><td>3</td><td>3</td><td>2</td><td>1</td><td>1</td><td>-</td></tr></table>",
+        "bbox": [
+            173,
+            141,
+            825,
+            227
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "table",
+        "img_path": "images/0a2ea9fa3d8518ad08311a3c04696e0ac5d791b2106cc6d970410c152761c94f.jpg",
+        "table_caption": [],
+        "table_footnote": [],
+        "table_body": "<table><tr><td rowspan=\"2\"></td><td colspan=\"2\">Inception55-32 → Inception55-32</td><td colspan=\"2\">LSTM3-100 → LSTM3-100</td></tr><tr><td>Time-wise</td><td>Time+Channel</td><td>Time-wise</td><td>Time+Channel</td></tr><tr><td>Base</td><td>86.22 / 3.25 / 0</td><td>76.58 / 2.92 / 0</td><td>79.41 / 3.50 / 0</td><td>68.75 / 3.42 / 0</td></tr><tr><td>Base-KD</td><td>88.77 / 2.00 / 3</td><td>77.92 / 2.08 / 3</td><td>81.96 / 2.50 / 3</td><td>71.11 / 2.75 / 1</td></tr><tr><td>Fits</td><td>85.40 / 3.17 / 2</td><td>75.34 / 3.42 / 1</td><td>81.95 / 2.42 / 2</td><td>71.69 / 2.33 / 2</td></tr><tr><td>GDPD</td><td>90.82 / 1.33 / 9</td><td>80.24 / 1.33 / 10</td><td>83.87 / 1.58 / 7</td><td>73.60 / 1.42 / 9</td></tr></table>",
+        "bbox": [
+            267,
+            275,
+            725,
+            356
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "table",
+        "img_path": "images/d3a6441cfb904456063f95cd836dd55c9cfbb7a5609151fc1e5a3658aa3c2f5f.jpg",
+        "table_caption": [
+            "Table 4: Model compression results under two earliness levels $( e = 0 . 5 L , L )$ and two compression targets. Each cell reports Avg. AUC-PRC / Avg. Rank / Num. Top-1 wins across 12 UCR datasets."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td rowspan=\"2\"></td><td colspan=\"2\">LSTM3-100 → LSTM1-8</td><td colspan=\"2\">LSTM3-100 → LSTM2-32</td></tr><tr><td>e = 0.5L</td><td>e = L</td><td>e = 0.5L</td><td>e = L</td></tr><tr><td>Base</td><td>58.58 / 3.42 / 0</td><td>74.92 / 3.33 / 0</td><td>72.98 / 3.33 / 0</td><td>84.34 / 3.67 / 0</td></tr><tr><td>Base-KD</td><td>61.97 / 2.33 / 1</td><td>77.62 / 2.33 / 3</td><td>74.92 / 2.58 / 2</td><td>88.11 / 2.17 / 4</td></tr><tr><td>Fits</td><td>59.84 / 2.67 / 0</td><td>76.49 / 2.83 / 2</td><td>78.26 / 2.75 / 1</td><td>85.93 / 2.75 / 1</td></tr><tr><td>GDPD</td><td>72.76 / 1.17 / 11</td><td>78.83 / 1.42 / 7</td><td>83.67 / 1.33 / 9</td><td>89.84 / 1.25 / 9</td></tr></table>",
+        "bbox": [
+            282,
+            414,
+            707,
+            484
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            512,
+            825,
+            569
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "GDPD is Robust with Channel-wise Partialness. We evaluate GDPD’s robustness under channelwise partialness using 12 UEA multivariate datasets with two settings: 1) time-wise partialness only $( e \\mathrm { ~ = ~ } 0 . 5 L )$ , and 2) combined time- and channel-wise partialness $( e = 0 . 5 L , m = 0 . 5 M )$ , where half the channels are removed (Table 3). GDPD consistently achieves the highest AUC-PRC, lowest average ranks, and most top-1 wins, confirming its robustness to channel-wise partialness.",
+        "bbox": [
+            169,
+            574,
+            826,
+            646
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "GDPD is Effective in Model Compression. We evaluate GDPD’s effectiveness for model compression under two scenarios: 1) compression with partialness $( e = 0 . 5 L )$ and 2) compression only $( e = L )$ . Results for two compression targets in Table 4 show GDPD consistently achieves the highest AUC-PRC, lowest rank, and most wins, confirming its effectiveness for compressed students.",
+        "bbox": [
+            169,
+            651,
+            826,
+            709
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "GDPD Provides Effective Self-Distillation. When teacher and student architectures are identical and no partialness is involved $( e = L )$ , our experiments correspond to self-distillation (Pham et al., 2022). We evaluate GDPD under this setting in Table 5. GDPD achieves higher AUC-PRC and lower rank than the teacher, surpassing them on most datasets. GDPD proves more effective for self-distillation than vanilla KD. Justification for improvements: Even without a teacher–student representational gap, GDPD exposes each student feature to multiple vicinal features (analogous to feature augmentation), which helps the model generalize better while avoiding overconfidence.",
+        "bbox": [
+            169,
+            714,
+            826,
+            814
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "GDPD Across Different Network Architectures. We also evaluate GDPD under 1) similar teacher–student and 2) cross-architecture distillation. GDPD consistently achieves the highest performance gains, demonstrating effectiveness in both settings (see Table 18).",
+        "bbox": [
+            169,
+            818,
+            826,
+            863
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "GDPD Transfers Long-context Knowledge. To assess whether GDPD students learn representations that generalize from full-context teacher knowledge, we evaluate representation transferability to the suffix (last 0.5L) of each time series. We use two protocols: 1) Linear probe on frozen backbone: Train the student on prefix data (first 0.5L), freeze its backbone, then train a linear classifier on features extracted from suffix inputs. This tests whether prefix-learned representations are linearly useful for classifying suffix inputs. 2) Zero-shot suffix evaluation: Evaluate the frozen prefix-trained student (backbone + original head) directly on suffix inputs without any additional training. Results on the StarLightCurves dataset for LSTM3-100 → LSTM3-100 are presented in Table 6. These results indicate that representations learned with GDPD exhibit strong transferability: GDPD achieves the best linear-probe and zero-shot performance on suffix inputs, evidencing that it effectively acquires and transfers long-context temporal knowledge.",
+        "bbox": [
+            169,
+            867,
+            826,
+            925
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "page_number",
+        "text": "8",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "table",
+        "img_path": "images/87209e81727f183a86101d4a4caac15a78dce3155eb43c151d2a4553b8e53407.jpg",
+        "table_caption": [
+            "Table 5: Self-distillation results under three network architectures (e = L). Each cell reports Avg. AUC-PRC / Avg. Rank across 12 UCR datasets."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td></td><td>LSTM3-100 → LSTM3-100</td><td>Inception55-32 → Inception55-32</td><td>ResNet32-64 → ResNet32-64</td></tr><tr><td>Teacher</td><td>87.32 / 3.33</td><td>96.96 / 2.83</td><td>98.43 / 2.33</td></tr><tr><td>Base-KD</td><td>89.29 / 2.08</td><td>97.80 / 1.50</td><td>98.52 / 2.25</td></tr><tr><td>Fits</td><td>88.73 / 2.75</td><td>93.90 / 3.92</td><td>98.55 / 2.33</td></tr><tr><td>GDPD</td><td>91.21 / 1.58</td><td>97.97 / 1.25</td><td>98.58 / 1.25</td></tr></table>",
+        "bbox": [
+            205,
+            141,
+            784,
+            198
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "table",
+        "img_path": "images/ca8103f4ff06b3e1fba3b65310a5224718acd22c76cd6cc725e0ce2e05cc9abd.jpg",
+        "table_caption": [
+            "Table 6: Transferability from prefix-trained students to suffix inputs on the StarLightCurves dataset. We report AUC-PRC; best values per row are in bold."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td></td><td>Base</td><td>Base-KD</td><td>Fits</td><td>GDPD</td></tr><tr><td>Linear-probe</td><td>65.57</td><td>74.86</td><td>65.74</td><td>76.88</td></tr><tr><td>Zero-shot</td><td>35.21</td><td>66.21</td><td>48.05</td><td>66.70</td></tr></table>",
+        "bbox": [
+            352,
+            246,
+            640,
+            291
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "table",
+        "img_path": "images/aa2cac42bd3730d80d5a47abc01e134acabf193587c96c1efcda2b426e88cc60.jpg",
+        "table_caption": [
+            "Table 7: Results on the PhysioNet case study in terms of AUC-ROC, AUC-PRC, and Accuracy. Four settings under $e \\mathrm { ~ = ~ } 0 . 5 L$ are considered: (1) main-task distillation, (2) downstream task (survival ≥ 100 prediction), (3) channel-wise partialness, and (4) balanced-teacher to imbalanced-student."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td rowspan=\"2\"></td><td colspan=\"3\">In-hospital Mortality (e=0.5L)</td><td colspan=\"3\">Survival ≥100 (e=0.5L)</td><td colspan=\"3\">Channel Partialness (e=0.5L,m=0.5M)</td><td colspan=\"3\">Balanced → Imbalanced (e=0.5L)</td></tr><tr><td>ROC</td><td>PRC</td><td>Acc.</td><td>ROC</td><td>PRC</td><td>Acc.</td><td>ROC</td><td>PRC</td><td>Acc.</td><td>ROC</td><td>PRC</td><td>Acc.</td></tr><tr><td>Teacher</td><td>76.04</td><td>76.12</td><td>70.72</td><td>76.04</td><td>76.12</td><td>70.72</td><td>76.04</td><td>76.12</td><td>70.72</td><td>76.04</td><td>76.12</td><td>70.72</td></tr><tr><td>Base</td><td>70.21</td><td>68.70</td><td>65.41</td><td>67.80</td><td>65.58</td><td>62.78</td><td>60.38</td><td>59.52</td><td>55.50</td><td>75.96</td><td>65.44</td><td>72.18</td></tr><tr><td>Fits</td><td>73.54</td><td>72.50</td><td>67.03</td><td>68.61</td><td>66.61</td><td>63.48</td><td>59.84</td><td>59.79</td><td>56.04</td><td>76.84</td><td>65.66</td><td>86.18</td></tr><tr><td>GDPD</td><td>74.45</td><td>73.74</td><td>68.56</td><td>70.52</td><td>69.74</td><td>65.13</td><td>61.31</td><td>62.18</td><td>57.40</td><td>76.88</td><td>65.84</td><td>86.10</td></tr></table>",
+        "bbox": [
+            204,
+            357,
+            782,
+            434
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            455,
+            826,
+            554
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "GDPD Degrades Gracefully under Weak Teacher Supervision. Under progressively degraded teacher supervision, GDPD consistently achieves the highest performance and the slowest decline (Section A.3.5).",
+        "bbox": [
+            169,
+            559,
+            825,
+            602
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Real-World Case Study: Predicting In-Hospital Mortality. The PhysioNet Silva et al. (2012) dataset contains electronic health records from ICU patients. The main task is to predict in-hospital mortality using first 48 hours recordings after admission. We also derive an auxiliary downstream task, survival ≥ 100 prediction, to evaluate cross-task distillation (see Section A.2.1). We train the teacher on the main task using a balanced set of full-length data. In the first scenario, students are trained on the same task with partialness $( e ~ = ~ 0 . 5 L )$ We then consider three additional scenarios introducing further teacher–student heterogeneity: 1) training students on a downstream task (survival ≥ 100 prediction) with $e = 0 . 5 L ; 2 )$ training under channel-wise partialness $( e = 0 . 5 L , m = 0 . 5 M )$ ; and 3) training on an imbalanced dataset with $e = 0 . 5 L$ . Table 7 indicates GDPD consistently outperforms Base and feature-KD across time- and channel-wise partialness, cross-task distillation, and when the class distribution of the distillation set differs from the teacher’s training data, highlighting its robustness under heterogeneous real-world conditions. Cross-task gains show GDPD extracts task-relevant knowledge more effectively than direct feature matching.",
+        "bbox": [
+            169,
+            607,
+            826,
+            791
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "4.2 ABLATIONS AND HYPERPARAMETER STUDY",
+        "text_level": 2,
+        "bbox": [
+            171,
+            806,
+            524,
+            821
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "To gain insights into the role of each component in Equation (6), we conduct an ablation study on the StarLightCurves dataset for LSTM3-100 → LSTM3-100 with earliness set to $e = 0 . 5 L$",
+        "bbox": [
+            169,
+            833,
+            823,
+            862
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Ablation on Phase Scheduling. Under disabled warm-up and diffusion training $( E _ { \\mathrm { w a r m } } ~ =$ 0, ${ \\mathcal { L } } _ { \\mathrm { d i f f u s i o n } } ( \\phi ) ~ = ~ 0 )$ , freezing ϕ yields 83.12 AUC-PRC and training without freezing yields 85.56, both near the Base (83.90), indicating GDPD provides no benefit without proper diffusion prior training. With warm-up disabled, jointly training the diffusion prior $( \\mathcal { L } _ { \\mathrm { d i f f u s i o n } } + \\mathcal { L } _ { \\mathrm { G D P D } } )$",
+        "bbox": [
+            169,
+            868,
+            826,
+            926
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "page_number",
+        "text": "9",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "table",
+        "img_path": "images/f192e0bda5113dda8237b6037485801ac96bfc4a4814ef144a687b920461ca25.jpg",
+        "table_caption": [
+            "Table 8: Effect of warm-up epochs $( E _ { \\mathrm { w a r m } } )$ on GDPD performance (AUC-PRC)."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td> $E_{\\text{warm}}$ </td><td>0 (frozen  $\\phi$ )</td><td>0 (unfrozen  $\\phi$ )</td><td>0 (joint)</td><td>10</td><td>50</td><td>100</td><td>200</td><td>300</td><td>400</td><td>600</td></tr><tr><td>AUC-PRC</td><td>83.12</td><td>85.56</td><td>89.72</td><td>87.4</td><td>97.13</td><td>95.31</td><td>95.83</td><td>97.26</td><td>96.78</td><td>83.90</td></tr></table>",
+        "bbox": [
+            210,
+            127,
+            777,
+            159
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "yields 89.72 AUC-PRC, suggesting coupling helps even without a warm-up. Next, we sweep $E _ { \\mathrm { w a r m } }$ in Table 8. At $E _ { \\mathrm { w a r m } } = { \\bar { 6 } } { \\bar { 0 } } = { \\bar { \\mathrm { t o t a l } } }$ epochs, training reduces to the task loss only, collapsing to the Base (83.90). The best results emerge when the warm-up occupies roughly half of the training epochs (e.g., 97.26 at $E _ { \\mathrm { w a r m } } = 3 0 0 )$ . These findings show that 1) the diffusion prior is essential, 2) phase-wise training improves GDPD, and 3) mid-range warm-up durations yield the highest gains.",
+        "bbox": [
+            169,
+            181,
+            825,
+            253
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "Ablation on Loss Terms. Setting $\\lambda _ { \\mathrm { K D } } = 0$ yields the Base (83.90). Using only the GDPD signal $( \\lambda _ { \\mathrm { { T a s k } } } = 0 )$ gives limited improvement (85.72), while combination $( \\lambda _ { \\mathrm { T a s k } } = 1 , \\lambda _ { \\mathrm { K D } } = 1 )$ achieves the best result (97.26). With $\\lambda _ { \\mathrm { T a s k } } = 1$ , we sweep $\\lambda _ { \\mathrm { K D } }$ in Table 13, where any non-zero GDPD contribution improves over $\\lambda _ { \\mathrm { K D } } = 0 .$ . To verify that GDPD drives this gain, we replace L<sub>GDPD</sub> (Equation (6)) with logit-KD, which gives 94.51, close to Base-KD (95.20) but inferior to GDPD. Substituting feature-KD yields 83.81, similar to Fits (81.87). This suggests that, instead of matching a single static teacher signal, GDPD’s diverse and progressive signals drives performance gains. We further validate this by increasing diversity, estimating L with multiple posterior samples $J = 1 , 2 , 3 , 4 , 5$ (Equation (7)), which yield 97.26, 97.34, 97.13, 97.87, and 97.78, respectively. The gain for $J > 1$ can be attributed to the additional diversity introduced within each mini-batch. Since $J = 1$ already achieves strong performance, we adopt it for a better efficiency–accuracy trade-off. We also ablate alternative GDPD implementations that reduce diversity in Section A.3.1. Ablation on Diffusion Controls are provided in Section A.3.1.",
+        "bbox": [
+            169,
+            258,
+            826,
+            441
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "Computational Cost. GDPD incurs only modest training-time overhead (0.24 s/epoch over Base-KD) and does not affect inference. Its computational cost is comparable to established feature KD (RKD, VID), and memory footprint is far below memory-intensive methods (RKD). Detailed wallclock and step-level analyses are provided in Section A.3.2.",
+        "bbox": [
+            169,
+            446,
+            825,
+            503
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "5 CONCLUSION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            526,
+            321,
+            542
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "This paper proposes a novel KD framework for efficient knowledge transfer to bridge the generalization gap from partial data. In conventional KD, directly matching a single set of teacher features can result in incomprehensible knowledge due to data gaps, limited and brittle knowledge tied to one perspective, and unfaithful knowledge from training–distillation set differences. To address this, we propose capturing teacher knowledge as a generative diffusion prior that serves as a reservoir from which the student can progressively sample diverse and faithful knowledge. We conduct extensive evaluations of GDPD across partialness levels and distillation settings, demonstrating consistent improvements over existing KD approaches on benchmark datasets. Additionally, we validate GDPD on a real-world dataset under challenging heterogeneous conditions. This paper opens a new research direction by proposing teacher knowledge as an effective form of generative prior.",
+        "bbox": [
+            169,
+            559,
+            826,
+            700
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "ACKNOWLEDGMENTS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            723,
+            357,
+            738
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "This research was supported by The University of Melbourne’s Research Computing Services and the Petascale Campus Initiative. We also gratefully acknowledge the authors and maintainers of the UCR, UEA, and PhysioNet time series repositories for making their datasets publicly available.",
+        "bbox": [
+            169,
+            753,
+            826,
+            799
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "REPRODUCIBILITY STATEMENT",
+        "text_level": 2,
+        "bbox": [
+            171,
+            821,
+            439,
+            837
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "The source code for all models, training scripts, and experiments is available at https: $/ / { \\mathfrak { g } }$ ithub.com/hewadehigaha/GDPD\\_ICLR26. Details of datasets, preprocessing steps, model configurations, and training procedures are provided in the main text (Section 4) and Appendix (Section A.2). Additional results are included in the supplementary materials to further support reproducibility.",
+        "bbox": [
+            169,
+            854,
+            825,
+            925
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "page_number",
+        "text": "10",
+        "bbox": [
+            490,
+            948,
+            509,
+            960
+        ],
+        "page_idx": 9
+    }
+]

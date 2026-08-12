@@ -1,0 +1,63 @@
+
+**Principle 1: Mathematical Rigor and Explicit Constant Tracking in Geometric Analysis of Manifold Diffusion Convergence**
+
+**Definition:**  
+The work must demonstrate rigorous proof techniques with explicit tracking of constants and dependencies on manifold geometry parameters (dimension $d$, curvature $K$, injectivity radius, spectral gap $\lambda_1$). The analysis should correctly handle manifold-specific complications such as cut locus, exponential map Jacobians, sign conventions for generators, and Girsanov conditions. Reviewers expect proofs to be verifiable with all geometric hypotheses stated precisely and propagated carefully through lemmas to the main theorem. Particular attention must be paid to the reset mechanism, heat kernel bounds, and the compatibility between discretization and continuous Brownian motion on curved spaces. Any reliance on advanced geometric analysis tools (Li-Yau estimates, parametrix expansions) must be applied with correct conventions and fully justified. The final bounds should decompose cleanly into interpretable terms (mixing, score error, discretization, BM simulation) with explicit polynomial dependencies. Hidden assumptions or hand-waving in the propagation of constants across lemmas significantly undermines the contribution. The proof should explicitly verify integrability conditions required for stochastic calculus manipulations, such as Novikov-type conditions for Girsanov transforms. All auxiliary constructions (e.g., localization kernels, cutoff functions) must be shown to preserve the validity of the main argument without introducing uncontrolled errors.
+
+**Core Evaluation Criteria:**
+- **Proof Correctness:** Are all proof steps mathematically sound? Are generator signs consistent across lemmas and theorems? Are Girsanov/Novikov conditions explicitly verified under the stated assumptions?
+- **Explicit Dependencies:** Are constants in bounds explicitly tracked in terms of $d$, $K$, $\delta^{-1}$, $\lambda_1$ rather than hidden in asymptotic notation?
+- **Geometric Precision:** Are curvature assumptions (Ricci bounds, Riemann tensor bounds) stated upfront and propagated correctly through all downstream lemmas?
+- **Technical Completeness:** Are subtle issues like reset probability bounds, heat kernel sup bounds, square-root forms, and drift-discretization mismatches handled with full rigor?
+
+---
+
+**Principle 2: Verifiability and Empirical Grounding of Geometric Assumptions on Real-World Data Distributions**
+
+**Definition:**  
+The theoretical assumptions must be argued to hold for practical data manifolds or verified empirically, since the analysis relies on bounded geometry including positive injectivity radius, uniform curvature bounds, and regularity of score estimates. The work must either demonstrate that these assumptions are satisfied by real-world manifolds such as spheres, tori, SO(3), or SPD matrices, or provide empirical validation on representative datasets. Assumptions should not be chosen solely to advance a proof without establishing a clear connection to the reality of generative modeling tasks. The paper must explicitly justify why its geometric hypotheses are considered mild and standard in the context of Riemannian geometry and diffusion models. Special scrutiny is applied to the implementability of score regularity conditions: the work should clarify how clipping or other practical constraints guarantee the assumed bounds without access to ground-truth scores. If certain assumptions are purely theoretical, this limitation must be acknowledged and their domain of validity carefully delineated. The authors should discuss whether the curvature bounds scale reasonably with dimension for manifolds of practical interest. Failure to connect assumptions to real data risks rendering the theoretical guarantees vacuous from an applied perspective. At minimum, the paper should reference established literature where similar assumptions have been validated or are accepted as routine.
+
+**Core Evaluation Criteria:**
+- **Real-Data Connection:** Does the paper argue or verify that curvature and injectivity assumptions hold for real datasets or standard application manifolds?
+- **Assumption Justification:** Are assumptions explained as standard/mild rather than arbitrary? Is there discussion of why they are necessary and not merely convenient for the proof?
+- **Score Estimate Implementability:** Is the regularity assumption on score estimates (e.g., A3) shown to be implementable in practice without ground-truth score access?
+- **Empirical Verification:** Are assumptions tested or illustrated on synthetic or real manifold data to demonstrate they are not pathological?
+
+---
+
+**Principle 3: Experimental Validation and Empirical Corroboration of Theoretical Predictions in Toy Settings**
+
+**Definition:**  
+Even for primarily theoretical contributions, the work must include empirical validation to corroborate analytical predictions and demonstrate that theoretical guarantees manifest in observable algorithmic behavior. This includes verifying polynomial convergence rates, measuring reset probabilities against predicted exponential smallness, and comparing total variation error against theoretical bounds. Experiments serve as a critical bridge between abstract convergence proofs and practical relevance, especially when prior empirical work has already demonstrated algorithm viability. The absence of experimental validation raises concerns about whether theoretical predictions hold under realistic noise and discretization effects. Toy settings on standard manifolds such as spheres and tori with known ground-truth distributions are considered sufficient for theoretical papers, provided they directly test key theoretical claims. The experiments should quantify how TV error scales with the number of steps and confirm that reset events are indeed negligible in practice. When empirical results are added in revision, they must be explicitly connected to specific theorems or lemmas to avoid appearing as afterthoughts. Reviewers evaluate whether the experimental design isolates the phenomena predicted by theory rather than merely demonstrating overall algorithm functionality. The inclusion of numerical illustrations significantly strengthens the paper's accessibility and persuasiveness for the broader machine learning community. Ultimately, empirical corroboration distinguishes a purely abstract result from one that genuinely illuminates the behavior of Riemannian diffusion samplers.
+
+**Core Evaluation Criteria:**
+- **Convergence Verification:** Do experiments confirm the predicted polynomial convergence rate in TV distance as a function of stepsize or iteration count?
+- **Reset/Failure Analysis:** Is the reset probability shown to be exponentially small as theoretically predicted? Are failure modes and edge cases analyzed?
+- **Toy Setting Sufficiency:** Are experiments conducted on standard manifolds (e.g., spheres, tori) with controlled ground truth that allow direct comparison with theory?
+- **Theory-Experiment Alignment:** Do empirical results quantitatively align with theoretical predictions (e.g., error scaling with stepsize, dimension, or curvature)?
+
+---
+
+**Principle 4: Comprehensive Positioning and Differentiation from Related Euclidean and Riemannian Diffusion Literature**
+
+**Definition:**  
+The work must thoroughly situate itself within the landscape of both Euclidean diffusion convergence theory and the rapidly evolving field of Riemannian generative modeling. This requires discussing prior Riemannian bounds such as De Bortoli et al.'s exponential complexity results, as well as alternative designs including Riemannian diffusion mixtures and flow matching on general geometries. The paper should clearly articulate the theoretical advances over prior art, particularly the transition from exponential to polynomial iteration complexity. A critical point of comparison involves recent empirical findings on the manifold hypothesis, where Euclidean diffusion models appear to learn low-dimensional structure implicitly; the work must justify why explicit Riemannian constraints remain necessary or advantageous. Related work discussion should be precise and integrative, not merely a list of citations, explaining how each prior result relates to the current theoretical framework. Missing discussions of closely related theoretical developments, such as Sakamoto et al.'s contributions or Urakawa's mixing bounds, are viewed as significant oversights. The authors should explain whether their convergence guarantees are tighter, more general, or complementary to existing Wasserstein bounds. Comparisons should address both the metric of convergence (TV versus Wasserstein) and the assumptions required (smoothness, positivity, score accuracy). The positioning should help readers understand whether the new tools (Li-Yau estimates, parametrix methods) offer broader applicability beyond the specific algorithm analyzed. A well-integrated related work section demonstrates mastery of the field and prevents reviewers from questioning the novelty or relevance of the contribution.
+
+**Core Evaluation Criteria:**
+- **Related Work Coverage:** Are all relevant prior works in Riemannian diffusion (RSGM, RDM, Flow Matching on manifolds) and Euclidean convergence theory thoroughly discussed?
+- **Euclidean Comparison:** Is the relationship to Euclidean diffusion theory clearly explained? Are advantages and limitations of explicit manifold constraints versus implicit submanifold learning discussed?
+- **Distinction from Manifold Hypothesis:** Does the paper address why explicit Riemannian diffusion is needed given that Euclidean DMs can adapt to low-dimensional structure?
+- **Citation Precision:** Are prior results (e.g., Urakawa mixing bounds, Sakamoto et al.) cited accurately and their technical relationship to the current work clearly stated?
+
+---
+
+**Principle 5: Generality, Extensibility, and Actionable Implications for Broader Riemannian Generative Modeling**
+
+**Definition:**  
+The theoretical results should extend beyond a single algorithmic instantiation and provide actionable insights that advance the broader field of Riemannian generative modeling. The work must discuss whether its convergence analysis applies to alternative designs such as deterministic samplers, different prior distributions, or recent flow-matching variants on manifolds. Reviewers expect the theory to yield concrete guidance for practitioners, such as explicit stepsize schedules, horizon time selection, or conditions under which polynomial complexity is achieved. The paper should honestly delineate the scope and limitations of its framework, noting which algorithmic components are essential and which can be modified. If the analysis is tightly coupled to a specific RSGM design, the authors must argue why the proof techniques are likely to transfer or identify the obstacles to generalization. The work should avoid being purely explanatory; it must offer forward-looking insights that could inspire improved sampling algorithms or sharper analyses. Discussion of open problems and future directions—such as conditional sampling, sharper polynomial degrees, or adaptive discretization—enhances the perceived impact. The authors should address whether their bounds suggest new practical training procedures or merely justify observations from prior empirical studies. A theoretical paper that closes a complexity gap without providing any actionable takeaway risks being seen as intellectually isolated from the field's practical trajectory. Ultimately, the contribution is judged not only by the elegance of the proof but by its potential to inform and improve future algorithmic development in non-Euclidean generative modeling.
+
+**Core Evaluation Criteria:**
+- **Algorithmic Generality:** Do results apply beyond the specific RSGM instantiation to other Riemannian diffusion or flow-matching variants?
+- **Actionable Guidance:** Does the theory provide concrete recommendations for stepsize selection, horizon tuning, or sampling acceleration?
+- **Scope Honesty:** Are limitations honestly discussed (e.g., stochastic vs. deterministic samplers, conditional sampling, ODE versus SDE formulations)?
+- **Field Impact:** Does the work open doors for sharper analysis or improved algorithms, rather than merely explaining existing empirical success?

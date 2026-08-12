@@ -1,0 +1,1934 @@
+[
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "ABSTRACT"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                450,
+                335,
+                547,
+                351
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Reinforcement learning (RL) has emerged as a powerful post-training paradigm for large language models (LLMs), yet its effectiveness varies significantly across base models. While incorporating a pre-RL supervised fine-tuning (SFT) phase can enhance RL training, key questions remain: how long should the SFT cold-start phase last, and is the SFT objective truly aligned with the requirements for effective RL preparation? In our analysis of cold-start dynamics, we uncover a key limitation: the SFT checkpoint with the highest evaluation performance often fails to maximize RL potential due to distributional forgetting—a phenomenon where the model drifts excessively away from the base model’s distribution even before traditional overfitting occurs. We identify diversity metrics, such as the entropy and self-BLEU, as more reliable early-stopping criteria than the standard performance-based checkpoint selection. Our findings show that SFT checkpoints with peak diversity consistently lead to superior post-RL results. Building on these insights, we introduce Adaptive Early-Stop Loss (AESL), a lightweight and dynamic cold-start method that balances the acquisition of new patterns with the preservation of the base model’s distribution. AESL operates at both the token and subsequence levels, providing finer-grained control over the cold-start process. Experimental results on mathematical reasoning benchmarks demonstrate that diversity-based early stopping surpasses traditional performance-based SFT, while AESL further enhances RL preparation. By steering LLMs toward better initialization points for RL, AESL consistently achieves superior final performance compared to existing SFT and cold-start strategies. The code is publicly available at https://github.com/LXXXXR/AESL."
+                    }
+                ]
+            },
+            "bbox": [
+                230,
+                364,
+                767,
+                686
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "1 INTRODUCTION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                173,
+                710,
+                338,
+                726
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Large Language Models (LLMs) (Team et al., 2023; Achiam et al., 2023; Grattafiori et al., 2024; Yang et al., 2025) have demonstrated remarkable capabilities across various domains, including natural language processing, question answering, and planning tasks Mirzadeh et al. (2025); Valmeekam et al. (2023); Huang & Chang (2022). Their abundant prior knowledge enables them to tackle previously unattainable challenges, particularly in fields such as mathematical reasoning and code generation (Ahn et al., 2024; Jiang et al., 2024). The foundational capabilities and extensive knowledge embedded in LLMs unlock a wide range of downstream applications, making them indispensable tools for solving sophisticated real-world problems."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                742,
+                826,
+                854
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "While inherently powerful, LLMs often require post-training to better align their capabilities with downstream tasks. Post-training refines base models by strengthening specific abilities, addressing gaps in reasoning patterns, domain expertise, or human preferences Tie et al. (2025); Kumar et al. (2025); Shen et al. (2023). Among various post-training paradigms, reinforcement learning (RL) (Barto, 2021; Hu, 2025; Shao et al., 2024; Zheng et al., 2025; Guo et al., 2025) has recently emerged as a particularly promising approach, offering significant performance improvements for LLMs across downstream tasks. RL’s advantages are compelling: it eliminates the need of largescale curated demonstrations and holds the potential to achieve superhuman performance in tasks where well-defined reward signals are available to guide optimization."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                859,
+                826,
+                904
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "Corresponding author."
+                    }
+                ]
+            },
+            "bbox": [
+                191,
+                910,
+                336,
+                924
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "1"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                503,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                826,
+                189
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "However, despite its promise, RL’s theoretical benefits often fail to fully materialize in practice. RL algorithms are notoriously sample-inefficient, requiring extensive exploration to learn complex reasoning patterns from scratch. Moreover, RL’s effectiveness heavily depends on the quality and characteristics of the base model—models with limited reasoning capabilities may struggle to discover appropriate reasoning patterns and fail to benefit from RL training. To address these limitations, many post-training pipelines incorporate a supervised fine-tuning (SFT) Lambert et al. (2024); Yang et al. (2025); Guo et al. (2025) cold-start phase that enables models to acquire essential reasoning patterns, such as long chain-of-thought (CoT) (Wei et al., 2022) reasoning, before RL training begins. This approach enhances sample efficiency and overall performance by providing a stronger foundation for subsequent RL optimization."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                194,
+                826,
+                335
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Despite the widespread adoption of cold-start phases, fundamental questions remain unanswered. How long should the cold-start phase last to optimally prepare base LLMs for subsequent RL training? More critically, is the standard SFT objective of demonstration imitation well aligned with the goal ofRL preparation? These open questions highlight the need for deeper understanding of effective cold-start design to optimize subsequent RL performance."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                340,
+                826,
+                411
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this paper, we address these critical questions by investigating cold-start dynamics and proposing methods to optimize their effectiveness of cold-start SFT for RL preparation. Through an analysis of post-RL performance across various cold-start checkpoints, we reveals a misalignment between standard cold-start objectives and RL preparation goals: the best-performing checkpoint after SFT does not necessarily correspond to the optimal starting point for RL due to distribution forgetting that occurs before traditional overfitting. To address this issue, we introduce improved criteria and methods for cold-start design, ensuring better alignment with RL training requirements. Specifically, our contributions are as follows:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                417,
+                826,
+                529
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• We demonstrate that diversity metrics, such as entropy and self-BLEU, serve as superior early-stopping criteria compared to evaluation performance. Selecting checkpoints based on diversity consistently yields better RL performance than relying solely on evaluation metrics."
+                    }
+                ]
+            },
+            "bbox": [
+                181,
+                540,
+                825,
+                584
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• Building on these insights, we propose Adaptive Early-Stop Loss (AESL), a novel cold-start method that dynamically balances new pattern acquisition with base distribution preservation at both token and subsequence levels, providing fine-grained control over the preparation process."
+                    }
+                ]
+            },
+            "bbox": [
+                181,
+                587,
+                825,
+                630
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• Through extensive experiments across different base models (Qwen2.5-7B-Instruct (Yang et al., 2024a) and Qwen2.5-Math-7B (Yang et al., 2024b)) and various cold-start data settings, we demonstrate AESL’s superior performance, establishing it as an effective solution for preparing LLMs for successful RL training."
+                    }
+                ]
+            },
+            "bbox": [
+                181,
+                633,
+                826,
+                690
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2 PRELIMINARIES"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                173,
+                710,
+                341,
+                724
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The goal of the post-training phase for LLMs is to refine base models by enhancing their knowledge and capabilities in specific domains, such as instruction following and reasoning (Kumar et al., 2025). Modern LLM post-training predominantly employs two complementary paradigms: SFT and RL. SFT relies on high-quality demonstration datasets to align model outputs with desired responses, while RL requires only prompt sets and reward signals from verifiers to optimize response generation through policy learning. The RL paradigm has gained significant attention due to its potential to achieve super-human intelligence."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                741,
+                826,
+                840
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2.1 RL FOR LLM POST-TRAINING"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                856,
+                426,
+                869
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In the reinforcement learning with verifiable reward (RLVR) framework (Lambert et al., 2024), the objective is to optimize the policy (i.e., the LLM) "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\boldsymbol { \\theta } } \\big ( \\boldsymbol { s } _ { t } | \\boldsymbol { q } , \\boldsymbol { s } _ { < t } \\big )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to maximize the expected reward from a verifier "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "R ( s _ { t } , q )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "s _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "represents the current token output, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "s _ { < t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "represent the first t − 1 generated token and q denotes the input question. In this work, we adopt the widely-used GRPO algorithm (Shao et al., 2024) for RL post-training, which optimizes the following objective:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                882,
+                825,
+                924
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "2"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                103,
+                825,
+                133
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\begin{array}{l} \\mathcal {L} _ {\\mathrm{GRPO}} (\\theta) = \\mathbb {E} _ {q \\sim \\mathcal {D} _ {\\mathrm{RL}}, \\{s ^ {i} \\} _ {i = 1} ^ {G} \\sim \\pi_ {\\theta_ {\\mathrm{old}}} (s | q)} \\frac {1}{G} \\sum_ {i = 1} ^ {G} \\frac {1}{| s ^ {i} |} \\sum_ {t = 1} ^ {| s ^ {i} |} \\Bigg \\{\\quad \\\\ \\min \\left[ \\frac {\\pi_ {\\theta} (s _ {t} ^ {i} | q , s _ {<   t} ^ {i})}{\\pi_ {\\theta_ {\\mathrm{old}}} (s _ {t} ^ {i} | q , s _ {<   t} ^ {i})} \\hat {A} _ {t} ^ {i}, \\operatorname{clip} \\left(\\frac {\\pi_ {\\theta} (s _ {t} ^ {i} | q , s _ {<   t} ^ {i})}{\\pi_ {\\theta_ {\\mathrm{old}}} (s _ {t} ^ {i} | q , s _ {<   t} ^ {i})}, 1 - \\epsilon , 1 + \\epsilon\\right) \\hat {A} _ {t} ^ {i} \\right] - \\beta D _ {\\mathrm{KL}} [ \\pi_ {\\theta} | | \\pi_ {\\mathrm{ref}} ] \\Bigg \\}, \\end{array}\\tag{1}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/c7b0bf1b3c4f7e41905d1b7738f08d908a3e57e28947a4267841a651492840ab.jpg"
+                }
+            },
+            "bbox": [
+                171,
+                164,
+                823,
+                244
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { D } _ { \\mathrm { R L } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the question set used for RL, G is the group size in GRPO, and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "s ^ { i }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denotes a complete rollout sequence. The term "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta _ { \\mathrm { o l d } } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "represents the policy before the update, while "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\mathrm { r e f } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denotes the reference policy. The advantage estimate is normalized within the group as "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\begin{array} { r } { \\hat { A } _ { t } ^ { i } = \\frac { r ^ { i } - \\mathrm { m e a n } ( r ) } { \\mathrm { s t d } ( r ) } } \\end{array}"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "r = R ( s _ { t } , q )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the verifier that provides reward signals and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "r ^ { i }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the reward for the i-th rollout."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                277,
+                825,
+                344
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2.2 RL COLD-START PHASE VIA SFT"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                363,
+                444,
+                378
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Although RL is highly effective at optimizing task-specific performance, its success is strongly influenced by the capabilities of the base model (as discussed in Section 3.1). Additionally, RL training is sample-inefficient, making it challenging to learn complex reasoning patterns, such as long-CoT, from scratch. To address these challenges, many post-training pipelines (Guo et al., 2025; Lambert et al., 2024) include a cold-start phase using SFT. This phase injects essential reasoning patterns, such as long-CoT, into the base model using a small amount of demonstration data, enabling RL to achieve better sample efficiency and performance. Typically, the cold-start phase employs the cross-entropy (CE) loss as the training objective:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                390,
+                826,
+                503
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {L} _ {\\mathrm{CE}} (\\theta) = - \\mathbb {E} _ {q, s ^ {*} \\sim \\mathcal {D} _ {\\mathrm{SFT}}} \\left[ \\log \\pi_ {\\theta} (s _ {t} ^ {*} | q, s _ {<   t}) \\right],\\tag{2}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/d28875818d76c82476923fc8292c3d2b4d2cd6e845498de0647775beda2df9e8.jpg"
+                }
+            },
+            "bbox": [
+                352,
+                512,
+                643,
+                530
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { D } _ { \\mathrm { S F T } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the demonstration dataset. The CE loss aligns the model’s predictions with the provided demonstrations, enabling it to learn desired reasoning patterns before progressing to RL-based post-training."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                539,
+                825,
+                583
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3 METHODOLOGY"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                604,
+                343,
+                621
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this section, we examine the post-training process holistically and propose an enhanced criterion for early stopping and an improved loss function for the cold-start phase. These enhancements aim to improve final performance after subsequent RL training. First, in Section 3.1, we analyze how the cold-start phase affects the effectiveness of LLM post-training. Our analysis reveals that the best-performing checkpoint after cold-start, as measured by evaluation metrics, often fails to prepare the model optimally for RL training due to distribution forgetting from the base models. We empirically demonstrate that diversity turning points during cold-start training correspond to superior RL potential, motivating diversity-based early stopping as a more effective criterion. Building on this insight, Section 3.2 introduces our Adaptive Early-Stop Loss (AESL) for the cold-start phase, which adaptively balances preservation of the original distribution with adaptation to new demonstration patterns on a token-by-token basis. Together, these contributions offer improved flexibility and superior performance compared to traditional CE-based approaches."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                638,
+                826,
+                808
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.1 MOTIVATION: UNDERSTANDING THE COLD-START PHASE DYNAMICS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                825,
+                700,
+                840
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The cold-start phase is crucial for steering base models toward a promising starting point for RL training, particularly when models lack domain-specific knowledge or reasoning capabilities (e.g., long-CoT patterns). To investigate its role, we first evaluate the RL performance of two base models: Qwen2.5-Math-7B (Yang et al., 2024b) and Qwen2.5-7B-Instruct (Yang et al., 2024a), and compared their post-RL performance."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                854,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "3"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/00911e3173259ee180ba4086d63a26a2818874d5556e32dd1e8aaea4cd86e009.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                186,
+                101,
+                496,
+                242
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/5bf12328572f2b350903003bc5dc40957ca7f613ba24a8fec83b579aab960c61.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "(a) Qwen2.5-Math-7B achieves significant direct per- (b) Performance before and after RL training across formance gains through RL, while Qwen2.5-7B- different cold-start training steps. The best post-cold-Instruct requires cold-start preparation for effective start checkpoint does not correspond to optimal postsubsequent RL training. RL performance."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                500,
+                102,
+                810,
+                241
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/393ebd301a98392f0e0183f2e2e4f31379b88a33037f121ef77179c5d18e4fc2.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 1: Motivating observations showing the necessity and optimization challenges of cold-start training. Performance represents averages across multiple mathematical reasoning benchmarks (detailed in Section B). Complete results are provided in Section C.1"
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                186,
+                372,
+                496,
+                513
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/1cf58b22a4f0c3203db4b7b05b8d53a38790091bcffcec5f427ed14804b8b06e.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "(a) Entropy dynamics during cold-start training. (b) Self-BLEU dynamics during cold-start training Higher values indicate increased response diversity. Lower values indicate increased response diversity."
+                    },
+                    {
+                        "type": "text",
+                        "content": "Figure 2: Diversity measurements throughout the cold-start training process corresponding to Figure 1b, revealing the relationship between diversity measurement and RL potential."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                500,
+                372,
+                810,
+                513
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The Necessity of Cold-Start As shown in Figure 1a, Qwen2.5-Math-7B achieves significant performance gains directly after RL training. In contrast, Qwen2.5-7B-Instruct shows minimal improvement under direct RL training. This disparity is further reflected in slower growth of average response length (detailed in Section C.1), underscoring the need for a cold-start SFT phase to inject long-CoT patterns into the base model. Following established conventions, we implement a lightweight cold-start phase (using less than 1/10 of the data volume of the subsequent RL phase) and observe substantially enhanced overall performance gains. This confirms that strategic cold-start SFT can effectively steer base models toward better RL starting points. However, this also raises a critical question: is optimizingfor the best cold-start evaluation performance aligned with achieving the optimal post-RL performance?"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                606,
+                826,
+                748
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Misalignment Between Cold-start and RL Objectives Our investigation reveals that the objective of the cold-start phase does not necessarily align with the purpose to prepare base model for subsequent RL training, particularly when demonstration data is limited. We examine this by varying training budgets for standard cold-start phases and subsequently applying RL training. Figure 1b presents the performance for both post-cold-start and post-RL models: initial performance decay followed by recovery during cold-start training, representing a shift-and-readaptation process. Crucially, we observe that while evaluation performance continues improving during the readaptation phase, corresponding post-RL performance begins declining. This indicates that the RL potential deteriorates before overfitting to the cold-start dataset, suggesting fundamental misalignment between cold-start objectives (steering models toward better RL starting points) and standard CE loss objectives (maximizing demonstration dataset imitation)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                771,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "4"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Diversity as Criteria for Cold-start Early-stopping: To understand this performance degradation phenomenon, we examine diversity measurements throughout the cold-start training process (Figure 2). This pattern reflects important distribution dynamics during cold-start training. In the early stages, the model balances acquiring new reasoning patterns from the cold-start dataset with retaining knowledge from its original distribution, as illustrated in Figure 3. However, as training progresses, the model begins to over-adapt to the new dataset, leading to distribution forgetting and reduced RL potential. The diversity peak represents an optimal balance point—a ”sweet spot” (step 100 in this example) where the model successfully acquires new reasoning patterns while sufficiently retaining distribution from base model for effective RL training. The enhanced entropy at this point likely stems from the model maintaining dual distribution characteristics from both the original base model and the new dataset patterns. Our analysis yields two key insights:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                104,
+                826,
+                258
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• From an analytical perspective, deterioration of RL potential occurs before SFT overfitting, revealing fundamental misalignment between cold-start objectives (preparing models for RL) and CE loss objectives (maximizing demonstration imitation)."
+                    }
+                ]
+            },
+            "bbox": [
+                179,
+                268,
+                825,
+                310
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• From a practical perspective, selecting the best-performing post-cold-start checkpoint may be suboptimal for subsequent RL training. Effective cold-start requires balancing new pattern acquisition with original distribution preservation, with diversity measurements serving as valuable indicators of this trade-off."
+                    }
+                ]
+            },
+            "bbox": [
+                179,
+                313,
+                826,
+                369
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.2 ADAPTIVE EARLY-STOPPING LOSS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                385,
+                457,
+                398
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Based on our experimental findings, we reframe the cold-start objective from complete demonstration imitation to achieving an optimal trade-off between learning new patterns and preserving distribution from the original base model, as depicted in Figure 3. The simplest enhancement to traditional cold-start approaches is implementing diversity-based early stopping. Instead of selecting the best-performing checkpoint after SFT cold-start, we select the checkpoint corresponding to the diversity measurement turning point, which indicates the onset of base model distribution forgetting. Based on observations in Figure 1b, this approach should improve subsequent"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                411,
+                421,
+                674
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/344b0afcef44629d19a1a45c8f4e5c6d7e0fe1d15fd2e36925c4e22ddd701b08.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 3: Conceptual illustration of the cold-start training process. The model distribution gradually shifts from the base model toward the cold-start dataset distribution. Overly excessive training leads to overfitting and forgetting of the base model’s original distribution, potentially reducing its subsequent RL potential. This highlights the need to balance learning new reasoning patterns from the dataset with preserving the base model’s original distribution. Our proposed AESL adaptively addresses this trade-off based on context."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                450,
+                412,
+                803,
+                527
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "RL post-training performance, which we validate comprehensively in Section 4."
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                674,
+                697,
+                689
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "While vanilla early stopping proves effective, it lacks flexibility by applying uniform stopping criteria across the entire dataset. As illustrated in Figure 3, overfitting and distribution forgetting occur at different rates for different tokens and contexts due to varying “distance” between the base model and cold-start dataset distributions. This heterogeneity necessitates a more flexible mechanism for managing the preservation-adaptation trade-off. To address these limitations, we propose the Adaptive Early-Stop Loss (AESL), which provides fine-grained trade-off control at the token and subsequence level rather than dataset-level early stopping. The loss function is a weighted version of the original CE loss:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                695,
+                826,
+                806
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {L} _ {\\text { Ada - stop }} (\\theta) = - \\mathbb {E} _ {q, s ^ {*} \\sim \\mathcal {D} _ {\\text { SFT }}} \\left[ p (q, s _ {t} ^ {*}, \\pi_ {\\theta}) \\cdot \\log \\pi_ {\\theta} (s _ {t} ^ {*} | q, s _ {<   t}) \\right],\\tag{3}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/ba2d35aa379dd5484375df0223325c9cdd0aa77e6cd3b49cb87bd877e6596981.jpg"
+                }
+            },
+            "bbox": [
+                295,
+                809,
+                697,
+                825
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where the adaptive weighting is defined as:"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                827,
+                459,
+                842
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "p (q, s _ {t} ^ {*}, \\pi_ {\\theta}) = 1 - \\mathrm{softmax} \\left[ \\frac {y (s _ {t} ^ {*} | q , s _ {<   t})}{- t _ {\\mathrm{scaling}} \\cdot \\frac {1}{| t |} \\sum_ {i = 1} ^ {t} \\log \\pi_ {\\theta} (s _ {i} ^ {*} | q , s _ {<   i})} \\right],\\tag{4}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/f184f95e6bc9b758d876c3632e01ce18efa9a99f124cf5f51f98173eb9cecb79.jpg"
+                }
+            },
+            "bbox": [
+                269,
+                844,
+                723,
+                886
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "with y representing the output logits before softmax normalization, softmax "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\begin{array} { r } { [ x _ { i } ] = \\frac { \\exp ( x _ { i } ) } { \\sum _ { j } \\exp ( x _ { j } ) } } \\end{array}"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "t _ { \\mathrm { s c a l i n g } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "being a hyperparameter."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                888,
+                823,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "5"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/5b906effbfa2a7159a97f6b4495ebeb02ed148778e9c2b9ff26d6a315da760d9.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 1: Post-training performance (↑) with different cold-start methods. For AIME and AMC, we report avg@64 performance due to smaller test set sizes. For other benchmarks, pass@1 is reported. Avg. denotes the macro-average across benchmarks."
+                    }
+                ],
+                "table_footnote": [
+                    {
+                        "type": "text",
+                        "content": "MATH. denotes MATH-500, Min. denotes Minerva Math, and Olym. denotes OlympiadBench."
+                    },
+                    {
+                        "type": "text",
+                        "content": "Gray shading indicates methods for easier readability. Best performance is bolded, and second-best is underlined."
+                    },
+                    {
+                        "type": "text",
+                        "content": "For Qwen2.5-Math-7B, CE and CE-ES checkpoints coincide, so results are reported together."
+                    }
+                ],
+                "html": "<table><tr><td></td><td>AIME24</td><td>AIME25</td><td>AMC23</td><td>MATH.</td><td>Min.</td><td>Olym.</td><td>Avg.</td></tr><tr><td colspan=\"8\">Qwen2.5-7B-Instruct</td></tr><tr><td>Base</td><td>11.93</td><td>8.39</td><td>53.16</td><td>78.2</td><td>36.76</td><td>40.0</td><td>38.07</td></tr><tr><td>+RL</td><td>13.7</td><td>5.73</td><td>54.45</td><td>76.4</td><td>38.24</td><td>40.0</td><td>38.09</td></tr><tr><td>+SFT (CE)</td><td>12.29</td><td>15.31</td><td>44.22</td><td>74.2</td><td>39.34</td><td>35.26</td><td>36.77</td></tr><tr><td>+RL</td><td>15.99</td><td>15.52</td><td>53.36</td><td>78.4</td><td>37.13</td><td>40.74</td><td>40.19</td></tr><tr><td>+SFT (CE-ES)</td><td>9.74</td><td>12.5</td><td>43.32</td><td>71.2</td><td>31.25</td><td>31.7</td><td>33.28</td></tr><tr><td>+RL</td><td>18.23</td><td>15.94</td><td>54.37</td><td>80.4</td><td>37.5</td><td>42.81</td><td>41.54</td></tr><tr><td>+SFT (GEM)</td><td>13.02</td><td>14.37</td><td>45.47</td><td>74.2</td><td>34.56</td><td>33.93</td><td>35.93</td></tr><tr><td>+RL</td><td>16.2</td><td>15.83</td><td>53.83</td><td>80.6</td><td>36.4</td><td>40.3</td><td>40.53</td></tr><tr><td>+SFT (PSFT)</td><td>13.33</td><td>14.69</td><td>44.73</td><td>73.6</td><td>36.03</td><td>34.52</td><td>36.15</td></tr><tr><td>+RL</td><td>15.73</td><td>16.15</td><td>52.15</td><td>80.6</td><td>40.07</td><td>39.11</td><td>40.64</td></tr><tr><td>+SFT (AESL)</td><td>11.41</td><td>13.65</td><td>44.26</td><td>73.8</td><td>36.4</td><td>32.44</td><td>35.33</td></tr><tr><td>+RL</td><td>18.18</td><td>16.88</td><td>56.48</td><td>81.8</td><td>37.13</td><td>43.11</td><td>42.26</td></tr><tr><td colspan=\"8\">Qwen2.5-Math-7B</td></tr><tr><td>Base</td><td>16.77</td><td>9.17</td><td>55.12</td><td>64.4</td><td>32.72</td><td>34.52</td><td>35.45</td></tr><tr><td>+RL</td><td>22.92</td><td>13.33</td><td>63.98</td><td>82.8</td><td>39.34</td><td>45.63</td><td>44.67</td></tr><tr><td>+SFT (CE-(ES))</td><td>20.26</td><td>19.11</td><td>59.61</td><td>83.6</td><td>40.07</td><td>41.93</td><td>44.1</td></tr><tr><td>+RL</td><td>24.11</td><td>21.3</td><td>69.38</td><td>86.6</td><td>41.18</td><td>49.04</td><td>48.6</td></tr><tr><td>+SFT (GEM)</td><td>17.24</td><td>20.83</td><td>58.44</td><td>81.4</td><td>41.18</td><td>43.85</td><td>43.82</td></tr><tr><td>+RL</td><td>26.15</td><td>21.51</td><td>68.24</td><td>87.4</td><td>41.54</td><td>51.7</td><td>49.42</td></tr><tr><td>+SFT (PSFT)</td><td>19.32</td><td>21.46</td><td>60.08</td><td>82.4</td><td>41.18</td><td>42.37</td><td>44.47</td></tr><tr><td>+RL</td><td>24.27</td><td>23.12</td><td>65.74</td><td>87.0</td><td>40.44</td><td>47.56</td><td>48.02</td></tr><tr><td>+SFT (AESL)</td><td>17.29</td><td>18.75</td><td>58.16</td><td>83.6</td><td>34.93</td><td>40.3</td><td>42.17</td></tr><tr><td>+RL</td><td>25.0</td><td>21.98</td><td>71.25</td><td>87.0</td><td>42.28</td><td>52.74</td><td>50.04</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                187,
+                155,
+                805,
+                536
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "At the token level, the weighting function gradually reduces the loss contribution for tokens where the ground truth already corresponds to high probability under the current policy. This mechanism slows learning when the model already assigns high probabilities to correct tokens, thereby preserving original knowledge while still allowing adaptation to new patterns. AESL also incorporates subsequence-level considerations, recognizing that effective RL preparation requires the ability to generate diverse and plausible reasoning paths. Since sequence diversity measured by entropy "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\dot { H } ( s _ { t } | \\dot { q } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "can be decomposed as: "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\begin{array} { r } { H ( s _ { t } | q ) = \\dot { \\sum } _ { s _ { t - 1 } } \\pi ( s _ { t - 1 } | q ) \\dot { H } ( s _ { t } | s _ { t - 1 } ) + \\dot { H } ( s _ { t - 1 } | q ) } \\end{array}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "(detailed in Section A), tokens following high-probability prefixes contribute more to overall diversity. Building on this insight, we scale the token-level early stopping with the average log-probability of the prefix context (denominator in Equation (4)). This encourages the model to maintain base distribution when the prefix already aligns closely with the dataset distribution, balancing adaptation to demonstrations with preservation of distribution of the base models."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                609,
+                826,
+                779
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4 EXPERIMENTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                809,
+                328,
+                824
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this section, we integrate the Adaptive Early-Stop Loss (AESL) cold-start method into standard post-training pipelines and evaluate its effectiveness in preparing LLMs for RL post-training. We first compare AESL against baseline cold-start methods, demonstrating its superior performance across multiple base models. We then analyze the impact of dataset configurations and hyperparameters, validating the robustness of AESL in diverse experimental. More experiments are included in Section D."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                839,
+                826,
+                924
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "6"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.1 SETUP"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                104,
+                264,
+                118
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Base Models We evaluate our approach using two distinct base models: Qwen2.5-7B-Instruct and Qwen2.5-Math-7B. Both models do not present the ability to reason through long CoT pattern (as demonstrated in Table 13), making the cold-start phase essential for injecting long CoT reasoning patterns. These models represent different starting points for RL post-training: Qwen2.5-7B-Instruct excels at instruction following but may not be optimally positioned for RLVR (as demonstrated in Figure 1a), while Qwen2.5-Math-7B, having been pre-trained on mathematical datasets, generates more diverse responses and serves as a stronger foundation for RLVR. While Qwen2.5-Math-7B requires less intervention during cold-start, we include it to gauge AESL’s effectiveness in different initial conditions."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                123,
+                826,
+                250
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Dataset and Algorithm Following established practices (Fu et al., 2025; Zhang et al., 2025), we employ the Openr1-Math-46k-8192 Hugging Face (2025); Yan et al. (2025) dataset for post-training. This dataset comprises 46k long CoT demonstrations generated by the DeepSeek-R1 model. For SFT cold-start, we uniformly subsample 3k examples, ensuring each question corresponds to one correct demonstration verified using Math-Verify<sup>1</sup>. For RL post-training, we utilize the complete 46k question set without demonstrations, employing the GRPO algorithm (Shao et al., 2024)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                263,
+                826,
+                349
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Baselines We compare AESL against five baseline approaches: (i) Direct RL: applying RL directly to base models without cold-start preparation; (ii) CE: conducting SFT cold-start with CE loss and selecting the best-performing checkpoint for subsequent RL; (iii) CE-ES (CE with early-stopping): conducting SFT cold-start with CE loss and selecting the checkpoint at the diversity turning point for subsequent RL (motivated by findings in Section 3.1); (iv) GEM (Li et al., 2025); and (v) PSFT (Zhu et al., 2025)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                362,
+                826,
+                448
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Further details about experimental setups and implementation specifics are provided in Section B."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                453,
+                813,
+                469
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.2 RESULTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                484,
+                281,
+                500
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Main Results The comparative performance of AESL and baseline methods is summarized in Table 1. Overall, AESL achieves superior performance for both base models, consistently outperforming baselines in subsequent RL training. This highlights AESL’s ability to effectively steer LLMs into a better starting point for RLVR. As discussed in Section 3.2, AESL achieves this performance boost by carefully balancing the need to the base model’s core distribution while simultaneously learning"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                510,
+                486,
+                662
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/6025c611e9337e184b0f9647974dbf53ddc34c3631dd71de6aa794c770f48c69.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 2: Response diversity measurement after cold-start with Qwen2.5-7B-Instruct. Higher entropy and lower self-BLEU indicate greater diversity."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Method</td><td>Entropy(↑)</td><td>Self-BLEU(↓)</td></tr><tr><td>CE</td><td>0.326</td><td>0.710</td></tr><tr><td>CE-ES</td><td>0.53</td><td>0.696</td></tr><tr><td>AESL</td><td>0.553</td><td>0.694</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                511,
+                580,
+                800,
+                650
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "new reasoning patterns. As shown in Table 2, AESL produces the highest entropy and lowest self-BLEU scores, indicating increased diversity in model outputs after cold-start. This aligns with the findings in Section 3.1, where greater diversity translates to better RL potential. Moreover, BLEU scores between pre- and post-cold-start outputs indicate that AESL maintains a closer alignment with the base model’s original output distribution (0.140 vs. 0.135 for CE). This indicates that AESL-trained models retain stronger base knowledge, enabling them to more effectively sample from the base distribution during RL training. Importantly, the CE-ES method also outperforms CE in providing a better starting point for RLVR, despite having inferior performance immediately after the cold-start phase. This observation, coupled with AESL’s success, supports the argument in Section 3.2 that the cold-start phase should not solely focus on intimating the demonstration dataset or maximizing evaluation scores but should also consider preserving the base model’s existing capabilities, particularly when the dataset size for cold-start is limited. This is further supported by the increased entropy and reduced self-BLEU scores achieved by AESL, as shown in Table 2. Extended discussion is included in Section C.3."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                662,
+                826,
+                859
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Results with Different Cold-start Datasets To assess the robustness of AESL, we evaluate its performance under varying cold-start dataset sizes (1k, 3k, and 6k samples) and question difficulty levels (simple and hard splits). The results, shown in Table 3 and Table 4, demonstrate that AESL consistently outperforms traditional CE-based cold-start methods across all dataset sizes and difficulty levels. These findings highlight AESL’s versatility and effectiveness in diverse post-training scenarios, even under varying data availability constraints. Additional discussions are provided in Section C.3."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                871,
+                826,
+                902
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "<sup>1</sup>https://github.com/huggingface/Math-Verify"
+                    }
+                ]
+            },
+            "bbox": [
+                192,
+                909,
+                465,
+                925
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "7"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/95b4f553149e30da1431adfa9d7e7ea6b74ccbaeb2539ef1286af678286a6b48.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 3: Performance(↑) comparison across different cold-start dataset sizes using Qwen2.5- 7B-Instruct as the base model."
+                    },
+                    {
+                        "type": "text",
+                        "content": "* For 1k dataset size, CE and CE-ES checkpoints coincide, so results are reported together."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td></td><td>AIME24</td><td>AIME25</td><td>AMC23</td><td>MATH.</td><td>Min.</td><td>Olym.</td><td>Avg.</td></tr><tr><td>Base</td><td>11.93</td><td>8.39</td><td>53.16</td><td>78.2</td><td>36.76</td><td>40.0</td><td>38.07</td></tr><tr><td>+RL</td><td>13.7</td><td>5.73</td><td>54.45</td><td>76.4</td><td>38.24</td><td>40.0</td><td>38.09</td></tr><tr><td colspan=\"8\">1k cold-start dataset</td></tr><tr><td>+SFT (CE-(ES))</td><td>11.67</td><td>13.44</td><td>44.92</td><td>72.8</td><td>37.5</td><td>33.33</td><td>35.61</td></tr><tr><td>+RL</td><td>16.2</td><td>14.74</td><td>52.62</td><td>80.8</td><td>39.71</td><td>40.74</td><td>40.8</td></tr><tr><td>+SFT (AESL)</td><td>12.4</td><td>12.24</td><td>46.13</td><td>74.0</td><td>37.13</td><td>34.52</td><td>36.07</td></tr><tr><td>+RL</td><td>17.14</td><td>15.36</td><td>54.02</td><td>76.8</td><td>41.18</td><td>42.37</td><td>41.14</td></tr><tr><td colspan=\"8\">6k cold-start dataset</td></tr><tr><td>+SFT (CE)</td><td>12.92</td><td>15.99</td><td>45.74</td><td>75.0</td><td>36.4</td><td>36.44</td><td>37.08</td></tr><tr><td>+RL</td><td>14.32</td><td>16.04</td><td>54.26</td><td>77.4</td><td>39.71</td><td>40.44</td><td>40.36</td></tr><tr><td>+SFT (CE-ES)</td><td>11.61</td><td>14.22</td><td>42.97</td><td>71.6</td><td>34.56</td><td>32.15</td><td>34.52</td></tr><tr><td>+RL</td><td>16.56</td><td>16.72</td><td>53.79</td><td>80.2</td><td>41.54</td><td>42.37</td><td>41.86</td></tr><tr><td>+SFT (AESL)</td><td>12.55</td><td>15.73</td><td>44.84</td><td>73.6</td><td>34.19</td><td>33.63</td><td>35.76</td></tr><tr><td>+RL</td><td>16.67</td><td>16.82</td><td>56.41</td><td>81.6</td><td>43.01</td><td>42.22</td><td>42.79</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                189,
+                141,
+                808,
+                393
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/60197e8969a96255a9f07b34030293cff6e065678a71b14c5f5365391ca50ae2.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 4: Performance(↑) comparison across different cold-start dataset difficulty splits using Qwen2.5-7B-Instruct as the base model."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td></td><td>AIME24</td><td>AIME25</td><td>AMC23</td><td>MATH.</td><td>Min.</td><td>Olym.</td><td>Avg.</td></tr><tr><td>Base</td><td>11.93</td><td>8.39</td><td>53.16</td><td>78.2</td><td>36.76</td><td>40.0</td><td>38.07</td></tr><tr><td>+RL</td><td>13.7</td><td>5.73</td><td>54.45</td><td>76.4</td><td>38.24</td><td>40.0</td><td>38.09</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                187,
+                467,
+                803,
+                523
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/5657fbf5d0466620c25d54db363c416876e72a3d7d6976ccbcfccf7868a0f720.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "3k dataset with hard questions (filtered with the base model)"
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>+SFT (CE)</td><td>13.49</td><td>14.95</td><td>46.48</td><td>74.0</td><td>36.4</td><td>36.15</td><td>36.91</td></tr><tr><td>+RL</td><td>16.93</td><td>16.35</td><td>53.91</td><td>79.2</td><td>38.24</td><td>39.26</td><td>40.65</td></tr><tr><td>+SFT (CE-ES)</td><td>12.81</td><td>13.91</td><td>46.48</td><td>74.0</td><td>36.76</td><td>34.22</td><td>36.36</td></tr><tr><td>+RL</td><td>17.03</td><td>15.78</td><td>54.14</td><td>79.4</td><td>38.24</td><td>40.0</td><td>40.77</td></tr><tr><td>+SFT (AESL)</td><td>13.7</td><td>16.04</td><td>46.56</td><td>75.2</td><td>33.46</td><td>33.48</td><td>36.41</td></tr><tr><td>+RL</td><td>17.55</td><td>17.03</td><td>54.14</td><td>80.4</td><td>40.07</td><td>40.89</td><td>41.68</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                187,
+                545,
+                803,
+                633
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/f4b3163a8ba0b3f2bb959046a81bb8aba0280f841b93494034170df0a2ab5a29.jpg"
+                },
+                "table_caption": [],
+                "table_footnote": [],
+                "html": "<table><tr><td colspan=\"8\">3k dataset with simple questions (filtered with the base model)</td></tr><tr><td>+SFT (CE)</td><td>12.19</td><td>13.33</td><td>44.69</td><td>72.4</td><td>35.66</td><td>34.81</td><td>35.51</td></tr><tr><td>+RL</td><td>14.43</td><td>15.42</td><td>53.91</td><td>80.6</td><td>40.81</td><td>40.74</td><td>40.99</td></tr><tr><td>+SFT (CE-ES)</td><td>11.15</td><td>12.03</td><td>44.65</td><td>71.4</td><td>33.46</td><td>33.19</td><td>34.31</td></tr><tr><td>+RL</td><td>14.9</td><td>15.78</td><td>51.88</td><td>77.0</td><td>37.13</td><td>39.41</td><td>39.35</td></tr><tr><td>+SFT (AESL)</td><td>10.78</td><td>12.03</td><td>45.47</td><td>73.2</td><td>33.09</td><td>33.48</td><td>34.68</td></tr><tr><td>+RL</td><td>16.77</td><td>16.46</td><td>55.35</td><td>80.8</td><td>38.97</td><td>45.04</td><td>42.23</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                187,
+                638,
+                803,
+                748
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                763,
+                826,
+                835
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Results with Different Model Families To further validate AESL’s effectiveness, we extended the method to post-train the Llama-3.1-8B-Instruct model (Grattafiori et al., 2024). The results, detailed in Table 5, confirm AESL’s ability to enhance post-training performance across different base models. This demonstrates that the proposed approach is not only effective for Qwen-based models but also generalizes well to other architectures."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                851,
+                826,
+                922
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "8"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/177dc554c6bb5084f260dc55c062f183bfd5b6b5c23378b27a6240b9ab108da3.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 5: Post-training performance (↑) with different cold-start methods using Llama-3.1-8B-Instruct as the base model."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td></td><td>AIME24</td><td>AIME25</td><td>AMC23</td><td>MATH.</td><td>Min.</td><td>Olym.</td><td>Avg.</td></tr><tr><td>Base</td><td>5.26</td><td>0.68</td><td>19.14</td><td>45.6</td><td>23.16</td><td>16.89</td><td>18.46</td></tr><tr><td>+RL</td><td>4.22</td><td>1.09</td><td>25.78</td><td>50.6</td><td>27.57</td><td>15.41</td><td>20.78</td></tr><tr><td>+SFT (CE)</td><td>1.82</td><td>2.66</td><td>24.57</td><td>51.6</td><td>25.0</td><td>18.81</td><td>20.74</td></tr><tr><td>+RL</td><td>4.17</td><td>2.45</td><td>24.57</td><td>58.0</td><td>24.26</td><td>21.33</td><td>22.46</td></tr><tr><td>+SFT (CE-ES)</td><td>1.88</td><td>0.68</td><td>22.7</td><td>50.6</td><td>22.79</td><td>17.78</td><td>19.4</td></tr><tr><td>+RL</td><td>5.36</td><td>1.93</td><td>28.12</td><td>59.8</td><td>29.04</td><td>22.22</td><td>24.41</td></tr><tr><td>+SFT (AESL)</td><td>2.6</td><td>1.61</td><td>20.43</td><td>47.8</td><td>20.22</td><td>15.85</td><td>18.08</td></tr><tr><td>+RL</td><td>6.56</td><td>3.8</td><td>31.21</td><td>60.4</td><td>28.68</td><td>22.37</td><td>25.5</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                187,
+                141,
+                805,
+                279
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/7e4ff8c327f226b268be2f4872f4ff0eb6ff9dc958ae57d492b2e4f03a061524.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 6: Ablation studies for AESL cold-start using Qwen2.5-7B-Instruct as the base model. Results indicate post-RL performance."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td></td><td>AIME24</td><td>AIME25</td><td>AMC23</td><td>MATH.</td><td>Min.</td><td>Olym.</td><td>Avg.</td></tr><tr><td>Base</td><td>13.7</td><td>5.73</td><td>54.45</td><td>76.4</td><td>38.24</td><td>40.0</td><td>38.09</td></tr><tr><td>AESL</td><td>18.18</td><td>16.88</td><td>56.48</td><td>81.8</td><td>37.13</td><td>43.11</td><td>42.26</td></tr><tr><td>ASEL w/ const. d.</td><td>16.51</td><td>15.0</td><td>52.62</td><td>78.2</td><td>40.07</td><td>39.7</td><td>40.35</td></tr><tr><td>ASEL w/ rank</td><td>14.58</td><td>14.95</td><td>54.18</td><td>78.6</td><td>39.34</td><td>41.93</td><td>40.6</td></tr><tr><td>ASEL w/ linear w.</td><td>16.09</td><td>15.62</td><td>52.54</td><td>79.6</td><td>41.18</td><td>40.74</td><td>40.96</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                184,
+                335,
+                807,
+                431
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Ablations and Hyperparameter Analysis We conduct ablation studies to evaluate the impact of key components in AESL, with the results presented in Table 6. Specifically, we compare the full AESL method with four ablations: 1) ASEL w/ const. d.: In this variant, the denominator in Equation (4) is replaced with a constant, removing the dynamic adjustment based on prefix prediction confidence. 2) ASEL w/ rank: In this variant, we mask the token loss when the ground truth token has the highest predicted probability (Top-1), effectively ignoring such tokens. 3) ASEL w/ linear w.: In this version, the token-level SFT loss is weighted inversely proportional to the prefix prediction confidence. The results indicate performance drops across all ablations, underscoring the importance of explicitly accounting for prefix prediction confidence, as implemented in AESL. This finding aligns with the motivation discussed in Section A, demonstrating that the absence of prefix-aware adjustments in the ablations leads to less effective cold-start."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                446,
+                826,
+                601
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We then examine the impact of the temperature scaling hyperparameter "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "t _ { \\mathrm { s c a l i n g } } ."
+                    },
+                    {
+                        "type": "text",
+                        "content": "which controls the balance between learning new reasoning patterns and preserving distribution from base model. Table 7 reveals that extreme values degrade performance: excessively small "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "t _ { \\mathrm { s c a l i n g } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "prevents effective pattern learning, while excessively large values cause base distribution forgetting and reduced diversity. However, within the optimal range (3-5), AESL consistently delivers performance improvements over all baseline methods, demonstrating robust performance across reasonable hyperparameter settings."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                606,
+                826,
+                705
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5 RELATED WORKS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                724,
+                357,
+                741
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The pretraining stage of LLMs primarily focuses on constructing a general foundation of knowledge and capabilities, whereas the post-training stage adapts these models to specific tasks and requirements (Tie et al., 2025). Two widely used methodologies for post-training are: SFT Guo et al. (2025); Lambert et al. (2024) and RL (Shao et al., 2024; Hu, 2025; Yu et al., 2025; Zheng et al., 2025; Hu et al., 2025), which are employed to inject domain knowledge or enhance specific abilities in LLMs. Recent studies have explored the strengths and limitations of these two paradigms. For instance, Sun et al. (2025) and Muennighoff et al. (2025) analyzed SFT datasets, highlighting the importance of data curation and scaling in improving model performance. In contrast, Yue et al. (2025) argued that RLVR does not introduce new reasoning patterns but is instead constrained by the base model’s underlying capabilities. Bridging these observations, Chu et al. (2025) demonstrated that while RL improves generalization, SFT tends to memorize training data but helps stabilize output formats for LLMs."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                758,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "9"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/b179a2334bceccad933aaaa65eae11b547affa15d77165bedd70ddb31c2ea36e.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 7: Hyperparameter analysis for "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "t _ { \\mathrm { s c a l i n g } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "in AESL using Qwen2.5-7B-Instruct as the base model."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td></td><td>AIME24</td><td>AIME25</td><td>AMC23</td><td>MATH.</td><td>Min.</td><td>Olym.</td><td>Avg.</td></tr><tr><td>Base</td><td>11.93</td><td>8.39</td><td>53.16</td><td>78.2</td><td>36.76</td><td>40.0</td><td>38.07</td></tr><tr><td>+RL</td><td>13.7</td><td>5.73</td><td>54.45</td><td>76.4</td><td>38.24</td><td>40.0</td><td>38.09</td></tr><tr><td>+SFT ( $t_{\\text{scaling}} = 1$ )</td><td>9.43</td><td>12.4</td><td>43.05</td><td>70.6</td><td>31.99</td><td>32.44</td><td>33.32</td></tr><tr><td>+RL</td><td>17.45</td><td>15.21</td><td>52.7</td><td>79.8</td><td>38.24</td><td>43.11</td><td>41.09</td></tr><tr><td>+SFT ( $t_{\\text{scaling}} = 3$ )</td><td>12.34</td><td>14.27</td><td>44.14</td><td>72.8</td><td>36.76</td><td>33.63</td><td>35.66</td></tr><tr><td>+RL</td><td>18.23</td><td>15.57</td><td>55.78</td><td>80.4</td><td>38.97</td><td>44.89</td><td>42.31</td></tr><tr><td>+SFT ( $t_{\\text{scaling}} = 5$ )</td><td>11.41</td><td>13.65</td><td>44.26</td><td>73.38</td><td>36.4</td><td>32.44</td><td>35.33</td></tr><tr><td>+RL</td><td>12.18</td><td>16.88</td><td>56.48</td><td>81.8</td><td>37.13</td><td>43.11</td><td>42.26</td></tr><tr><td>+SFT ( $t_{\\text{scaling}} = 7$ )</td><td>13.28</td><td>13.54</td><td>45.98</td><td>72.8</td><td>36.03</td><td>31.85</td><td>35.58</td></tr><tr><td>+RL</td><td>18.44</td><td>14.84</td><td>55.16</td><td>79.4</td><td>37.87</td><td>40.89</td><td>41.1</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                184,
+                141,
+                813,
+                308
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Building on this foundational understanding of SFT and RL in post-training, recent research has proposed methods to combine the two paradigms more effectively. One promising avenue involves enhancing SFT through evolving data strategies, where data progressively guides the base model during training. For example, Light-R1 (Wen et al., 2025) employed curriculum learning to gradually increase the difficulty of SFT question sets, thereby improving the learning landscape. Similarly, REFT (Luong et al., 2024) leveraged multiple sampling of model outputs, selecting the best trace for SFT instead of relying on single demonstration paths. Another line of research integrates SFT with RL in a combined training stage, allowing demonstrations to better guide RL exploration. LUFFY (Yan et al., 2025) approached this from a data perspective, mixing off-policy demonstrations with on-policy rollouts to improve RL performance. SRFT (Fu et al., 2025) and CHORD (Zhang et al., 2025) tackled the problem through modified objectives, reframing SFT as an auxiliary task within the RL framework."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                320,
+                826,
+                489
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Our work, alongside GEM (Li et al., 2025) and the concurrent work PSFT (Zhu et al., 2025) , belongs to a third category of approaches that aim to refine the SFT stage by shifting the training objective beyond simple dataset imitation. GEM emphasizes promoting diversity, while PSFT focuses on out-of-distribution generalization using abundant SFT datasets. In contrast, our proposed AESL targets a lightweight cold-start SFT setting (using less than 1/10th the data size of RL training). AESL addresses the challenge of preparing the base model for subsequent RLVR by striking a better balance between learning new reasoning patterns and preserving the base model’s prior knowledge."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                494,
+                826,
+                594
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "6 CONCLUSIONS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                612,
+                331,
+                627
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this work, we addressed the critical challenge of preparing LLMs for RL training through effective cold-start SFT. Our analysis uncovered a fundamental misalignment between traditional SFT objectives and RL preparation goals: the best-performing cold-start checkpoint, as measured by evaluation performance, fails to maximize RL potential. This failure arises due to distribution forgetting from the base models, which occurs before traditional overfitting. We demonstrated that diversity metrics, such as entropy and self-BLEU, are more reliable early-stopping criteria, with peak diversity checkpoints consistently yielding superior post-RL results. Building on this insight, we introduced Adaptive Early-Stop Loss (AESL), a novel cold-start method that dynamically balances new pattern acquisition with the preservation of the base model’s distribution at both the token and subsequence levels. Experimental results across mathematical reasoning benchmarks demonstrate that AESL consistently outperforms traditional cold-start methods and competitive baselines, achieving superior final performance in the lightweight SFT setting."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                643,
+                826,
+                811
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "While our work addresses cold-start optimization from an objective perspective, several important aspects warrant further investigation. From an evaluation standpoint, developing methods to predict the upper bound of subsequent RL training could enable more informed cold-start design decisions. From a data curation perspective, understanding how to optimally select and structure cold-start datasets to maximize RL preparation effectiveness remains an open challenge. These directions represent promising avenues for future research in LLM post-training."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                816,
+                826,
+                902
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "10"
+                    }
+                ]
+            },
+            "bbox": [
+                490,
+                948,
+                509,
+                960
+            ]
+        }
+    ]
+]

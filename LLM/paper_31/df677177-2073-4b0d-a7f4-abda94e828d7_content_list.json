@@ -1,0 +1,1332 @@
+[
+    {
+        "type": "text",
+        "text": "ABSTRACT",
+        "text_level": 2,
+        "bbox": [
+            450,
+            277,
+            547,
+            294
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "While large language models (LLMs) achieve strong performance in recommendation, they face challenges in continual learning as users, items, and user preferences evolve over time. Existing LoRA-based continual methods primarily focus on preserving performance on previous tasks, but this overlooks the unique nature of recommendation: the goal is not to predict past preferences, and outdated preferences can even harm performance when current interests shift significantly. To address this, we propose PESO (Proximally rEgularized Single evolving lOra), a continual adaptation method for LoRA in recommendation. PESO introduces a proximal regularizer that anchors the current adapter to its most recent frozen state, enabling the model to flexibly balance adaptation and preservation, and to better capture recent user behaviors. Theoretically, we show that this proximal design provides data-aware, direction-wise guidance in the LoRA subspace. Empirically, PESO consistently outperforms existing LoRA-based continual learning methods. Our code is available at https://github.com/hsyoo32/peso.",
+        "bbox": [
+            230,
+            314,
+            767,
+            511
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "1 INTRODUCTION",
+        "text_level": 2,
+        "bbox": [
+            174,
+            534,
+            338,
+            549
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Large language models (LLMs) are increasingly used for recommendation by treating the task as sequence generation: given a user’s interaction history, the model autoregressively generates the next item tokens (Bao et al., 2025a; Cao et al., 2024; Tan et al., 2024; Wang et al., 2024; Bao et al., 2023; Kweon et al., 2025; Lin et al., 2025; 2026; Wei et al., 2025a). In practice, LLM is fine-tuned on user histories paired with their next interactions, aligning it with the recommendation objective. However, real-world interaction data are continuously collected and evolve over time: new users and items appear, and user preferences drift (Li et al., 2025a; Qiu et al., 2024). Periodic retraining from scratch on both historical and new data is possible but highly inefficient, making continual learning (i.e., updating the model effectively with new data) a natural and appealing solution.",
+        "bbox": [
+            169,
+            570,
+            826,
+            696
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "It is well known that a continual model must balance stability (retaining past knowledge) and plasticity (adapting to new knowledge) (Zhu et al., 2021; Arani et al., 2022; Ye et al., 2022; Zhang et al., 2024a; Yuan et al., 2021; Do & Lauw, 2023; Mi et al., 2020; Yoo et al., 2025b). However, continual recommender systems present unique interpretations of these concepts, and bear subtle but critical difference from other domains such as computer vision (Bao et al., 2025b; Zeng et al., 2026a). In most other domains, continual tasks are typically disjoint and not time-ordered (e.g., cats vs. dogs → trucks vs. sedans), and the primary objective is to preserve performance on previous tasks (stability) while adapting to new ones (plasticity). In contrast, the ultimate goal of continual recommendation is to accurately capture evolving user preferences in order to predict which items a user will prefer in the near future. That is, recommendation is not concerned with predicting past user preferences; in fact, outdated preferences can even hinder performance if current user interests have shifted significantly (e.g., a user starts preferring romance over action). Thus, stability in recommendation refers to preserving long-term user preferences (e.g., enduring interests in certain genres or brands) that remain predictive, even if they are not strongly reflected in recent data. Plasticity, on the other hand, is required to overwrite outdated preferences and to capture emerging trends. This distinct setting in turn requires careful model design.",
+        "bbox": [
+            169,
+            702,
+            826,
+            925
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_number",
+        "text": "1",
+        "bbox": [
+            493,
+            948,
+            503,
+            959
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "A common recipe for fine-tuning LLMs in recommendation is Low-Rank Adaptation (LoRA) (Hu et al., 2022; Liu et al., 2025a; Zeng et al., 2025; Qiu et al., 2026), due to simplicity and modularity across components (e.g., attention layers). LoRA freezes pretrained weights and injects lightweight trainable low-rank matrices. Its efficiency makes LoRA a natural candidate for continual learning, motivating our focus on continual LoRA for LLM-based recommenders. A simple intuitive approach is to maintain a single evolving LoRA: sequentially fine-tuning one adapter, initializing it from the previous stage and optimizing it on new data. This provides strong plasticity while parameter inheritance provides partial preservation of past knowledge. However, it inevitably overwrites useful past knowledge during fine-tuning, leading to forgetting.",
+        "bbox": [
+            169,
+            104,
+            826,
+            231
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "To mitigate forgetting, several works in vision have proposed the family of cumulative LoRA (Wu et al., 2025; Liang & Li, 2024; Lu et al., 2024; Wang et al., 2023a; Liu et al., 2024a), which typically use the sum of the new trainable adapter and all frozen past adapters. This design explicitly enhances stability by reusing prior adapters and expanding LoRA’s effective capacity, and it works well when tasks are largely independent (i.e., with minimal interference), allowing each adapter to encode task-specific knowledge. Intuitively, this might seem beneficial for recommendation, where preserving useful past preferences matters. However, our analysis shows that cumulative LoRA often underperforms the simpler single evolving LoRA. Unlike vision tasks, recommendation involves reappearing users with continuously evolving preferences. The model must therefore capture useful interference across stages, but frozen adapters entangle outdated and relevant preferences, making them hard to disentangle. In addition, as adapters accumulate over time, cumulative LoRA incurs growing storage costs and struggles to reflect their relative importance during aggregation.",
+        "bbox": [
+            169,
+            236,
+            826,
+            404
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "To address these limitations, we adopt two principles: (1) avoid multiple adapters, which implicitly assume task independence, and (2) preserve past knowledge in a way that supports understanding of current user behavior. Guided by this, we propose PESO (Proximally rEgularized Single evolving lOra), which maintains a single evolving LoRA adapter while regularizing it toward its past state with a lightweight proximal term. Unlike cumulative LoRA, PESO balances stability and plasticity through the natural competition between the data-fitting loss and the proximal term, allowing the model to decide what to adapt or retain. Theoretically, we show that this design yields data-aware, direction-wise guidance in the LoRA subspace. We further instantiate it with a permodule softmax–Kullback–Leibler (KL) proximal, which preserves internal module structure rather than treating all parameters equally (i.e., a more nuanced stability mechanism). Empirically, PESO consistently outperforms both cumulative LoRA and the single evolving adapter across multiple real-world datasets, achieving a more effective stability–plasticity balance for recommendation.",
+        "bbox": [
+            169,
+            409,
+            826,
+            578
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "In summary, our main contributions are threefold. (1) Analysis: we identify the distinctive stability–plasticity challenge in continual recommendation and show empirically that cumulative LoRA, while effective in simulated user-disjoint settings, underperforms in the natural case where user preferences evolve across time stages; (2) Method and Theory: we propose PESO, a proximally regularized LoRA that anchors each update to the previous state, with theory showing direction-wise, data-aware guidance and a per-module softmax–KL instantiation; (3) Experiments: we demonstrate through extensive experiments on real-world datasets that PESO consistently outperforms both single evolving and cumulative LoRA.",
+        "bbox": [
+            169,
+            583,
+            825,
+            696
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "2 PRELIMINARY",
+        "text_level": 2,
+        "bbox": [
+            171,
+            704,
+            326,
+            719
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Notations. We consider an LLM-based recommender that, given a user’s interaction history, autoregressively predicts the next item token. At time stage $t \\in { \\overline { { \\{ 1 , \\ldots , T \\} } } }$ , let $\\mathcal { U } _ { t }$ be the set of active users, $\\mathcal { T } _ { t }$ the item set, and let $\\mathcal { E } _ { t } = \\{ ( x _ { u , 1 } , \\ldots , x _ { u , N _ { u } } ) \\}$ }<sub>u∈U</sub> denote the collection of user interaction sequences, where $x _ { u , n } \\in \\mathcal { T } _ { t }$ . For notational simplicity, we present stage-t data as one prefix-target pair per user:",
+        "bbox": [
+            169,
+            727,
+            826,
+            797
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathcal {D} _ {t} = \\left\\{\\left(\\mathbf {x} _ {u}, y _ {u}\\right): u \\in \\mathcal {U} _ {t}, N _ {u} \\geq 2 \\right\\}, \\quad \\mathbf {x} _ {u} = \\left(x _ {u, 1}, \\dots , x _ {u, N _ {u} - 1}\\right), \\quad y _ {u} = x _ {u, N _ {u}}.\\tag{1}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            225,
+            800,
+            769,
+            816
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "In practice, training often uses multiple sliding-window next-item pairs induced from each sequence (see Appendix C.1). Each item is represented by semantic ID obtained by a codebook-based tokenizer (e.g., RQ-VAE, Rajput et al., 2023) trained on item semantic features (e.g., title/description), yielding fixed number of token IDs for each item. Semantic ID captures hierarchical semantics of items and works well in practice.<sup>1</sup>",
+        "bbox": [
+            169,
+            819,
+            825,
+            890
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "page_footnote",
+        "text": "<sup>1</sup>Adapting the tokenizer to new items over time is an interesting direction; here we fix the item tokenizer to isolate continual adaptation of the model (LoRA).",
+        "bbox": [
+            169,
+            897,
+            825,
+            924
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "page_number",
+        "text": "2",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Stability and Plasticity in Continual Recommendation. We assume an initial model is pretrained offline on base data $\\mathcal { D } _ { 1 }$ , and then fine-tuned sequentially on chronologically arriving blocks $\\mathcal { D } _ { 2 } , \\ldots , \\mathcal { D } _ { T }$ The goal of continual recommendation is to minimize predictive risk on future interactions by balancing stability (retaining persistent long-term preferences) and plasticity (adapting to new or shifting preferences from recent data), thereby capturing evolving user interests (see Appendix A for a formal conceptual model). Concretely, for $\\mathcal { D } _ { t }$ , the LLM is fine-tuned with the standard autoregressive cross-entropy for next-item prediction. Let $y = ( y _ { 1 } , \\dots , y _ { M } )$ denote the semantic-ID token sequence of the target item. The stage-t training loss is",
+        "bbox": [
+            169,
+            103,
+            826,
+            215
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\nL _ {\\mathrm{ce}} ^ {\\mathcal {D} _ {t}} = \\mathbb {E} _ {(x, y) \\sim \\mathcal {D} _ {t}} \\big [ - \\log p _ {\\theta} (y \\mid x) \\big ], \\qquad p _ {\\theta} (y \\mid x) = \\prod_ {m = 1} ^ {M} p _ {\\theta} (y _ {m} \\mid x, y _ {<   m}).\\tag{2}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            241,
+            222,
+            754,
+            263
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Low-Rank Adaptation (LoRA). LoRA freezes the pretrained LLM weight $W _ { 0 } ~ \\in ~ \\mathbb { R } ^ { d _ { \\mathrm { o u t } } \\times d _ { \\mathrm { i n } } }$ and adds a trainable low-rank update:",
+        "bbox": [
+            169,
+            277,
+            823,
+            306
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\Delta W = B A, \\quad A \\in \\mathbb {R} ^ {r \\times d _ {\\text { in }}}, B \\in \\mathbb {R} ^ {d _ {\\text { out }} \\times r}, r \\ll \\min (d _ {\\text { in }}, d _ {\\text { out }}),\\tag{3}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            290,
+            308,
+            704,
+            324
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "so that for an input $x \\in \\mathbb { R } ^ { d _ { \\mathrm { i n } } }$ the layer computes $\\left( W _ { 0 } + \\Delta W \\right) x .$ . Only A and $B$ are updated during fine-tuning, while $W _ { 0 }$ remains fixed. This yields substantial parameter savings and modular, layer-wise adaptation (e.g., on attention projections). In this work, our analysis and method operate entirely within this LoRA subspace and therefore inherit its efficiency. We now formally define our problem.",
+        "bbox": [
+            169,
+            332,
+            825,
+            404
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Problem 1. (Continual adaptation of a generative recommender) Given: (1) a pretrained LLMbased recommendation model (fine-tuned with LoRA on $\\mathcal { D } _ { 1 } ) , ( 2 )$ a sequence of chronological data blocks $\\mathcal { D } _ { 2 } , \\ldots , \\mathcal { D } _ { T }$ ; Goal: learn updates that, at each stage t, adapt the model to $\\mathcal { D } _ { t }$ while retaining useful knowledge from earlier stages, achieving high quality next-item recommendation via a balanced stability–plasticity.",
+        "bbox": [
+            169,
+            406,
+            826,
+            478
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "3 ANALYSIS OF LORA VARIANTS FOR CONTINUAL RECOMMENDATION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            497,
+            785,
+            513
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "We introduce two primary baselines for our problem: single evolving LoRA and the cumulative LoRA family. Then, we empirically compare them on a natural chronological split and a userdisjoint split.",
+        "bbox": [
+            169,
+            527,
+            825,
+            571
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Single evolving LoRA. At stage t, the LoRA matrices $A _ { t }$ and $B _ { t }$ are initialized $( \\mathrm { i . e . }$ , parameter inheritance) from the previous stage $( A _ { t - 1 }$ and $B _ { t - 1 } )$ and fine-tuned on new data $\\mathcal { D } _ { t }$ :",
+        "bbox": [
+            169,
+            577,
+            825,
+            607
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\nW _ {t} = W _ {0} + B _ {t} A _ {t}, \\qquad B _ {t} \\leftarrow B _ {t - 1}, A _ {t} \\leftarrow A _ {t - 1}, \\qquad t \\geq 2,\\tag{4}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            300,
+            612,
+            694,
+            628
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "where $W _ { 0 }$ is the pretrained LLM weight (i.e., not LoRA updates). This baseline is simple and adapts effectively to new data, while parameter inheritance provides partial preservation of past knowledge at initialization. However, it inevitably overwrites useful past knowledge during fine-tuning, leading to forgetting.",
+        "bbox": [
+            169,
+            633,
+            825,
+            691
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Cumulative LoRA Variants. To mitigate forgetting, cumulative LoRA has been widely used in domains such as vision (Wu et al., 2025; Liang & Li, 2024). At stage $t ,$ it reuses frozen adapters from past stages and adds a new trainable adapter by summing them during both training and inference. The effective update is",
+        "bbox": [
+            169,
+            696,
+            825,
+            753
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\nW _ {t} = W _ {0} + \\sum_ {i = 1} ^ {t - 1} \\alpha_ {i} \\hat {B} _ {i} \\hat {A} _ {i} + B _ {t} A _ {t}, \\quad t \\geq 2,\\tag{5}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            344,
+            758,
+            651,
+            801
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "where $W _ { 0 }$ is the pretrained LLM weight; $\\{ \\hat { B } _ { i } \\} _ { i = 1 } ^ { t - 1 }$ and $\\{ \\hat { A } _ { i } \\} _ { i = 1 } ^ { t - 1 }$ are frozen adapters from previous stages; and $B _ { t } , A _ { t }$ are trainable at stage t. Following prior practice, we use normalized directions $\\hat { B } _ { i } = B _ { i } / \\| B _ { i } \\| _ { F }$ and $\\hat { A } _ { i } = A _ { i } / \\lVert A _ { i } \\rVert _ { F }$ , which improves stability. The scalar $\\alpha _ { i }$ are fixed or learned magnitudes. This design explicitly enhances stability and expands LoRA’s effective capacity, expected too work well when sequential tasks interfere minimally. However, for recommendation where user preferences evolve, this rationale weakens. To examine this, we study SumLoRA, which uses simple summation, in four variants: (i) all, summing all past adapters; (ii) latest, summing only the most recent adapter; (iii) all+inherit, summing all past adapters with parameter inheritance; and (iv) latest+inherit, using only the latest adapter with parameter inheritance. The all variant corresponds to the original design of cumulative LoRA family. We also consider ${ \\mathrm { S D } } { \\mathrm { - L o R A } } ,$ , which extends summation with learnable magnitudes, with all equivalent to Wu et al. (2025). For analysis, we focus on the empirically stronger latest+inherit. Table 1 summarizes these design choices.",
+        "bbox": [
+            169,
+            809,
+            826,
+            925
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "page_number",
+        "text": "3",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "table",
+        "img_path": "images/f8837472ede2a08bfc4071c567312a6aad8ba6267bcdcc20ac0801aedc7a7ff7.jpg",
+        "table_caption": [
+            "Table 1: (Left) Design choices; (Right) performance gain vs. single evolving LoRA (w.r.t. NDCG@5) in different task settings on Instrument dataset."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td rowspan=\"2\">Method</td><td colspan=\"3\">Design choices</td><td colspan=\"3\">Task settings</td></tr><tr><td>Learnable mag.</td><td>Only latest</td><td>Param inherit</td><td>(1) User-disjoint</td><td>(2) Natural split</td><td>Diff. (1)-(2)</td></tr><tr><td> $SUMLORA_{ALL}$ </td><td>✗</td><td>✗</td><td>✗</td><td>-8.13%</td><td>-26.77%</td><td>18.64%</td></tr><tr><td> $SUMLORA_{LATEST}$ </td><td>✗</td><td>√</td><td>✗</td><td>-12.20%</td><td>-22.05%</td><td>9.85%</td></tr><tr><td> $SUMLORA_{ALL+INHERIT}$ </td><td>✗</td><td>✗</td><td>√</td><td>-3.25%</td><td>1.57%</td><td>-4.82%</td></tr><tr><td> $SUMLORA_{LATEST+INHERIT}$ </td><td>✗</td><td>√</td><td>√</td><td>0.00%</td><td>2.36%</td><td>-2.36%</td></tr><tr><td>SD- $LORA_{LATEST+INHERIT}$ </td><td>√</td><td>√</td><td>√</td><td>3.25%</td><td>0.79%</td><td>2.46%</td></tr></table>",
+        "bbox": [
+            176,
+            130,
+            823,
+            210
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            229,
+            825,
+            287
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Two settings. We evaluate methods in the two settings derived from the same user-item interaction data of Amazon Review (Musical Instruments) dataset: (1) Natural chronological split: Interactions are sorted by time; a large portion (e.g., 60%) is used for pretraining $( \\mathrm { i } . \\mathrm { e } . , \\mathcal { D } _ { 1 } )$ , and the remainder is divided into four equal incremental blocks, yielding $\\mathcal { D } _ { 2 } , \\ldots , \\mathcal { D } _ { 5 }$ . For each $\\mathcal { D } _ { t } .$ , we apply leave-one-out per user (second-to-last item for validation, last item for test). See Appendix C.1 for details. (2) Pseudo user-disjoint split: Users are randomly partitioned into disjoint sets for $\\mathcal { D } _ { t }$ $( t = 1 , \\ldots , 5 )$ , with block sizes matched to the chronological split. Item order within each user’s sequence is preserved. While similar users may induce some shared preferences across stages, this setting introduces relatively less cross-stage interference than the natural chronological case.",
+        "bbox": [
+            169,
+            292,
+            826,
+            419
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Results. Table 1 reports (1) the relative gain vs. single evolving LoRA on the user-disjoint split, (2) the relative gain on the chronological split, and (3) their difference $( \\mathrm { i } . \\mathrm { e } . , ( \\mathbf { 1 } ) { \\cdot } ( \\mathbf { \\hat { 2 } } ) )$ . We summarize the findings: First, the Diff. column shows that the original cumulative design (i.e., SUMLOR $\\mathbf { A } _ { \\mathrm { A L L } } )$ performs much worse in the natural chronological setting than in the user-disjoint setting, confirming that it is better suited for tasks with minimal interference and ill-suited for recommendation. Second, in the Natural split, $\\mathbf { S U M L O R A } _ { \\mathrm { A L I } }$ performs worst, followed by latest, all+inherit, and latest+inherit, suggesting that (a) aggregating all past adapters hinders adaptation, and (b) parameter inheritance is essential for gradual, proximal evolution of LoRA with respect to the previous state. Finally, $\\mathbf { S D - L O R A _ { L A T E S T + I N H E R I T } }$ fails to improve over fixed-magnitude SUMLORA<sub>LATEST+INHERIT</sub>, since useful past components are entangled with stale ones, making weighting ineffective. Overall, continual recommendation requires evolving adapters with controlled stability, rather than rigid reuse of past ones, to capture user preference dynamics.",
+        "bbox": [
+            169,
+            424,
+            826,
+            593
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "4 PROPOSED FRAMEWORK: PESO",
+        "text_level": 2,
+        "bbox": [
+            171,
+            604,
+            478,
+            621
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Our design philosophy is to (1) avoid using multiple LoRA adapters, which implicitly assume task independence, and (2) preserve past knowledge in a way that supports understanding of current user behavior. Guided by this, we propose PESO (Proximally rEgularized Single evolving lOra), which maintains a single evolving LoRA adapter and regularizes each update by keeping the current adapter close to the previous one (shown in Figure 1). We begin by presenting the quadratic proximal framework and its theoretical implications, and then instantiate PESO with a softmax–KL proximal to demonstrate its practical effect.",
+        "bbox": [
+            168,
+            630,
+            826,
+            729
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "4.1 SINGLE EVOLVING LORA WITH A PROXIMAL REGULARIZER",
+        "text_level": 2,
+        "bbox": [
+            171,
+            739,
+            638,
+            753
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "General framework. We maintain a single evolving LoRA and anchor each update to the previous adapter with a proximal term. Let $\\boldsymbol { v } _ { t } \\in \\mathbb { R } ^ { m }$ denote the concatenation of all flattened LoRA A/B parameters at time stage t. We partition coordinates into groups $g \\in \\{ 1 , \\ldots , G \\}$ at the level of LoRA factor matrices, so that each group corresponds to the flattened parameters of either A or B for one LoRA-injected module (e.g., attention projections $q / k / v / o$ and MLP projection layers). We write $v ^ { ( g ) }$ for the parameters in group g. The overall loss function for time stage t is",
+        "bbox": [
+            169,
+            763,
+            826,
+            852
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\nL _ {t} = L _ {\\mathrm{ce}} ^ {\\mathcal {D} _ {t}} + \\underbrace {\\frac {\\lambda}{2} \\sum_ {g = 1} ^ {G} \\| v _ {t} ^ {(g)} - v _ {t - 1} ^ {(g)} \\| _ {H _ {t - 1} ^ {(g)}} ^ {2}} _ {\\text {proximal term}}, \\quad v _ {t} \\leftarrow v _ {t - 1} \\text {at init},\\tag{6}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            287,
+            858,
+            709,
+            921
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "page_number",
+        "text": "4",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "image",
+        "img_path": "images/90f997bfa8d5035851c30f0bcc8cb632fd555a789aeeb44841ad2f03898ca794.jpg",
+        "image_caption": [
+            "Figure 1: Overview of Cumulative LoRA and our proposed PESO with proximal regularizer."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            178,
+            102,
+            820,
+            275
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "where $L _ { \\mathrm { c e } } ^ { \\mathcal { D } _ { t } }$ is the data-fitting term on $\\mathcal { D } _ { t }$ (i.e., cross-entropy, Eq. (2)), $\\| z \\| _ { H } ^ { 2 } : = z ^ { \\top } H z , \\lambda > 0$ controls regularization strength, and each $H _ { t - 1 } ^ { ( g ) } \\succeq 0$ is a (symmetric) PSD metric that is fixed during stage t; it can be constant (e.g., $H _ { t - 1 } ^ { ( g ) } = I ;$ corresponding to the L2 case) or precomputed at the previous adapter $v _ { t - 1 } ^ { ( g ) }$ . We initialize $v _ { t }  v _ { t - 1 }$ so the proximal penalty starts at zero and grows only as $v _ { t }$ departs from $v _ { t - 1 }$ . This design leverages the natural competition between the data-fitting loss (which pulls toward the optimal state for $\\mathcal { D } _ { t } )$ and the proximal term (which pulls toward the previous state). Next, we theoretically show how this yields data-aware, direction-wise guidance in the LoRA subspace.",
+        "bbox": [
+            169,
+            310,
+            826,
+            438
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Theoretical setup. To analyze how the proximal term interacts with the data-fitting loss, we approximate the data-fitting term. We restrict updates to a fixed m-dimensional LoRA subspace. Let $\\bar { \\boldsymbol { \\theta } } _ { 0 } \\in \\mathbb { R } ^ { d }$ be the parameter vector (base LLM and LoRA) after training on the first data block (t=1). From $t \\geq 2$ , let $\\dot { \\theta } ( v ) = \\theta _ { 0 } + U v$ with $U \\in \\mathbb { R } ^ { d \\times m }$ and non-LoRA coordinates frozen (i.e., assume $U = [ I _ { m } \\left( 0 \\right] )$ . For input $x =$ (prompt, item sequence) and next-item token y, let $s ( \\theta , x )$ be the scalar logit of the ground-truth token. Linearize once at $v = 0 \\mathrm { : }$",
+        "bbox": [
+            169,
+            443,
+            825,
+            527
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\ns (\\theta_ {0} + U v, x) \\approx s (\\theta_ {0}, x) + \\Phi (x) ^ {\\top} v, \\qquad \\Phi (x) := U ^ {\\top} \\nabla_ {\\theta} s (\\theta_ {0}, x) \\in \\mathbb {R} ^ {m},\\tag{7}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            246,
+            535,
+            748,
+            551
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "where $\\Phi ( x )$ is a tangent feature of x. For analysis we use a mean-squared-error surrogate for Eq. (2) and define the stage-t optimum $v _ { t } ^ { * } = \\arg \\operatorname* { m i n } _ { v } L ^ { D _ { t } } ( v )$ . A second-order expansion at $v _ { t } ^ { * }$ yields quadratic loss",
+        "bbox": [
+            169,
+            559,
+            823,
+            601
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\nL ^ {\\mathcal {D} _ {t}} (v) \\approx \\frac {1}{2} \\left(v - v _ {t} ^ {*}\\right) ^ {\\top} \\Sigma_ {t} \\left(v - v _ {t} ^ {*}\\right), \\quad \\Sigma_ {t} = \\mathbb {E} _ {x \\sim \\mathcal {D} _ {t}} \\big [ \\Phi (x) \\Phi (x) ^ {\\top} \\big ] \\succeq 0,\\tag{8}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            245,
+            609,
+            750,
+            637
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "where $\\Sigma _ { t }$ is the tangent-feature second-moment matrix for time stage $\\underline { { t , } }$ capturing how much the stage-t data supports different directions in the LoRA subspace $( \\mathrm { i . e . , \\ } u ^ { \\top } \\Sigma _ { t } \\dot { u } = \\bar { \\mathbb { E } } _ { \\mathcal { D } _ { t } } [ ( \\Phi ( x ) ^ { \\top } u ) ^ { 2 } ]$ $\\forall u \\in \\mathbb { R } ^ { m } )$ . See Appendix B.1 for full setup and assumptions. In what follows, we present a general proposition showing that our proximal framework yields direction-wise interpolation between the new optimum and the previous adapter, and then derive its L2 corollary to provide intuition into the stability–plasticity balance.",
+        "bbox": [
+            169,
+            643,
+            823,
+            728
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Proposition 1 (Generalized–eigen interpolation with a quadratic proximal). Let $\\Sigma _ { t } = \\Sigma _ { t } ^ { \\top } \\succeq 0 .$ Define the block-diagonal proximal metric $H _ { t - 1 } : = { \\mathrm { b l k d i a g } } \\big ( H _ { t - 1 } ^ { ( 1 ) } , \\dots , H _ { t - 1 } ^ { ( G ) } \\big ) \\ \\succeq \\ 0$ , with each $H _ { t - 1 } ^ { ( g ) }$ symmetric PSD and independent of v during stage t. Under the quadratic approximation in Eq. (8), our loss Eq. (6) is:",
+        "bbox": [
+            171,
+            734,
+            823,
+            800
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\nL _ {t} (v) = \\frac {1}{2} \\left(v - v _ {t} ^ {*}\\right) ^ {\\top} \\Sigma_ {t} (v - v _ {t} ^ {*}) + \\frac {\\lambda}{2} \\left(v - v _ {t - 1}\\right) ^ {\\top} H _ {t - 1} (v - v _ {t - 1}).\\tag{9}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            271,
+            806,
+            723,
+            835
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Let $\\begin{array} { r l } { \\hat { v } _ { t } } & { { } : = } \\end{array}$ arg min<sub>v</sub> $L _ { t } ( v )$ . Let $\\{ ( q _ { k } , \\rho _ { k } ) \\} _ { k = 1 } ^ { r }$ be generalized eigenpairs of $\\left( \\Sigma _ { t } , H _ { t - 1 } \\right)$ on range $\\left( { H _ { t - 1 } } \\right) ( i . e . , \\Sigma _ { t } q _ { k } = \\rho _ { k } H _ { t - 1 } q _ { k } )$ , normalized by $q _ { i } ^ { \\top } H _ { t - 1 } q _ { j } = \\delta _ { i j }$ , where $r = { \\mathrm { r a n k } } ( H _ { t - 1 } )$ With $\\langle u , w \\rangle _ { H _ { t - 1 } } : = u ^ { \\top } H _ { t - 1 } w ,$",
+        "bbox": [
+            171,
+            842,
+            823,
+            888
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\langle \\hat {v} _ {t}, q _ {k} \\rangle_ {H _ {t - 1}} = \\frac {\\rho_ {k}}{\\rho_ {k} + \\lambda} \\left\\langle v _ {t} ^ {*}, q _ {k} \\right\\rangle_ {H _ {t - 1}} + \\frac {\\lambda}{\\rho_ {k} + \\lambda} \\left\\langle v _ {t - 1}, q _ {k} \\right\\rangle_ {H _ {t - 1}}, \\qquad k = 1, \\ldots , r.\\tag{10}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            228,
+            898,
+            767,
+            929
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "page_number",
+        "text": "5",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "The proof of Proposition 1 is deferred to Appendix B.2. To build intuition, we specialize Proposition 1 to the $L \\bar { 2 }$ case by taking $H _ { t - 1 } = I .$ Then the generalized eigenpairs reduce to ordinary eigenpairs of $\\Sigma _ { t }$ and $\\langle \\cdot , \\cdot \\rangle _ { H _ { t - 1 } }$ becomes the standard inner product, yielding the following corollary.",
+        "bbox": [
+            169,
+            104,
+            825,
+            148
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Corollary 2 (L2 special case of Proposition 1). Take $H _ { t - 1 } = I . ~ H \\Sigma _ { t } q _ { k } = \\sigma _ { k } ^ { 2 } q _ { k }$ with $\\left\\{ q _ { k } \\right\\}$ orthonormal,",
+        "bbox": [
+            169,
+            154,
+            823,
+            183
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\langle \\hat {v} _ {t}, q _ {k} \\rangle = \\frac {\\sigma_ {k} ^ {2}}{\\sigma_ {k} ^ {2} + \\lambda} \\langle v _ {t} ^ {*}, q _ {k} \\rangle + \\frac {\\lambda}{\\sigma_ {k} ^ {2} + \\lambda} \\langle v _ {t - 1}, q _ {k} \\rangle , \\qquad k = 1, \\dots , m.\\tag{11}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            269,
+            186,
+            725,
+            223
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "In a nutshell, Corollary 2 shows a data-aware balance between stability and plasticity in our framework. Recall that $\\Sigma _ { t } = \\mathbb { E } _ { \\mathcal { D } _ { t } } [ \\Phi ( x ) \\Phi ( x ) ^ { \\top } ]$ summarizes how much the stage-t data supports different directions in the LoRA subspace. Its eigenvectors $q _ { k }$ are principal directions, with eigenvalues $\\sigma _ { k } ^ { 2 }$ measuring the strength of support along each direction under $\\bar { \\mathcal { D } } _ { t }$ . By Corollary $^ { 2 , }$ along any $q _ { k }$ the update is a weighted average of v<sup>∗</sup> and $v _ { t - 1 }$ , with weight toward $v _ { t } ^ { * }$ equal to $\\sigma _ { k } ^ { 2 } \\dot { / } ( \\sigma _ { k } ^ { 2 } + \\lambda ) \\dot { }$ Thus, when $\\bar { \\sigma } _ { k } ^ { 2 }$ is large (strong support in $\\dot { \\mathcal { D } _ { t } } ) , \\hat { v } _ { t }$ moves toward $v _ { t } ^ { * }$ along $q _ { k } \\ ( { \\bf e . g . }$ , the user starts engaging more with mystery than sci-fi); when $\\sigma _ { k } ^ { 2 }$ is small (weak support), $\\hat { v } _ { t }$ stays close to $\\displaystyle v _ { t - 1 } \\left( \\boldsymbol { \\mathrm { e . g } } \\right.$ 9 a stable brand affinity not observed this week). If $\\sigma _ { k } ^ { 2 } = \\mathrm { \\bar { 0 } }$ , the component along $q _ { k }$ is kept exactly from the previous stage. See Appendix B.3 for a more detailed intuitive explanation.",
+        "bbox": [
+            169,
+            234,
+            825,
+            361
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "4.2 SOFTMAX–KL AS A PROXIMAL REGULARIZER",
+        "text_level": 2,
+        "bbox": [
+            171,
+            376,
+            540,
+            390
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "As shown earlier, the L2 proximal (i.e., $H _ { t - 1 } ^ { ( g ) } = I )$ is a special case of our general proximal form with $H _ { t - 1 }$ . However, it penalizes all coordinate changes equally, treating modules uniformly, ignoring internal structure, and not adapting to the previous state $v _ { t - 1 }$ . To address this, we instantiate the proximal term with a softmax–KL proximal that preserves per-module structure and leverages the previous state. Formally, the stage-t objective of PESO is:",
+        "bbox": [
+            169,
+            401,
+            825,
+            473
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "equation",
+        "text": "$$\nL _ {t} = L _ {\\mathrm{ce}} ^ {\\mathcal {D} _ {t}} + \\underbrace {\\lambda \\sum_ {g = 1} ^ {G} D _ {\\mathrm{KL}} \\bigl (\\operatorname{softmax} (v _ {t} ^ {(g)}) \\| \\operatorname{softmax} (v _ {t - 1} ^ {(g)}) \\bigr)} _ {\\mathcal {K} _ {\\mathrm{blk}} (v _ {t}, v _ {t - 1})}, \\quad v _ {t} \\leftarrow v _ {t - 1} \\text {at init.}\\tag{12}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            227,
+            478,
+            767,
+            540
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "We first show that the softmax–KL proximal locally reduces to a quadratic form, and then give a corollary that interprets it as a p-weighted variance, providing an intuitive view of its module-wise stability.",
+        "bbox": [
+            169,
+            546,
+            825,
+            589
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Proposition 3 (Per-module softmax–KL is locally quadratic). Let $v _ { t } ^ { ( g ) }$ be the subvector for group $g \\in \\{ 1 , \\ldots , G \\}$ (e.g., LoRA A/B ofa module), $p ^ { ( g ) }$ = softmax $( v _ { t - 1 } ^ { ( g ) } )$ , and $\\Delta ^ { ( g ) } = v _ { t } ^ { ( g ) } - v _ { t - 1 } ^ { ( g ) }$ . For small $\\Delta ^ { ( g ) }$",
+        "bbox": [
+            169,
+            598,
+            825,
+            647
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathcal {K} _ {\\mathrm{blk}} (v _ {t}, v _ {t - 1}) = \\frac {\\lambda}{2} \\sum_ {g = 1} ^ {G} \\big (\\Delta^ {(g)} \\big) ^ {\\top} \\Big (\\mathrm{diag} \\big (p ^ {(g)} \\big) - p ^ {(g)} p ^ {(g) ^ {\\top}} \\Big) \\Delta^ {(g)} + o (\\| \\Delta \\| ^ {2})\\tag{13}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            189,
+            654,
+            694,
+            695
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "equation",
+        "text": "$$\n= \\frac {\\lambda}{2}   \\Delta^ {\\top} \\underbrace {\\text {blkdiag} \\big (H _ {t - 1} ^ {(1)} , \\ldots , H _ {t - 1} ^ {(G)} \\big)} _ {=: H _ {t - 1}}   \\Delta + o (\\| \\Delta \\| ^ {2}),   \\text {with}   H _ {t - 1} ^ {(g)} = \\text {diag} (p ^ {(g)}) - p ^ {(g)} (p ^ {(g)}) ^ {\\top} \\succeq 0.\n$$",
+        "text_format": "latex",
+        "bbox": [
+            181,
+            699,
+            816,
+            739
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "The proof of Proposition 3 is deferred to Appendix B.4. Proposition 3 shows the softmax–KL proximal is locally equivalent to the quadratic form $\\frac { \\lambda } { 2 } \\mathbf { \\widetilde { \\| } } v _ { t } \\ - \\ v _ { t - 1 } \\| _ { H _ { t - \\cdot } } ^ { 2 }$ with $H _ { t - 1 } =$ $\\mathrm { b l k d i a g } ( H _ { t - 1 } ^ { ( 1 ) } , \\dots , H _ { t - 1 } ^ { ( G ) } )$ . Hence, Proposition 1 applies directly, suggesting a data-aware balance of stability and plasticity.",
+        "bbox": [
+            169,
+            753,
+            825,
+            819
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Corollary 4 (Softmax–KL equals p-weighted variance). With notation as above, up to an additive constant,",
+        "bbox": [
+            169,
+            824,
+            823,
+            852
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathcal {K} _ {\\mathrm{blk}} (v _ {t}, v _ {t - 1}) = \\frac {\\lambda}{2} \\sum_ {g = 1} ^ {G} \\mathrm{Var} _ {p ^ {(g)}} \\big (\\Delta^ {(g)} \\big),\\tag{14}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            366,
+            857,
+            629,
+            898
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "where $\\begin{array} { r } { \\mathrm { V a r } _ { p ^ { ( g ) } } ( \\Delta ^ { ( g ) } ) = \\sum _ { i \\in g } p _ { i } ^ { ( g ) } ( \\Delta _ { i } ^ { ( g ) } - \\mu ^ { ( g ) } ) ^ { 2 } a n d \\mu ^ { ( g ) } = \\sum _ { i \\in g } p _ { i } ^ { ( g ) } \\Delta _ { i } ^ { ( g ) } } \\end{array}$",
+        "bbox": [
+            171,
+            906,
+            683,
+            926
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "page_number",
+        "text": "6",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Corollary 4 shows that the softmax–KL proximal can be interpreted as a p-weighted variance of parameter changes. Consequently, it penalizes (1) reshuffling (i.e., relative (centered) changes) within each module’s LoRA factor, and (2) deviations more strongly for coordinates with higher prior mass. This yields module-wise, previous-state–aware stability without killing plasticity: updates still move toward new optima where data provides strong support (as in Proposition 1), while staying close to the previous state otherwise.",
+        "bbox": [
+            169,
+            104,
+            826,
+            189
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "5 EXPERIMENTS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            200,
+            328,
+            215
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "We design experiments to answer: RQ1: To what extent does PESO outperform competitors? RQ2: Which proximal regularizer works best in PESO? RQ3: How effectively does PESO balance stability and plasticity under different user drift patterns? RQ4: How do hyperparameters affect performance of PESO? RQ5: How does PESO compare to traditional continual recommenders?",
+        "bbox": [
+            169,
+            223,
+            825,
+            281
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Please refer to Appendix Cfor additional experimental results and analyses, including distributionshift quantification, comparisons with additional baselines (full-parameter fine-tuning, O-LoRA, AM-LoRA, LSAT etc.), experiments with other backbones and datasets, and an efficiency analysis.",
+        "bbox": [
+            169,
+            282,
+            823,
+            325
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "5.1 EXPERIMENTAL SETTINGS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            340,
+            401,
+            354
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Datasets. We use the real-world Amazon Review dataset, which contains user reviews (treated as implicit interactions) on products over time. We focus on three categories: Musical Instruments, Movies & TV, and Books. Detailed preprocessing steps and dataset statistics are provided in Appendix C.1. The processed data yield $\\left\\{ \\mathcal { D } _ { 1 } , \\ldots , \\mathcal { D } _ { 5 } \\right\\}$ , where $\\mathcal { D } _ { 1 }$ is a large pretraining set and $\\mathcal { D } _ { 2 } , \\ldots , \\mathcal { D } _ { 4 }$ are smaller incremental sets.",
+        "bbox": [
+            169,
+            367,
+            826,
+            439
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Evaluation. For each $\\mathcal { D } _ { t }$ , we apply leave-one-out evaluation per user, reserving the last item for testing. Following (Wang et al., 2024; Bao et al., 2025a), we construct multiple training pairs $( x _ { u } , y _ { u } )$ per user using a sliding window of size 20. Starting from the LLM pretrained on $\\mathcal { D } _ { 1 }$ , at each stage $t = 2 , \\ldots , 5$ the model is fine-tuned and then generates 10 items via constrained beam search restricted to valid item tokens. We report Hit@5/10 and NDCG@5/10, averaged over $\\mathcal { D } _ { 2 } , \\ldots , \\mathcal { D } _ { 4 }$ Full evaluation details are in Appendix C.1.",
+        "bbox": [
+            169,
+            444,
+            823,
+            527
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Compared methods and implementation details. We compare PESO with several LoRA-based baselines for continual learning, all using the same cross-entropy loss and Llama-3.2 1B (Grattafiori et al., 2024) as backbone. The bottom baseline is PRETRAIN, trained on $\\mathcal { D } _ { 1 }$ and directly evaluated at $t = 2 , \\ldots , 4$ . Among continual methods, we consider: (1) single evolving $L o R A ;$ and (2) the cumulative family, which combines past and current adapters: SumLoRA, SD-LoRA (Wu et al., 2025), and InfLoRA (Liang & Li, 2024). SD-LoRA learns magnitudes for normalized past adapters, while InfLoRA precomputes LoRA-A via SVD of the input covariance and trains only B, to better align with current data and reduce task-interference. $\\mathbf { A } \\mathbf { s }$ discussed in Section 3, original cumulative designs use all past adapters without inheritance (all). For recommendation, we further test three variants: latest (most recent only), all+inherit (all with inheritance), and latest+inherit (latest with inheritance). For hyperparameters, λ is searched over [0.5, 1.0, 2.0, 5.0, 8.0] (set to 2.0 for Instruments, 5.0 for Movies&TV and Books). SD-LoRA magnitudes start at 1.0.",
+        "bbox": [
+            169,
+            534,
+            826,
+            703
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "5.2 EXPERIMENTAL RESULTS AND DISCUSSION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            717,
+            521,
+            732
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Main Results (RQ1). Table 2 reports results across four metrics and three datasets in continual settings. First, all continual learning methods consistently outperform PRETRAIN, highlighting the importance of adapting to new data to capture evolving user preferences, even when incremental data is much smaller (e.g., 10%) than the pretraining data. Second, neither single evolving LoRA nor the cumulative family dominates, while PESO consistently achieves the best results, with average gains of 3.71%, 4.62%, and 6.26% over the best competitors (SINGLE EVOLVING LORA, SUMLORA , and SD-LORA ). Cumulative LoRA, though more complex and storage-heavy, often underperforms or only matches single evolving LoRA, as rigidly reusing frozen adapters overly constrains adaptation to evolving user preferences. By contrast, PESO uses flexible proximal regularization toward the latest state, allowing the data-fitting loss and proximal term to jointly decide what to preserve or update. Third, as discussed in detail in Section 3, regarding SumLoRA and SD-LoRA, original cumulative designs (using all past adapters without inheri tance) perform worst, while variants with inheritance or only the latest adapter do better. Notably, some non-inheritance variants even fall below PRETRAIN, showing that without gradual evolution, continual learning can harm more than help. InfLoRA yields the weakest results overall, likely because, although it incorporates input data covariance information, freezing A prevents inheritance and gradual adaptation across time, both of which are crucial in continual recommendation.",
+        "bbox": [
+            169,
+            743,
+            826,
+            926
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "page_number",
+        "text": "7",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "table",
+        "img_path": "images/784bfdd305f8ab59a3fae78d2125ec21a013a485ded65d5f696b3102cd740d38.jpg",
+        "table_caption": [
+            "Table 2: Recommendation performance averaged across time stages for PESO and continual competitors. The best and second-best results are marked in bold and underline, respectively."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td rowspan=\"2\">Methods</td><td colspan=\"4\">Instruments</td><td colspan=\"4\">Movies &amp; TVs</td><td colspan=\"4\">Books</td></tr><tr><td>H@5</td><td>H@10</td><td>N@5</td><td>N@10</td><td>H@5</td><td>H@10</td><td>N@5</td><td>N@10</td><td>H@5</td><td>H@10</td><td>N@5</td><td>N@10</td></tr><tr><td>PRETRAIN</td><td>0.0166</td><td>0.0216</td><td>0.0115</td><td>0.0131</td><td>0.0166</td><td>0.0231</td><td>0.0111</td><td>0.0132</td><td>0.0258</td><td>0.0283</td><td>0.0196</td><td>0.0204</td></tr><tr><td>SINGLE EVOLVING LORA</td><td>0.0181</td><td>0.0253</td><td>0.0127</td><td>0.0150</td><td>0.0175</td><td>0.0247</td><td>0.0116</td><td>0.0138</td><td>0.0448</td><td>0.0557</td><td>0.0308</td><td>0.0344</td></tr><tr><td colspan=\"13\">Cumulative LoRA Family</td></tr><tr><td>INFLORALL</td><td>0.0156</td><td>0.0214</td><td>0.0105</td><td>0.0124</td><td>0.0103</td><td>0.0139</td><td>0.0067</td><td>0.0079</td><td>0.0236</td><td>0.0332</td><td>0.0161</td><td>0.0193</td></tr><tr><td>INFLORALATEST</td><td>0.0131</td><td>0.0167</td><td>0.0090</td><td>0.0102</td><td>0.0073</td><td>0.0092</td><td>0.0047</td><td>0.0054</td><td>0.0152</td><td>0.0197</td><td>0.0108</td><td>0.0123</td></tr><tr><td>INFLORALL+INHERIT</td><td>0.0149</td><td>0.0219</td><td>0.0104</td><td>0.0126</td><td>0.0109</td><td>0.0147</td><td>0.0072</td><td>0.0085</td><td>0.0249</td><td>0.0324</td><td>0.0171</td><td>0.0195</td></tr><tr><td>INFLORALATEST+INHERIT</td><td>0.0137</td><td>0.0202</td><td>0.0095</td><td>0.0116</td><td>0.0094</td><td>0.0132</td><td>0.0060</td><td>0.0072</td><td>0.0225</td><td>0.0288</td><td>0.0153</td><td>0.0174</td></tr><tr><td>SUMLORALL</td><td>0.0134</td><td>0.0215</td><td>0.0093</td><td>0.0119</td><td>0.0102</td><td>0.0130</td><td>0.0067</td><td>0.0076</td><td>0.0264</td><td>0.0402</td><td>0.0176</td><td>0.0221</td></tr><tr><td>SUMLORALATEST</td><td>0.0143</td><td>0.0221</td><td>0.0099</td><td>0.0124</td><td>0.0102</td><td>0.0130</td><td>0.0067</td><td>0.0076</td><td>0.0246</td><td>0.0354</td><td>0.0161</td><td>0.0196</td></tr><tr><td>SUMLORALL+INHERIT</td><td>0.0182</td><td>0.0260</td><td>0.0129</td><td>0.0154</td><td>0.0160</td><td>0.0234</td><td>0.0107</td><td>0.0131</td><td>0.0409</td><td>0.0514</td><td>0.0287</td><td>0.0321</td></tr><tr><td>SUMLORALATEST+INHERIT</td><td>0.0185</td><td>0.0255</td><td>0.0130</td><td>0.0152</td><td>0.0172</td><td>0.0237</td><td>0.0114</td><td>0.0135</td><td>0.0433</td><td>0.0542</td><td>0.0306</td><td>0.0341</td></tr><tr><td>SD-LORALL</td><td>0.0156</td><td>0.0226</td><td>0.0107</td><td>0.0129</td><td>0.0094</td><td>0.0133</td><td>0.0061</td><td>0.0074</td><td>0.0238</td><td>0.0351</td><td>0.0162</td><td>0.0198</td></tr><tr><td>SD-LORALATEST</td><td>0.0156</td><td>0.0218</td><td>0.0102</td><td>0.0123</td><td>0.0101</td><td>0.0142</td><td>0.0069</td><td>0.0082</td><td>0.0241</td><td>0.0327</td><td>0.0159</td><td>0.0186</td></tr><tr><td>SD-LORALL+INHERIT</td><td>0.0176</td><td>0.0238</td><td>0.0124</td><td>0.0144</td><td>0.0118</td><td>0.0171</td><td>0.0077</td><td>0.0094</td><td>0.0332</td><td>0.0412</td><td>0.0234</td><td>0.0260</td></tr><tr><td>SD-LORALATEST+INHERIT</td><td>0.0184</td><td>0.0254</td><td>0.0128</td><td>0.0150</td><td>0.0165</td><td>0.0235</td><td>0.0109</td><td>0.0131</td><td>0.0432</td><td>0.0530</td><td>0.0308</td><td>0.0340</td></tr><tr><td>PESO</td><td>0.0193</td><td>0.0268</td><td>0.0138</td><td>0.0162</td><td>0.0180</td><td>0.0251</td><td>0.0118</td><td>0.0141</td><td>0.0448</td><td>0.0569</td><td>0.0311</td><td>0.0351</td></tr><tr><td colspan=\"13\">Performance Gain (%)</td></tr><tr><td>VS. SINGLE EVOLVING LORA</td><td>6.63%</td><td>5.93%</td><td>8.66%</td><td>8.00%</td><td>2.86%</td><td>1.62%</td><td>1.72%</td><td>2.17%</td><td>0.00%</td><td>2.15%</td><td>0.97%</td><td>2.03%</td></tr><tr><td>VS. SUMLORALATEST+INHERIT</td><td>4.32%</td><td>5.10%</td><td>6.15%</td><td>6.58%</td><td>4.65%</td><td>5.91%</td><td>3.51%</td><td>4.44%</td><td>3.46%</td><td>4.98%</td><td>1.63%</td><td>2.93%</td></tr><tr><td>VS. SD-LORALATEST+INHERIT</td><td>4.89%</td><td>5.51%</td><td>7.81%</td><td>8.00%</td><td>9.09%</td><td>6.81%</td><td>8.26%</td><td>7.63%</td><td>3.70%</td><td>7.36%</td><td>0.97%</td><td>3.24%</td></tr></table>",
+        "bbox": [
+            174,
+            130,
+            823,
+            335
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "chart",
+        "img_path": "images/89e5d5d0b8f412996528262ab1e411011f9311eb647ef65314536f5982cc5c4e.jpg",
+        "content": "",
+        "chart_caption": [
+            "Figure 2: Comparison of different regularization methods against the previous LoRA."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            178,
+            347,
+            483,
+            420
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "chart",
+        "img_path": "images/5a21aa2ac3ea56c250b3669d2da58e118b5a1e8a63663d8f4a4efbdf21d6c9b8.jpg",
+        "content": "",
+        "chart_caption": [
+            "Figure 3: Impact of the scaling weight λ for the proximal term on PESO performance."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            503,
+            340,
+            816,
+            422
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            470,
+            825,
+            529
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Analysis on Proximal Regularizer (RQ2). Unless otherwise noted, all subsequent subsections report average performance across four metrics (Hit@5, Hit@10, NDCG@5, NDCG@10). We compare PESO with four alternative regularizers on the previous adapter: orthogonality, L2 proximal, LoRA-Output KL, and Per-Rank KL (Figure 2). Orthogonality, an interference-minimization strategy common in vision, performs far worse than all methods, showing that minimizing interference across stages is harmful in continual recommendation. L2 proximal, which penalizes the L2 distance between current and previous parameters, is often comparable to single evolving LoRA but worse than PESO, suggesting that uniform constraints are insufficient. LoRA-Output KL (softmax-KL applied in LoRA output, i.e., function space) and Per-Rank KL (softmax-KL applied on each rank of LoRA matrcies, i.e., finer parameter granularity) are slightly worse or comparable to PESO, suggesting that regularization directly in the parameter space with module-aware structure is more effective, or at least sufficient, compared to output-level or overly fine-grained constraints.",
+        "bbox": [
+            169,
+            534,
+            826,
+            703
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Stability–Plasticity Analysis via User Groups (RQ3). To examine how PESO balances long-term interests with newly evolved preferences, we evaluate the final model on two user groups in the Instruments dataset, which serve as proxies for different drift patterns: (1) Dormant Users: Users who were active",
+        "bbox": [
+            169,
+            708,
+            486,
+            805
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "table",
+        "img_path": "images/405f47ae8e2c6ed9944a57b7d40adf6c890043ace51de27b911849d02f072c2a.jpg",
+        "table_caption": [
+            "Table 3: Performance (NDCG@5) across user groups representing stability and plasticity tests."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Method</td><td>Dormant Users</td><td>New Users</td></tr><tr><td>Single Evolving LoRA (Plasticity)</td><td>0.0154</td><td>0.0116</td></tr><tr><td>Cumulative LoRA (Stability)</td><td>0.0164</td><td>0.0101</td></tr><tr><td>PESO (Balanced)</td><td>0.0170</td><td>0.0122</td></tr></table>",
+        "bbox": [
+            496,
+            743,
+            823,
+            797
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "in earlier blocks, absent in intermediate blocks, and return in $D _ { 4 }$ . This tests stability (retention of long-term preferences). (2) New Users: Users who appear only in $D _ { 4 } .$ . This tests plasticity (adaptation to new signals). Table 3 illustrates the trade-off: Single Evolving LoRA excels on New Users but performs poorly on Dormant Users due to forgetting, whereas Cumulative LoRA $( \\mathrm { i . e . , \\ S U M L O R A _ { L A T E S T + I N H E R I T } ) }$ preserves stability but adapts less effectively to New Users. PESO achieves the best performance on both groups, indicating a strong stability–plasticity balance.",
+        "bbox": [
+            169,
+            804,
+            826,
+            890
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Hyperparameter Analysis (RQ4). (a) Scaling parameter λ for proximal term in PESO. Figure 3 shows performance as λ varies. Starting from $\\lambda = 0 ( \\mathrm { i . e . }$ , single evolving LoRA), performance improves as λ increases, then either decreases or plateaus, confirming that λ serves as a tunable trade-off between stability and plasticity: too small harms stability; too large harms plasticity. In addition, performance is not highly sensitive to λ, as results remain stable across a broad range of values. (b) Learning rate for continual stages. See Appendix C.2 for full results and discussion. Since incremental datasets are much smaller than the pretraining set, performance is highly sensitive to learning rate. Our results show that using the pretraining rate leads to overfitting, while scaling the rate down (≈ 0.05–0.1×) yields the best performance.",
+        "bbox": [
+            169,
+            895,
+            825,
+            925
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "page_number",
+        "text": "8",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            104,
+            826,
+            203
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Comparison with Traditional Continual Recommenders (RQ5). Details are in Appendix C.3; Table 4 shows a subset (top: traditional, bottom: LLMbased). LLM-based methods generally outperform traditional two-tower models, except on Instruments, where explicit dual modeling of users and items helps. While PESO achieves higher absolute performance, continual methods like PISA (Yoo et al., 2025a) yield larger relative gains in two-tower models, reflecting the advantage of explicit user embeddings in capturing preference drift and the challenge of doing so with LLMs.",
+        "bbox": [
+            169,
+            208,
+            550,
+            362
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "table",
+        "img_path": "images/0f6946b28b121e79bbebd05aa8e964a0d87d95ad471f21c8c7896600097d4830.jpg",
+        "table_caption": [
+            "Table 4: Comparison of traditional and LLM-based methods."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Method</td><td>Instruments</td><td>Movies &amp; TVs</td><td>Books</td></tr><tr><td>Pretrain</td><td>0.0153</td><td>0.0028</td><td>0.0041</td></tr><tr><td>Fine-tuning</td><td>0.0180</td><td>0.0114</td><td>0.0218</td></tr><tr><td>PISA</td><td>0.0194</td><td>0.0106</td><td>0.0301</td></tr><tr><td>Pretrain</td><td>0.0157</td><td>0.0160</td><td>0.0235</td></tr><tr><td>Fine-tuning</td><td>0.0178</td><td>0.0169</td><td>0.0414</td></tr><tr><td>PESO</td><td>0.0190</td><td>0.0173</td><td>0.0422</td></tr></table>",
+        "bbox": [
+            562,
+            243,
+            823,
+            323
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "6 RELATED WORKS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            371,
+            357,
+            387
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "LLM-based Generative Recommender Systems. Recent advances in large language models (LLMs) have inspired generative approaches to recommendation, where the task is framed as sequence generation. Instead of ranking items from a candidate set, the model autoregressively generates the next item token given a user’s interaction history. Variants of this paradigm includes zero-shot prompting (Lyu et al., 2023), ID-token generation (Tan et al., 2024; Wang et al., 2024), data-efficient fine-tuning (Lin et al., 2024b), uncertainty-aware decoding (Kweon et al., 2025), and alignment techniques for recommendation objectives (Cao et al., 2024; Bao et al., 2025a; Chen et al., 2024). These works demonstrate that LLMs can flexibly leverage textual and structural signals for recommendation, but they typically assume static data. In contrast, real-world interactions arrive continuously, requiring models that can adapt to evolving user preferences without costly retraining. Our work addresses this gap by studying continual adaptation of generative LLM recommenders.",
+        "bbox": [
+            169,
+            395,
+            826,
+            550
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Continual Learning for Foundational Models and LoRA. Classical continual recommenders use parameter regularization (Wang et al., 2021; 2023b; Yoo et al., 2024), replay buffers (Ahrabian et al., 2021; Zhang et al., 2024b; Zhu et al., 2023; Zou et al., 2025), or dynamic architectures (He et al., 2023; Zhang et al., 2023; Lee et al., 2025b). With large foundational models, parameterefficient fine-tuning (PEFT) has become central, with LoRA (Hu et al., 2022) as a standard choice. In vision, several continual extensions have been proposed, such as cumulative aggregation of frozen adapters (Liang & Li, 2024; Lu et al., 2024) and learnable magnitude scaling (SD-LoRA) (Wu et al., 2025), which are effective when tasks interference is minimal. However, these methods are less suitable for recommendation, where user preferences evolve over time. Our work differs by proposing a proximal single evolving LoRA that avoids the forgetting of single evolving LoRA and the rigidity of cumulative LoRA, better suiting the continual recommendation setting.",
+        "bbox": [
+            169,
+            554,
+            826,
+            710
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "7 CONCLUSION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            717,
+            321,
+            733
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "We have studied the problem of continual adaptation for LLM-based generative recommender systems, where user interactions arrive over time and preferences evolve. Single evolving LoRA offers strong plasticity but suffers from forgetting, while cumulative LoRA improves stability but entangles outdated signals. Our proposed PESO strikes a better balance by maintaining a single adapter and regularizing it toward its prior state, allowing the model to decide what to adapt and what to preserve. Our theoretical analysis has shown that the proximal design provides data-aware, directionwise guidance in the LoRA subspace, and our instantiation with per-module softmax–KL further preserves internal parameter structure. Empirical results across multiple real-world datasets confirm that PESO consistently outperforms existing baselines, achieving a superior stability–plasticity balance. Future directions include drift-aware and more personalized regularization, as well as integrating our approach with other parameter-efficient tuning methods to further improve continual adaptation in large foundation models.",
+        "bbox": [
+            169,
+            741,
+            826,
+            911
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "page_number",
+        "text": "9",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "ACKNOWLEDGEMENTS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            103,
+            369,
+            118
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "This work is supported by NSF (2324770) and AFOSR (FA9550-24-1-0002). The content of the information in this document does not necessarily reflect the position or the policy of the Government, and no official endorsement should be inferred. The U.S. Government is authorized to reproduce and distribute reprints for Government purposes notwithstanding any copyright notation here on.",
+        "bbox": [
+            169,
+            133,
+            826,
+            191
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "ETHICS STATEMENT.",
+        "text_level": 2,
+        "bbox": [
+            173,
+            210,
+            349,
+            226
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "This work focuses on continual learning methods for large language model (LLM)-based recommender systems. It does not involve human subjects, sensitive personal data, or private user information. All experiments are conducted on publicly available benchmark datasets (Amazon Reviews). We followed standard preprocessing protocols, and no personally identifiable information was used or released. While recommender systems can influence user exposure to content, this study is purely methodological and does not deploy or interact with real users. We acknowledge the potential societal risks of recommendation technologies, such as reinforcing biases or filter bubbles, and we emphasize that our method (PESO) is designed as a modular continual learning technique, independent of any particular application domain or societal factors.",
+        "bbox": [
+            169,
+            241,
+            826,
+            369
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "REPRODUCIBILITY STATEMENT.",
+        "text_level": 2,
+        "bbox": [
+            171,
+            387,
+            442,
+            404
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "The paper provides: (1) detailed descriptions of datasets, preprocessing steps, and evaluation protocols (Section 5.1, Appendix C.1); (2) clear definitions of baselines, the proposed method (PESO), and its theoretical analyses (Sections 3, 4, Appendix B); and (3) hyperparameter settings, search ranges, and sensitivity analyses (Section 5). Results are reported across multiple datasets and metrics for robustness. Full proofs are included in Appendix B. We will release our implementation and data-processing scripts upon publication to ensure reproducibility.",
+        "bbox": [
+            169,
+            419,
+            826,
+            503
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "page_number",
+        "text": "10",
+        "bbox": [
+            490,
+            946,
+            509,
+            960
+        ],
+        "page_idx": 9
+    }
+]

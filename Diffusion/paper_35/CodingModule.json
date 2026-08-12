@@ -1,0 +1,91 @@
+{
+"overview": "SURELOCK accelerates Masked Diffusion Language Model decoding by permanently locking token positions whose posteriors have stabilized (measured via step-wise KL divergence), bypassing their Q-projection and FFN sublayers while caching their K/V vectors for continued attention, reducing per-step algorithmic FLOPs from O(N²d) to O(MNd) with theoretical error bounds on terminal log-probability deviation.",
+"count": 17,
+"modules": [
+{
+"id": 1,
+"name": "Base MDLM Sampler",
+"description": "Implementation of the standard masked diffusion language model iterative denoising sampler, including the full-sequence recomputation loop over T steps with self-attention and FFN for all N token positions at every step, serving as the baseline against which SureLock improvements are measured."
+},
+{
+"id": 2,
+"name": "SURELOCK Core Controller",
+"description": "Central orchestration of the SureLock algorithm (Algorithm 1), managing the per-step decision of which token positions to lock based on stability criteria, coordinating the bypass of Q-projection and FFN for locked positions, and assembling variable-length attention queries against cached and freshly computed K/V tables."
+},
+{
+"id": 3,
+"name": "Step-wise KL Divergence Monitor",
+"description": "Computation of the per-position one-step KL divergence D_t^(i) = KL(p_t^(i) || p_{t-1}^(i)) between successive posterior distributions, serving as the primary locking criterion; includes storage and update of previous posteriors p_{t-1} for comparison at each step."
+},
+{
+"id": 4,
+"name": "Confidence Gate",
+"description": "Optional secondary locking safeguard that filters candidate positions by top-m% confidence among active tokens, computing uncertainty u_t^(i) = 1 - max_v p_t^(i)(v) and accepting only positions with u_t^(i) below the empirical m-th percentile threshold q_m(u_t) of active positions."
+},
+{
+"id": 5,
+"name": "KV Cache Manager",
+"description": "Management of cached key and value vectors for locked positions across all transformer layers, handling cache insertion upon locking, cache reads during attention assembly for active positions, and ensuring that locked tokens remain fully attendable by other positions via the cached K/V."
+},
+{
+"id": 6,
+"name": "Active Position Set Manager",
+"description": "Dynamic tracking and updating of the active set A_t (unmasked and unlocked) and locked set L_t at each diffusion step, including set operations for locking transitions, re-masking exclusion of locked positions (Assumption A1), and index construction for variable-length attention kernels."
+},
+{
+"id": 7,
+"name": "Block Input Freezing",
+"description": "Implementation of the frozen block-input x̂ mechanism that preserves the block-input embeddings for locked positions at their lock-time values, ensuring consistent hidden state pass-through for locked rows across subsequent transformer layers and steps."
+},
+{
+"id": 8,
+"name": "Algorithmic FLOPs Calculator",
+"description": "Computation of algorithmic FLOPs for both baseline and SureLock configurations, counting GEMM operations (Q/K/V/Out projections, QK^T and AV attention matmuls, FFN sublayers) per step with temporal dynamics for SureLock based on the shrinking active position count M_t relative to total tokens N."
+},
+{
+"id": 9,
+"name": "Data Preprocessing Pipeline",
+"description": "Preprocessing for WikiText-103 (removing blank lines, extracting fixed-length prompts for continuation generation) and MT-Bench (applying chat templates with the LLaDA-8B-Instruct tokenizer), producing tokenized inputs ready for the diffusion sampler."
+},
+{
+"id": 10,
+"name": "Continuation Generation Evaluator",
+"description": "Evaluation of language modeling quality on WikiText-103 continuation generation using Gen.-PPL measured by an external autoregressive model (LLaMA-3-8B), computing micro-averaged negative log-likelihood and perplexity over generated continuations."
+},
+{
+"id": 11,
+"name": "Instruction Following Evaluator",
+"description": "Evaluation of LLaDA-8B-Instruct on MT-Bench single-turn instruction following using the LLM-as-a-judge framework with gpt-4o, producing overall and per-category scores comparing baseline and SureLock outputs."
+},
+{
+"id": 12,
+"name": "Code Generation Evaluator",
+"description": "Evaluation on HumanEval code generation benchmark, executing generated code against unit tests in a sandbox environment to compute Pass@1, serving as a stringent test of whether premature locking induces harmful failures in structured output."
+},
+{
+"id": 13,
+"name": "Runtime Throughput Profiler",
+"description": "Measurement of end-to-end tokens-per-second (E2E-TPS) across batches and step-wise TPS dynamics using CUDA event synchronization, capturing the wall-clock decoding throughput including all inter-batch gaps and host/device launch overheads."
+},
+{
+"id": 14,
+"name": "Theoretical Bound Validator",
+"description": "Empirical validation of Theorem 1 assumptions and error bounds, including verification of geometric tail contraction (Assumption A2) by visualizing step-wise KL dynamics, and measurement of the log-probability deviation between locked and unlocked runs to confirm the C_tail * sqrt(ε) bound relationship."
+},
+{
+"id": 15,
+"name": "Ablation and Sensitivity Framework",
+"description": "Systematic sweep over key hyperparameters (KL threshold ε, confidence gate percentile m, generation length N_gen, number of sampling steps S, batch size B) to quantify trade-offs between computational savings and generation quality, including the ε-optimization study for short-generation settings."
+},
+{
+"id": 16,
+"name": "Selection-Based Baseline Comparator",
+"description": "Implementation of a surrogate selection-based method (inspired by DLLM-Cache) that computes only a fixed fraction k of active token positions per step, used to demonstrate orthogonality and combinability with SureLock by running standalone, combined, and comparison configurations."
+},
+{
+"id": 17,
+"name": "Optional Unlocking Mechanism",
+"description": "Implementation of the periodic budgeted probing for locked positions (Appendix M), including proxy uncertainty computation, distributional drift detection from lock-time posteriors, conditional unlocking with cool-down and stricter re-locking thresholds, to handle rare context shifts that render cached posteriors stale."
+}
+]
+}

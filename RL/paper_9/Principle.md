@@ -1,0 +1,62 @@
+**Principle 1: Theoretical-Empirical Coherence of Improvement-Potential Metrics in Heterogeneous Multi-Task RL Curricula**
+
+**Definition:**  
+In multi-task reinforcement learning for tool-augmented LLMs, curriculum learning strategies must be grounded in measurable, theoretically justified metrics that directly correlate with learning signal strength, such as gradient variance bounds derived under Bernoulli or related reward distributions. It is insufficient to rely solely on intuitive heuristics such as difficulty-based progression or coarse accuracy bins, because these may conflate samples with very different empirical correctness rates and thus unequal training contributions. Reviewers expect formal analysis demonstrating why certain samples maximize policy updates—for instance, by proving that gradient magnitude scales with p(1−p)—alongside targeted experiments that empirically validate these predictions. Such experiments should explicitly compare training on high-signal samples (e.g., balanced success/failure) versus low-signal extremes while controlling for dataset size, confirming that the former yields larger effective gradients or faster convergence. Furthermore, the work must clearly distinguish between performance gains caused by the curriculum mechanism itself and those arising from increased data diversity or prolonged training. This theoretical-empirical coherence ensures that curriculum design is treated as a rigorous, reproducible algorithmic contribution rather than an ad-hoc engineering trick that happens to work on a specific benchmark.
+
+**Core Evaluation Criteria:**
+- **Analytical Tractability**: Does the work derive formal bounds or closed-form expressions linking sample properties (e.g., correctness rate variance) to gradient magnitude or update quality?
+- **Direct Empirical Validation**: Are there experiments explicitly comparing training on high-signal (e.g., p≈0.5) versus low-signal samples while controlling for dataset size and composition, to verify the theoretical claim?
+- **Mechanistic Clarity**: Does the work clearly distinguish between surface-level performance gains and the underlying curriculum mechanism, avoiding post-hoc rationalization?
+- **Robustness to Distribution Shift**: Is the curriculum framework validated under varying task heterogeneity and reward sparsity levels to ensure the theoretical insights generalize beyond a narrow experimental setting?
+
+---
+
+**Principle 2: Controlled Disentanglement of Data Synthesis, Base Model, and Algorithmic Contributions in RL Pipelines**
+
+**Definition:**  
+When research involves synthetic trajectory generation for supervised fine-tuning followed by RL optimization, reviewers must be able to isolate the marginal contribution of each design decision—such as data curation strategies, prompt-format diversity, and base model selection—from confounding factors. A prevalent failure mode in this subfield is comparing a fully tuned pipeline against off-the-shelf baselines that lack exposure to the same synthetic data or inference-time affordances, creating an apples-to-oranges evaluation that inflates apparent methodological gains. High-quality work must therefore provide systematic ablations that toggle each design variable independently, including experiments that retain incorrect synthetic trajectories, remove prompt diversity, or eliminate multi-turn structure to quantify their individual impacts. Additionally, fair baseline comparisons should expose control models to identical constructed datasets and training budgets under standardized inference protocols, ensuring that observed improvements stem from algorithmic novelty rather than data quantity or quality advantages. Transparent reporting of performance variance across repeated runs is equally critical, as it distinguishes genuine architectural improvements from spurious effects caused by random initialization or dataset memorization. Ultimately, this disentanglement establishes whether the proposed method provides transferable insights or merely reflects optimized data engineering.
+
+**Core Evaluation Criteria:**
+- **Data Ablation Rigor**: Are there systematic ablations isolating the impact of synthetic data properties (e.g., correctness filtering, multi-turn emphasis, prompt diversity) on final performance and training stability?
+- **Base Model Fairness**: Do comparisons across model families control for base capability, and are within-family progressive ablations (base → +SFT → +RL) reported to disentangle component effects?
+- **Baseline Parity**: Are strong baselines fine-tuned on the same constructed datasets under identical inference protocols to ensure observed gains stem from the proposed method rather than data exposure alone?
+- **Variance Reporting**: Do ablations report performance variance across runs to distinguish genuine architectural improvements from noise or dataset memorization?
+
+---
+
+**Principle 3: Cross-Domain Generalization and Cross-Algorithm Robustness in Code-Interpreter RL Training**
+
+**Definition:**  
+For frameworks aiming to train general-purpose code interpreters, evaluation must rigorously test whether capabilities transfer beyond the training task distribution and whether the core training recipe remains effective under alternative RL optimizers. Training and testing on random splits from the same benchmark suite risks conflating in-distribution memorization with genuine reasoning acquisition, especially when tasks share similar linguistic or structural patterns; therefore, leave-one-benchmark-out or entirely unseen task evaluations are essential to validate true generalization. Similarly, demonstrating that a curriculum or tool-integration strategy works exclusively with a single RL algorithm—for example, GRPO—severely limits its claimed generality and raises concerns about hidden algorithm-specific biases or hyperparameter couplings. Strong work should therefore validate core innovations across multiple policy-gradient variants, such as PPO and Reinforce++, showing consistent performance trends. Furthermore, the benchmark suite must span diverse reasoning modalities—including mathematical, logical, spatial, and planning challenges—with sufficient per-task sample sizes to prevent overfitting to idiosyncratic dataset features. Comprehensive cross-domain and cross-algorithm validation elevates a method from a narrow, brittle training recipe to a broadly applicable contribution to tool-augmented LLM research.
+
+**Core Evaluation Criteria:**
+- **Out-of-Distribution Validation**: Does the work include leave-one-suite or entirely novel benchmark evaluations to demonstrate cross-domain generalization rather than same-source overfitting?
+- **Cross-Algorithm Compatibility**: Are the proposed techniques (e.g., curriculum partitioning, reward shaping) validated across multiple RL algorithms such as PPO, GRPO, and Reinforce++?
+- **Task Heterogeneity Coverage**: Does the benchmark span diverse reasoning modalities (mathematical, logical, spatial, planning) with sufficient sample sizes to prevent dataset-specific overfitting?
+- **Emergent Capability Assessment**: Are emergent behaviors (e.g., self-checking, adaptive tool switching) evaluated on held-out tasks to confirm they arise from generalizable policies rather than task-specific heuristics?
+
+---
+
+**Principle 4: System-Level Efficiency and Scalability of Decoupled Tool-Execution Architectures in RL Loops**
+
+**Definition:**  
+Integrating external tool execution, such as Python interpreters, into RL training loops introduces severe system bottlenecks because code execution is CPU-bound and I/O-intensive, causing prolonged GPU idle periods that degrade throughput and inflate wall-clock training costs. Research in this subfield must therefore demonstrate efficient system architectures—such as sandboxed CPU execution clusters, asynchronous dispatch queues, or batched result retrieval mechanisms—that decouple gradient computation from tool invocation without destabilizing the RL optimization process. Claims of efficiency gains must be substantiated with quantitative evidence including end-to-end wall-clock time measurements, GPU utilization percentages, and throughput comparisons relative to naive synchronous on-GPU execution baselines. The execution backend must also support parallel batch processing and robust fault isolation, employing per-script timeouts and memory limits to prevent individual runaway executions from stalling entire training steps. Critically, authors should verify that decoupling execution does not alter RL optimization dynamics, for example by demonstrating comparable reward distributions and convergence trajectories between synchronous and asynchronous setups. Transparent reporting of computational budgets—such as total GPU hours, number of auxiliary CPU nodes, and average execution latency per batch—enables reproducibility and informs practical adoption decisions.
+
+**Core Evaluation Criteria:**
+- **Training Throughput Evidence**: Are quantitative measurements of end-to-end training time reduction and GPU utilization improvement provided (e.g., wall-clock hours, utilization percentages)?
+- **Architectural Scalability**: Does the execution backend support parallel batch processing and fault isolation (e.g., timeouts, memory limits) to prevent individual failures from stalling the entire training step?
+- **Optimization Fidelity**: Is there evidence that decoupling execution from gradient computation does not alter the RL optimization dynamics (e.g., identical reward distributions and convergence curves compared to a synchronous baseline)?
+- **Cost Transparency**: Are computational costs (GPU hours, number of CPU nodes, execution latency per batch) reported transparently to enable reproducibility and practical adoption?
+
+---
+
+**Principle 5: Behavioral Safety and Reward-Hacking Resistance in Multi-Turn Tool-Use Policies Under RL**
+
+**Definition:**  
+When RL-tuned LLMs are empowered to invoke external tools across multiple turns, they frequently exhibit degenerate behaviors such as format exploitation, excessive or minimal tool calls to game penalty terms, or looping interactions that optimize proxy rewards without substantive task progress. Reviewers expect comprehensive behavioral diagnostics that extend far beyond aggregate accuracy to characterize how models allocate reasoning turns, balance code generation against textual reasoning, and develop genuinely useful strategies like self-verification versus superficial reward-hacking patterns. This requires rigorous sensitivity analyses on reward component weightings—particularly the relative magnitudes of outcome correctness, format compliance, and turn-efficiency penalties—to demonstrate that training dynamics are stable and that models do not overfit to secondary objectives. Quantitative tracking of per-turn statistics, including code-call frequency distributions, self-checking rates, and per-turn response length trajectories, provides essential visibility into policy evolution. Qualitative case studies and automated failure classifications—such as detecting ignored execution outputs, infinite loops, or degenerate hard-coded scripts—are necessary to expose limitations and guide future mitigation strategies. A thorough behavioral safety analysis ensures that reported gains reflect robust reasoning improvements rather than brittle policy artifacts that would fail under real-world deployment conditions.
+
+**Core Evaluation Criteria:**
+- **Reward Sensitivity Analysis**: Are learning curves and final performance reported under varying reward weightings (e.g., outcome vs. format vs. turn-efficiency penalties) to demonstrate robustness to hyperparameters?
+- **Behavioral Metric Tracking**: Does the work quantitatively track emergent behaviors such as code-call frequency, self-checking rates, per-turn response length evolution, and premature termination patterns?
+- **Reward-Hacking Detection**: Are there explicit checks or ablations designed to reveal exploitation of reward shortcuts (e.g., optimizing format rewards while ignoring correctness, avoiding multi-turn reasoning to evade penalties)?
+- **Qualitative Failure Diagnostics**: Does the paper provide illustrative examples or automated classifications of failure cases (e.g., infinite loops, ignored tool outputs, degenerate code generation) to demonstrate understanding of model limitations?

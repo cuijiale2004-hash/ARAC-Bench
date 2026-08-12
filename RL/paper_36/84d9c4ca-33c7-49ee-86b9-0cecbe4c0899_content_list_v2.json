@@ -1,0 +1,2882 @@
+[
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "ABSTRACT"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                450,
+                273,
+                547,
+                289
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Supervised Fine-Tuning (SFT) and Reinforcement Learning (RL) are two prominent post-training paradigms for refining the capabilities and aligning the behavior of Large Language Models (LLMs). Existing approaches that integrate SFT and RL often face the risk of disrupting established response patterns and inducing overfitting to expert data. To address this, we present a novel investigation into the unified view of SFT and RL through an off-policy versus on-policy lens. We propose CHORD, a framework for Controllable Harmonization of On- and Off-Policy Reinforcement Learning via Dynamic Weighting, which reframes SFT not as a separate stage but as a dynamically weighted auxiliary objective within the on-policy RL process. Based on an analysis of off-policy expert data’s influence at both holistic and granular levels, we incorporate a dual-control mechanism in CHORD. Specifically, the framework first employs a global coefficient to holisti cally guide the transition from off-policy imitation to on-policy exploration, and then applies a token-wise weighting function that enables granular learning from the expert, which promotes on-policy exploration and mitigates disruption from off-policy data. We conduct extensive experiments across various practical tasks, providing empirical evidence that CHORD achieves a stable and efficient learning process. By effectively harmonizing off-policy expert data with on-policy exploration, CHORD demonstrates significant improvements over baselines. We release the implementation to inspire further research."
+                    }
+                ]
+            },
+            "bbox": [
+                228,
+                306,
+                767,
+                585
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "1 INTRODUCTION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                174,
+                614,
+                338,
+                630
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Large Language Models (LLMs) have demonstrated remarkable capabilities in a wide array of applications (Yang et al., 2024b; Zhang et al., 2025a; Mialon et al., 2023; Gao et al., 2024). Such significant progress can be largely attributed to two critical post-tuning paradigms that enhance the performance of LLMs in real-world scenarios, i.e., Supervised Fine-Tuning (SFT) (Taori et al., 2023; Zhou et al., 2023) and Reinforcement Learning (RL) (Ouyang et al., 2022; Shao et al., 2024)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                646,
+                826,
+                718
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "These two paradigms present their pros and cons. SFT relies on high-quality expert trajectories to effectively mimic response patterns, which can be sensitive to the quality and quantity of expert data (Ye et al., 2025; Guha et al., 2025). Recent studies also point out that SFT may struggle to generalize beyond mere memorization (Chu et al., 2025) and is vulnerable to exposure bias (Zhang et al., 2019). In contrast, RL encourages LLMs to actively explore, which enables better generalization through learning from direct feedback on their on-policy generations (Chu et al., 2025; Chen et al., 2025b). However, such explorations can sometimes be inefficient, leading to policy degradation caused by entropy collapse (Yu et al., 2025) or over-exploitation of suboptimal strategies."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                724,
+                826,
+                837
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "A prevalent and straightforward approach for integrating the strengths of SFT and RL while mitigating their weaknesses is the sequential SFT-then-RL paradigm (Liu et al., 2025b; Lambert et al., 2024). Intuitively, the expert’s reasoning patterns learned in SFT guide the RL exploration beyond local optima, and then the on-policy learning in RL mitigates exposure bias inherent in SFT and prevents overfitting to a limited set of static examples. However, empirical observations show that the SFTthen-RL paradigm does not consistently outperform the pure RL approach, as illustrated in Figure 1, which is also noted in recent studies (Zhang et al., 2025a; Chen et al., 2025b)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                842,
+                826,
+                900
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "Corresponding author. Email to {zwh434786, yaliang.li}@alibaba-inc.com"
+                    }
+                ]
+            },
+            "bbox": [
+                189,
+                909,
+                647,
+                924
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "1"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                503,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/083d66c203bf3ee894d980c0c9a2c511f0a59a723b130841404409d849b8027a.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 1: We train Qwen2.5-1.5B-Instruct on the Open-R1 dataset and evaluate the performance on a held-out validation set. These results show that the SFT-then-RL training paradigm can yield suboptimal performance compared to pure RL."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                187,
+                102,
+                468,
+                226
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/8d7968e80ce6099e37862b3a240762f975c116fb4cca1e2d91311f64b34a8202.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 2: We perform SFT on Qwen2.5- 7B-Instruct using expert data generated by Deepseek-R1. The observed learning curve (measured by accuracy on MATH-500) demonstrates a “shift-readapt-overfit” progression."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                513,
+                103,
+                792,
+                226
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                325,
+                826,
+                369
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this study, we make a further investigation and demonstrate that such suboptimal performance may arise from training on expert data that significantly diverges from the model’s established patterns. As illustrated in Figure 2, the learning curve reveals a “shift-readapt-overfit” progression consisting of three distinct phases. Firstly, there is an initial disruption in capability due to the sudden policy shift, which is followed by a readaptation phase during which the model adapts to the expert’s patterns and recovers performance. Finally, we observe that the model eventually overfits the expert data. These observations highlight that while expert data can bring new capabilities, it may also disrupt established patterns and induce overfitting during the training process."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                375,
+                826,
+                489
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Drawing upon these insights, we unify SFT and RL through the lens of off-policy versus on-policy learning. The SFT process is reframed not as a separate tuning stage, but as a dynamically weighted auxiliary objective within the on-policy RL process. We further design CHORD, a framework for Controllable Harmonization of On- and Off-Policy Reinforcement Learning via Dynamic Weighting. CHORD features a global coefficient µ for controlling the overall influence of expert data throughout the training process, and a fine-grained weighting function ϕ(·) that helps maintain stability via down-weighting highly divergent tokens from off-policy data that could disrupt on-policy training."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                493,
+                826,
+                593
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Our contributions can be summarized as follows:"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                597,
+                496,
+                613
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• We provide a systematic and in-depth analysis of the training dynamics when employing a separate SFT process to integrate off-policy expert knowledge into models with established policies. We identify the “shift-readapt-overfit” progression, revealing how off-policy data can disrupt the established response patterns of LLMs."
+                    }
+                ]
+            },
+            "bbox": [
+                192,
+                625,
+                826,
+                683
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• We propose CHORD, a novel framework that unifies SFT and RL via a dynamically weighted auxiliary loss, which consists of a global coefficient µ and a token-wise weighting function ϕ(·). CHORD provides a fine-grained and flexible control of the influence of off-policy expert data while ensuring training stability, promoting a harmonious integration of learning from both off-policy expert demonstrations and the model’s on-policy exploration."
+                    }
+                ]
+            },
+            "bbox": [
+                192,
+                685,
+                826,
+                758
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• Extensive experiments demonstrate that CHORD outperforms the SFT-then-RL paradigm and existing approaches. We provide both quantitative and qualitative analyses to show that CHORD strategically navigates training dynamics to selectively absorb expert knowledge without stifling the model’s reasoning capabilities, highlighting its superiority and effectiveness."
+                    }
+                ]
+            },
+            "bbox": [
+                192,
+                760,
+                826,
+                818
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2 PRELIMINARIES"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                835,
+                341,
+                852
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The post-tuning of Large Language Models (LLMs) involves optimizing their policy, denoted by π<sub>θ</sub> and parameterized by θ, to generate desirable responses. This typically follows two paradigms: Supervised Fine-Tuning (SFT), an off-policy paradigm driven by a static dataset of expert demonstrations; and Reinforcement Learning (RL), an on-policy paradigm guided by dynamic feedback."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                867,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "2"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Specifically, SFT adjusts the policy "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to mimic a high-quality, static dataset of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "N"
+                    },
+                    {
+                        "type": "text",
+                        "content": "expert demonstrations, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { D } _ { \\mathrm { { S F T } } } = \\{ ( \\boldsymbol { x } _ { i } , \\mathbf { \\bar { y } } _ { i } ^ { * } ) \\} _ { i = 1 } ^ { N }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Here, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "x _ { i }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is a prompt and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\bar { y } _ { i } ^ { * } = \\bar { ( } y _ { i , 1 } ^ { * } , \\ldots , y _ { i , | y _ { i } ^ { * } | } ^ { * } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the corresponding expert response with "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\lvert y _ { i } ^ { * }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "| tokens. The SFT objective is to minimize the negative log-likelihood of expert responses, typically optimized with an empirical estimate from a mini-batch of size B:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                104,
+                826,
+                165
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {L} _ {\\mathrm{SFT}} (\\theta) = - \\frac {1}{\\sum_ {i = 1} ^ {B} | y _ {i} ^ {*} |} \\sum_ {i = 1} ^ {B} \\sum_ {t = 1} ^ {| y _ {i} ^ {*} |} \\log \\pi_ {\\theta} (y _ {i, t} ^ {*} | x _ {i}, y _ {i, <   t} ^ {*}).\\tag{1}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/574fef860c817a04d449ed357350c748ed1d788c153aceb6e244c1b285f0524d.jpg"
+                }
+            },
+            "bbox": [
+                318,
+                172,
+                676,
+                215
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In contrast, RL optimizes policy "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "by maximizing expected reward "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "R ( \\tau )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "from a generated trajectory "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\boldsymbol { \\tau } } = ( x , y ^ { * } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Group Relative Policy Optimization (GRPO) (Shao et al., 2024) suggests sampling "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\dot { K }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "responses "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{ \\tau _ { 1 } , \\dots , \\tau _ { K } \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "from a policy "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\mathrm { s a m p l e } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "when given a prompt x. Each response "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\tau _ { k }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is evaluated with the reward function "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "R ( \\tau _ { k } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is updated to maximize a PPO-style clipped surrogate objective. Consistent with recent studies (Hu et al., 2025a; Yu et al., 2025; Chen et al., 2025a), our formulation does not include the KL divergence term to avoid restricting performance of LLMs. The objective function can be formulated as:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                229,
+                826,
+                328
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {L} _ {\\mathrm{GRPO}} (\\theta) = - \\frac {1}{\\sum_ {i = 1} ^ {\\hat {B}} \\sum_ {k = 1} ^ {K} | \\tau_ {i , k} |} \\sum_ {i = 1} ^ {\\hat {B}} \\sum_ {k = 1} ^ {K} \\sum_ {t = 1} ^ {| \\tau_ {i, k} |} \\min \\left(r _ {i, k, t} (\\theta) A _ {i, k}, \\operatorname{clip} \\left(r _ {i, k, t} (\\theta), 1 - \\epsilon , 1 + \\epsilon\\right) A _ {i, k}\\right),\\tag{2}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/f0a88f1156e551d024ad522bdfe99fc8934c21c3d70032febc9bcea83925b340.jpg"
+                }
+            },
+            "bbox": [
+                171,
+                335,
+                826,
+                381
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat { B }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the number of prompts in the mini-batch and ϵ is the clipping hyper-parameter. The advantage "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "A _ { k }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for each response is computed by "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\begin{array} { r } { A _ { k } = \\frac { R ( \\tau _ { k } ) - \\mu _ { \\mathcal { R } } } { \\sigma _ { \\mathcal { R } } + \\epsilon _ { z } } } \\end{array}"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu _ { \\mathcal { R } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\sigma _ { \\mathcal { R } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "are the mean and standard deviation of rewards "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{ R ( \\tau _ { k } ) \\} _ { k = 1 } ^ { K }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "within the group, and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\epsilon _ { z }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is a small constant for stability. Here "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\begin{array} { r } { r _ { i , k , t } ( { \\boldsymbol { \\theta } } ) \\triangleq \\frac { \\pi _ { { \\boldsymbol { \\theta } } } \\left( \\tau _ { i , k , t } | x , \\tau _ { i , k , < t } \\right) } { \\pi _ { \\mathrm { s a m p l e } } \\left( \\tau _ { i , k , t } | x , \\tau _ { i , k , < t } \\right) } } \\end{array}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denotes the token-wise Importance Sampling (IS) ratio, which re-weights the probability of actions sampled under "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\mathrm { s a m p l e } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to simulate on-policy sampled distribution. For a “strict on-policy setup” (Liu et al., 2025b) that "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\mathrm { s a m p l e } } = \\pi _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", this ratio should always be 1, and the gradient of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "r _ { i , k , t } ( \\theta )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "should be equivalent to "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\nabla _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "log "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi \\dot { \\rho } ( \\tau _ { i , k , t } ^ { * } | x _ { i } , \\tau _ { i , k , < t } ^ { * } )"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                398,
+                826,
+                513
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3 CHORD: HARMONIZING OFF-POLICY AND ON-POLICY LEARNING"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                531,
+                759,
+                547
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.1 THE SHIFT-READAPT-OVERFIT PROGRESSION WHEN UTILIZING OFF-POLICY DATA"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                561,
+                797,
+                578
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Before introducing CHORD, we first take a close look at the training dynamics of the SFT process, revealing how training on off-policy expert data can disrupt the established response patterns of LLMs. Such disruption ultimately leads to the failure of the SFT-then-RL paradigm (Zhang et al., 2025a; Chen et al., 2025b), as evidenced by the results in Figure 1."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                589,
+                826,
+                647
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We train Qwen2.5-7B-Instruct (Yang et al., 2024a) on expert data generated by Deepseek-R1 (Guo et al., 2025) and monitor the changes in test accuracy on the MATH-500 dataset. From the experimental results shown in Figure 2, we observe that model performance declines during the first few epochs, followed by a continuous increase to a level higher than that before training, and then a slight subsequent decrease. The performance curve reveals a “shift-readapt-overfit” progression:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                651,
+                826,
+                724
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• Policy Shift: The performance initially declines since the model is forced to follow offpolicy expert demonstrations whose response patterns are significantly different, disrupting its established response patterns and causing a significant performance drop. Such degradation is further exacerbated by exposure bias (Zhang et al., 2019; Schmidt, 2019), as the model, trained exclusively on ground-truth expert data, struggles to navigate the self-generated contexts it encounters during inference."
+                    }
+                ]
+            },
+            "bbox": [
+                204,
+                733,
+                826,
+                818
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• Readapt: As SFT continues, the model policy "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "begins to integrate the expert’s response patterns and generates responses similar to those of the expert. The exposure bias can be mitigated by reducing the reliance on the model’s response patterns, thereby allowing its performance to rise steadily as it adapts to the expert’s response patterns."
+                    }
+                ]
+            },
+            "bbox": [
+                204,
+                821,
+                825,
+                878
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• Overfit: Extended training on the limited expert data ultimately leads to overfitting, resulting in a decline in generalization and a significant loss of output diversity. Such overfitting can also restrict the exploratory capacity that is crucial for the following RL optimization."
+                    }
+                ]
+            },
+            "bbox": [
+                204,
+                882,
+                825,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "3"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/95add3f204d47a821e551b75df508fc64687c91b789d5f3d0be16a5d326caac0.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 3: An overview of the proposed CHORD framework that unifies SFT and RL, featuring a "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { g }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "lobal coefficient "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and a token-wise weighting function ϕ(·)."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                196,
+                111,
+                781,
+                271
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The observed progression makes it challenging to control the influence of off-policy expert data. The SFT-then-RL paradigm demands careful timing for the SFT-to-RL transition, and even then, such a two-stage paradigm may still yield suboptimal solutions due to the inherent separation of the training phases. This highlights the limitations and fragility of the SFT-then-RL paradigm, especially when expert data’s response patterns significantly diverge from the model’s established response patterns."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                334,
+                826,
+                406
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Drawing upon the above insights, we propose CHORD, a novel framework that effectively unifies SFT and RL. The proposed framework consists of a dual-control mechanism. We first introduce a dynamic loss coefficient to balance learning from on- and off-policy data (refer to Section 3.2), then further design a token-wise weighting function that provides fine-grained stability control (refer to Section 3.3). The overall architecture of CHORD is shown in Figure 3."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                411,
+                826,
+                483
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.2 CONTROLLING THE INFLUENCE OF OFF-POLICY EXPERT DATA VIA µ"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                498,
+                696,
+                513
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Firstly, in order to control the influence of off-policy expert data, we propose to reframe SFT as a dynamically weighted auxiliary objective within the on-policy RL process, rather than a separate tuning stage as in the SFT-then-RL paradigm. Specifically, we design a combined loss function that minimizes a weighted sum of the RL and SFT losses:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                523,
+                826,
+                580
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {L} _ {\\text { Hybrid }} (\\theta) = (1 - \\mu) \\mathcal {L} _ {\\text { GRPO }} (\\theta) + \\mu \\mathcal {L} _ {\\text { SFT }} (\\theta),\\tag{3}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/eba1aad465e0c6d72136741489b731831ec62a7e90c3882a84f8797772bc932c.jpg"
+                }
+            },
+            "bbox": [
+                351,
+                587,
+                645,
+                604
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\mathcal { L } } _ { \\mathrm { G R P O } } ( \\theta )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the empirical GRPO loss defined in equation "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "2 , { \\mathcal { L } } _ { \\mathrm { S F T } } ( \\theta )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the SFT loss defined in equation 1, and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu \\in [ 0 , \\bar { 1 } ]"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is a hyperparameter that governs the trade-off between SFT and RL."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                609,
+                823,
+                638
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "If using a fixed value of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": "the influence of the off-policy expert data remains unchanged throughout the entire post-tuning process. An advanced strategy, however, is to change "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for achieving a dynamic balance between off-policy and on-policy learning. For example, the SFT-then-RL pipeline can be regarded as a special case with a binary schedule (initially setting "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu = 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and then transitioning to "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu = 0 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Moreover, previous studies (Ma et al., 2025; Gao et al., 2025) that utilize interleaved SFT and RL can be interpreted as employing a periodic "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu"
+                    },
+                    {
+                        "type": "text",
+                        "content": "schedule."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                645,
+                826,
+                729
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Moving a step forward, applying a decay schedule of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\dot { \\mu }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "provides a more graceful and flexible transition from off-policy imitation to on-policy optimization compared to the rigid and binary switch. As shown in Figure 4, the training begins with a large "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu"
+                    },
+                    {
+                        "type": "text",
+                        "content": "value, encouraging the model to learn more from off-policy expert data. As training progresses, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu"
+                    },
+                    {
+                        "type": "text",
+                        "content": "gradually decays to a smaller value, shifting the training focus towards on-policy exploration and annealing the influence of the off-policy expert data before overfitting on them. Such a decay schedule has also proven successful in mitigating exposure bias (Zhang et al., 2019). Inspired by scheduled sampling (Bengio et al., 2015), we generalize the principle of mixing expert and self-generated data from the token level to the loss formulation, effectively bridging the distributional gap between training on off-policy samples and performing on-policy rollouts."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                734,
+                826,
+                877
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Beyond the Loss Coefficient "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu"
+                    },
+                    {
+                        "type": "text",
+                        "content": "Empirical comparisons (refer to Section 4 for more details) demonstrate that applying a decay schedule to "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu"
+                    },
+                    {
+                        "type": "text",
+                        "content": "yields notable performance gains over the SFT-then-RL paradigm. At the same time, two key observations motivate us to extend beyond "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu ."
+                    },
+                    {
+                        "type": "text",
+                        "content": "."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                881,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "4"
+                    }
+                ]
+            },
+            "bbox": [
+                491,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/cb0e48d11e0b1eb5cb5bc64b713d2aacaa106d34a0a5a3d51fb146dee2f56cb6.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 4: Decaying the value of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu"
+                    },
+                    {
+                        "type": "text",
+                        "content": "enables a smooth transition from off-policy imitation to on-policy optimization."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                218,
+                103,
+                473,
+                234
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/611b538085ff07fc9ccb09e6cf7af15e4dc4d66e85bfa8e83b6db4fe7b9ff0fd.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 5: Comparisons of entropy loss between pure RL and mixed RL that integrates expert data (with or without the IS strategy)."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                522,
+                104,
+                774,
+                232
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Firstly, as shown in Figure 4, the learning curve still reveals a “shift-readapt” progress, where the reward initially declines before subsequently increasing. These observations indicate that, despite improvements in performance, learning from off-policy expert data might still disrupt established patterns and stifle the model’s capacity for genuine exploration during on-policy training."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                305,
+                825,
+                364
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Secondly, the response patterns of the model trained with CHORD- "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "- \\mu"
+                    },
+                    {
+                        "type": "text",
+                        "content": "(as shown in Appendix E) appear to converge to those of the expert model. Case studies reveal that CHORD-µ compels the model to adopt the expert’s verbose response pattern wholesale, hence overwriting its own inherent conciseness. This indicates that while "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu"
+                    },
+                    {
+                        "type": "text",
+                        "content": "controls the overall influence of expert data, it lacks fine-grained precision. As a result, it forces the model to indiscriminately adopt expert patterns, which can create conflicts with its own established style."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                368,
+                826,
+                454
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Towards the goal of utilizing off-policy data as an incentive and guidance for the model to explore novel and effective reasoning paths, rather than merely as a target to imitate, we further integrate CHORD with a token-wise, fine-grained weighting function "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\phi ( \\cdot )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", forming a dual-control mechanism together with the global coefficient "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for controlling the influence of the off-policy expert data."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                459,
+                825,
+                517
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.3 ENHANCING THE STABILITY OF OFF-POLICY LEARNING VIA "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\phi ( \\cdot )"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                532,
+                665,
+                547
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "A feasible solution for controlling the influence of off-policy expert data from a fine-grained perspective is to differentiate the tokens based on their generation probabilities "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi ( y _ { t } ^ { * } | x , y _ { < t } ^ { * } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". For example, Importance Sampling (IS) (Schulman et al., 2017) has been widely used for stably integrating offpolicy data in RL, which suggests re-weighting the objective by the probability ratio between the target policy "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and the behavior policy "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\mathrm { s a m p l e } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "that generated the expert data. Formally, the objective function can be given as:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                558,
+                826,
+                642
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {L} _ {\\mathrm{SFT-IS}} (\\theta) = \\mathbb {E} _ {(x, y ^ {*}) \\sim \\mathcal {D} _ {\\mathrm{SFT}}} \\left[ - \\sum_ {t = 1} ^ {| y ^ {*} |} \\mathrm{sg} \\left(\\frac {\\pi_ {\\theta} (y _ {t} ^ {*} | x , y _ {<   t} ^ {*})}{\\pi_ {\\mathrm{sample}} (y _ {t} ^ {*} | x , y _ {<   t} ^ {*})}\\right) \\cdot \\log \\pi_ {\\theta} (y _ {t} ^ {*} | x, y _ {<   t} ^ {*}) \\right],\\tag{4}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/48dedbbf18b011fda02d0c62eb33562a2f4f7c5e0ab0ba7b26577eb83c47bed8.jpg"
+                }
+            },
+            "bbox": [
+                230,
+                647,
+                766,
+                694
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\operatorname { s g } ( \\cdot )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denotes the stop-gradient operator. Note that the probabilities "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\mathrm { s a m p l e } } ( y _ { t } ^ { * } | \\ldots )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for the expert data "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { D } _ { \\mathrm { S F T } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "are often unknown. Following the common practice (Yan et al., 2025; Wu et al., 2025), we assume that the denominator is 1, treating the expert data as the ground-truth distribution."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                700,
+                825,
+                744
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "From a token-wise perspective, IS enhances training stability by down-weighting low-probability tokens that could disrupt the established policy. As empirical observations shown in Figure 5, mixing off-policy data without IS leads to a sharp rise in entropy, which implies that the model’s established patterns are quickly disrupted by the unweighted off-policy data. However, we notice that IS can lead to a sharp collapse in policy entropy compared to pure RL, which implies that it can limit the exploration essential for the RL phase and trap the model in a stable but suboptimal solution. The underlying reason is that IS prevents disruptive shifts in the policy distribution by down-weighting low-probability tokens, but it also aggressively reinforces existing high-probability tokens while ignoring novel but low-probability ones, thus causing the policy to become overconfident."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                750,
+                826,
+                876
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Stabilize Off-policy Data Training with "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\phi ( \\cdot )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "To tackle this, we propose a fine-grained, per-token weighting function "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\phi ( { \\boldsymbol { y } } _ { t } ^ { * } ; { \\boldsymbol { \\pi } } _ { \\boldsymbol { \\theta } } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "that down-weights the learning signal for tokens at both ends of the probability spectrum, i.e., down-weighting those tokens that are highly probable (to prevent entropy collapse) or extremely improbable (to avoid disruption). More specifically, the weight for a given expert token is defined based on the policy’s probability "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { t } = \\pi _ { \\theta } ( y _ { t } ^ { * } | x , y _ { < t } ^ { * } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", as follows:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                881,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "5"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                825,
+                133
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\phi (y _ {t} ^ {*}; \\pi_ {\\theta}) = p _ {t} (1 - p _ {t}),\\tag{5}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/95d5d6c7c2095113d854d87bd7a779ea0824f7541b5248bba50e94b1e5de5bb2.jpg"
+                }
+            },
+            "bbox": [
+                415,
+                137,
+                580,
+                152
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "which naturally forms a parabolic curve that peaks at "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { t } = 0 . 5"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and decays to zero as "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "approaches 0 or 1. The SFT objective function can be updated as:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                156,
+                825,
+                185
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {L} _ {\\mathrm{SFT-} \\phi} (\\theta) = - \\mathbb {E} _ {(x, y ^ {*}) \\sim \\mathcal {D} _ {\\mathrm{SFT}}} \\left[ \\sum_ {t = 1} ^ {| y ^ {*} |} \\phi (y _ {t} ^ {*}; \\pi_ {\\theta}) \\cdot \\log \\pi_ {\\theta} (y _ {t} ^ {*} | x, y _ {<   t} ^ {*}) \\right],\\tag{6}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/8806b49404dd2c7093d7b8d1b50dfe52f4ccbcab28ede8be5bae6de075afeba2.jpg"
+                }
+            },
+            "bbox": [
+                282,
+                188,
+                714,
+                236
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\phi ( { \\boldsymbol { y } } _ { t } ^ { * } ; { \\boldsymbol { \\pi } } _ { \\boldsymbol { \\theta } } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "modulates the gradient contribution of each token in the expert trajectory."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                239,
+                764,
+                256
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "From an information-theoretic perspective, the term "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { t } ( 1 - p _ { t } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "can be viewed as a measure of the policy’s uncertainty (Wang et al., 2025) for the binary event of generating token "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\boldsymbol y } _ { t } ^ { * }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Therefore, this approach biases learning towards tokens where the policy is most uncertain, and creates a “learning sweet spot” that focuses the off-policy learning on tokens that are novel enough to be informative but not so divergent as to disrupt the established policy."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                262,
+                826,
+                334
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "By replacing the static "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\mathcal { L } } _ { \\mathrm { S F T } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "in the proposed hybrid loss function (defined in equation 3) with L<sub>SFT-ϕ</sub>, we obtain the final objective function of CHORD, which applies a global coefficient "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for adjusting the overall influence of expert data and a fine-grained weighting function "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\phi ( \\cdot )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "that helps enhance the stability when learning from off-policy data."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                339,
+                826,
+                397
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4 EXPERIMENTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                414,
+                328,
+                430
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.1 SETUP"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                445,
+                263,
+                459
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Datasets, Models, and Evaluations We conduct experiments on mathematical reasoning problems and practical tool-use tasks. (i) For mathematical reasoning problems, we utilize the OpenR1- Math-220k dataset (Hugging Face, 2025), from which we sample 5k instances for SFT and 20k for RL, ensuring no overlap. Our policy model is Qwen2.5-7B-Instruct, whose response patterns differ significantly from the expert (Deepseek-R1). We evaluate in-domain generalization performance on the AIME24, AIME25, and AMC benchmarks (Li et al., 2024), and use MMLU-Pro (Wang et al., 2024) to monitor the changes in general reasoning. (ii) For tool-use tasks, we conduct experiments on the single-turn instances of the ToolAce (Liu et al., 2024) dataset. We sample 5k instances for RL and 500 for SFT, for which the expert trajectories are generated by querying the Deepseek-R1 with the same system prompt. We use LLaMA3.2-3B-Instruct (Grattafiori et al., 2024) as our policy model, which also differs in response patterns from the expert (Deepseek-R1). We evaluate the model performance on BFCL (Patil et al., 2024)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                470,
+                826,
+                640
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Baselines We compare the proposed CHORD with a comprehensive set of baselines, including: (i) Original Model: The original Qwen2.5-7B-Instruct/LLaMA3.2-3B-Instruct model. (ii) SFT-only: The model fine-tuned on the SFT dataset. We focus on two specific configurations: SFT-light, trained for a single epoch, and SFT-best, the peak-performing checkpoint on the test set found by searching over different learning rates and training epochs. (iii) RL-only: The model fine-tuned directly on the RL dataset using the GRPO algorithm. (iv) SFT+RL: The sequential SFT-then-RL paradigm. (v) LUFFY<sup>1</sup> (Yan et al., 2025): A method that integrates expert demonstrations within GRPO rollout groups and reshapes the importance sampling ratio. (vi) SASR (Chen et al., 2025c): A method that probabilistically interleaves SFT and RL steps. It prioritizes SFT when the model’s outputs are dissimilar to expert demonstrations, adapting the training focus dynamically."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                645,
+                826,
+                786
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "For more details of the experimental setups, please refer to Appendix A."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                791,
+                648,
+                806
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.2 COMPARISONS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                821,
+                320,
+                835
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The proposed approaches implemented based on CHORD include (i) CHORD-µ: We employ a decay schedule for the loss coefficient "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to gradually transition from off-policy to on-policy learning, as detailed in Section 3.2; and (ii) CHORD-ϕ: We fix the value of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and further integrate the token-wise weighting function "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\phi ( \\cdot )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to achieve a dual-control mechanism on the influence of off-policy expert data, as introduced in Section 3.3."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                847,
+                826,
+                878
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "<sup>1</sup>For math reasoning problems, we utilize 20k samples for training, whereas the original paper utilizes 45k samples and achieves scores of 50.9 on AMC, 17.7 on AIME24, and 14.8 on AIME25. For tool-use tasks, LUFFY utilizes 5k SFT samples instead of 500."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                883,
+                826,
+                924
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "6"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/989f4a30f764762c3b94640319b2772612a8e34a0c0405c75a2a170856d8082e.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 1: Performance comparisons on reasoning problems and tool-use tasks."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\"></td><td colspan=\"4\">Math &amp; General Reasoning Problems</td><td colspan=\"3\">Tool-use Tasks</td></tr><tr><td>AMC</td><td>AIME24</td><td>AIME25</td><td>MMLU-Pro</td><td>BFCL Live</td><td>BFCL Non-live</td><td>BFCL Overall</td></tr><tr><td>Original Model</td><td>43.8</td><td>11.7</td><td>6.66</td><td>24.7</td><td>50.9</td><td>39.9</td><td>46.2</td></tr><tr><td>SFT-light</td><td>42.5</td><td>8.54</td><td>7.80</td><td>28.0</td><td>30.8</td><td>38.4</td><td>34.0</td></tr><tr><td>SFT-best</td><td>55.9</td><td>15.8</td><td>15.2</td><td>38.4</td><td>59.2</td><td>84.2</td><td>69.8</td></tr><tr><td>SFT-light + RL</td><td>52.5</td><td>11.9</td><td>11.6</td><td>44.6</td><td>68.2</td><td>89.4</td><td>77.2</td></tr><tr><td>SFT-best + RL</td><td>58.4</td><td>17.1</td><td>16.3</td><td>51.3</td><td>67.4</td><td>87.9</td><td>76.1</td></tr><tr><td>SASR</td><td>54.0</td><td>12.7</td><td>11.1</td><td>45.1</td><td>66.0</td><td>86.5</td><td>74.7</td></tr><tr><td>CHORD-μ</td><td>60.8</td><td>18.1</td><td>17.9</td><td>43.3</td><td>69.4</td><td>88.6</td><td>77.6</td></tr><tr><td>GRPO (Pure RL)</td><td>52.1</td><td>13.2</td><td>8.54</td><td>45.8</td><td>68.5</td><td>88.8</td><td>77.1</td></tr><tr><td>LUFFY</td><td>52.8</td><td>16.6</td><td>14.3</td><td>44.0</td><td>67.2</td><td>88.0</td><td>76.1</td></tr><tr><td>CHORD-φ</td><td>62.5</td><td>18.2</td><td>17.2</td><td>56.2</td><td>69.9</td><td>90.2</td><td>78.5</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                210,
+                127,
+                787,
+                316
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                352,
+                825,
+                395
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Model Performance Overall, the comparisons summarized in Table 1 demonstrate the effectiveness and superiority of CHORD on both reasoning problems and tool-use tasks."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                401,
+                825,
+                431
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Specifically, the experimental results reveal a challenge within the SFT-then-RL paradigm. We notice that minimal tuning on off-policy data (SFT-light) degrades performance, and a more thorough SFT phase (SFT-best) achieves better results. However, the optimal timing for transitioning from SFT to RL can vary across different scenarios. For example, initiating RL from SFT-best yields superior performance on math reasoning problems, while SFT-light+RL performs better on tool-use tasks. This divergence confirms that the SFT-RL balance is highly task-dependent and needs extensive efforts for careful adjustment."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                436,
+                826,
+                535
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "These SFT-then-RL approaches are surpassed by CHORD-µ, which enables a smooth transition from off-policy to on-policy learning rather than a rigid switch. Specifically, CHORD-µ outperforms the strong SFT-best+RL baseline across all math reasoning benchmarks, achieving improvements of +2.4 on AMC, +1.0 on AIME24, and +1.6 on AIME25, respectively. Besides, CHORD-µ also achieves better overall results compared to these SFT-then-RL baselines on tool-use tasks. These results demonstrate the superiority of its unified learning design."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                541,
+                826,
+                627
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Further, CHORD-ϕ achieves consistent outperformance over the baselines. These results demonstrate the effectiveness of our dual-control mechanism in flexibly controlling the influence of off-policy expert data. CHORD-ϕ selectively applies the SFT loss to non-disruptive tokens, integrating expert knowledge without compromising foundational abilities. This enables robust learning from both off-policy expert data and on-policy exploration, leading to the best performance on both reasoning problems and tool-use tasks."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                631,
+                826,
+                715
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Response Patterns We further compare the influence of expert data (generated by DeepSeek-R1) on response patterns across different approaches. As shown in Table 2, expert responses are substantially longer than the original model’s on both math (6,132 vs. 659 tokens) and tool-use tasks (315 vs. 147 tokens). SFT models (SFT-light and SFT-best) initially mimic this verbosity. However, a subsequent RL can help mitigate the issues of overly lengthy responses by training the models to conduct on-policy exploration. The response length produced by SFT-light+RL is much shorter than that of SFT-best+RL (1,322/119 vs. 4,830/489 tokens), as fewer epochs of SFT allow the model to retain its original response patterns. Besides, from Figure 6, we can observe that CHORD-µ exhibits a similar trend, where the average response length initially increases to align with expert patterns and then gradually converges to a lower length as on-policy training progresses."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                722,
+                826,
+                864
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "On the other hand, Pure RL on instruct-tuned models lengthens math responses (from 659 to 1,423 tokens) while shortening them for tool-use (from 147 to 118 tokens). This suggests that the response pattern changes can be task-dependent: math problems benefit from detailed step-by-step reasoning, whereas tool-use tasks favor shorter, concise action sequences. Such task-dependent property also affects the SFT/RL synergy dynamics, as MATH tasks benefit from imitating an expert’s long and verbose reasoning via SFT, while such patterns can be detrimental to tool-use performance, a distinction further detailed in Appendix D.2. The result shows that the proposed CHORD-ϕ strikes a more nuanced balance: while it also learns to produce more comprehensive mathematical reasoning (2,444 tokens), it generates concise and efficient responses for tool-use tasks (120 tokens). This suggests that the token-wise weighting in CHORD-ϕ enables the model to selectively integrate patterns from those of expert data in a task-specific manner. Qualitative analysis shown in Appendix E also confirms the effectiveness of such a flexible design, suggesting that the proposed CHORD-ϕ can go beyond simply mimicking the expert, and learn to selectively absorb reasoning patterns from the expert, while exploring its own response strategies."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                867,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "7"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                946,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/6bf5e2a61ba01643df9daa4b5b776fba7c2c3026ac84353cbdeb2609a0265887.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 2: Average response length on math problems and tool-use tasks."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\"></td><td colspan=\"2\">Average Length</td></tr><tr><td>Math</td><td>Tool-use</td></tr><tr><td>Expert Data</td><td>6,132</td><td>315</td></tr><tr><td>Original Model</td><td>659</td><td>147</td></tr><tr><td>SFT-light</td><td>9,966</td><td>259</td></tr><tr><td>SFT-best</td><td>8,442</td><td>527</td></tr><tr><td>SFT-light + RL</td><td>1,322</td><td>119</td></tr><tr><td>SFT-best + RL</td><td>4,830</td><td>489</td></tr><tr><td>CHORD-μ</td><td>6,081</td><td>197</td></tr><tr><td>Pure RL</td><td>1,423</td><td>118</td></tr><tr><td>CHORD-φ</td><td>2,444</td><td>120</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                204,
+                148,
+                429,
+                304
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/97a5490a46b59979a10f30ca467ec4311e7a8d52b3d57b3121108e1cc2514a27.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                511,
+                103,
+                766,
+                186
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/831bdb3324b3a77483b68473358136cdccaa0a2cd003413d2e55d3485989a81a.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 6: Comparisons of average response length on math problems (top) and tool-use tasks (bottom)."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                511,
+                188,
+                767,
+                273
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                340,
+                826,
+                483
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.3 ANALYSIS ON THE EFFECTS OF "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu"
+                    },
+                    {
+                        "type": "text",
+                        "content": "AND "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\phi ( \\cdot )"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                500,
+                511,
+                513
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We provide analysis on the effects of the coefficient "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and the token-wise weighting function "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\phi ( \\cdot )"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                525,
+                815,
+                541
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Dynamic "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu"
+                    },
+                    {
+                        "type": "text",
+                        "content": "Versus Fixed "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu"
+                    },
+                    {
+                        "type": "text",
+                        "content": "In Figure 7, we compare the model performance when applying a dynamic schedule for "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu"
+                    },
+                    {
+                        "type": "text",
+                        "content": "(decreasing from 0.9 to 0.05 over the first 200 training steps and keeping unchanged in the following steps) against several fixed schedules in CHORD. We observe that applying a fixed "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu"
+                    },
+                    {
+                        "type": "text",
+                        "content": "consistently results in poorer performance compared to dynamic "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu ."
+                    },
+                    {
+                        "type": "text",
+                        "content": "This indicates that naively incorporating off-policy SFT data with a static weight does not effectively serve as a solution for simultaneously learning from off-policy data and on-policy exploration. In fact, it might fail to match Pure RL, which directly encourages an instruction model to follow its own reasoning patterns, highlighting the importance and necessity of controlling the influence of off-policy data."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                547,
+                826,
+                660
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Besides, while using a smaller value of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu \\ ( { \\bf e . g . } , 0 . 0 2 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "can mitigate the performance degradation compared to larger values (e.g., 0.1 and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "0 . 5 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", it does not provide a significant improvement over pure on-policy RL. With a fixed "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": "the model is consistently required to accommodate two potentially divergent reasoning patterns, which might pull it in different directions and prevent it from converging to a stable and high-performance state. The decay schedule for "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu"
+                    },
+                    {
+                        "type": "text",
+                        "content": "effectively resolves this conflict by creating a smooth transition from off-policy supervision to on-policy exploration."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                665,
+                826,
+                751
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We also explore a natural extension to adaptively adjust the loss weight "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu"
+                    },
+                    {
+                        "type": "text",
+                        "content": "based on on-policy rewards. Specifically, the weight is computed as "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu = \\mathrm { m a x } ( 0 , \\tau - \\mathrm { r e w a r d \\_ m e a n } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", which phases out the SFT loss on the expert data as performance improves. The experiment results in Appendix B.1 imply that an automated, reward-aware schedule for "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu"
+                    },
+                    {
+                        "type": "text",
+                        "content": "can work effectively but requires heavy hyper-parameter tuning, which further motivates the need for fine-grained control."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                756,
+                826,
+                827
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Training Curve of CHORD-ϕ In Figures 8 and 9, we compare the entropy loss and rewards of Pure RL with those of CHORD-ϕ (with fixed "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu = 0 . 1 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", to illustrate their training dynamics."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                832,
+                825,
+                862
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "From the changes in entropy loss, we can observe that by applying "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\phi ( \\cdot )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", the model maintains a great balance between exploration and exploitation while performing off-policy and on-policy learning simultaneously. On one hand, CHORD-ϕ prevents the entropy from collapsing prematurely, which may occur when the SFT loss forces the model to become over-confident on high-probability tokens from the expert data. On the other hand, it avoids large entropy spikes and training instability that may occur if the off-policy expert data drastically conflict with the current policy’s predictions, as the performance curve remains stable throughout the training process. The rewards curve indicates that CHORD-ϕ achieves a stable and continuous increase in rewards, resulting in significantly better performance than Pure RL. These results demonstrate that the proposed token-wise weighting function is crucial for effectively unifying the SFT and RL phases."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                867,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "8"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/414a7ff2ec4019a8b9cae8141c8e9c75ee0495fa9cafcc8a491ba7a915f7b46c.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                178,
+                102,
+                383,
+                209
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/78cfe409a97e509eaaa56017b6572d29bf920eab4631e9baf43b20890f694f1f.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                395,
+                102,
+                601,
+                209
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/5419c314bce2407c15fa11ff69c510ba32c3d0841c876e93be511aee67d0a55c.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 7: Reward versus train- Figure 8: Entropy loss versus Figure 9: Reward versus training step for CHORD-µ and vari- training step for CHORD-ϕ and ing step for CHORD-ϕ and baseous fixed-µ strategies. baseline methods. line methods."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                612,
+                101,
+                818,
+                209
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                292,
+                826,
+                378
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Tuning µ When Applying CHORD-ϕ Empirical observations show that, when "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\phi ( \\cdot )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is used for fine-grained control over the influence of expert data, a complex and decaying schedule for "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is no longer essential. CHORD-ϕ is effective to work with a fixed value for "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu ( \\mathrm { e . g . , 0 . 1 } "
+                    },
+                    {
+                        "type": "text",
+                        "content": "in this study) since it inherently prevents both token-level overfitting and the disruption of established response patterns. The design of ϕ(·) simplifies the practical usage of CHORD by making it robust to the specific choice of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu ."
+                    },
+                    {
+                        "type": "text",
+                        "content": "In Appendix B.7, we provide experiments on tuning the schedule of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu"
+                    },
+                    {
+                        "type": "text",
+                        "content": "in conjunction with ϕ(·)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                383,
+                826,
+                469
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Principle for Instantiating ϕ(·) It is worth noting that the proposed weight "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\phi ( \\cdot ) = p _ { t } * ( 1 - p _ { t } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "serves as a concrete and interpretable instantiation following a general principle: stabilizing off-policy integration requires down-weighting the learning signal for tokens at both ends of the probability spectrum. This instantiation is computationally efficient, requiring only element-wise multiplication of existing forward-pass probabilities. As grounded in our empirical observations, by assigning negligible weight to tokens that the policy is already certain about (where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is close to 0 or 1), the proposed method prevents off-policy data from disrupting the model’s established reasoning patterns and focuses updates on tokens where the model is still uncertain. Beyond the specific formulation of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\phi ( \\cdot )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", this general principle that enables stable and selective learning from off-policy data can potentially inspire more advanced weighting schemes that are suitable for different scenarios."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                473,
+                826,
+                614
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We also experiment with several variants of the token-weighting function (such as entropy-based variants, clipping variants, and focal loss), with detailed experiment results and discussions presented in Appendix B.2. We acknowledge that this "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\phi ( \\cdot )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "token-wise weighting design primarily illustrates a generalizable principle. While it is unlikely that a single universally optimal design exists across all tasks, datasets, and models, our empirical results confirm that our design nonetheless serves as a highly effective and robust instantiation."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                619,
+                826,
+                704
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.4 FURTHER ANALYSIS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                723,
+                357,
+                737
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Varying Expert Data Source We investigate the effect of using two different expert sources: the powerful DeepSeek-R1, and the weaker Qwen2.5-72B-Instruct, whose response pattern is closer to the LLaMA3.2-3B-Instruct policy model. Experimental results demonstrate that our proposed methods, CHORD-µ and CHORD-ϕ, outperform Pure RL and SFT+RL baselines regardless of the expert. We also observe that methods which rely more heavily on expert imitation (e.g., SFT+RL and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { C H O R D - } \\mu )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "can yield greater gains when the expert is stylistically similar to the policy model. This aligns with our insight: the effectiveness of unifying SFT and RL depends not only on expert data quality but also on the degree of pattern shift it introduces. For detailed results and discussion, please refer to Appendix B.3."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                750,
+                826,
+                876
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Extending to Non-verifiable Domains To test the generalizability of CHORD beyond verifiable tasks, we conduct experiments on RaR-Medicine, a medical question-answering dataset that lacks de terministic verification. The results show that both CHORD-µ and CHORD-ϕ significantly outperform pure RL. CHORD-ϕ achieves faster convergence and higher final rewards, while CHORD-µ exhibits a similar “shift-readapt” pattern as observed in the main experiments (Figure 10 in Appendix B.4). These findings validate that our approach successfully generalizes to more diverse, non-verifiable domains. Refer to Appendix B.4 for more details."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                881,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "9"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                826,
+                161
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Training Weaker Policy Models While the effectiveness of on-policy exploration (RL) is often limited for weaker models, our experiments reveal that their capability to absorb knowledge from expert data simultaneously degrades. Our experiment on Qwen2.5-3B-Instruct shows that due to this dual limitation, a weaker model tends more to suffer from a performance collapse when training on the same off-policy expert data. In such a setting, naive imitation fails and a simple SFT+RL combination proves unstable, whereas our CHORD-ϕ provides a robust objective to navigate this trade-off and maintain learning stability. We acknowledge that with larger quantities of higher-quality expert data, a weaker model might overcome this imitation bottleneck, potentially making SFT-leaning methods more favorable. Conversely, this also suggests that our method becomes particularly advantageous when dealing with weaker models under limited expert data, highlighting its strong capability to flexibly balance this trade-off and create a robust synergy between SFT and RL. We defer detailed experiment results and analysis to Appendix B.5."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                166,
+                826,
+                335
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5 RELATED WORKS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                354,
+                357,
+                369
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Recent advancements in RL show significant success in complex reasoning tasks (Guo et al., 2025; Shao et al., 2024; Lambert et al., 2024). However, RL-based exploration is often constrained by the model’s initial knowledge, making it difficult for the model to discover superior reasoning pathways (Yue et al., 2025). Incorporating off-policy expert data into the on-policy RL loop is a promising strategy to address such exploration challenge. Some studies directly mix expert data with self-rollout generations, either through simple dataset mixing (Li & Khashabi, 2025), or mixing expert trajectories into on-policy rollout groups (Yan et al., 2025; Fu et al., 2025), while others use expert data to guide generation (Liu et al., 2025a; Zhang et al., 2025b; Huang et al., 2025). A third category interleaves RL updates with SFT steps on expert data, either on a predefined or adaptive schedule (Chen et al., 2025c), or for challenging examples (Ma et al., 2025). More recently, SRFT (Fu et al., 2025) proposed a unified framework that combines data mixing with a sample-level SFT loss. In this study, we focus on tuning an instruct model that already establishes its own response pattern, which can be a more challenging yet practical scenario compared to existing works that finetune a base model (Yan et al., 2025; Fu et al., 2025). For a more comprehensive literature review, please refer to Appendix C."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                385,
+                828,
+                582
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "6 CONCLUSIONS AND FUTURE DIRECTIONS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                599,
+                550,
+                616
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this study, we identify that the sequential SFT-then-RL paradigm often yields suboptimal performance by disrupting established patterns with off-policy expert data. To address this, we unify SFT and RL through the lens of on-policy versus off-policy learning and propose CHORD. By analyzing the influence of expert data at both the holistic and granular levels, CHORD first integrates a global coefficient µ to manage off-policy expert influence, enabling a smoother transition from imitation to exploration. CHORD then introduces a token-wise function ϕ(·) to selectively absorb expert knowledge by down-weighting tokens that are either already highly probable or extremely improbable. Extensive experiments demonstrate that this unified approach achieves notable improvements over existing sequential pipelines and various baselines."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                631,
+                826,
+                758
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Looking forward, our work highlights several avenues for future research. First, given the inherent high variance and parameter sensitivity typical of RL processes, exploring further algorithmic advancements to fully stabilize the training dynamics represents a promising direction. Specifically within our framework, since configurations for µ and ϕ(·) can vary across setups, discovering more effective adaptive tuning functions to reduce hyperparameter dependence remains a practical objective. Furthermore, while our analysis of pattern shifts is primarily empirical, a deeper understanding of how diverse CoT patterns influence learning would provide valuable insights for tracking training dynamics. Finally, we envision extending this unified paradigm to incorporate heterogeneous mixtures of expert data sources, enabling a comprehensive study of how different model-generated reasoning patterns emerge and evolve throughout the training process. We hope our work inspires the community to continue refining unified post-training paradigms across a broader spectrum of applications."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                763,
+                826,
+                919
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "10"
+                    }
+                ]
+            },
+            "bbox": [
+                490,
+                948,
+                509,
+                960
+            ]
+        }
+    ]
+]

@@ -1,0 +1,10 @@
+Given Topic: Test-time reinforcement learning enables large language models to adapt during inference using self-generated signals without ground-truth labels. A critical bottleneck in this paradigm is the reliability of pseudo-label selection: prevailing methods predominantly rely on majority voting across multiple rollouts, which risks amplifying systematic reasoning biases when incorrect answers happen to be more frequent than correct ones. This creates a self-reinforcing echo chamber where spurious yet popular outputs are erroneously treated as supervision. The core scientific problem is how to construct robust, view-invariant learning signals in a fully self-contained manner, such that the adaptation process can escape inherent model biases and avoid consolidating fragile, stylistically dependent reasoning patterns.
+
+Given Inspiration:
+1. Human cognitive heuristics of cross-checking solutions across multiple equivalent formulations to verify robustness against stylistic variation.
+2. The semantic invariance principle: underlying truth should remain stable across faithful surface-form paraphrases, while erroneous reasoning is typically sensitive to phrasing.
+3. Information-theoretic view that ideal supervision signals should maximize mutual information with correctness while minimizing dependence on specific representational forms.
+4. The disruptive effect of problem reformulation on shallow reasoning patterns, enabling a model to expose its own fragile biases without external feedback.
+5. Cooperative multi-role self-interrogation, where distinct functional perspectives are derived from the same model to generate complementary distributional views.
+6. The mathematical insight that consensus measures which strongly penalize low support in any single view can better filter out lopsided, view-specific spurious correlations.
+7. Online semantic augmentation through controlled paraphrasing as a mechanism to create environmentally diverse but semantically identical test conditions for unsupervised validation.

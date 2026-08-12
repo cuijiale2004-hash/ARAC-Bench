@@ -1,0 +1,246 @@
+## ABSTRACT
+
+Large Language Models (LLMs) are widely used as judges to evaluate response quality, providing a scalable alternative to human evaluation. However, most LLM judges operate solely on intrinsic text-based reasoning, limiting their ability to verify complex constraints or perform accurate computation. Motivated by the success of tool-integrated reasoning (TIR) in numerous tasks, we propose TIR-Judge, an end-to-end RL framework for training LLM judges that integrates a Python executor for precise evaluation. TIR-Judge is built on three principles: (i) diverse training across verifiable and non-verifiable domains, (ii) flexible judgment formats (point wise, pairwise, listwise), and (iii) iterative RL that enables bootstrapping directly from a base model without distillation. On seven public benchmarks, TIR-Judge surpasses strong reasoning-based judges by up to 6.4% (pointwise) and 7.7% (pairwise), and achieves listwise performance comparable to Claude-Opus-4 despite having only 8B parameters. Remarkably, TIR-Judge-Zero—trained entirely without distillation—matches the performance of the distilled variants, showing that tool-augmented judges can self-improve through reinforcement learning alone.
+
+## 1 INTRODUCTION
+
+Large Language Model (LLM)-based judges are emerging as a critical component in the LLM ecosystem, typically used with scoring and ranking model outputs. This evaluation capability is essential at multiple stages of LLM development: during post-training, judges provide preference signals for alignment (Chen et al., 2025a; Whitehouse et al., 2025); at inference time, judges verify and select responses through best-of-N decoding (Huang et al., 2025a); and during evaluation, judges deliver reliable assessments without manual human assessment (Li et al., 2024a). Thus, training accurate LLM-based judges is of great importance for building powerful language models.
+
+Classical evaluation with reward models often outputs scores directly, which cannot fully harvest the inherent reasoning capability of LLM. Recent progress in generative reward modeling (Zhang et al., 2025; Zhao et al., 2025) and reinforce ment learning equips judges with thinking before producing final predictions (Chen et al., 2025b; Whitehouse et al., 2025; Guo et al., 2025b; Hong et al., 2025). While these approaches enhance judge quality
+
+![](images/c519fc2dcabcf86e23c14bfaa32b00ec307bf8bbb4860045125b5be386acf5f8.jpg)  
+Figure 1: An example of LLM judge augmented with code execution, enabling precise judgments.
+
+by equipping LLMs with long chains of textual reasoning traces, they remain inherently limited in scenarios that require precise computation or symbolic reasoning – capabilities that are much more challenging for text-only models (Mirzadeh et al., 2025).
+
+Recent advances in LLM tool-use provide a promising avenue to overcome the limitations of textonly judges (Chen et al., 2023; Gao et al., 2023). By granting access to executable interfaces for enumeration, verification, and computation, tools enable exact validation of reasoning steps rather than relying on potentially error-prone text-based inference. For example, code execution can automatically verify outputs on certain instructions (Zhou et al., 2023) (as shown in Figure 1) or check intermediate calculations in math reasoning (Lu et al., 2025). Early attempts have also explored equipping LLM judges with tool-use abilities (Peng et al., 2025; Findeis et al., 2025; Li et al., 2024b; Agarwal et al., 2025), but these approaches reveal two major limitations. (i) Inference-time restriction: most methods integrate tool-use only at the inference stage, preventing deeper integration between reasoning processes and tool execution. (ii) Narrow task coverage: many are tailored to specific domains or specialized task types, which limits their applicability in general-purpose judging scenarios. These gaps highlight the need for robust judges that tightly couple reasoning with tool execution and be optimized end-to-end.
+
+Motivated by these challenges, our goal is to develop an LLM judge that can reliably integrate reasoning with code interpreter execution. Incorporating tool-integrated reasoning (TIR) (Feng et al., 2025; Li et al., 2025a; Lin & Xu, 2025), we propose TIR-Judge, a framework that leverages reinforcement learning (RL) to teach models to generate code, execute it with interpreters, and iteratively refine their reasoning based on the resulting outputs. By reinforcing this cycle of reasoning and tool-use, TIR-Judge equips LLM judges with the ability at the training time to deliver more accurate and verifiable evaluations across diverse tasks.
+
+Then, to fully unleash the potential of RL for TIR-Judge, we introduce several key design choices. (i) Task diversity: To balance between different tasks, we construct training prompts spanning both verifiable domains (e.g., competitive programming, mathematical reasoning) and non-verifiable domains (e.g., dialogue, safety, general coding), allowing the model to learn when tool invocation is beneficial and when pure reasoning suffices. (ii) Judgmentflexibility: To accommodate to different input/output formats, we diversify the evaluation tasks to cover pointwise, pairwise, and listwise ranking, ensuring broad applicability across practical use cases. (iii) Data efficiency: unlike prior methods that rely on distillation as cold-start for RL (Chen et al., 2025b; Hong et al., 2025), we demonstrate that TIR-Judge can bootstrap from the initial checkpoint. Specifically, TIR-Judge-Zero trains purely with iterative reinforcement learning for achieving self-improvement, while TIR-Judge-Distill provides an optional variant using a small amount of distillation data.
+
+Our contribution can be summarized as follows:
+
+• We introduce TIR-Judge, a tool-integrated framework for training LLM-based judges with end-to-end multi-turn reinforcement learning. To the best of our knowledge, this is the first approach that jointly optimizes reasoning and tool-use for training LLM-based judges via RL.
+
+• We design several key strategies to fully exploit the power of reinforcement learning, including task diversification across verifiable and non-verifiable domains, flexible judgment formats (pointwise, pairwise, listwise), as well as an iterative RL scheme that enables self-improvement in tool use even without distillation.
+
+• We evaluate TIR-Judge on seven public benchmarks covering diverse tasks and input formats. TIR-Judge consistently outperforms strong reasoning-based judges, achieving gains of up to 6.4% (pointwise) and 7.7% (pairwise). Moreover, TIR-Judge shows strong parameter efficiency: With only 8B parameters, it surpasses the 32B reasoning reward models on the PPE dataset, and reaches 96% of the performance of Claude-Opus-4 in the listwise setting in RewardBench 2. Interestingly, TIR-Judge-Zero, the judge trained without any distillation, achieves a 1.2% gain over its distilled counterpart at 4B scale, highlighting the power of RL to bootstrap reasoning and tool-use capabilities.
+
+## 2 RELATED WORKS
+
+Reasoning-Enhanced Reward and Judge Models. A growing line of work strengthens reward models (RMs) and judges by explicitly training them to reason before scoring. Generative Verifiers (Zhang et al., 2025) treat verification as next-token prediction with chain-of-thought, improving math and algorithmic tasks. Other methods enhance judgment by generating critiques (Ankner et al., 2024; Yu et al., 2025c;b; Wang et al., 2025a), using multi-round preference optimization (Wang et al., 2024b), or planning evaluations before issuing a decision (Saha et al., 2025). Liu et al. (2025d) study how to allocate compute and structure critiques for reliability. More recently, RL-based judges (Chen et al., 2025a;b; Whitehouse et al., 2025; Guo et al., 2025b; Hong et al., 2025) incentivize longer, higher-quality reasoning and reduce bias across pointwise and pairwise settings, Khalifa et al. (2025);
+
+Zhao et al. (2025) leverage thinking traces to improve process reward models. However, these remain confined to text-only reasoning and often emphasize pairwise judgment.
+
+Tool-Assisted Reward and Judge Models. Another line of work augments judges with external tools. Li et al. (2024b) incorporate verifiable signals alongside preference data for judge training, though primarily within tool-use scenarios. Zhuge et al. (2025) evaluate agentic judge capabilities in agent settings, and Peng et al. (2025) integrate human preferences with correctness checks to construct more reliable rewards. Findeis et al. (2025) show that external tools (e.g., code execution, search) can improve annotations, observing gains are task-dependent. Yet, most works rely on prompted tool use rather than training judges to learn when and how to call tools and incorporate their outputs.
+
+Reinforcement Learning for Tool-integrated Reasoning. RL has recently been applied to toolintegrated reasoning (TIR). Feng et al. (2025); Bai et al. (2025); Li et al. (2025a) train LLMs to interleave reasoning with code execution, improving math and programming. Jin et al. (2025); Song et al. (2025) extend this to web search, while others study reward design (Dong et al., 2025; Wang et al., 2025b) or provide theoretical analyses (Lin & Xu, 2025).
+
+## 3 PRELIMINARIES
+
+Problem Setup. We consider the task of LLM-basedjudgment: given a user prompt $x \in \mathcal { X }$ and n model-generated responses ${ \mathcal { Y } } = \{ y _ { 1 } , y _ { 2 } , \ldots , y _ { n } \}$ , the goal is to evaluate the quality of responses for the prompt. The judge model $J _ { \theta }$ produces an evaluation output conditioned on $( x , y )$ ). In this work, we consider three evaluation settings: (i) Pointwise evaluation: given $( x , y )$ , the judge assigns a scalar score, $J _ { \theta } ( x , y ) = s _ { \theta } ( x , y ) \in \mathbb { R } ; ( \mathrm { i i }$ ) Pairwise evaluation: given $( x , y _ { a } , y _ { b } )$ , the judge selects the preferred response, $J _ { \theta } ( x , y _ { a } , y _ { b } ) = \arg \operatorname* { m a x } _ { i \in \{ a , b \} } s _ { \theta } ( x , y _ { i } )$ , where s<sub>θ</sub> denotes a learned scoring function. This is also the most common evaluation setting; (iii) Listwise evaluation: given $( x , y )$ with $n > 2 .$ , the judge returns the index of the best response, $J _ { \theta } ( x , \mathcal { Y } ) = \arg \operatorname* { m a x } _ { i \in \{ 1 , . . . , n \} } s _ { \theta } ( x , y _ { i } )$ These settings unify a broad range of evaluations under a common framework<sup>1</sup>.
+
+Tool-Augmented Judge. We extend the judge with the ability to call an external Python execution environment I. For the prompt $x \in \mathcal { X } , \operatorname { A t }$ step k, the judgment trajectory s<sub>k</sub> is represented as $s _ { k } = \left\{ r _ { 1 } , c _ { 1 } , o _ { 1 } , \dots , r _ { k } , c _ { k } , o _ { k } \right\}$ , where r<sub>i</sub> is a natural language reasoning step, c<sub>i</sub> is a generated code, and $o _ { i } = I ( c _ { i } )$ is the execution result of $c _ { i }$ (Li et al., 2025a). The iterative process is defined as:
+
+$$
+(r _ {k}, c _ {k}) \sim J (x \oplus s _ {k - 1}), \quad o _ {k} = \mathcal {I} (c _ {k}), \quad s _ {k} = s _ {k - 1} \oplus r _ {k} \oplus c _ {k} \oplus o _ {k}.\tag{1}
+$$
+
+This cycle continues until the judge produces a final prediction $\begin{array} { r } { a _ { i } \sim J ( x \oplus s _ { T } ) } \end{array}$ with T being the final step. Unlike traditional text-only reasoning, the trajectory now interleaves reasoning, code execution, and tool feedback, enabling the judge to ground its decision in verifiable evidence.
+
+## 4 TRAINING TIR-JUDGE
+
+We now describe the training procedure for TIR-Judge, which consists of four components: (1) data collection and filtering for RL, (2) the RL framework for training judges with integrated code execution tools, (3) reward design for RL, and (4) cold-start and iterative training strategies in RL. The overall framework of TIR-Judge is exhibited in Figure 2.
+
+## 4.1 DATA COLLECTION AND FILTERING
+
+High-quality training data is crucial for RL with tool-augmented judges. Since judgment requires both prompts and candidate responses, we curate a collection of (prompt, responses) tuples spanning multiple tasks. Our corpus integrates both human-annotated preference data and automatically generated synthetic pairs to ensure diversity and scalability.
+
+Real Preference Pairs. We sample human-labeled preference pairs from a variety of domains: general helpfulness — HelpSteer 3 (Wang et al., 2025c); reasoning — UltraInteract (Yuan et al., 2025), S1 (Muennighoff et al., 2025); coding — CodeRM (Ma et al., 2025b); instruction following (IF) — preference pairs from Tulu 3 (Lambert et al., 2024); safety — Safe-RLHF (Dai et al., 2024). Each prompt is paired with one preferred (chosen) response and one or more rejected responses.
+
+![](images/1d3cdabcd66734e6240c33841fe8513cdd97c7c34f149567334dde35f822aebe.jpg)  
+Figure 2: Overall framework of TIR-Judge variants. TIR-Judge natively supports tool use during judgment and is designed to handle diverse input formats.
+
+Synthetic Preference Pairs. Because reasoning preference data is often limited in scale, we augment the corpus with synthetic preference pairs generated from verifiable prompts. For each prompt, we sample responses from multiple open-source models, including Qwen3-8B/14B (Team, 2025), Gemma-2-9B (Team et al., 2024), and Gemma-3-12B (Team et al., 2025). The responses are automatically evaluated against verifiable functions (for IF tasks) or ground-truth solutions (for reasoning tasks) to form preference pairs. For IF, we use verifiable prompts from Tulu-3 (Lambert et al., 2024), where correctness can be programmatically verified using lexical or structural constraints. For reasoning, we employ MATH (Hendrycks et al., 2021) and DAPO-Math (Yu et al., 2025a) for math domain and WebInstruct (Ma et al., 2025a), and Loong (Huang et al., 2025b) for general domain, both of which provide ground-truth solutions for exact verification.
+
+In total, our dataset comprises approximately 26k preference pairs, including pointwise, pairwise, and listwise annotations, covering diverse domains such as helpfulness, reasoning, coding, safety, and verifiable instruction following. We apply strict 8-gram decontamination to eliminate any overlap between training prompts and evaluation benchmarks (Oren et al., 2024). This diverse mixture of data provides a strong foundation for training robust tool-augmented judges.
+
+## 4.2 TOOL-INTEGRATED RL WITH VERIFIABLE REWARDS
+
+Overall Framework. We adopt DAPO (Yu et al., 2025a), an improved variant of GRPO (Shao et al., 2024), for training the LLM judge J parameterized by $\pi _ { \theta } .$ Given a prompt–answer pair $( q , a )$ , we first sample a group of G rollouts $\{ s _ { i } \} _ { i = 1 } ^ { G }$ from the current policy $\pi _ { \theta _ { \mathrm { o l d } } }$ . Each rollout $s _ { i }$ is assigned a scalar reward $R _ { i } = R ( s _ { i } , a )$ with access to the oracle answer a. The policy π<sub>θ</sub> is then updated with the following clipped policy gradient objective:
+
+$$
+\begin{array}{r l} & {\mathcal {J} (\theta) = \mathbb {E} _ {(q, a) \sim \mathcal {D}, \{s _ {i} \} _ {i = 1} ^ {G} \sim \pi_ {\theta_ {\mathrm{old}}} (\cdot | q)} \bigg [ \frac {1}{\sum_ {i = 1} ^ {G} | s _ {i} |} \sum_ {i = 1} ^ {G} \sum_ {t = 1} ^ {| s _ {i} |} \big (\min (r _ {i, t} (\theta) \widehat {A} _ {i, t},} \\ & {\mathrm{clip} (r _ {i, t} (\theta), 1 - \varepsilon_ {\mathrm{low}}, 1 + \varepsilon_ {\mathrm{high}}) \widehat {A} _ {i, t}) - \beta \mathbb {D} _ {\mathrm{KL}} (\pi_ {\theta} \| \pi_ {\mathrm{ref}}) \big) \bigg ] \quad \mathrm{s.t.} 0 <   | \{s _ {i}: \mathrm {is\_equivalent} (a, s _ {i}) \} | <   G.} \end{array}
+$$
+
+where $\begin{array} { r } { r _ { i , t } ( \theta ) = \frac { \pi _ { \theta } \left( s _ { i , t } | { q } , s _ { i , < t } \right) } { \pi _ { \theta _ { \mathrm { o l d } } } \left( s _ { i , t } | { q } , s _ { i , < t } \right) } } \end{array}$ is the token-level weight, $\begin{array} { r } { \widehat { A } _ { i , t } = \frac { R _ { i } - \mathrm { m e a n } \left( \{ R _ { i } \} _ { i = 1 } ^ { G } \right) } { \mathrm { s t d } \left( \{ R _ { i } \} _ { i = 1 } ^ { G } \right) } } \end{array}$ is the advantage at the token level, and is\_equivalent step filters out the prompts with accuracy equal to 1 and 0. The hyperparameters $\varepsilon _ { \mathrm { l o w } }$ and $\varepsilon _ { \mathrm { h i g h } }$ control the clipping range for importance weights, while $\beta$ regulates the KL divergence penalty to stabilize training.
+
+Additional Designs. Beyond standard RL training, we implement two enhancements to stabilize tool-augmented judgment: (i) Error Message Processing. We truncate the outputs from Interpreter I to only the final error line to avoid excessive context length while preserving useful feedback in s ; (ii) Sandbox Output Masking. Since execution results $o _ { i } = \mathcal { I } ( c _ { i } )$ may cause the model to overfit by memorizing outputs, we mask $o _ { i }$ during loss computation, following Li et al. (2025a); Jin et al. (2025). This prevents reliance on exact strings and improves training stability.
+
+Reward Designs. To effectively facilitate multi-turn RL with code execution, we design a structured covering three aspects, described as follows:
+
+(i) Correctness Reward $\boldsymbol { R _ { c } } \mathrm { : }$ This component measures whether the judge’s prediction aligns with the reference preference label. Let x denote the prompt, ${ \mathcal { Y } } = \{ y _ { 1 } , \dotsc , \bar { y } _ { n } \}$ the candidate responses, and l the ground-truth preferred response. The reward is defined as:
+
+$$
+R _ {c} = \left\{ \begin{array}{l l} \mathbb {I} \big (s _ {\theta} (x, y _ {\text { pos }}) > s _ {\theta} (x, y _ {\text { neg }}) \big), & \text { for   pointwise   evaluation }, \\ \mathbb {I} \big (J _ {\theta} (x, \mathcal {Y}) = l \big), & \text { for   pairwise   or   listwise   evaluation }, \\ 0, & \text { otherwise }, \end{array} \right.\tag{2}
+$$
+
+where $\mathbb { I } ( \cdot )$ is the indicator function, $s _ { \boldsymbol { \theta } } ( \boldsymbol { x } , \boldsymbol { y } )$ denotes the judge’s scoring function, and $J _ { \theta } ( x , \mathcal { D } )$ is the predicted best response under the judge’s policy. Intuitively, $R _ { c } = 1$ if the judge’s decision matches the ground-truth preference, and $\bar { R } _ { c } = 0$ otherwise (i.e. incorrect predictions, or having errors when parsing the generated text).
+
+(ii) Format Reward $R _ { f } \mathbf { : }$ To ensure reliability, the judge is required to strictly follow a predefined structured output format. Specifically, prediction scores must be enclosed within <score> and </score> tags, the preference label must be wrapped in <preference> and $< /$ preference> tags, and all code segments must be enclosed using $\dots$ python and $\dots$ . In addition, to accommodate both reasoning and non-reasoning tasks and discourage unnecessary tool $c a l l s ,$ we introduce a heuristic: for safety and general helpfulness prompts, a positive format reward is granted only if the model produces a valid output without invoking tools. Formally, $R _ { f } = 1$ if the output satisfies all formatting constraints (and the no-tool heuristic when applicable), and $R _ { f } = 0$ otherwise.
+
+(iii) Tool-Specific Reward $R _ { t } \mathbf { : }$ : We encourage accurate and efficient tool use by penalizing errors or excessive executions (Wang et al., 2025b). We set the max number of tool calls per trajectory to $^ 3$ and set $R _ { t } = 1$ only when code blocks $c _ { i }$ are error-free and within the call budget; otherwise $R _ { t } = 0$
+
+The final reward R is defined as a combination of correctness, format, and tool-specific rewards and assigns full credit only when correctness, format, and tool-use are all satisfied:
+
+$$
+R = \left\{ \begin{array}{l l} 1, & \text { if } R _ {t} = 1 \land R _ {f} = 1 \land R _ {c} = 1, \\ 0. 1, & \text { if } R _ {c} = 1 \text { but } (R _ {t} = 0 \lor R _ {f} = 0), \\ 0, & \text { if } R _ {c} = 0. \end{array} \right.\tag{3}
+$$
+
+## 4.3 TRAINING STRATEGIES FOR RL
+
+Directly applying RL often leads to suboptimal outcomes, as the base model lacks sufficient reasoning and tool-use capability. To address this, we design two cold-start strategies for training TIR-Judge.
+
+Distillation from Teacher Models (TIR-Judge-Distill). We leverage a stronger teacher, Gemini-2.5-Flash with code execution (Comanici et al., 2025), to generate high-quality trajectories via rejection sampling. For each user prompt x and corresponding Y, we collect a trajectory s and a final prediction a as $( x , y , s , a ) \sim \mathsf { \bar { J } }$ . Only trajectories that produce correct answers are retained, yielding a dataset $\mathcal { T } _ { \mathrm { S F T } } = \{ ( x , \mathcal { V } , s , a ) \ | \ \bar { R ( } s , a , l ) = 1 \}$ . Then the student judge is trained via supervised fine-tuning (SFT) with objective
+
+$$
+\mathcal {L} _ {\mathrm{SFT}} = - \mathbb {E} _ {(x, \tau) \sim \mathcal {T} _ {\mathrm{SFT}}} \left[ \sum_ {i = 1} ^ {| y |} \log f _ {\theta} (\tau_ {i} \mid \tau_ {<   i}, x) \right],\tag{4}
+$$
+
+where ${ \boldsymbol { \tau } } = ( s , a )$ is the target trajectory with reasoning and code steps. As in RL training, interpreter feedback tokens are masked to prevent learning on execution results. In total, we collect about 10k tool-integrated trajectories for SFT, which serve as the initialization before reinforcement learning.
+
+Iterative Training without Distillation (TIR-Judge-Zero). Beyond teacher distillation, we investigate whether tool-augmented judges can improve purely through self-bootstrapping (Yuan et al., 2024; Huang et al., 2023; Zelikman et al., 2022; Xiong et al., 2025). The process alternates between RL, rejection sampling, and supervised fine-tuning.
+
+Starting from the initial model $\pi _ { \theta _ { 0 } }$ , we first obtain the checkpoint $\pi _ { \theta _ { 1 } }$ via direct RL on training data as $\pi _ { \boldsymbol { \theta } _ { 1 } }  \mathrm { R L } ( \pi _ { \boldsymbol { \theta } _ { 0 } } )$ (Sec. 4.2). Then, for each prompt x, we sample multiple trajectories from $\pi _ { \theta _ { 1 } }$ as $\{ \bar { s _ { i } } \} _ { i = 1 } ^ { G } \sim \bar { \pi } _ { \theta _ { t } } \ ( \cdot \mid x ) \ : ( G =$ 4 in our study), where each trajectory contains reasoning, code, and execution results: $s _ { i } = \{ r _ { 1 } , c _ { 1 } , o _ { 1 } , \ldots , r _ { k } , c _ { k } , o _ { k } \}$ . We retain only valid trajectories that (i) produce the correct answer l, (ii) satisfy the output format, and (iii) execute without interpreter errors as $\mathcal { T } _ { t } = \{ ( x , s , a ) \mid R ( s , a , l ) = 1 \}$ . To promote efficiency, for each prompt we further keep only one trajectory, preferring the shortest response or the one with the fewest tool calls<sup>2</sup>. The dataset $\mathcal { T } _ { t }$ is then used for SFT, and the fine-tuned model initializes the next RL round. After each cycle, we select the best checkpoint based on held-out validation accuracy and repeat the RS → SFT → RL loop:
+
+$$
+\mathcal {T} _ {t + 1} \leftarrow \mathrm{RS} (\pi_ {\theta_ {t}}), \quad \pi_ {\theta_ {t + 1}} \leftarrow \mathrm{SFT} (\pi_ {\theta_ {0}}, \mathcal {T} _ {t + 1}), \quad \pi_ {\theta_ {t + 1}} \leftarrow \mathrm{RL} (\pi_ {\theta_ {t + 1}}).
+$$
+
+This iterative process a stable refinement loop of better examples → better rollouts → even better examples. It allows TIR-Judge-Zero to progressively bootstrap stronger reasoning and tool-use capabilities entirely from a base model and facilitates self-improvement without distillation. Since judgment rewards are deterministic and unambiguous (correct vs. incorrect), this iterative process converges reliably in practice.
+
+## 5 EXPERIMENTS
+
+## 5.1 EXPERIMENT SETUPS
+
+Evaluation Datasets. Following prior work (Whitehouse et al., 2025; Chen et al., 2025b), we focus on reasoning tasks, evaluating TIR-Judge on PPE Correctness (Frick et al., 2025). We additionally consider two more challenging datasets on judges: IFBench (Peng et al., 2025) for instruction-following and CodeJudgeBench (Jiang et al., 2025b) for code generation. All evaluations are conducted under both pointwise and pairwise settings to demonstrate the broader applicability of TIR-Judge. We also evaluate on general-domain judge benchmarks, where reasoning constitutes a subset, including RewardBench (Lambert et al., 2025), RM-Bench (Liu et al., 2025c) and JudgeBench (Tan et al., 2025) for pointwise/pairwise evaluation, and RewardBench 2 (Malik et al., 2025) for listwise evaluation.
+
+Implementation Details. We use Qwen3-8B and Qwen3-4B-Instruct-2507 (Team, 2025) as backbones, without enabling thinking mode, and implement training with Verl-Tool (Jiang et al., 2025a). For SFT, we train with batch size 64, learning rate 2e-6, context length 8192, for 1 epoch. For RL, we set the micro batchsize per gpu to 4, mini batchsize to 128 and number of rollout to 8. We set $\varepsilon _ { \mathrm { l o w } } = 0 . 2 , \varepsilon _ { \mathrm { h i g h } } = 0 . 3 , \beta = 0 . 0 1$ , max response length to 8192, learning rate 1e-6 and train for 2 epochs. The experiments are run with 8 NVIDIA H100 80G GPUs. For data collection in Sec. 4.1, we generate 2 rollouts for each model with $t = 0 . 9 , p = 0 . 9 5$ . No external feedback (e.g., GPT annotations) is used. For inference, we set t = 0 for generating responses.
+
+Baselines. We consider the following group of baselines: (i) Off-the-shelf LLM as judges: GPT-4o (Hurst et al., 2024), GPT-o1-mini (Jaech et al., 2024), Deepseek-R1 (Guo et al., 2025a), Claude 3.5 (Anthropic, 2025), Gemini-2.5-Flash (Comanici et al., 2025), Qwen-3 (Team, 2025); (ii) Standard Reward Models: Armo-RM (Wang et al., 2024a), Skywork-Reward-Gemma-2 (Liu et al., 2024), Deepseek-BTRM (Liu et al., 2025d); (iii) Text-based Judges trained with RL: Deepseek-GRM (Liu et al., 2025d), J1 (Whitehouse et al., 2025), RM-R1 (Chen et al., 2025b), RRM (Guo et al., 2025b) and Think-RM (Hong et al., 2025); (iv) Tool-augmented Judges (Inference-time): Gemini 2.5-Flash-Tool (Comanici et al., 2025), AgentRM (Peng et al., 2025)<sup>3</sup>, and Qwen-3 (Team, 2025) (our backbone) that use the same code execution tool as TIR-Judge but only inject tools at the inference time.
+
+Table 1: Main results on six benchmarks. <sup>†</sup> indicates results reported from the original papers, and are mainly used for reference. CJBench, RWBench, and JGBench denote CodeJudgeBench, RewardBench, and JudgeBench. “Distill?” specifies whether the model relies on additional judge data distilled from teacher models. Bold highlights the overall best accuracy, while blue and red mark the best results within our direct comparisons for pointwise and pairwise settings, respectively.
+
+<table><tr><td rowspan="2">Baselines</td><td rowspan="2">Train</td><td rowspan="2">Distill?</td><td colspan="6">PPE Correctness</td><td rowspan="2">IFBench</td><td rowspan="2">CJBench</td><td rowspan="2">RWBench</td><td rowspan="2">RMBench</td><td rowspan="2">JGBench</td></tr><tr><td>MMLU-P</td><td>MATH</td><td>GPQA</td><td>MBPP-P</td><td>IFEval</td><td>Avg.</td></tr><tr><td colspan="14">LLM-as-a-Judge (Pairwise Evaluation unless specified)</td></tr><tr><td>Qwen3-4B-Instruct (Pointwise)</td><td>-</td><td>-</td><td>64.3</td><td>83.1</td><td>38.0</td><td>62.4</td><td>55.2</td><td>60.6</td><td>56.2</td><td>16.6</td><td>76.5</td><td>66.9</td><td>50.8</td></tr><tr><td>Qwen3-8B (Pointwise)</td><td>-</td><td>-</td><td>68.7</td><td>64.2</td><td>56.5</td><td>58.9</td><td>57.4</td><td>61.1</td><td>55.9</td><td>54.9</td><td>79.2</td><td>69.3</td><td>64.9</td></tr><tr><td>Gemini-2.5-Flash (Pointwise)</td><td>-</td><td>-</td><td>56.5</td><td>79.5</td><td>46.4</td><td>63.0</td><td>63.9</td><td>61.9</td><td>51.6</td><td>53.3</td><td>80.7</td><td>70.8</td><td>66.9</td></tr><tr><td>GPT-4o $^{\dagger}$ </td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>57.6</td><td>61.3</td><td>-</td><td>86.7</td><td>72.5</td><td>56.6</td></tr><tr><td>GPT-o1-mini $^{\dagger}$ </td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>71.3</td><td>70.1</td><td>-</td><td>87.1</td><td>-</td><td>65.7</td></tr><tr><td>DeepSeek-R1-671B $^{\dagger}$ </td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>76.5</td><td>68.0</td><td>-</td><td>90.6</td><td>-</td><td>73.1</td></tr><tr><td>Claude 3.5 $^{\dagger}$ </td><td>-</td><td>-</td><td>81.0</td><td>86.0</td><td>63.0</td><td>54.0</td><td>58.0</td><td>68.4</td><td>-</td><td>58.3</td><td>84.2</td><td>61.0</td><td>64.3</td></tr><tr><td>Qwen3-4B-Instruct (Pairwise)</td><td>-</td><td>-</td><td>63.9</td><td>83.1</td><td>35.0</td><td>59.7</td><td>60.7</td><td>60.4</td><td>62.2</td><td>34.5</td><td>86.0</td><td>75.3</td><td>63.9</td></tr><tr><td>Qwen3-8B (Pairwise)</td><td>-</td><td>-</td><td>73.8</td><td>80.2</td><td>57.3</td><td>57.8</td><td>58.4</td><td>65.5</td><td>61.3</td><td>60.8</td><td>87.0</td><td>77.9</td><td>67.5</td></tr><tr><td>Gemini-2.5-Flash (Pairwise)</td><td>-</td><td>-</td><td>68.8</td><td>85.5</td><td>58.1</td><td>86.5</td><td>75.0</td><td>74.8</td><td>69.3</td><td>66.5</td><td>93.4</td><td>81.9</td><td>75.4</td></tr><tr><td colspan="14">Scalar Reward Models (Pointwise)</td></tr><tr><td>Armo-RM-8B $^{\dagger}$ </td><td>1000k</td><td>✘</td><td>66.0</td><td>71.0</td><td>57.0</td><td>54.0</td><td>58.0</td><td>61.2</td><td>62.9</td><td>-</td><td>90.3</td><td>67.7</td><td>-</td></tr><tr><td>Skywork-Gemma-2-27B $^{\dagger}$ </td><td>80k</td><td>✘</td><td>55.0</td><td>46.2</td><td>44.7</td><td>69.1</td><td>58.3</td><td>54.7</td><td>63.2</td><td>-</td><td>93.8</td><td>67.3</td><td>-</td></tr><tr><td>Deepseek-BTRM-27B $^{\dagger}$ </td><td>237k</td><td>✘</td><td>68.8</td><td>73.2</td><td>56.8</td><td>68.8</td><td>66.0</td><td>66.7</td><td>-</td><td>-</td><td>81.7</td><td>-</td><td>-</td></tr><tr><td colspan="14">Text-based Reasoning Judges (Pairwise Evaluation unless specified)</td></tr><tr><td>Deepseek-GRM-27B $^{\dagger}$ </td><td>237k</td><td>✘</td><td>64.8</td><td>68.8</td><td>55.6</td><td>50.1</td><td>59.8</td><td>59.8</td><td>-</td><td>-</td><td>86.1</td><td>-</td><td>-</td></tr><tr><td>J1-8B (Pairwise) $^{\dagger}$ </td><td>22k</td><td>✘</td><td>65.6</td><td>70.0</td><td>53.2</td><td>53.1</td><td>54.0</td><td>59.2</td><td>-</td><td>-</td><td>85.7</td><td>73.4</td><td>42.0</td></tr><tr><td>J1-8B (Pointwise) $^{\dagger}$ </td><td>22k</td><td>✘</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>58.5</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr><tr><td>RRM-7B</td><td>420k</td><td>✘</td><td>66.5</td><td>88.0</td><td>57.9</td><td>61.2</td><td>53.6</td><td>65.4</td><td>60.1</td><td>63.4</td><td>82.2</td><td>70.4</td><td>67.0</td></tr><tr><td>RM-R1-Deepseek-Distill-7B</td><td>73k</td><td>✓</td><td>67.3</td><td>91.2</td><td>62.6</td><td>60.5</td><td>53.0</td><td>66.9</td><td>56.6</td><td>63.2</td><td>80.1</td><td>72.4</td><td>67.7</td></tr><tr><td>RM-R1-Instruct-7B</td><td>73k</td><td>✓</td><td>64.1</td><td>74.5</td><td>60.7</td><td>57.3</td><td>57.8</td><td>62.9</td><td>59.0</td><td>57.5</td><td>85.2</td><td>70.2</td><td>60.3</td></tr><tr><td>Think-RM 7B</td><td>10k</td><td>✓</td><td>66.5</td><td>78.3</td><td>55.6</td><td>58.1</td><td>63.9</td><td>64.5</td><td>57.4</td><td>54.6</td><td>86.0</td><td>73.9</td><td>64.6</td></tr><tr><td colspan="14">Tool-augmented Judges</td></tr><tr><td>Qwen3-4B-Tool (Pointwise)</td><td>-</td><td>-</td><td>64.6</td><td>81.6</td><td>38.3</td><td>61.0</td><td>49.8</td><td>59.1</td><td>44.1</td><td>18.0</td><td>78.4</td><td>72.1</td><td>56.6</td></tr><tr><td>Qwen3-8B-Tool (Pointwise)</td><td>-</td><td>-</td><td>67.0</td><td>72.4</td><td>54.0</td><td>56.0</td><td>34.0</td><td>56.7</td><td>27.1</td><td>45.9</td><td>78.0</td><td>67.9</td><td>59.4</td></tr><tr><td>Gemini-2.5-Flash-Tool (Pointwise)</td><td>-</td><td>-</td><td>68.2</td><td>86.0</td><td>48.9</td><td>58.7</td><td>73.5</td><td>67.1</td><td>53.0</td><td>47.9</td><td>81.3</td><td>71.2</td><td>66.5</td></tr><tr><td>TIR-Judge-Distill 4B (Pointwise)</td><td>26k</td><td>✓</td><td>58.7</td><td>81.9</td><td>45.8</td><td>64.1</td><td>78.9</td><td>65.9</td><td>65.8</td><td>59.9</td><td>76.6</td><td>71.9</td><td>66.7</td></tr><tr><td>TIR-Judge-Zero 4B (Pointwise)</td><td>26k</td><td>✘</td><td>62.5</td><td>87.3</td><td>54.7</td><td>64.8</td><td>79.8</td><td>69.8</td><td>65.9</td><td>61.5</td><td>77.3</td><td>72.8</td><td>70.4</td></tr><tr><td>TIR-Judge-Distill 8B (Pointwise)</td><td>26k</td><td>✓</td><td>70.9</td><td>88.1</td><td>52.3</td><td>61.0</td><td>83.0</td><td>71.0</td><td>68.4</td><td>61.9</td><td>81.0</td><td>76.7</td><td>68.2</td></tr><tr><td>TIR-Judge-Zero 8B (Pointwise)</td><td>26k</td><td>✘</td><td>67.8</td><td>88.0</td><td>53.2</td><td>64.7</td><td>77.8</td><td>70.3</td><td>66.8</td><td>60.8</td><td>81.4</td><td>76.3</td><td>67.5</td></tr><tr><td>AgentRM 8B + 8B (Pairwise)</td><td>-</td><td>-</td><td>64.6</td><td>76.0</td><td>52.8</td><td>61.7</td><td>73.0</td><td>65.6</td><td>67.0</td><td>59.2</td><td>87.7</td><td>69.7</td><td>59.4</td></tr><tr><td>Qwen3-4B-Tool (Pairwise)</td><td>-</td><td>-</td><td>63.5</td><td>83.3</td><td>35.9</td><td>58.9</td><td>62.3</td><td>60.8</td><td>59.2</td><td>29.2</td><td>85.2</td><td>75.7</td><td>63.0</td></tr><tr><td>Qwen3-8B-Tool (Pairwise)</td><td>-</td><td>-</td><td>72.0</td><td>85.2</td><td>56.0</td><td>54.3</td><td>60.8</td><td>65.7</td><td>52.5</td><td>54.9</td><td>86.2</td><td>77.3</td><td>65.9</td></tr><tr><td>Gemini-2.5-Flash-Tool (Pairwise)</td><td>-</td><td>-</td><td>73.1</td><td>87.5</td><td>60.2</td><td>85.2</td><td>84.0</td><td>78.0</td><td>68.5</td><td>66.3</td><td>90.1</td><td>80.9</td><td>74.6</td></tr><tr><td>TIR-Judge-Distill 4B (Pairwise)</td><td>26k</td><td>✓</td><td>69.0</td><td>88.7</td><td>54.8</td><td>60.6</td><td>83.6</td><td>71.3</td><td>73.7</td><td>69.8</td><td>87.7</td><td>78.0</td><td>70.5</td></tr><tr><td>TIR-Judge-Zero 4B (Pairwise)</td><td>26k</td><td>✘</td><td>75.0</td><td>93.3</td><td>61.7</td><td>67.3</td><td>84.5</td><td>76.3</td><td>70.3</td><td>70.8</td><td>86.7</td><td>80.8</td><td>73.7</td></tr><tr><td>TIR-Judge-Distill 8B (Pairwise)</td><td>26k</td><td>✓</td><td>72.2</td><td>90.4</td><td>53.8</td><td>63.2</td><td>85.7</td><td>73.0</td><td>74.3</td><td>70.0</td><td>87.9</td><td>82.2</td><td>72.6</td></tr><tr><td>TIR-Judge-Zero 8B (Pairwise)</td><td>26k</td><td>✘</td><td>76.6</td><td>94.0</td><td>58.5</td><td>68.8</td><td>80.8</td><td>75.7</td><td>68.9</td><td>69.3</td><td>89.1</td><td>83.7</td><td>72.0</td></tr></table>
+
+## 5.2 MAIN EXPERIMENT RESULTS
+
+Experiments for Pointwise/Pairwise Judging tasks. Table 1 shows the main results of TIR-Judge on six judge benchmarks. The per-task accuracy on several benchmark is deferred to Table 5. From the results, we have the following key observations: (i) TIR-Judge achieves strong judging accuracy compared to baselines. Notably, on the PPE benchmark, TIR-Judge outperforms baselines with similar sizes by 4.8%-9.9% for pointwise judging and 4.5%-8.8% for pairwise judging. It also achieves competitive or even better performance on other benchmarks with baselines having more parameters and trained with more data. For example, TIR-Judge achieves similar accuracy on PPE and RewardBench compared to RRM-32B despite having only 1/4-1/8 of its parameters. (ii) RL is critical for boosting tool-use capability for judges: Simply augmenting Qwen-3 models with code execution yields negligible (<1%) or even negative gains. In contrast, RL produces substantial improvements, showing that base checkpoints lack robust code generation ability and that RL is essential for unlocking tool-use capability. Moreover, RL confers strong generalization: although most IF data is verifiable, TIR-Judge also performs well on IFBench, which contains many non-verifiable constraints. (iii) Iterative RL is surprisingly effective to serve as another alternative to distillation : Comparing TIR-Judge-Zero with TIR-Judge-Distill, we find that TIR-Judge-Zero delivers comparable or better performance, outperforming the distilled variant on 4/6 benchmarks (pointwise) and 3/6 benchmarks (pairwise). This demonstrates that TIR-Judge-Zero offers a viable alternative for data-scarce regimes, achieving competitive performance to distillation based methods, albeit with additional overheads in training time.
+
+Experiments on Listwise Judging tasks. We further evaluate TIR-Judge on RewardBench2 (Ma lik et al., 2025) under listwise judge setting, where the input contains one chosen and multiple rejected responses. As shown in Table 2, TIR-Judge achieves strong performance, matching 96% performance of Claude-Opus-4, the current best model on the leaderboard, despite being 8B parameter only. The advantage is more notable on tasks such as instruction following and mathematical reasoning, where TIR-Judge’s integration of code execution provides a clear gain.
+
+Table 2: Results on 5 tasks in RewardBench2, sorted by average performance.
+
+<table><tr><td>Datasets</td><td>IF</td><td>Math</td><td>Fact</td><td>Focus</td><td>Safety</td><td>Avg.</td></tr><tr><td>Claude-Opus-4</td><td>41.9</td><td>74.9</td><td>82.7</td><td>86.2</td><td>89.5</td><td>76.5</td></tr><tr><td>Gemini-2.5-flash-Preview</td><td>55.3</td><td>81.1</td><td>65.7</td><td>86.7</td><td>90.9</td><td>75.9</td></tr><tr><td>TIR-Judge-Zero 8B</td><td>45.6</td><td>84.1</td><td>64.8</td><td>89.5</td><td>82.7</td><td>73.4</td></tr><tr><td>TIR-Judge-Distill 8B</td><td>58.1</td><td>72.7</td><td>63.8</td><td>81.4</td><td>82.0</td><td>71.6</td></tr><tr><td>GPT-4.1</td><td>39.7</td><td>65.2</td><td>82.9</td><td>73.4</td><td>87.3</td><td>69.7</td></tr><tr><td>Claude-Sonnet-4</td><td>35.9</td><td>70.5</td><td>76.1</td><td>76.0</td><td>89.1</td><td>69.5</td></tr><tr><td>TIR-Judge-Zero 4B</td><td>47.5</td><td>86.4</td><td>59.3</td><td>85.2</td><td>62.9</td><td>68.3</td></tr><tr><td>TIR-Judge-Distill 4B</td><td>55.0</td><td>78.1</td><td>55.8</td><td>75.0</td><td>73.1</td><td>67.3</td></tr><tr><td>GPT-4.1-mini</td><td>41.2</td><td>72.1</td><td>60.8</td><td>73.5</td><td>72.6</td><td>65.7</td></tr><tr><td>GPT-4o</td><td>33.1</td><td>62.3</td><td>56.8</td><td>72.9</td><td>86.2</td><td>64.9</td></tr><tr><td>Claude-3.5-sonnet</td><td>38.8</td><td>56.8</td><td>52.8</td><td>87.0</td><td>85.2</td><td>64.7</td></tr></table>
+
+![](images/121a13df649e0b85888a39a1c33553c47571e3e19eec5f5d9e5f99801567c42c.jpg)  
+Figure 3: The effect of different data mixture used in RL training of TIR-Judge-Zero.
+
+## 5.3 ADDITIONAL STUDIES
+
+Diverse Data Mixture is essential for RL. We study the impact of task composition in RL in Figure 3. Training exclusively on chat or reasoning tasks leads to poor transfer across subtasks, largely because the scarcity of tool-use prompts prevents the model from fully developing tool-use capabilities. In contrast, unifying tasks – both with and without tool use – into a single training pipeline leads to improved generalization.
+
+Tool Use vs. Text-Only. To rigorously evaluate the impact of tool integration, we conduct a controlled study in which code execution is disabled during RL while keeping the training data identical. As shown in Figure 4(a), tool-augmented models achieve consistently higher accuracy on reasoning and IF benchmarks, while text-only models perform slightly better on text-centric tasks such as Chat and Safety in RMBench. These comparisons highlight the strength of tool-augmented judges for reasoning, and further suggest that mixing prompts from both tool-use and non–tool-use settings maintains robust performance without sacrificing much on cases where tools are unnecessary.
+
+Efficiency Studies. We further evaluate the efficiency of TIR-Judge against several baselines in Figure 6. While TIR-Judge achieves higher accuracy, incorporating external code execution tools introduces no additional inference-time overhead. In fact, TIR-Judge is more efficient than the baselines, benefiting from our SFT data construction strategy that favors trajectories with shorter reasoning and fewer tool calls during rejection sampling.
+
+Iterative RL progressively improves TIR-Judge-Zero. We evaluate TIR-Judge-Zero across training stages under the pairwise setting. As shown in Figure 5, we observe substantial gains after the first round of
+
+![](images/6f50a4371d2e3a731e339560c33509dd73ac0c295f597aac168ad72c1b43dbb3.jpg)  
+Figure 6: Study on Inference Efficiency.
+
+RL. These improvements arise from rejection sampling, which teaches the model to produce more format-correct and efficient tool use, thereby strengthening its reasoning capability. Additional RL iterations further boost accuracy as RL benefits from progressively higher-quality SFT data. In contrast, rejection-sampling fine-tuning yields modest gains, highlighting the necessity of online RL.
+
+![](images/837043202a2cd44ad40b46ea0d9cdea05c1d2720dc73bb949a7a9028245e9c54.jpg)  
+(a) Tool Use v.s. Text-only Judges
+
+![](images/63b8457e8e5184e59288a2387d0cc028386638b9385618c216c8f34c652db2e3.jpg)  
+(b) Best-of-N Inference
+
+Figure 4: Experimental results comparing tool-augmented judges against text-only judges under the same training data and settings, as well as the best-of-N inference performance.  
+![](images/2d9702ae4b985e5a573ca9252fa187fc14b3dfc6432509aba62c0125b526f981.jpg)  
+Figure 5: Accuracy of TIR-Judge across different training stages. Base denotes the backbone model without additional training. TIR-Judge-Zero-RS is a variant inspired by Zelikman et al. (2022) that uses rejection sampling to construct high-quality trajectories for SFT (without RL). TIR-Judge-Zero-RL-0,1,2 refer to the judge after 0, 1, and 2 rounds of RL training, respectively.
+
+## 5.4 BEST-OF-N EVALUATION ON POLICY MODELS
+
+We conduct parallel test-time compute scaling experiment to study whether TIR-Judge can improve the downstream performance of the policy model, where we conduct a study on reward-guided best-of-N inference over datasets from multiple domains including AIME-2024, AIME-2025, Big-CodeBench (Zhuo et al., 2025) and IFEval (Zhou et al., 2023). The detailed experimental setup is deferred to Appendix F.
+
+Figure 4(b) presents the average accuracy of TIR-Judge compared to a strong baseline, RRM, across four datasets. We find that TIR-Judge consistently surpasses both Majority Voting (Self-Consistency; Wang et al. (2023)) and RRM by clear margins, demonstrating its effectiveness.
+
+The improvements are especially pronounced on challenging benchmarks: BigCodeBench, which involves complex code generation and diverse functions, and AIME, which consists of competitionlevel math problems. On these tasks, TIR-Judge achieves absolute gains of 3.9–6.7% over RRM. This justifies its ability to handle more challenging tasks in real-world applications.
+
+## 5.5 CASE STUDIES
+
+Table 3 presents an example from the IFEval subset of the PPE benchmark. TIR-Judge successfully generates correct Python functions to verify two responses and produces the correct pairwise judgment. In contrast, text-only judges struggle, as counting remains challenging and often leads to incorrect and hallucinated reasoning steps, which yield incorrect predictions. This highlights how tool integration enables TIR-Judge to overcome failure modes that remain difficult for text-only judges.
+
+To confirm that the gains of TIR-Judge stem from improved reasoning and coding capability rather than merely “learning the format,” we analyzed the error breakdown for the 8B models in Table 4. The results show that format errors in the Qwen backbone are already negligible (< 1%). This confirms that TIR-Judge’s improvement is driven by better code generation (significantly lower syntax errors) and reasoning capabilities, rather than simply correcting formatting artifacts.
+
+## 6 CONCLUSION
+
+In this work, we introduce TIR-Judge, the first tool-integrated framework for training LLM judges with end-to-end reinforcement learning. Different from prior works on text-only judges,
+
+Table 3: A case study from IFEval demonstrating the judgement generated by TIR-Judge-Zero 8B and Qwen3-8B. Red text stands for the incorrect reasoning step while blue text justify the ability of TIR-Judge in writing correct verification codes. Part of responses are omitted due to space limits.  
+```txt
+User Prompt Write a letter to your friend who recently moved away. Your response should be in English, and in all capital letters. The letter o should appear at least 40 times.
+Response A MY DEAREST FRIEND.IT HAS BEEN SO LONG SINCE YOU MOVED AWAY, AND I MISS YOU TERRIBLY. ..... I CAN'T WAIT TO HEAR FROM YOU AND TO CATCH UP. WITH LOTS OF LOVE, YOUR FRIEND
+Response B MY DEAR FRIEND.IT HAS BEEN SOME TIME SINCE YOU MOVED AWAY, ..... I WISH YOU NOTHING BUT THE BEST ON YOUR NEW ADVENTURE, FRIEND.remember M UPDATE WITH ALL THE DETAILS ABOUT YOUR LIFE THEREOVER IN THE PRINTED PAGES. PLEASE SEND Oast THOUGHTS YOUR WAY, AS I KNOW YOURS ARE ALWAYS NEARLY ALWAYS WITH YOUR FRIEND FOR LIFE
+Judge Trajectory by TIR-Judge-Zero 8B To evaluate the responses, I will perform the following checks:
+1. Ensure both responses are in all capital letters.
+2. Count the number of times the letter "O" appears in each response.
+'' 'python
+# Count occurrences of 'O' (case-sensitive)
+count_o_a = response_a.count('O')
+count_o_b = response_b.count('O')
+# Check if responses are in all capital letters
+is_upper_a = response_a == response_a.upper()
+is_upper_b = response_b == response_b.upper()
+print(f"Response A - 'O' count: count_o_a, All caps: is_upper_a")
+print(f"Response B - 'O' count: count_o_b, All caps: is_upper_b")
+''
+'' 'output
+Response A - 'O' count: 58, All caps: True
+Response B - 'O' count: 60, All caps: False
+'A</preference>
+Qwen3-8B Analysis of Response A:
+- Language: Entirely in English. ✓
+- Capitalization: All text is in all capital letters. ✓
+- Letter "O" Count:
+Let's count the number of "O" letters in Response A (excluding punctuation and spaces for clarity):
+- "MY DEAREST FRIEND," → 1 "O"
+- "IT HAS BEEN SO LONG SINCE YOU MOVED AWAY, AND I MISS YOU TERRIBLY." → 2 "O"s
+......
+Total O's in Response A: 1 + 2 + 3 + 3 + 4 + 1 + 2 + 2 + 2 + 2 + 2 + 1 + 1 = 23 → Does NOT meet the requirement of at least 40 "O" letters. ✗
+Analysis of Response B:
+- Language: Entirely in English. ✓
+- Capitalization: All text is in all capital letters. ✓
+- Letter "O" Count:
+Let's count the number of "O" letters in Response A (excluding punctuation and spaces for clarity):
+- "MY DEAR FRIEND," → 2 "O"s
+- "IT HAS BEEN SOME TIME SINCE YOU MOVED AWAY," → 1 "O"
+- "I HAVE TO ADMIT, I MISS OUR THOUGHTFUL CONVERSATIONS AND EVEN YOUR (ADMIT IT) TERRIBLE, WONDERFUL COOKING." → 4 "O"s
+......
+Total O's in Response B: 2 + 1 + 4 + 1 + 4 + 1 + 7 = 20 → Does NOT meet the requirement of at least 40 "O" letters. ✗
+Conclusion: Both responses fail to meet the instruction's requirement that the letter "O" must appear at least 40 times. However, Response B contains more "O" letters (20) compared to Response A (23), which is still below the required threshold.
+Despite both responses not fully complying with the instruction, Response B is more closely aligned with the instruction, as it contains a higher number of "O" letters and is more detailed in content.<preference>B</preference>
+```
+
+Table 4: Breakdown of Code Execution Errors. We categorize errors into Syntax, Runtime, and Formatting failures.
+
+<table><tr><td>Error Type</td><td>TIR-Judge-Zero</td><td>TIR-Judge-Distill</td><td>Qwen-3-Tool</td></tr><tr><td>Syntax</td><td>1.20%</td><td>3.65%</td><td>4.95%</td></tr><tr><td>Runtime</td><td>0.00%</td><td>0.00%</td><td>0.00%</td></tr><tr><td>Format</td><td>0.17%</td><td>0.14%</td><td>0.97%</td></tr></table>
+
+TIR-Judge tightly couples reasoning with code execution to enable judges to perform precise verification and computation. To maximize the benefits of RL, we propose three key design choices: task diversification, flexible judgement, and iterative RL training. Experiments on seven benchmarks show that TIR-Judge outperforms strong reasoning judges by up to 6.4% (pointwise) and 7.7% (pairwise), and matches 96% of Claude-Opus-4’s listwise performance with only 8B parameters. TIR-Judge-Zero shows that pure RL can bootstrap tool-use without supervision, offering a scalable path toward self-improving judges. In future work, we aim to expand the range of tools and training tasks used in RL, and explore using TIR-Judge to enhance policy model training.
+
+## ETHICS STATEMENT
+
+Our work aims to advance the development of LLM-based judges by complementing reasoning with tool use. While TIR-Judge demonstrates strong performance across multiple domains, we recognize potential ethical and safety concerns. In particular, the use of external tools (e.g.,

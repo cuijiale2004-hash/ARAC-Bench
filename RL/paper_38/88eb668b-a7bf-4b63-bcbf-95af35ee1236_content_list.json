@@ -1,0 +1,1376 @@
+[
+    {
+        "type": "text",
+        "text": "ABSTRACT",
+        "text_level": 2,
+        "bbox": [
+            450,
+            250,
+            547,
+            266
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Multi-Agent System (MAS) and Reinforcement Learning (RL) are both widely adopted to improve large language model (LLM) agentic performance. MAS strengthens task-specialized performance via role-based orchestration; RL leverages environment rewards to train stronger policies, such as Group Relative Policy Optimization (GRPO)-style optimization. Yet applying on-policy RL training to MAS is underexplored. While promising, it poses several challenges. On the algorithm side, Standard GRPO grouping assumptions fail in MAS because prompts differ by role and turn. On the system side, the training system needs to support MAS-workflow-based rollouts and on-policy updates for both single and multiple policy models. To address these issues, we introduce AT-GRPO, consisting of (i) an Agent- and Turn-wise grouped RL algorithm tailored for MAS and (ii) a system to support both single-policy and multi-policy training. Across game, plan, coding, and math tasks, AT-GRPO demonstrates substantial performance gains across diverse domains. Especially on long-horizon planning tasks, AT-GRPO boosts accuracy from a 14.0–47.0% single-agent RL baseline to 96.0–99.5%. Furthermore, it improves reasoning performance, with an average gain of 3.87–7.62% on coding and 9.0-17.93% on math.",
+        "bbox": [
+            230,
+            282,
+            767,
+            518
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "§ Code & Environment:",
+        "bbox": [
+            171,
+            536,
+            352,
+            551
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "https://github.com/pettingllms-ai/PettingLLMs",
+        "bbox": [
+            171,
+            551,
+            522,
+            566
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "1 INTRODUCTION",
+        "text_level": 2,
+        "bbox": [
+            174,
+            587,
+            338,
+            602
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Large Language Model (LLM) agents are task-specific workflows (Yao et al., 2023; Xi et al., 2023; Wang et al., 2023b) that utilize LLMs as key components for decision making (Shinn et al., 2023), action taking (Wang et al., 2023a), and tool use (Qian et al., 2025; Schick et al., 2023). LLM agents have demonstrated strong promises across various application domains, such as embodied control (Ahn et al., 2022; Wang et al., 2023a), software engineering (Tao et al., 2024; Yu et al., 2025), expert drug discovery (Liu et al., 2024; Inoue et al., 2024), and scientific ideation and hypothesis testing (Ghafarollahi and Buehler, 2024).",
+        "bbox": [
+            169,
+            617,
+            826,
+            715
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Today, two complementary approaches are widely used to improve the performance of LLM agents: multi-agent systems (MAS) and reinforcement learning (RL). RL treats the LLM as a policy and iteratively updates its weights to strengthen decision-making: at each iteration, the current model interacts with the environment, collects rule-based rewards, and then computes a policy optimization loss to update the parameters (Shao et al., 2024). In practice, this workflow requires a training stack that supports both scalable rollouts and online updates, e.g., VERL (Sheng et al., 2025) and AReaL (Fu et al., 2025). MAS typically employs prompt-only augmentation on a shared LLM policy for role-based coordination; practical deployments instantiate diverse workflows. Recent studies (Belcak et al., 2025; Chen et al., 2024; Wang et al., 2024) further highlight the potential benefits of role-specialized MAS, which adopts distinct models for different roles, enabling rolespecialized policies in inference. However, the effectiveness of RL training on role-specialized MAS is underexplored.",
+        "bbox": [
+            169,
+            722,
+            826,
+            888
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "A natural next step is to combine the two: using RL to train MAS, such that we gain both stronger learned policies, role-specialized collaboration. However, bringing RL into MAS raises two coupled challenges. First, training a MAS may require concurrently launching multiple models, orchestrating inter-agent environment interactions, and performing independent on-policy parameter updates. But most existing on-policy RL frameworks for LLM agents only support a single model (Volcano Engine, 2025; Sheng et al., 2024; Fu et al., 2025). Second, rollouts from MAS are difficult to group. The advantage must be conditioned on interaction history and role to ensure fair credit assignment. Group-based RL objectives designed for a single agent (Volcano Engine, 2025; Qian et al., 2025; Feng et al., 2025) are not directly applicable to MAS.",
+        "bbox": [
+            171,
+            895,
+            826,
+            924
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_number",
+        "text": "1",
+        "bbox": [
+            493,
+            948,
+            503,
+            959
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "chart",
+        "img_path": "images/8bafecf53b82c9ad16361f2f0ea0b7cd242f9073f1f510ff6e22f2c485904cf6.jpg",
+        "content": "",
+        "chart_caption": [
+            "(a) Qwen3-1.7B on LiveCodeBench"
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            174,
+            101,
+            488,
+            214
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "chart",
+        "img_path": "images/83e5490d3834ea25093dc2617aaf0730be1a2652cc876183e2c7bad1babbdc71.jpg",
+        "content": "",
+        "chart_caption": [
+            "(b) Qwen3-8B on Sokoban",
+            "Figure 1: MAS+AT-GRPO vs. Single-agent+GRPO. The gray line denotes the prompt-only MAS baseline."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            491,
+            99,
+            821,
+            214
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            258,
+            825,
+            357
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "To address these challenges, we first design AT-GRPO, an Agent- and Turn-wise grouped RL method that adapts group-relative optimization for MAS. Furthermore, we develop a novel training system to support on-policy RL for MAS. Our training system supports rollouts for diverse MAS workflows and enables on-policy RL training for both role-sharing policy and role-specific policies. We conduct extensive experiments on Qwen3 models across a range of representative agentic domains, including game, planning, coding, and mathematical reasoning. As highlighted in Fig. 1, AT-GRPO (blue) significantly outperforms single-agent GRPO (red). For instance, it achieves a 5.0% higher accuracy (+25.0% relative) on LiveCodeBench (with Qwen3-1.7B), while the improvement increases to 84.0% on Sokoban (with Qwen3-8B).",
+        "bbox": [
+            169,
+            363,
+            826,
+            489
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "This paper makes the following key contributions:",
+        "text_level": 2,
+        "bbox": [
+            171,
+            494,
+            504,
+            510
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "• AT-GRPO Algorithm. We introduce an agent- and turn-wise grouped RL algorithm, AT-GRPO, and identify the substantial benefits of applying on-policy RL to MAS across diverse domains: planning, gaming, coding and mathematical reasoning tasks.",
+        "bbox": [
+            174,
+            516,
+            825,
+            558
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "• MAS Training System. We design a novel training system to support (i) executing rollouts for diverse MAS workflows and (ii) performing on-policy RL updates for multiple policies.",
+        "bbox": [
+            174,
+            558,
+            825,
+            585
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "• Our method delivers consistent gains across diverse domains. On long-horizon planning tasks, it overcomes a key bottleneck of single-agent RL, boosting accuracy from a 14–47% baseline to 96.0-99.5%. Furthermore, it also demonstrates gains on code and math benchmarks, with average improvements of 3.87–7.62% and 9.0–17.93%, respectively.",
+        "bbox": [
+            174,
+            585,
+            825,
+            641
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "• Our analysis shows that (1) RL training on MAS reinforces role-specific specialization; (2) with MAS AT-GRPO, whether to choose a role-sharing policy or role-specialized policies needs to be determined by the task characteristics.",
+        "bbox": [
+            174,
+            641,
+            825,
+            684
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "2 RELATED WORK",
+        "text_level": 2,
+        "bbox": [
+            171,
+            704,
+            346,
+            719
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Role-sharing vs. Role-specialized Policies in MAS. A predominant approach in LLM-based MAS centers on a role-sharing architecture, where a single policy is shared across all agents. In these frameworks, such as AutoGen (Wu et al., 2023) and MetaGPT (Hong et al., 2024), role-specific behavior is elicited at inference time via prompt augmentation. More recently, research has begun to explore role-specialized policies. This shift is motivated by the observation that a single LLM’s performance exhibits significant variance across domains (Chen et al., 2024; Wang et al., 2024; Belcak et al., 2025). Consequently, assigning distinct and more suitable models to specialized roles, as demonstrated by Ye et al. (2025); Belcak et al. (2025), has emerged as a promising direction for enhancing performance. Despite this architectural evolution, recent surveys (Cemri et al., 2025; Guo et al., 2024) indicate that most studies focus on inference-time design, leaving the potential of training MAS policies with RL largely underexplored.",
+        "bbox": [
+            169,
+            734,
+            826,
+            890
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "RL Training for MAS. RL has become a key technique for LLMs agent training, using grouprelative and rule-based rewards to enhance reasoning, long-horizon planning, game, and tool use (Feng et al., 2025; Wang et al., 2025b; Qian et al., 2025; Hu et al., 2025). These approaches, however, predominantly operate within a single-agent framework. While a growing body of work attempts to extend RL to Multi-Agent Systems (MAS), most efforts remain confined to limited interaction settings or fixed role structures. For instance, CURE (Wang et al., 2025a) focuses on co-evolving a Coder and Unit-Tester using a role-sharing policy specifically for code generation. Similarly, SPIRAL (Liu et al., 2025) employs self-play in zero-sum games using a single LLM, while MHGPO (Chen et al., 2025a) targets retrieval-augmented generation. MAPoRL (Park et al., 2025a;b) and CoRY Ma et al. (2024) train LLMs within fixed, homogeneous-role debate workflows. More recent works also exhibit limitations: MARFT Liao et al. (2025) <sup>1</sup> restricts agents to singleturn sequential interactions, and MARTI Zhang et al. (2025) merely introduces basic single-agent RL algorithms (e.g., GRPO) to the MAS setting. Critically, the implemention for these works is concentrated on the single domain of math. We include a more comprehensive comparison of these related works in Appendix A. In contrast, our study offers a more comprehensive solution. We propose a general algorithm designed for multi-turn, multi-agent environments. Unlike prior works, we conduct a thorough analysis and evaluation of both shared and role-specific policies across diverse MAS workflows and varying domains.",
+        "bbox": [
+            169,
+            895,
+            826,
+            924
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "page_number",
+        "text": "2",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "image",
+        "img_path": "images/170bc3b754ed69f4cc0c021ca520052e4f0592fbb63c08a254de05c4266511af.jpg",
+        "image_caption": [
+            "Figure 2: MAS workflow across different domains. (a) Role-based coordination: code generation via a coder–tester loop. (b) Different task-specific workflows for Game/Plan, Code, and Math; see Sec. 5.1 and Appendix C.2 for workflow details."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            205,
+            102,
+            787,
+            344
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            406,
+            826,
+            630
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "3 PRELIMINARIES",
+        "text_level": 2,
+        "bbox": [
+            171,
+            650,
+            341,
+            666
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "MAS Setting. The N-agent LLM system is modeled as a Markov game $\\begin{array} { r l } { \\mathcal { M } } & { { } = } \\end{array}$ $( \\mathcal { S } , \\{ \\mathcal { A } _ { i } \\} _ { i = 1 } ^ { N } , \\breve { T } , \\{ r _ { i } \\} _ { i = 1 } ^ { N } , T , \\breve { H } )$ , where S is the state space; $\\mathbf { \\mathcal { A } } _ { i }$ is the action space of agent i; The transition function $\\tau$ induces intra-turn micro-transitions where $s _ { t , 0 } ~ = ~ s _ { t }$ and $\\begin{array} { r l } { s _ { t , i } } & { { } = } \\end{array}$ $\\mathcal { T } ( s _ { t , i - 1 } , a _ { t , i } , i )$ , culminating in $s _ { t + 1 } = s _ { t , N }$ . The reward for agent i is given by $r _ { i } : \\mathcal { A } _ { i }  [ 0 , 1 ]$ and the turn horizon $T _ { \\ast }$ , the optimization step horizon H. At each turn $t ,$ agent i receives an observation summarizing the environment state and interaction history $h _ { t } , o _ { t , i } = o _ { i } ( s _ { t } , h _ { t } )$ . Each agent i is implemented with a role-specific prompt template $\\mathsf { P } _ { i } ( \\cdot )$ . Let $\\Theta = \\{ \\theta ^ { ( m ) } \\} _ { m = 1 } ^ { M }$ denote the set of LLM parameter vectors, with $1 \\leq M \\leq N$ , and let $\\sigma : \\{ 1 , \\dots , N \\} \\to \\{ 1 , \\dots , M \\}$ assign each agent to an LLM. We treat one LLM rollout (a token sequence) as a single macro-action $a _ { t , i }$ . A turn is one full interaction in which all agents emit macro-actions to the environment. A step denotes one optimization update to the parameter set Θ during training.",
+        "bbox": [
+            169,
+            681,
+            826,
+            840
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "MAS Workflow. Following prior work (Wang et al., 2025a; Ahn et al., 2022; Chen et al., 2025c), we employ domain-specific MAS workflows, as shown in Fig. 2. Our experiments confirm that this prompt-only method outperforms a single-agent baseline (see Tab. 1 and 2 in Sec. 5.2).",
+        "bbox": [
+            169,
+            854,
+            825,
+            898
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "page_footnote",
+        "text": "<sup>1</sup>We compare against MARFT v3, the latest preprint available prior to the completion of this work.",
+        "bbox": [
+            191,
+            909,
+            777,
+            924
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "page_number",
+        "text": "3",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Group-based RL. Methods for LLM agentic training with group-relative advantages (Feng et al., 2025; Wang et al., 2025b; Qian et al., 2025) operate by first sampling K candidate actions $\\{ a _ { t } ^ { ( c ) } \\} _ { c = 1 } ^ { K }$ 1 for a given prompt. Each action is evaluated to obtain a rule-based reward $R ( a _ { t } ^ { ( c ) } )$ , forming a comparison group: $G = \\{ ( a _ { t } ^ { ( 1 ) } , R ( a _ { t } ^ { ( 1 ) } ) ) , \\ . . . , \\ ( a _ { t } ^ { ( K ) } , R ( a _ { t } ^ { ( K ) } ) ) \\}$ . For each action $a _ { t } ^ { ( c ) }$ in this group, the relative advantage is then defined as its mean-centered and normalized return.",
+        "bbox": [
+            169,
+            104,
+            826,
+            186
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\nA _ {g} \\big (a _ {t} ^ {(c)} \\big) = \\frac {R (a _ {t} ^ {(c)}) - \\mathrm{mean} \\Big (\\{R (a _ {t} ^ {(c)}) \\} _ {c = 1} ^ {K} \\Big)}{F _ {\\mathrm{norm}} \\Big (\\{R (a _ {t} ^ {(c)}) \\} _ {c = 1} ^ {K} \\Big)},\\tag{1}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            336,
+            191,
+            658,
+            243
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Role-sharing vs. Role-specialized Policy Optimization. We distinguish between two optimization regimes, role-sharing and role-specialized, both of which initialize policies from the same base model. During rollouts, each agent i generates a dataset $\\mathcal { D } _ { i }$ , which consists of sample groups. A single group g is composed of a shared observation context $o _ { g }$ and K candidate actions with their corresponding advantages, denoted as $g = \\{ i , a _ { g } ^ { ( c ) } , A _ { g } ^ { ( c ) } \\} _ { c = 1 } ^ { K }$ . The core difference between the two regimes lies in how the training data is batched. A minibatch $\\begin{array} { r } { B _ { m } = \\bigcup _ { i : \\sigma ( i ) = m } \\mathcal { D } _ { i } } \\end{array}$ . for a specific policy $\\theta ^ { ( m ) }$ is constructed by pooling the datasets from all agents assigned to it:",
+        "bbox": [
+            169,
+            257,
+            826,
+            364
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathcal {L} \\left(\\theta^ {(m)}\\right) = - \\mathbb {E} _ {g \\in \\mathcal {B} _ {m}} \\left[ \\frac {1}{K} \\sum_ {c = 1} ^ {K} \\min \\left(r _ {g} ^ {(c, m)} \\left(\\theta^ {(m)}\\right) A _ {g} ^ {(c)}, \\operatorname{clip} \\left(r _ {g} ^ {(c, m)} \\left(\\theta^ {(m)}\\right), 1 - \\varepsilon , 1 + \\varepsilon\\right) A _ {g} ^ {(c)}\\right) \\right]\\tag{2}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            178,
+            388,
+            813,
+            431
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "where $\\begin{array} { r } { r ( \\theta ) = \\frac { \\pi _ { \\theta } \\left( o _ { i } | q \\right) } { \\pi _ { \\theta _ { o l d } } \\left( o _ { i } | q \\right) } } \\end{array}$ . Role-sharing policy (M=1): All agents share a single policy $\\theta ^ { 1 }$ . The training batch is the union of data from all agents, $\\begin{array} { r } { B _ { 1 } = \\bigcup _ { i = 1 } ^ { N } \\mathcal { D } _ { i } } \\end{array}$ , and is used for a single joint update: $\\theta ^ { 1 } \\gets \\theta ^ { 1 } - \\eta \\nabla _ { \\theta ^ { 1 } } \\mathcal { L } ( \\theta ^ { 1 } )$ ).",
+        "bbox": [
+            169,
+            455,
+            825,
+            510
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Role-specialized policies $( M = N ) \\colon$ Each agent i has a distinct policy $\\theta ^ { ( i ) }$ , such that $\\sigma ( i ) = i$ . Each policy is updated independently on $B _ { i } = \\mathcal { D } _ { i }$ , and update policy: $\\theta ^ { ( i ) }  \\theta ^ { ( i ) } - \\eta \\nabla _ { \\theta ^ { ( i ) } } \\mathcal { L } ( \\theta ^ { ( i ) } )$ .",
+        "bbox": [
+            169,
+            517,
+            825,
+            549
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "4 METHOD",
+        "text_level": 2,
+        "bbox": [
+            171,
+            568,
+            284,
+            583
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "4.1 ALGORITHM DESIGN: AT-GRPO",
+        "text_level": 2,
+        "bbox": [
+            171,
+            599,
+            447,
+            613
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "GRPO’s advantage calculation (Eq. 1) hinges on a fair comparison among all candidates within a group. This fairness is enforced by the reward mechanism itself. As illustrated in Fig. 2 (top), token-level scoring assigns credit to the generated response tokens (Reward Mask=1), while the prompt tokens receive no credit (Reward Mask=0). Since the advantage is determined solely by the quality of the response, a valid and fair comparison is only possible",
+        "bbox": [
+            171,
+            625,
+            388,
+            834
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "image",
+        "img_path": "images/9b9d46499d3e7af929a6679859aac6984aacae32924f62f8fd08462d7511cf8f.jpg",
+        "image_caption": [
+            "Figure 3: Two sampling schemes. (a) In parallel sampling, trajectories are sampled but incomparable, leading to groups of size 1. (b) In tree sampling, branching at each turn forms a valid comparison group of size K."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            398,
+            618,
+            821,
+            770
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "when all responses in a group originate from an identical prompt. Consequently, single-agent LLM-RL methods(Wang et al., 2025b; Qian et al., 2025; Feng et al., 2025) typically form groups by sampling multiple responses to the same question.",
+        "bbox": [
+            169,
+            833,
+            825,
+            876
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "In MAS, however, a “prompt” is not only a question description, but also embeds the role-specific context and cross-agent interaction history. For example, in the code tasks depicted in Fig. 2 (a) , where the workflow entails a coder-tester loop: one agent synthesizing code and the other creating unit tests, and they iteratively refine the output until alignment (Fig. 3, top), the turn-2 refinement prompt already contains the turn-1 code, unit tests, and role-specific prompt format, so prompts differ across turns and roles. We therefore adopt agent-wise and turn-wise grouping as a natural extension of tabular-wise group-normalized advantages in GiGPO (Feng et al., 2025) to the multiagent setting: candidates share the same role and turn position, ensuring prompt identity for valid GRPO advantage comparisons.",
+        "bbox": [
+            169,
+            882,
+            825,
+            925
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "page_number",
+        "text": "4",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "code",
+        "sub_type": "algorithm",
+        "code_caption": [],
+        "code_body": "<div class=\"mineru-algorithm\" style=\"white-space: pre-wrap; font-family:monospace;\">\nAlgorithm 1 AT-GRPO: Agent- and Turn-wise MAS RL Training\n\nRequire: Markov game M, policies  $\\Theta = \\{\\theta^{(m)}\\}_{m=1}^{M}$ , role mapping  $\\sigma$ , sampling temperature  $T_{samp}$ , branches K, total steps S, batch size E, turn horizon T, termination condition  $I_{term}$ .\n\n/*- Termination helper: returns true if horizon reached or env signals done -*/\n\n1: for training step  $s = 1, \\ldots, S$  do\n\n/*- Phase 1: On-Policy Rollout &amp; Data Collection -*/\n\n2: Initialize per-agent datasets  $\\{D_i\\}_{i=1}^N \\leftarrow \\emptyset$ . Resample E environments.\n\n3: for each environment instance  $e \\in \\{1, \\ldots, E\\}$  in parallel do\n\n4: for t = 0 to T - 1 do\n\n5:  $s_{t,0,e} \\leftarrow s_{t,e}$   ▷ Initialize micro-step state\n\n6: for each agent  $i \\in \\{1, \\ldots, N\\}$  do\n\n7:  $\\forall c \\in \\{1, \\ldots, K\\}$ ,  $a_{t,i,e}^{(c)} \\sim \\pi_{\\theta(\\sigma(i))} (\\cdot | o_{t,i,e}; T_{samp})$ ; compute  $r_{t,i,e}^{(c)}$  (Eq. 3)\n\n8: Define group key  $g \\leftarrow \\text{hash}(e, i, t)$  and compute advantages  $\\{A_g^{(c)}\\}_{c=1}^K$  (Eq. 1).\n\n9: Append  $(g, o_{t,i,e}, \\{a_{t,i,e}^{(c)}\\}_{c=1}^K, \\{A_g^{(c)}\\}_{c=1}^K)$  to  $D_i$ .\n\n10:  $c^\\star \\leftarrow \\arg\\max_c r_{t,i,e}^{(c)}$ ;  $a_{t,i,e} \\leftarrow a_{t,i,e}^{(c^\\star)}$ . (Tree-structured sampling.)\n\n11:  $s_{t,i,e} \\leftarrow \\mathcal{T}(s_{t,i-1,e}, a_{t,i,e}, i)$   ▷ Agent-wise micro-transition\n\n12: end for\n\n13:  $s_{t+1,e} \\leftarrow s_{t,N,e}$   ▷ End-of-turn state\n\n14: if  $I_{term}(s_{t+1,e})$  then break\n\n15: end if\n\n16: end for\n\n17: end for\n\n/*- Phase 2: Per-Model Policy Update -*/\n\n18: for each model  $m \\in \\{1, \\ldots, M\\}$  in parallel do\n\n19: Construct per-model batch  $B_m$ , loss  $\\mathcal{L}(\\theta^{(m)})$  on  $B_m$  using Eq. 2 and update policy m.\n\n20: end for\n\n21: end for\n</div>",
+        "bbox": [
+            171,
+            99,
+            823,
+            510
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            536,
+            826,
+            622
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "However, agent- and turn-wise grouping introduces a new question. If we follow the common parallel sampling used by prior agentic RL—sample K full trajectories from the initial state/problem (Fig. 3 (a), bottom), each group size = 1 when $t > 1 :$ no other sample shares the identical prompt. GRPO therefore eliminates its variance-reduction effect and yields unstable updates. To address these challenges, we develop AT-GRPO (see Alg. 1) with three key ideas: tree-structured sampling, agent– and turn-wise grouping, and agent-wise credit assignment.",
+        "bbox": [
+            169,
+            627,
+            826,
+            714
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Tree-structured Sampling. At each turn $t ,$ for each agent i, we sample K candidate actions and their corresponding rewards from the current state (Alg. 1, line 7). The advantages for these K candidates are then calculated within this group (line 9). Subsequently, the full data tuple—containing the group key, observation, K actions, and their K advantages—is added to a dataset $D _ { i }$ specific to the policy of the acting agent i (line 10). To proceed with the environment rollout, we greedily select the candidate with the highest reward to be the executed action (line 11). This greedy selection strategy concentrates exploration on coordination-critical decisions and helps maintain a balanced mix of positive and negative samples, which stabilizes the learning optimization.",
+        "bbox": [
+            169,
+            726,
+            826,
+            840
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Agent– and Turn-wise Grouping. We group experiences based on the acting agent and the turn number within each parallel environment instance. Operationally, we implement this by defining a unique group key g for each agent i at each turn t in each environment e using a lightweight hash function (Alg. 1, line 8). All data generated from the K-branch sampling at that step, including the observation and the calculated advantages, is stored together under this group key (line 10). During the policy update phase, these collected data groups are used to construct per-model training batches for the final optimization step (lines 20–21).",
+        "bbox": [
+            169,
+            854,
+            826,
+            925
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "page_number",
+        "text": "5",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            104,
+            825,
+            133
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Agent-wise Credit Assignment. Inspired by mixed-reward designs in cooperative Multi-Agent RL (Mao et al., 2020; Sheikh and Bol¨ oni, 2020), we assign credit using a mixture of global and¨ local rewards. At each turn t, the environment provides a global team reward r<sup>team</sup> and an agentspecific local reward $r _ { i } ^ { \\mathrm { l o c } }$ that evaluates its subtask performance. These components are combined using a hyperparameter α to form the final reward for agent i:",
+        "bbox": [
+            169,
+            146,
+            826,
+            219
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "equation",
+        "text": "$$\nr _ {t, i} = \\alpha r _ {t} ^ {\\mathrm{team}} + r _ {t, i} ^ {\\mathrm{loc}}\\tag{3}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            415,
+            222,
+            580,
+            241
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "This formulation balances a shared team objective with role-specific incentives. For instance, in a coder-tester MAS, the team reward r<sup>team</sup> is the pass rate of the generated program on a set of golden unit tests. The local rewards $r _ { i } ^ { \\mathrm { l o c } }$ are tailored to each role: the coder is rewarded for its own code’s pass rate, while the tester is rewarded based on the pass rate of a golden reference implementation against its generated tests. Detailed reward designs for all tasks are provided in Appendix C.1.",
+        "bbox": [
+            169,
+            251,
+            826,
+            324
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "4.2 MAS TRAINING SYSTEM",
+        "text_level": 2,
+        "bbox": [
+            171,
+            338,
+            392,
+            353
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Mainstream RL post-training frameworks for LLMs, e.g., TRL (von Werra et al., 2020), VERL (Sheng et al., 2024), AReaL (Fu et al., 2025), and OpenRLHF (Hu et al., 2024) primarily support single-agent RL training, which typically involves: a single agent-environment interaction pattern, a policy operating, and a single LLM resource pool. This makes it difficult to (i) train multiple models in on-policy RL, (ii) maintain clean on-policy training data, and (iii) support diverse MAS workflow.",
+        "bbox": [
+            169,
+            364,
+            486,
+            518
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "image",
+        "img_path": "images/be5d91d97aec2cb1abec28c9f49cb6a850446f21d0750959e99e85df2f9fc1d5.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            498,
+            333,
+            821,
+            534
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "We introduce a novel MAS training system to overcome these challenges and enable AT-GRPO . By allocating an independent resource pool to each model, our system is designed to support the concurrent on-policy training of multiple policies. The system, depicted in Fig. 4, consists of the following components:",
+        "bbox": [
+            169,
+            523,
+            486,
+            625
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Figure 4: MAS training system. Each LLM m has a GPU-pinned model pool with a Rollout-Worker and an UpdateWorker. A CPU environment pool hosts envworkers that execute environment steps. Trajectories are routed to the corresponding UpdateWorker.",
+        "bbox": [
+            493,
+            540,
+            825,
+            626
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "LLM Resource Pools (GPU). Each policy is managed within an independent resource pool. Following HybridFlow-style (Sheng et al., 2025), each pool comprises two workers: a RolloutWorker for inference and an UpdateWorker for optimization. During the rollout phase, all policies interact collectively according to the Alg. 1 and MAS workflow; Once collected, each trajectory is routed to the corresponding UpdateWorker, maintaining an on-policy learning regime for every policy.",
+        "bbox": [
+            169,
+            636,
+            826,
+            709
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Environment Execution (CPU) and Data Flow. Environment steps run in a fleet of CPU EnvWorkers, each managing a single sandboxed instance to ensure safety and reproducibility (seeding, wall-clock timeouts, IO quotas, and deterministic tool harnesses). This one-actor-per-instance mapping efficiently supports thousands of concurrent rollouts in parallel. EnvWorkers stream observations, tool logs, and rule-based rewards to a Router. The Router dispatches collected experience based on policy assignment: experiences generated by an agent i are sent to the Updateworker of its designated policy σ(i).",
+        "bbox": [
+            169,
+            720,
+            826,
+            821
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "5 EXPERIMENTS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            839,
+            328,
+            854
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "5.1 DATASETS AND MODELS.",
+        "text_level": 2,
+        "bbox": [
+            171,
+            869,
+            390,
+            883
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "1. Experimental Setup. We train and evaluate Qwen3 models at 1.7B and 8B in the no-thinking mode (Yang and the Qwen Team, 2025). All runs use a single node with 8× H100 GPUs. The rollout sample size is K=4 and the turn horizon is T = 4 for both multi-agent (MA) and single-agent (SA) settings. The reward-mixing coefficient is α=1 without further tuning. Full training details appear in Appendix C.1.",
+        "bbox": [
+            171,
+            895,
+            826,
+            925
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "page_number",
+        "text": "6",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            104,
+            826,
+            148
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "2. Baselines. We evaluate five variants (all initialized from the same base model): (a) Single Agent (prompt-only): one frozen LLM solves the task end-to-end; (b) Single Agent + GRPO: as (a) but trained with GRPO (Shao et al., 2024); (c) MAS (prompt-only): role-specialized prompting over a frozen, role-sharing backbone; (d) MAS + RL (role-sharing policy): all roles share one policy and pooled trajectories update it jointly; (e) MAS + RL (role-specialized policies): samples are routed by role and each policy is optimized independently (no parameter sharing).",
+        "bbox": [
+            169,
+            165,
+            826,
+            252
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "3. Task Setups and Baselines. To ensure a fair comparison, we align all environmental observations and reward signals across both MA and SA settings. While both paradigms utilize the same role-specific reward functions, the sole distinction is that the MA framework involves multiple agents capable of discussion. Detailed prompt templates and reward specifications are provided in Appendix B and C.2.",
+        "bbox": [
+            169,
+            268,
+            826,
+            340
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Single Agent Variants. We also evaluated a multi-turn SA variant for both Code and Math (see Appendix F), where a single agent repeatedly revises its own output until self-consistency. This setup is inherently less natural: the agent receives no additional environmental signal or cross-agent feedback, and the interaction pattern deviates from the QA-style pretraining regime of LLMs. Reflecting this mismatch, the multi-turn SA variant brought no empirical improvement and sometimes slightly degraded performance relative to the standard single-turn SA baseline.",
+        "bbox": [
+            169,
+            345,
+            826,
+            431
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Code. The environment observation is restricted to the problem description. The MA setting employs a dual-role debating mechanism: a Tester generates unit tests and a Coder generates the code. They refine their outputs iteratively until alignment is reached or the maximum turn limit is met. The natural SA baseline employs a Coder to generate the solution directly, as no other environmental feedback and other agent’s output is available.",
+        "bbox": [
+            169,
+            436,
+            826,
+            508
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Math. The environment observation consists is restricted to the problem. MA uses Dual-role debating MAS: a Tool-User (utilizing code interpreters) and a Reasoner (performing direct reasoning) until alignment or the maximum turn limit is met. The SA setting uses a Reasoner to derive the answer directly, as no other environmental feedback and other agents’ response.",
+        "bbox": [
+            169,
+            513,
+            825,
+            571
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Planning and Game. The environment observations are game states of the current turn. The MA setting employs a collaboration mechanism: a Tool-User (executing the tools) and an Executor (verifying tool outputs and executing actions). The SA employs an Executor to perform actions. Both settings share identical termination conditions based on goal satisfaction or the turn budget.",
+        "bbox": [
+            169,
+            575,
+            826,
+            633
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "4. Training and Evaluation Datasets. Sudoku and Sokoban. We evaluate our method on gaming tasks: a 4×4 Sudoku and a 6×6 Sokoban. We use instances with an automatic checker, following the symbolic task setup of SYMBENCH (Chen et al., 2025c). To ensure a fair evaluation, we generate distinct training and validation sets using different random seeds and verify there is no overlap.",
+        "bbox": [
+            169,
+            651,
+            826,
+            709
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Plan-Path. We use a 10×10 grid-based Plan-Path environment. This follows the checker-backed symbolic task setup in CodeSteer’s SymBench (Chen et al., 2025c). To separate training and validation, we generate the two splits with distinct random seeds and verify no duplication.",
+        "bbox": [
+            169,
+            714,
+            826,
+            758
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Code Generation. For training, we adopt size-specific corpora: the 1.7B Qwen model is trained on the APPS training split (introductory-difficulty subset) (Hendrycks et al., 2021), while the 8B model is trained on CodeContests (DeepMind, 2024). For model-generated code, we use the dataset’s golden unit tests to score correctness; for model-generated UT, we use the dataset’s golden reference solutions to compute the reward. For evaluation, we use three widely adopted coding benchmarks spanning interview-style and contest-style settings: APPS (Hendrycks et al., 2021), LiveCodeBench-v6 (White et al., 2024), and CodeContests (DeepMind, 2024).",
+        "bbox": [
+            169,
+            763,
+            826,
+            863
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Mathematical Reasoning. We train on the Polaris-Dataset-53K (An et al., 2025) and evaluate on several standard mathematical reasoning benchmarks. For validation, we use AIME24/AIME25 (Mathematical Association of America & AoPS Community, 2024; 2025) and OLYMPIADBENCH (He et al., 2024). All math tasks use verifier-checked numeric scoring.",
+        "bbox": [
+            169,
+            867,
+            826,
+            925
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "page_number",
+        "text": "7",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "table",
+        "img_path": "images/8e409e87161e098097d282410856725e3ecb486061c781634f70e8183e65976c.jpg",
+        "table_caption": [
+            "Table 1: Qwen3 1.7B results on game, planning, coding, and math."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td rowspan=\"2\">Method</td><td colspan=\"2\">Game</td><td rowspan=\"2\">Plan Plan-Path</td><td rowspan=\"2\">LiveCodeBench</td><td rowspan=\"2\">Code APPS</td><td rowspan=\"2\">CodeContests</td><td rowspan=\"2\">AIME24</td><td rowspan=\"2\">Math AIME25</td><td rowspan=\"2\">OlympiadBench</td></tr><tr><td>Sudoku</td><td>Sokoban</td></tr><tr><td>Single agent</td><td>7.00(+0.00)</td><td>0.00(+0.00)</td><td>5.00(+0.00)</td><td>11.60(+0.00)</td><td>16.20(+0.00)</td><td>3.60(+0.00)</td><td>13.40(+0.00)</td><td>9.80(+0.00)</td><td>22.20(+0.00)</td></tr><tr><td>Single agent + GRPO</td><td>29.00(+22.00)</td><td>3.00(+3.00)</td><td>11.00(+6.00)</td><td>18.80(+7.20)</td><td>17.00(+0.80)</td><td>3.00(-0.60)</td><td>10.00(-3.40)</td><td>6.70(-3.10)</td><td>23.80(+1.60)</td></tr><tr><td>MAS</td><td>69.00(+62.00)</td><td>0.00(+0.00)</td><td>10.00(+5.00)</td><td>19.00(+7.40)</td><td>16.60(+0.40)</td><td>3.60(+0.00)</td><td>13.30(+0.10)</td><td>13.00(+3.20)</td><td>35.90(+13.70)</td></tr><tr><td>MAS + GRPO</td><td>87.00(+80.00)</td><td>1.00(+1.00)</td><td>82.00(+77.00)</td><td>20.60(+9.00)</td><td>17.60(+1.40)</td><td>4.80(+1.20)</td><td>13.30(+0.10)</td><td>16.70(+6.90)</td><td>35.00(+12.80)</td></tr><tr><td>MAS + AT-GRPO w/ shared policy</td><td>99.00(+92.00)</td><td>10.00(+10.00)</td><td>96.00(+91.00)</td><td>20.90(+9.30)</td><td>17.60(+1.40)</td><td>4.80(+1.20)</td><td>16.70(+3.30)</td><td>16.70(+6.90)</td><td>39.60(+16.80)</td></tr><tr><td>MAS + AT-GRPO w/ per-role policies</td><td>99.00(+92.00)</td><td>11.50(+11.50)</td><td>97.00(+92.00)</td><td>24.00(+12.40)</td><td>18.60(+2.40)</td><td>7.80(+4.20)</td><td>13.30(+0.10)</td><td>18.30(+8.50)</td><td>35.20(+13.00)</td></tr></table>",
+        "bbox": [
+            178,
+            116,
+            823,
+            273
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "table",
+        "img_path": "images/a08d2f05dfd7e3623a287be9fd236a7da736fe523a1a1b35252fc6a44e17c315.jpg",
+        "table_caption": [
+            "Table 2: Qwen3 8B results on game, planning, coding, and math."
+        ],
+        "table_footnote": [
+            "Parentheses denote gain over the Single Agent baseline; best and second-best results per column are highlighted."
+        ],
+        "table_body": "<table><tr><td rowspan=\"2\">Method</td><td colspan=\"2\">Game</td><td rowspan=\"2\">Plan Plan-Path</td><td colspan=\"3\">Code</td><td colspan=\"3\">Math</td></tr><tr><td>Sudoku</td><td>Sokoban</td><td>LiveCodeBench</td><td>APPS</td><td>CodeContests</td><td>AIME24</td><td>AIME25</td><td>OlympiadBench</td></tr><tr><td>Single agent</td><td>48.00(+0.00)</td><td>9.00(+0.00)</td><td>12.00(+0.00)</td><td>22.80(+0.00)</td><td>30.20(+0.00)</td><td>15.75(+0.00)</td><td>18.30(+0.00)</td><td>20.00(+0.00)</td><td>55.00(+0.00)</td></tr><tr><td>Single agent + GRPO</td><td>54.00(+6.00)</td><td>14.00(+5.00)</td><td>47.00(+35.00)</td><td>25.70(+2.90)</td><td>37.00(+6.80)</td><td>12.12(-3.63)</td><td>18.30(+0.00)</td><td>26.67(+6.67)</td><td>54.80(-0.20)</td></tr><tr><td>MAS</td><td>72.00(+24.00)</td><td>16.00(+7.00)</td><td>71.00(+59.00)</td><td>28.00(+5.20)</td><td>44.40(+14.20)</td><td>17.60(+1.85)</td><td>36.60(+18.30)</td><td>30.00(+10.00)</td><td>56.50(+1.50)</td></tr><tr><td>MAS + GRPO</td><td>99.00(+51.00)</td><td>30.00(+21.00)</td><td>96.00(+84.00)</td><td>24.20(+1.40)</td><td>40.20(+10.00)</td><td>10.30(-5.45)</td><td>33.30(+15.00)</td><td>26.67(+6.67)</td><td>53.20(-1.80)</td></tr><tr><td>MAS + AT-GRPO w/ shared policy</td><td>99.50(+51.50)</td><td>96.00(+87.00)</td><td>93.00(+81.00)</td><td>30.28(+7.48)</td><td>45.80(+15.60)</td><td>18.10(+2.35)</td><td>50.00(+31.70)</td><td>35.20(+15.00)</td><td>56.80(+1.80)</td></tr><tr><td>MAS + AT-GRPO w/ per-role policies</td><td>99.00(+51.00)</td><td>98.00(+89.00)</td><td>96.00(+84.00)</td><td>33.10(+10.30)</td><td>46.50(+16.30)</td><td>18.10(+2.35)</td><td>57.00(+38.70)</td><td>40.00(+20.00)</td><td>56.60(+1.60)</td></tr></table>",
+        "bbox": [
+            178,
+            297,
+            823,
+            454
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "5.2 RESULTS AND ANALYSIS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            486,
+            390,
+            501
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "We evaluate AT-GRPO across four distinct domains (game, planning, code, and math) using two model scales (Qwen3 1.7B and 8B). To contextualize its performance, we benchmark against all the variants described in Sec. 5.1. Tab. 1 and Tab. 2 summarize our main results.",
+        "bbox": [
+            169,
+            513,
+            826,
+            555
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "MAS + AT-GRPO consistently yields substantial performance gains, especially in long-horizon planning tasks. MAS + AT-GRPO elevates the success rate from a 14–47% range for the singleagent baseline to 96.0–99.5%. By analyzing the dialogue records between agents, we find this dramatic improvement stems from an emergent collaboration: the tool agent learns to generate correct algorithms (e.g., BFS, A<sup>⋆</sup> search), while the plan agent provides crucial oversight, interpreting execution outcomes and delivering the corrective final action list. On-policy RL training within the MAS enhances inter-agent coordination. Conversely, training agents in isolation results in only limited improvement, as detailed in our ablation study (Sec. 5.4, Tab. 4). Furthermore, on the coding and math benchmarks, our approach yields consistent gains, with absolute gains over the baseline ranging from +2.35 (CodeContests) to +16.30 (APPS) in coding, and from +1.80 (OlympaidBench) to +38.70 (AIME24) in math. We hypothesize two reasons: (1) Base models like Qwen3 have already been extensively trained for these common domains, as noted in their official reports (Yang and the Qwen Team, 2025), potentially leading to performance saturation. (2) The diverse nature of problems within these domains presents a greater challenge for improvement via RL training.",
+        "bbox": [
+            169,
+            569,
+            826,
+            767
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "With MAS AT-GRPO, whether choosing a role-sharing policy or role-specialized policies should be determined by the task characteristics. Role-specialized policies involve a fundamental trade-off: training each agent exclusively on its own data fosters deep specialization, but prevents access to potentially useful data from other roles. Our findings indicate that the optimal resolution to this trade-off depends on the task characteristics. We observe clear benefits for role specialization in the coding domain, where the Coder and Tester functions are highly distinct. This separation allows each agent to hone its specific skills, improving the average accuracy by 3.05 points with the Qwen3 1.7B.In contrast, the roles in the math domain exhibit greater functional overlap, meaning a shared policy can sometimes be superior. For instance, with the Qwen3 1.7B model on OlympiadBench, the shared policy achieves a 39.60% accuracy, surpassing the 35.20% from per-role policies. This suggests the Tool agent, which must often perform reasoning to execute tool calls, benefits from the Reasoner’s training data. For game/plan tasks, this choice becomes moot, as both configurations already achieve near-optimal, saturated performance (e.g., 99.50 on Sudoku).",
+        "bbox": [
+            169,
+            771,
+            828,
+            926
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "page_number",
+        "text": "8",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            104,
+            825,
+            133
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Limitations of MAS-GRPO. Empirical results in Tab. 1 and 2 indicate that directly applying GRPO to MAS often results in performance degradation. Notably, Qwen3-8B exhibits suboptimal results CodeContests (17.60 → 10.30) and OlympiadBench (56.50 → 53.20). We attribute this to the violation of the identicalstate assumption: as multi-turn interaction histories diverge, the group-averaged baseline incorrectly aggregates heterogeneous states. This structural misalignment biases advantage estimation and destabilizes optimization.",
+        "bbox": [
+            169,
+            136,
+            486,
+            305
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Scalability Analysis with Collaborative Agents. To investigate scalability, we deploy a modular MAS architecture comprising Reasoners, Tool-Users, and a Judge (Fig. 5(a)). By varying the number of concurrent Reasoners (N) and Tool-Users (M), we scale the total agent count $( M \\ + \\ N + \\ 1 )$ to expand the exploration space. Fig. 5(b) demonstrates",
+        "bbox": [
+            171,
+            309,
+            486,
+            422
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "image",
+        "img_path": "images/ba6a044cee6ca37680713eb4bbfb8e9d6a576a84b45489714defcd265271fbe4.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            504,
+            140,
+            812,
+            321
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "chart",
+        "img_path": "images/c9733c578f763ad39c83f84a3841e2e9ea8ebb69e6cdd8414a32745712846ed7.jpg",
+        "content": "",
+        "chart_caption": [
+            "(a) Scalable MAS Interaction Graphs. (b) Accuracy Scaling w.r.t. Agent Count",
+            "Figure 5: (a) The system aggregates outputs from an ensemble of N Reasoners and M Tool-Users into a Judge. The total agent count scales as M + $N + 1$ , allowing for flexible resource allocation. (b) Evaluation on AIME24 (using Qwen3-8B)."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            648,
+            140,
+            813,
+            321
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "the scalability of MAS+AT-GRPO. While the baseline MAS+GRPO fails to scale effectively—saturating at 34.1% accuracy in the 7-agent regime—our method successfully leverages the increased ensemble size, achieving a continuous performance gain from 18.2% to 47.7%. This confirms that MAS+AT-GRPO can effectively scale across multiple agents without hitting the coordination bottlenecks observed in baselines. For a detailed analysis of computational efficiency and complexity, please refer to Appendix G.",
+        "bbox": [
+            169,
+            421,
+            826,
+            506
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "5.3 COMPARISON WITH OTHER MARL FRAMEWORKS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            522,
+            563,
+            537
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "To assess the efficacy of our framework, we conducted ablation studies against representative baselines: As summarized in Tab. 3. we benchmark against three representative baselines: MAPORL (Park et al., 2025b), MARFT (Liao et al., 2025), and CURE Wang et al. (2025a). For fair comparison, we utilize identical base models and dataset splits. Our analysis highlights the advantages of two distinct MAS features: heterogeneous agent roles and multi-turn iterative interaction, as summarized in Tab. 3.",
+        "bbox": [
+            169,
+            547,
+            454,
+            729
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Comparison with MAPORL. We compare our approach with MAPORL using the Phi-3-mini-128k (3.4B) on gsm8k",
+        "bbox": [
+            171,
+            734,
+            452,
+            777
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "table",
+        "img_path": "images/b8b419262106821aac87443ae96e097fe350f7d0a4542d49f058469d8a606c7f.jpg",
+        "table_caption": [
+            "Table 3: Comparison with existing MARL frameworks. We report Accuracy (%) for math/logic tasks and Pass@1 (%) for code tasks."
+        ],
+        "table_footnote": [
+            "<sup>∗</sup> Results cited from original papers."
+        ],
+        "table_body": "<table><tr><td colspan=\"4\">Math: Accuracy (%)</td></tr><tr><td>Backbone</td><td>Method</td><td>Config</td><td>Acc.</td></tr><tr><td rowspan=\"4\">Phi-3-mini</td><td>Vanilla Baseline</td><td>Zero-shot</td><td>65.0*</td></tr><tr><td>MAPORL</td><td>Trained</td><td>81.0*</td></tr><tr><td>Ours (MAS)</td><td>Untrained</td><td>84.4</td></tr><tr><td>Ours (MAS+AT-GRPO)</td><td>Trained</td><td>88.7</td></tr><tr><td rowspan=\"4\">Qwen2.5-Coder-3B-Instruct</td><td>Vanilla Baseline</td><td>Zero-shot</td><td>76.8*</td></tr><tr><td>MARFT</td><td>Trained</td><td>78.7*</td></tr><tr><td>Ours (MAS)</td><td>Untrained</td><td>84.4</td></tr><tr><td>Ours (MAS+AT-GRPO)</td><td>Trained</td><td>87.1</td></tr><tr><td colspan=\"4\">Code: Pass@1 (%)</td></tr><tr><td>Backbone</td><td>Method</td><td>CodeContests</td><td>LiveCodeBench</td></tr><tr><td rowspan=\"4\">Qwen-2.5-7B-Instruct</td><td>Vanilla Baseline</td><td>22.8*</td><td>26.9*</td></tr><tr><td>CURE</td><td>25.9*</td><td>31.2*</td></tr><tr><td>Ours (MAS)</td><td>30.3</td><td>30.4</td></tr><tr><td>Ours (+AT-GRPO)</td><td>34.2</td><td>35.3</td></tr></table>",
+        "bbox": [
+            464,
+            604,
+            821,
+            771
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "dataset Cobbe et al. (2021). While MAPORL relies on a debating mechanism among homogeneous agents, our framework realizes role heterogeneity—synergizing a Reasoning Agent with a Tool-use Agent for verification. This structural specialization proves superior: our untrained MAS achieves 84.4%, outperforming the trained MAPORL (81.0%). With AT-GRPO training, our performance further improves to 88.7%.",
+        "bbox": [
+            169,
+            777,
+            826,
+            849
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Comparison with MARFT and CURE. This comparison highlights the critical efficacy of iterative alignment over single-turn workflows. In math reasoning ( Qwen2.5-Coder-3B-Instruct), while MARFT relies on single-turn preference optimization, our framework leverages multi-turn interactions to facilitate active error correction and ambiguity resolution. Consequently, our inference-only MAS (84.4%) significantly outperforms the trained MARFT (78.7%), confirming that an extended reasoning horizon contributes more to robustness than single-step alignment; AT-GRPO training further amplifies this to 87.1%. A similar structural advantage is evident against CURE in code generation (Tab. 3). While CURE generates code and unit tests in a single turn, without utilizing them for self-correction. Our framework establishes a self-refinement cycle. This enables iterative debugging using generated tests, boosting CodeContests accuracy from 22.8% (vanilla) to 30.3% (untrained), surpassing the CURE baseline (25.9%), and ultimately reaching 34.2% with training.",
+        "bbox": [
+            169,
+            854,
+            826,
+            925
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "page_number",
+        "text": "9",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            104,
+            826,
+            189
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "5.4 ABLATION STUDY",
+        "text_level": 2,
+        "bbox": [
+            171,
+            204,
+            344,
+            219
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "To further investigate the contributions of our core training components, We also conducted an ablation study with results summarized in Tab. 4 and Fig. 6. Our analysis yields several observations.",
+        "bbox": [
+            169,
+            229,
+            825,
+            258
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "First, on-policy RL training within a MAS environment is critical for effective collaboration. As shown in Tab. 4, training agents in a singleagent (SA) setting offers limited benefits: while individual agents improve their specialized skills (achieving 11.00 and 14.50 accuracy, respectively), their performance when combined in a MAS is only marginally better, reaching just 16.00. In stark",
+        "bbox": [
+            169,
+            258,
+            421,
+            411
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "table",
+        "img_path": "images/fc7d96fa2ef0088fc5816c4dba078ec55116004c9e1506de1aef20d67d5c0473.jpg",
+        "table_caption": [
+            "Table 4: Plan-Path (Qwen3-1.7B) ablation. Performance gain ∆ over the single agent baseline."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Method</td><td>Acc.(%)</td><td>Δ</td></tr><tr><td>Single agent</td><td>5.00</td><td>-</td></tr><tr><td>Training tool agent in SA, eval in SA</td><td>11.00</td><td>+6.00</td></tr><tr><td>Training code agent in SA, eval in SA</td><td>14.50</td><td>+9.50</td></tr><tr><td>Training in SA, eval in MAS</td><td>16.00</td><td>+11.00</td></tr><tr><td>MAS RL (role specific policies), eval in MAS</td><td>96.00</td><td>+91.00</td></tr><tr><td>w/ Swapped Policies</td><td>6.00</td><td>+1.00</td></tr></table>",
+        "bbox": [
+            433,
+            292,
+            818,
+            402
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "contrast, training the agents jointly within the MAS environment boosts accuracy to 96.00. This vast performance gap demonstrates that multi-agent training is essential. It not only allows agents to co-evolve highly specialized abilities but also fosters the crucial inter-agent alignment and collaboration required for success.",
+        "bbox": [
+            169,
+            410,
+            825,
+            467
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "Second, RL training on MAS reinforces rolespecific specialization. We observe this across multiple metrics. As shown in Fig. 6 (a) for Qwen3 1.7B on Plan-Path, the learning rewards of both the planning and tool-using agents increase throughout training, suggesting coordinated co-evolution as each adapts to the other’s improving policy. Consistent with the ablation, after training two role-specialized policies with our full method, swapping them induces a catastrophic drop from 96.0% to 6.0%, confirming that the agents have learned distinct and complementary functions that are not interchangeable. In our coding (LiveCodeBench) and math (AIME25) workflows, MAS interaction terminates when the two agents align (e.g.,",
+        "bbox": [
+            169,
+            473,
+            486,
+            696
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "chart",
+        "img_path": "images/6f3a910742f101bfa94f6dbc17ed2ee7b59c2933f73a96b01f19d9e04f963043.jpg",
+        "content": "",
+        "chart_caption": [
+            "(a) Evolution of Standardized Rewards in the Two-Model MAS."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            495,
+            470,
+            658,
+            593
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "chart",
+        "img_path": "images/ba74231bf56e3ae16e5efef15aa386b170cbf5ffbf6d623701b6b15c2da1f1aa.jpg",
+        "content": "",
+        "chart_caption": [
+            "(b) Evolution of Average Turns to Alignment.",
+            "Figure 6: (a) Evolution of standardized rewards for the Tool and Plan agents in the role-specific MAS on Plan-Path with Qwen3 1.7B. Shaded bands show variability across runs. (b) Evolution of the average turns required to solve tasks."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            661,
+            470,
+            821,
+            594
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "tests pass or the reasoner and tool outputs agree). Accordingly, Fig. 6 (b) shows that the average number of turns needed to solve a task decreases over training, providing direct evidence that the agents achieve tighter alignment and collaborate more efficiently.",
+        "bbox": [
+            169,
+            695,
+            825,
+            739
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "6 CONCLUSION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            757,
+            321,
+            773
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "In this paper, we proposed AT-GRPO, an agent- and turn-wise grouped reinforcement learning algorithm tailored for on-policy training in MAS. To support this, we introduced a novel training system capable of managing diverse MAS workflows and performing on-policy updates for multiple policies. Our extensive experiments demonstrate that our method delivers consistent gains across diverse domains. On planning tasks, it overcomes a key bottleneck of single-agent RL by boosting accuracy from a 14–47% baseline to 96.0–99.5%. Furthermore, it improves reasoning performance with average gains of 3.87–7.62% on coding and 9.0–17.93% on math tasks. Our analysis reveals that RL training in MAS context reinforces role-specific specialization, with the choice between a shared or specialized policy contingent on the task’s characteristics.",
+        "bbox": [
+            169,
+            789,
+            826,
+            915
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "page_number",
+        "text": "10",
+        "bbox": [
+            490,
+            948,
+            509,
+            960
+        ],
+        "page_idx": 9
+    }
+]

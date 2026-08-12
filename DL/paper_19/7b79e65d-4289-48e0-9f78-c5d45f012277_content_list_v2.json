@@ -1,0 +1,3474 @@
+[
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "ABSTRACT"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                450,
+                224,
+                547,
+                239
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Transformers are a dominant architecture in modern machine learning, powering applications across vision, language, and beyond. At the core of their success lies the attention layer, where the query, key, and value matrices determine how token dependencies are captured. While considerable work has focused on scaling and optimizing Transformers, comparatively little attention has been paid to how the weights of the queries, keys and values are initialized. Common practice relies on random initialization or alternatives such as mimetic initialization, which imitates weight patterns from converged models, and weight selection, which transfers weights from a teacher model. In this paper, we argue that initialization can introduce an optimization bias that fundamentally shapes training dynamics. We propose conditioned initialization, a principled scheme that initializes attention weights to improve the spectral properties of the attention layer. Theoretically, we show that conditioned initialization can potentially reduce the condition number of the attention Jacobian, leading to more stable optimization. Empirically, it accelerates convergence and improves generalization across diverse applications, highlighting conditioning as a critical yet underexplored area for advancing Transformer performance. Importantly, conditioned initialization is simple to apply and integrates seamlessly into a wide range of Transformer architectures."
+                    }
+                ]
+            },
+            "bbox": [
+                230,
+                253,
+                767,
+                507
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "1 INTRODUCTION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                174,
+                531,
+                338,
+                546
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Transformers (Vaswani et al., 2017) have rapidly become a cornerstone of modern machine learning, driving progress in fields as diverse as natural language processing (Vaswani et al., 2017; Zhuang et al., 2021; Zhen et al., 2022), computer vision (Dosovitskiy et al., 2020; Liu et al., 2021; Touvron et al., 2021; Carion et al., 2020), and robotics (Salzmann et al., 2020; Maiti et al., 2023). A key factor behind this versatility is the self-attention mechanism, which models interactions between tokens by comparing them pairwise and dynamically weighting their contributions. This ability to capture both long-range and global dependencies has positioned Transformers as a foundational architecture across a wide spectrum of learning tasks."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                563,
+                826,
+                675
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "While substantial effort has been devoted to improving the efficiency, scalability, and expressiveness of attention mechanisms (Ali et al., 2021; Xiong et al., 2021b; Ding et al., 2022), relatively little focus has been placed on a more basic but equally important aspect: how attention weights are initialized. Initialization plays a critical role in shaping optimization landscapes of deep neural networks. Classical schemes such as Xavier (Glorot & Bengio, 2010) and Kaiming (He et al., 2015) initialization showed that carefully chosen scaling of weights at the start of training can dramatically improve gradient optimization and stability in deep networks. These insights were crucial for enabling the training of very deep architectures such as ResNets (He et al., 2016), where poor initialization could otherwise cause vanishing or exploding gradients. Yet, despite their depth and complexity, Transformers have received far less theoretical scrutiny on this front. Given that selfattention relies on query, key, and value projections whose interplay directly governs the stability of token interactions, it is natural to ask whether initialization schemes tailored specifically to attention could offer similar benefits."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                680,
+                826,
+                862
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Currently, Transformers typically adopt simple random initializations, without consideration of the unique structure of attention layers. Recent alternatives such as mimetic initialization (Trockman & Kolter, 2023), which transfers statistical patterns from converged models, and weight selection (Xu et al., 2023), which reuses pretrained weights from larger teacher models, highlight a growing recognition that initialization matters. However, these methods remain heuristic and lack a principled connection to the conditioning of the attention mechanism itself."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                868,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "1"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                503,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                825,
+                133
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this work, we revisit Transformer initialization from a theoretical perspective. We show that the stability of optimization in self-attention layers is closely tied to the conditioning of their Jacobians, which in turn depends on the spectral properties of the query, key, and value projections. Building on this insight, we introduce conditioned initialization, a principled scheme designed to improve the spectral conditioning of attention blocks at the start of training. Rather than directly modifying training objectives, our method intervenes at initialization, providing an inductive bias that promotes more stable optimization dynamics."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                138,
+                826,
+                238
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Our contributions are threefold:"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                244,
+                383,
+                258
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "1. Theoretical framework: We establish a connection between the conditioning of selfattention Jacobians and the spectral structure of the query, key, and value matrices, motivating initialization schemes that explicitly target this property."
+                    }
+                ]
+            },
+            "bbox": [
+                210,
+                270,
+                825,
+                314
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "2. Conditioned initialization: We propose a simple initialization method that reduces the upper bound on the attention Jacobian’s condition number, thereby biasing training toward stable optimization."
+                    }
+                ]
+            },
+            "bbox": [
+                209,
+                319,
+                825,
+                361
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "3. Empirical validation: Through experiments on diverse benchmarks, spanning image classification, object detection, instance segmentation, language modeling, and long-range sequence learning, we show that conditioned initialization consistently accelerates convergence and improves generalization, and can be easily integrated into a variety of different Transformer architectures."
+                    }
+                ]
+            },
+            "bbox": [
+                209,
+                366,
+                826,
+                436
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "By highlighting initialization as a critical yet underexplored component of Transformer design, our work opens up a new perspective on how principled conditioning can be leveraged to improve optimization stability and downstream performance."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                449,
+                826,
+                493
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2 RELATED WORK"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                513,
+                346,
+                529
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Initialization. Initialization strategies play a pivotal role in determining how efficiently deep networks can be trained. Early advances such as Xavier (Glorot & Bengio, 2010) and Kaiming initialization (He et al., 2015) demonstrated that properly scaling weights at the outset helps preserve variance across layers, preventing issues like vanishing or exploding gradients. These ideas were foundational in enabling the successful training of very deep architectures, most notably ResNets (He et al., 2016). In the context of Transformers, however, initialization has typically been treated in a more ad hoc manner, with standard practice relying on simple schemes from normal or truncated normal distributions. More recent efforts have begun to acknowledge the unique structure of attention layers. For example, mimetic initialization (Trockman & Kolter, 2023) introduces inductive bias by imitating the statistical patterns of trained networks, while weight selection (Xu et al., 2023) transfers weights from larger pretrained teacher models to provide a stronger starting point for smaller architectures. In our experiments we compare to these two methods."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                545,
+                826,
+                714
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Conditioning. A growing body of work has underscored the importance of conditioning for both the trainability and generalization of neural networks. In particular, Saratchandran et al. (2025) showed that networks with better-conditioned weights tend to achieve superior performance, and proposed a matrix preconditioning method to explicitly control condition numbers during training. From a different angle, Liu et al. (2022) analyzed optimization through the lens of the neural tangent kernel (NTK), demonstrating that well-conditioned NTKs lead to faster and more reliable convergence, particularly in the infinite-width regime where the NTK dominates learning dynamics (Jacot et al., 2018). This has been extended to the transformer setting in Yang (2020). Other studies have pointed out structural factors that affect conditioning. For example, Agarwal et al. (2021) observed that increasing network depth can itself improve conditioning, thereby aiding gradient-based methods. In the case of Transformers, Ji et al. (2025) argued that skip connections act as an implicit conditioning mechanism, stabilizing the optimization of deep Transformers. Our work departs from these approaches by asking whether initialization itself can be designed to yield better-conditioned attention layers from the outset."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                729,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "2"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3 THEORETICAL FRAMEWORK"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                102,
+                444,
+                118
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.1 PRELIMINARIES"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                133,
+                326,
+                148
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "For the theoretical framework we will primarily focus on self-attention, which is one of the most common forms of attention in a Transformer. Self-attention is composed of three learnable matrices, query "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W _ { Q } \\in \\mathbb { R } ^ { D \\times d }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", key "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W _ { K } \\in \\mathbb { R } ^ { D \\times d }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and value "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W _ { V } \\in \\mathbb { R } ^ { D \\times d }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "defined for an input sequence "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\boldsymbol { X } \\in \\mathbb { R } ^ { N \\times D }"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                159,
+                825,
+                215
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathrm{A} (X) = \\mathrm{softmax} (X W _ {Q} W _ {K} ^ {T} X ^ {T}) X W _ {V}\\tag{1}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/ef22af4d913b14e146b2625b24d3ffcf5056617fea91be594e139462f59ce666.jpg"
+                }
+            },
+            "bbox": [
+                362,
+                215,
+                633,
+                232
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where softmax is the softmax activation that acts row-wise on a matrix (Prince, 2023). Note that then "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { A } ( X ) \\in \\mathbb { R } ^ { N \\times d }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". In general, Transformers employ multiple heads i.e. attention matrices "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { A } _ { i }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "1 \\leq i \\leq h"
+                    },
+                    {
+                        "type": "text",
+                        "content": "where h is the number of heads. These are then concatenated together to form a multi-head attention layer "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "[ A _ { 1 } , \\ldots , A _ { h } ]"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". We point out that in some references the notation "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { A } ( X )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is reserved for only the term softmax "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( X \\overbrace { W _ { Q } } W _ { K } ^ { \\overbrace { T } } X ^ { T } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "). However, in this paper as we will be concerned with the whole attention layer we use "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\operatorname { A } ( X )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to denote the whole layer output as defined in eq. (1). For further details on Transformers readers may consult Prince (2023)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                234,
+                825,
+                334
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The self-attention map of a layer in a Transformer "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { A } ( X )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "has parameters given by those parameters in X from the previous layer and those given by "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W _ { Q } , W _ { K } , W _ { V }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "that define "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { A } ( { \\dot { X } } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "Our work will consider the Jacobian of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\operatorname { \\bar { A } } ( X )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "with respect to the parameters within the layer of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { A } ( X )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", namely "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W _ { Q } , W _ { K } , W _ { V }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Therefore, when we speak of the Jacobian of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { A } ( X )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "it will be with respect to "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W _ { Q }"
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W _ { K } , W _ { V }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". We will denote this Jacobian by "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\operatorname { J } ( \\mathrm { A } ( X ) )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and note that it is defined by"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                339,
+                825,
+                411
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathrm{J} (\\mathrm{A} (X)) = \\left[ \\frac {\\partial \\mathrm{A} (X)}{\\partial W _ {Q}}, \\frac {\\partial \\mathrm{A} (X)}{\\partial W _ {K}}, \\frac {\\partial \\mathrm{A} (X)}{\\partial W _ {V}} \\right] ^ {T}\\tag{2}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/554e6f137d9e089795d9cd285143765243bd8f8551fda994b81905d2c9d2b1c0.jpg"
+                }
+            },
+            "bbox": [
+                352,
+                417,
+                643,
+                454
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Given a matrix "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "Z \\in \\mathbb { R } ^ { m \\times n }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "we denote the vectorization of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "Z"
+                    },
+                    {
+                        "type": "text",
+                        "content": "by vec "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( Z ) \\in \\mathbb { R } ^ { m n \\times 1 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "(Magnus & Neudecker, 2019). Note that for such a matrix there is a transformation "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T _ { m n } \\in \\mathbb { R } ^ { m n \\times m n }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "such that "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T _ { m n } \\mathrm { v e c } ( Z ) = \\mathrm { v e c } ( Z ^ { T } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "Z ^ { T }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denotes the transpose of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "Z"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". The matrix "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T _ { m n }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is known as a commutation matrix and is a permutation matrix (Magnus & Neudecker, 2019). The maximum singular value of a matrix "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "Z"
+                    },
+                    {
+                        "type": "text",
+                        "content": "will be denoted by "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\sigma _ { \\mathrm { m a x } } ( Z )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and the minimum singular value by "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\sigma _ { \\mathrm { m i n } } ( Z )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "We will use the standard terminology SVD to denote the singular value decomposition of a matrix. Given a vector "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "v \\in \\mathbb { R } ^ { n }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "the notation "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "| | \\boldsymbol { v } | | _ { 2 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "will denote the vector 2-norm of v. Finally, we will let "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "I _ { m \\times n }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denote the rectangular identity matrix that has all 1’s on its main diagonal and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { O } _ { m \\times n }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "as the real "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "m \\times n"
+                    },
+                    {
+                        "type": "text",
+                        "content": "semi-orthogonal matrices."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                469,
+                823,
+                595
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.2 MAIN THEOREMS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                612,
+                339,
+                626
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this section, we present the main theorem of the paper, which motivates the development of a simple yet effective strategy, conditioned initialization, designed to reduce the condition number of the Jacobian of the attention layer at initialization. As shown in section "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "^ { 4 , }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "this scheme is straightforward to implement while providing significant optimization benefits."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                637,
+                825,
+                695
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Definition 3.1. Let "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "Z"
+                    },
+                    {
+                        "type": "text",
+                        "content": "be an "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "N \\times d"
+                    },
+                    {
+                        "type": "text",
+                        "content": "matrix of full rank. The condition number of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "Z ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denoted by "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\kappa ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is defined as"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                698,
+                823,
+                726
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\kappa (Z) = \\frac {\\sigma_ {\\mathrm{max}} (Z)}{\\sigma_ {\\mathrm{min}} (Z)}\\tag{3}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/2f0314f37b07a737ab140498453b35a601e7c198e853cd47328e37d97bc9be2d.jpg"
+                }
+            },
+            "bbox": [
+                434,
+                723,
+                558,
+                755
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\sigma _ { \\mathrm { m a x } } ( Z )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denotes the maximum singular value of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "Z"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\sigma _ { \\mathrm { m i n } } ( Z )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "the minimum singular value of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "Z ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", which we know is non-zero as "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "Z"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is full rank."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                758,
+                823,
+                787
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Our objective is to analyze the condition number of the self-attention layer in a Transformer. We show that the condition number of its Jacobian depends on the condition numbers of the query, key, and value weight matrices. Furthermore, we demonstrate that initializing "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W _ { Q } , W _ { K }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W _ { V }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "with low condition numbers imparts an inductive bias into the Transformer architecture that leads to more effective optimization."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                799,
+                825,
+                869
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We begin by examining the derivatives of the self-attention layer with respect to the parameters "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W _ { Q }"
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W _ { K }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\dot { W } _ { V }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". We will need the following lemma."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                876,
+                821,
+                905
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "3"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Lemma 3.1. Let "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\Lambda : \\mathbb { R } ^ { n } \\to \\mathbb { R } ^ { n \\times n }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denote thefunction "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\Lambda ( z ) = D i a g ( z ) - z \\cdot z ^ { T }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". We then have that"
+                    }
+                ]
+            },
+            "bbox": [
+                179,
+                104,
+                816,
+                133
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\frac {\\partial \\mathrm{softmax}}{\\partial x} (z) = \\Lambda (\\mathrm{softmax} (z)).\\tag{4}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/87ab82db88dbaced42dc311036bb31c4f08c1188efc4e9120197c393c6656a38.jpg"
+                }
+            },
+            "bbox": [
+                388,
+                130,
+                609,
+                161
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Proposition 3.1. Let "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { A } ( X )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denote a self-attention matrix with input X as defined by eq. (1). Then"
+                    }
+                ]
+            },
+            "bbox": [
+                179,
+                174,
+                813,
+                202
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\frac {\\partial \\mathrm{A} (X)}{\\partial W _ {Q}} = (W _ {V} ^ {T} X ^ {T} \\otimes I _ {N}) \\bigg (\\Lambda (\\text { softmax } (X W _ {Q} W _ {K} ^ {T} X ^ {T})) \\bigg) (X W _ {K} \\otimes X)\\tag{5}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/348c589383714059058964e1fdb19663e2372b131d74db91a358ee22c5be9ac7.jpg"
+                }
+            },
+            "bbox": [
+                236,
+                207,
+                723,
+                241
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\frac {\\partial \\mathrm{A} (X)}{\\partial W _ {K}} = (W _ {V} ^ {T} X ^ {T} \\otimes I _ {N}) \\bigg (\\Lambda (\\mathrm{softmax} (X W _ {Q} W _ {K} ^ {T} X ^ {T})) \\bigg) (X \\otimes X W _ {Q}) \\cdot T _ {D d}\\tag{6}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/ee3268df5e70e00d652691491142a159ab5df0033dfccd3afd84853f27253dff.jpg"
+                }
+            },
+            "bbox": [
+                238,
+                244,
+                761,
+                276
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\frac {\\partial \\mathrm{A} (X)}{\\partial W _ {V}} = I _ {d} \\otimes \\mathrm{softmax} (X W _ {Q} W _ {K} ^ {T} X ^ {T}) X\\tag{7}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/e57c0a7fb8fac7a3e2eb5459723de64eaf979b22551b69ca64216d3b89f577a5.jpg"
+                }
+            },
+            "bbox": [
+                238,
+                277,
+                529,
+                310
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where Λ is defined in lemma 3.1 and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T _ { D d }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the commutation matrix satisfying "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T _ { D d } \\mathrm { v e c } ( W _ { K } ) ="
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { v e c } ( W _ { K } ^ { T } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "(see section 3.1)."
+                    }
+                ]
+            },
+            "bbox": [
+                179,
+                316,
+                815,
+                347
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "From proposition 3.1 we obtain a bound on the condition number of the Jacobian of the attention matrix."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                356,
+                823,
+                383
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Theorem 3.1. Let "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { A } ( X )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denote a self-attention matrix, as defined in eq. (1), with input X and let "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "J ( \\mathrm { A } ( X ) )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denote its Jacobian with respect to the parameter matrices "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W _ { Q } , \\ W _ { K }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W _ { V }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "as defined in eq. (2). Assume that "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "J ( \\mathrm { A } ( X ) )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "hasfull rank so that "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\kappa ( J ( \\mathrm { A } ( X ) ) )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is finite. Then"
+                    }
+                ]
+            },
+            "bbox": [
+                178,
+                396,
+                816,
+                440
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\kappa (J (\\mathrm{A} (X))) \\leq \\kappa (X) ^ {3} \\kappa \\left(\\Lambda (\\text { softmax } (X W _ {Q} W _ {K} ^ {T} X ^ {T}))\\right) \\kappa (W _ {V}) \\left(\\kappa (W _ {Q}) + \\kappa (W _ {K})\\right)\\tag{8}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/0da60c606f2c199155d8c5c89252897985f03d350048e82b39420832640443eb.jpg"
+                }
+            },
+            "bbox": [
+                222,
+                446,
+                771,
+                465
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "+ \\kappa (X) \\kappa (\\operatorname{softmax} (X W _ {Q} W _ {K} ^ {T} X ^ {T}))",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/915c5fb6670ae65a47b1585d70ea0d7ebc8534192df647ed58b39581fd6d835d.jpg"
+                }
+            },
+            "bbox": [
+                377,
+                467,
+                620,
+                484
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where Λ is defined in lemma 3.1."
+                    }
+                ]
+            },
+            "bbox": [
+                181,
+                492,
+                398,
+                507
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Theorem 3.1 shows that "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\kappa ( J ( \\mathrm { A } ( X ) ) )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is bounded above by a sum of two terms:"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                516,
+                694,
+                531
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\kappa (X) ^ {3} \\cdot \\kappa \\big (\\Lambda (\\mathrm{softmax} (X W _ {Q} W _ {K} ^ {T} X ^ {T})) \\big) \\kappa (W _ {V}) \\big (\\kappa (W _ {Q}) + \\kappa (W _ {K}) \\big)\\tag{9}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/b3ef1a0bc3aebfd2de3a38a462b206bf4c42e9fddb7f5ccbf552e1c5247ba6d6.jpg"
+                }
+            },
+            "bbox": [
+                269,
+                534,
+                723,
+                551
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\kappa \\big (\\mathrm{softmax} (X W _ {Q} W _ {K} ^ {T} X ^ {T}) \\big)\\tag{10}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/2660c269a6c5a981f04027e3f941bda92ce7e223ec2c789ee75f2cc3d61a5a50.jpg"
+                }
+            },
+            "bbox": [
+                271,
+                554,
+                462,
+                573
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Observation. Theorem 3.1 provides a strategy for reducing the condition number of the Jacobian of A through the upper bound in eq. (8). Since we directly control "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W _ { Q } , W _ { K }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W _ { V }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", reducing their condition numbers decreases the term in eq. (9), thereby tightening the bound. Our next step is to show that this can be achieved at initialization and to confirm empirically in section 4 that it introduces a bias which improves both optimization and performance."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                582,
+                825,
+                652
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.3 CONDITIONED INITIALIZATION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                667,
+                433,
+                681
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Our goal in this section is to design a simple and effective initialization for the query, key, and value matrices "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W _ { Q } , W _ { K }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W _ { V }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "that lowers the condition number of their singular value spectra, thereby improving the conditioning of the Jacobian "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { J } ( \\mathrm { A } )"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                694,
+                823,
+                737
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We begin with two key observations. There are two families of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "m \\times n"
+                    },
+                    {
+                        "type": "text",
+                        "content": "matrices with condition number 1:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                743,
+                823,
+                771
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "1. scalar multiples of the identity "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\lambda I _ { m \\times n }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "with "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\lambda \\neq 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and"
+                    }
+                ]
+            },
+            "bbox": [
+                210,
+                781,
+                594,
+                796
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "2. semi-orthogonal matrices "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { O } _ { m \\times n }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "(matrices with orthonormal rows or columns)."
+                    }
+                ]
+            },
+            "bbox": [
+                207,
+                799,
+                751,
+                814
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "From theorem 3.1, the condition number of J(A) admits the surrogate upper bound"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                824,
+                720,
+                839
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\begin{array}{c} \\mathcal {B} (\\mathrm{J} (\\mathrm{A})) := \\kappa (X) ^ {3}   \\kappa \\bigl (\\Lambda (\\text {softmax} (X W _ {Q} W _ {K} ^ {T} X ^ {T})) \\bigr)   \\kappa (W _ {V})   \\bigl (\\kappa (W _ {Q}) + \\kappa (W _ {K}) \\bigr) \\\\ + \\kappa (X)   \\kappa (\\text {softmax} (X W _ {Q} W _ {K} ^ {T} X ^ {T})). \\end{array}\\tag{11}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/0d61201437c7977f736e41d047770efc8f34699c0221a19262f19dd6e5c81381.jpg"
+                }
+            },
+            "bbox": [
+                230,
+                840,
+                764,
+                878
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "(12)"
+                    }
+                ]
+            },
+            "bbox": [
+                794,
+                864,
+                823,
+                878
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Unlike the true condition number "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\kappa ( \\mathrm { J } ( \\mathrm { A } ) )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", the bound "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "B ( \\mathrm { J } ( \\mathrm { A } ) )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "can be directly influenced at initialization by controlling the conditioning of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W _ { Q } , W _ { K }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W _ { V }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Standard practice initializes these matrices from Gaussian or uniform distributions, which do not enforce good conditioning."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                882,
+                823,
+                924
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "4"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The following proposition shows that initializing "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W _ { Q } , W _ { K }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W _ { V }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "from either of the families above yields a strictly better surrogate bound at initialization."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                103,
+                823,
+                133
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Proposition 3.2. Let "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { A } ( X )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denote an attention matrix with "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W _ { Q } , W _ { K }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W _ { V }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "initialized from a Gaussian or uniform distribution, and let "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\overline { { \\operatorname { A } } } } ( X )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denote one where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\overline { { W } } _ { Q } , \\overline { { W } } _ { K }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\overline { { W } } _ { V }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "are initialized from either "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\left\\{ \\lambda I _ { D \\times d } \\right\\} o r { \\mathcal { O } } _ { D \\times d } ."
+                    },
+                    {
+                        "type": "text",
+                        "content": "Then"
+                    }
+                ]
+            },
+            "bbox": [
+                174,
+                145,
+                818,
+                194
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {B} (\\mathrm{J} (\\overline {{\\mathrm{A}}})) \\leq \\mathcal {B} (\\mathrm{J} (\\mathrm{A})).",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/fcebfe47f9846eac17acb8017c189851db99dc3e5f4d408e8929025dd1e38e1d.jpg"
+                }
+            },
+            "bbox": [
+                419,
+                199,
+                573,
+                218
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Remark. The quantity "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "B ( \\mathrm { J } ( \\mathrm { A } ) )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is only an upper bound on "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\kappa ( \\mathrm { J } ( \\mathrm { A } ) )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Thus, proposition 3.2 guarantees a tighter bound but does not by itself imply improved conditioning of the Jacobian. Nonetheless, as we demonstrate in section 4, the initialization in proposition 3.2 consistently lowers the condition number during training and leads to more stable optimization and improved performance."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                234,
+                825,
+                294
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Initialization Strategy. Although proposition 3.2 shows that initializing the matrices "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W _ { Q } , W _ { K }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W _ { V }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "using either "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{ \\lambda I _ { D \\times d } \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "or "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\mathcal { O } } _ { D \\times d }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "can potentially lower the condition number of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { J } ( \\mathrm { A } ) ."
+                    },
+                    {
+                        "type": "text",
+                        "content": ", it does not specify which choice is most suitable for each matrix. We note that "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W _ { Q } , W _ { K }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\dot { W } _ { V }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "play distinct algebraic roles in attention, and this motivates different treatments. For the value map "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W _ { V }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "which enters linearly into the output"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                305,
+                823,
+                378
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "(\\mathrm{softmax} (X W _ {Q} W _ {K} ^ {T} X ^ {T})) (X W _ {V}),",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/423e3505a3c0156519c685ab0b2786313a6c8678f370ad010f2fd5a3af7c44af.jpg"
+                }
+            },
+            "bbox": [
+                377,
+                382,
+                617,
+                401
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "initializing with the rectangular identity preserves the scale of the input representations "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( X W _ { V } ="
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "X )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", keeps "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\kappa ( W _ { V } ) = 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and avoids unnecessary distortion of the Jacobian. In contrast, the query and key maps interact bilinearly through"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                405,
+                825,
+                449
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "S = X W _ {Q} W _ {K} ^ {T} X ^ {T},",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/9401eb7008ad06be52bd2d21746cf9d82c36c72d0faa567bab8aacf888e8b5f5.jpg"
+                }
+            },
+            "bbox": [
+                429,
+                453,
+                566,
+                472
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "and initializing them as rectangular identities can bias projections toward coordinate subspaces, yielding anisotropic logits and unstable softmax dynamics. A semi-orthogonal initialization for "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W _ { Q }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\bar { W _ { K } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "instead provides near-isometric embeddings, giving each head balanced representations of X and supporting more diverse and stable attention patterns."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                476,
+                825,
+                535
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Implementation. Following the above design principle, in the experiments of section 4 we initialized the value matrices "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\bar { W } } _ { V }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for each head as rectangular identities. For the queries and keys, we initialized each "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W _ { Q } ^ { ( i ) }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W _ { K } ^ { ( i ) }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "in the i-th head with independent semi-orthogonal projections,"
+                    }
+                ]
+            },
+            "bbox": [
+                178,
+                556,
+                816,
+                606
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "(W _ {Q} ^ {(i)}) ^ {T} W _ {Q} ^ {(i)} = I _ {d}, \\qquad (W _ {K} ^ {(i)}) ^ {T} W _ {K} ^ {(i)} = I _ {d},",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/70a619857d457db124d9c8549a628d7da543fa0d3e0ed53e063d94a5b03b8533.jpg"
+                }
+            },
+            "bbox": [
+                348,
+                613,
+                650,
+                636
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "for "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "i = 1 , \\ldots , h ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", where h is the number of heads. This produces near-isometric embeddings into distinct subspaces, thereby diversifying the logits "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\grave { S ^ { ( i ) } } = ( X W _ { Q } ^ { ( i ) } ) ( X W _ { K } ^ { ( i ) } ) ^ { T }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and the resulting attention patterns. See section A.1.1 for a concrete way to carry out this procedure. We refer to this initialization as conditioned initialization."
+                    }
+                ]
+            },
+            "bbox": [
+                178,
+                640,
+                816,
+                704
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Different forms of attention. The formulation in section 3.1 describes the classical self-attention layer used in Transformers. In practice, many recent architectures have proposed variations of attention to improve efficiency and effectiveness (Touvron et al., 2021; Ali et al., 2021; Liu et al., 2021; Ding et al., 2022; Xiong et al., 2021b). In particular, many of these newer forms of attention apply normalization to the query, key and values. Our conditioned initialization is readily applicable to these generalized forms of attention, including those with normalization (see Henry et al. (2020); Dehghani et al. (2023); Zhang & Sennrich (2019)), and we empirically demonstrate in section 4 that it consistently yields strong performance."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                718,
+                825,
+                833
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4 EXPERIMENTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                849,
+                328,
+                866
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this section, we evaluate the theoretical insights from section 3 across a range of Transformer applications. For each setting, we compare our conditioned initialization against the standard default schemes commonly used in the literature, as well as more recent alternatives such as mimetic initialization (Trockman & Kolter, 2023) and weight selection (Xu et al., 2023). In all experiments, conditioned initialization is implemented as described in section 3.3. The goal is to test our initialization on a wide range of architectures at different parameter levels. For larger scale experiments we refer the reader to section A.4."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                881,
+                825,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "5"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/9f5f8810f6fcbeb09b74ca6fecee28718e0e5bc4c086db7fe4f2cae90c57d9b5.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                174,
+                109,
+                457,
+                284
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/4ab7c759ed68c0074cf301c5a9c67493b77beac5ce2d796c8c5136f49da1f186.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 1: Average condition number of the attention Jacobian during training under three common initialization schemes, shown alongside the theoretical bound from eq. (8)."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                509,
+                109,
+                792,
+                284
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                349,
+                826,
+                407
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.1 VITS FOR IMAGE CLASSIFICATION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                422,
+                457,
+                439
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Vision Transformers. We applied conditioned initialization to the attention layer of a variety of modern vision Transformers: a ViT-Base (ViT-B) (Dosovitskiy et al., 2020), a Swin-Base (Swin-B) (Liu et al., 2021), a XCiT-Medium (XCiT-M) (Ali et al., 2021), a DeiT-Base (DeiT-B) (Touvron et al., 2021), and a DaViT-Base (DaViT-B) (Ding et al., 2022) for image classification on ImageNet-1k. Each model is initialized in three ways: (i) the default truncated normal initialization (Hugging Face, 2025b), (ii) mimetic initialization (Trockman & Kolter, 2023), and (iii) our conditioned ini tialization from section 3.3. We point out that each of these vision Transformers uses a different attention layers to the standard self-attention used in the ViT-B architecture. However, as mentioned in section 3.3 conditioned initialization applies to more general forms of attention."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                449,
+                826,
+                577
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Results on ImageNet-1k. We trained three versions of each Transformer: a baseline model with a default initialization (Hugging Face, 2025b), one with mimetic initialization (Trockman & Kolter, 2023) and one incorporating conditioned initialization, see section A.3.1 for training details. The final results, summarized in table 1, show the test accuracy for each initialization on each model. We observe that in every case, conditioned initialization outperforms the other two."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                590,
+                826,
+                662
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Validating the theory. We validate the theoretical results of section 3 using ViT-B and XCiT-M models trained on ImageNet-1k. Figure 1 reports the average condition number of the Jacobian of the attention matrices for ViT-B (left) and XCiT-M (right), during training, under the above mentioned three initializations, alongside the theoretical upper bound from theorem 3.1. The results demonstrate that conditioned initialization consistently yields a better-conditioned Jacobian, providing empirical support for its role in enabling more stable attention mechanisms."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                676,
+                826,
+                763
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/c5e506426953674762bf097cf862aa50a5e8ae85483e742172e0851360bfaaaf.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 1: Comparison of Vision Transformers with different initializations pretrained on ImageNet-1k. We report Top-1% classification accuracy. In each case, conditioned initialization improves performance over the default and mimetic initializations."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td></td><td>ViT-B</td><td>DeiT-B</td><td>Swin-B</td><td>XCiT-M</td><td>DaViT-B</td></tr><tr><td>Original</td><td>80.3</td><td>81.6</td><td>83.4</td><td>82.6</td><td>84.3</td></tr><tr><td>Mimetic</td><td>80.5</td><td>81.6</td><td>83.5</td><td>82.6</td><td>84.4</td></tr><tr><td>Conditioned (ours)</td><td>81.5</td><td>82.7</td><td>84.6</td><td>83.5</td><td>85.3</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                250,
+                828,
+                746,
+                911
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "6"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/17d4136ffbcc118d55f2ea17e7b6b13942ff79e506db5363559cb319c673874a.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                178,
+                104,
+                480,
+                280
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/9b7f4f5e7e7c7d1654a3ea0ab0692aa4787cb70fc0d001f57401fb04b88f70d3.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 2: Total number of epochs required for each initialization to reach the final accuracy of the default initialization reported in table 1, across ViT-B, DeiT-B, Swin-B, and XCiT-M. In all cases, conditioned initialization converges more quickly, requiring fewer epochs than both default and mimetic initialization."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                514,
+                104,
+                815,
+                280
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Optimization efficiency. As shown in table 1, conditioned initialization achieves higher accuracy under the same training regime compared to both default and mimetic initialization. To further assess training efficiency, we measured the number of epochs required by mimetic and conditioned initialization to match the final accuracy attained by the default initialization across ViT-B, DeiT-B, Swin-B, and XCiT-M. Figure 2 reports these results, demonstrating that conditioned initialization consistently converges 20–30% faster to the same accuracy level. Similar analysis for DaViT-B is given in section A.3.1."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                375,
+                826,
+                474
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.1.1 SMALL SCALE DATASETS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                488,
+                405,
+                503
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Following section 4.1, we assessed conditioned initialization on small-scale image classification datasets: Flowers (Nilsback & Zisserman, 2008), Pets (Vedaldi, 2012), CIFAR-10, and CIFAR-100 (Krizhevsky et al., 2009). Experiments were conducted with the ViT-Tiny (ViT-T) architecture, a common choice for such benchmarks (Trockman & Kolter, 2023; Xu et al., 2023). We compared conditioned initialization with the default truncated normal scheme (Hugging Face, 2025b) and with mimetic initialization (Trockman & Kolter, 2023). Because ViTs lack strong inductive bias, they typically perform poorly on small datasets; mimetic initialization has been shown to partially remedy this by providing a more suitable inductive bias. As shown in table 2, conditioned initialization reliably improves over the default and performs on par with mimetic initialization."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                512,
+                826,
+                640
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Weight selection. We compared our initialization with the weight selection method from Xu et al. (2023). This can be found in section A.3.1."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                652,
+                823,
+                683
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/97862334de9235f5af7f3978c062f6bdd127ef4db4b2a28d6eda4ab35a10b276.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 2: Comparison of ViT-T pretrained on four small scale datasets with three different initializations. We report Top-1% classification accuracy. In each case, conditioned initialization improves performance over the default and mimetic initializations."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td></td><td>Pets</td><td>Flowers</td><td>CIFAR-10</td><td>CIFAR-100</td></tr><tr><td>Default</td><td>26.7</td><td>64.5</td><td>92.4</td><td>71.7</td></tr><tr><td>Mimetic</td><td>47.7</td><td>71.6</td><td>93.6</td><td>75.0</td></tr><tr><td>Conditioned (ours)</td><td>47.7</td><td>72.1</td><td>94.1</td><td>75.3</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                274,
+                747,
+                723,
+                830
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.2 OBJECT DETECTION AND INSTANCE SEGMENTATION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                856,
+                583,
+                871
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this section, we test conditioned initialization in a fine-tuning setting on two downstream tasks: object detection and instance segmentation. We first pretrain an XCiT architecture (Ali et al., 2021) on ImageNet-1K and then fine-tune on COCO 2017 (Lin et al., 2014). The XCiT models are used as backbones within a Mask R-CNN framework (He et al., 2017) equipped with a Feature Pyramid Network (FPN) for multi-scale features. To connect XCiT to FPN, we adapt its column structure to output intermediate representations, using the 12-layer XCiT-Small (XCiT-S) with strides adjusted from 16 to [4, 8, 16, 32] for FPN compatibility. Downsampling is done with max pooling and upsampling with a single transposed convolution. We evaluate this setup across three initializations: default truncated normal, mimetic, and our conditioned initialization."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                882,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "7"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/7fc283c11718d3f2b147592bb94bde714d20b001930bc70d22ec51e62b167ef8.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                176,
+                103,
+                380,
+                238
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/3b245823f204237a462aff9e25281300e7477e64848fbb2fa9cb25c6dab21ed7.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                397,
+                103,
+                599,
+                237
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/e59ccd9ce526e5fe94e4e913769d4c19b6025a56949d4c5881f31b65b2da412e.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 3: Average condition number of the attention Jacobian during training under three common initialization schemes, shown alongside the theoretical bound from eq. (8)."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                616,
+                109,
+                818,
+                239
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                306,
+                826,
+                392
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Results. The results for object detection and instance segmentation are presented in table 3. We report "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "A P ^ { b }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "(Average Precision for bounding boxes), "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "A P _ { 5 0 / 7 5 } ^ { b }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "(Average Precision at IoU thresholds of 0.50 and 0.75 for bounding boxes), "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "A P ^ { m }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "(Average Precision for masks), and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "A P _ { 5 0 / 7 5 } ^ { m }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "(Average Precision at IoU thresholds of 0.50 and 0.75 for masks). Across all metrics, XCiT models with conditioned initialization consistently outperform both alternatives."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                406,
+                826,
+                483
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/96b961d685b8db3394d6dc3b8ea70b0dd870ec699cf13f1873c04db81dee8712.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 3: Performance evaluation of object detection and instance segmentation on the COCO dataset. For each metric, our spectrally conditioned architecture (Spec. cond.) outperforms the original."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Model</td><td> $AP^{b}$ </td><td> $AP_{50}^{b}$ </td><td> $AP_{75}^{b}$ </td><td> $AP^{m}$ </td><td> $AP_{50}^{m}$ </td><td> $AP_{75}^{m}$ </td></tr><tr><td>Default</td><td>44.9</td><td>66.1</td><td>48.9</td><td>40.1</td><td>63.1</td><td>42.8</td></tr><tr><td>Mimetic</td><td>44.8</td><td>66.0</td><td>49.1</td><td>40.2</td><td>63.1</td><td>42.9</td></tr><tr><td>Conditioned (ours)</td><td>45.5</td><td>66.8</td><td>49.5</td><td>40.6</td><td>63.5</td><td>43.3</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                248,
+                549,
+                750,
+                632
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.3 LONG RANGE SEQUENCE MODELING"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                659,
+                477,
+                674
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Long-range sequences are essential for Transformers, enabling the integration of information across distant tokens. We assess our initialization scheme on the Long-Range Arena (LRA) benchmark (Tay et al., 2020), designed to evaluate models on extended inputs. For this, we use the Nystromformer (Xiong et al., 2021b), which achieves efficient long-range modeling via near-linear¨ attention. We train three variants: one with default truncated normal initialization (Xiong et al., 2021b; Hugging Face, 2025a), one with mimetic initialization (Trockman & Kolter, 2023), and one with our conditioned initialization from section 3.3 following the setup of Xiong et al. (2021b)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                685,
+                826,
+                785
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Results. From table 4 we see that across all tasks in the LRA benchmark, conditioned initialization consistently outperforms both default and mimetic initialization. We validate the theoretical results of section 3 on the text classification and ListOps task in the LRA benchmark suite. Figure 3 reports the average condition number of the Jacobian of the attention matrices for a Nystromformer¨ on the text classification task (left) and a Nystromformer on the ListOps task (middle), during train-¨ ing, under the above mentioned three initializations, alongside the theoretical upper bound from theorem 3.1. The results demonstrate that conditioned initialization consistently yields a betterconditioned Jacobian, providing empirical support for its role in enabling more stable attention mechanisms. Furthermore, we measured the number of epochs required by mimetic and conditioned initialization to match the final accuracy attained by the default initialization. Figure 3 (right) reports these results demonstrating that conditioned initialization consistently converges approximately 25% faster to the same accuracy level."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                799,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "8"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                825,
+                148
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/480ce99f8f6e94e544173f2027a4ee3b33b5e3d9c91688e77a2e2e9d5ab7fefe.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 4: Nystromformer with three different initializations on the LRA benchmark. We report ¨ evaluation accuracy (%). As shown, our initialization improves performance across all tasks."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Model</td><td>ListOps</td><td>Text</td><td>Retrieval</td><td>Image</td><td>Pathfinder</td></tr><tr><td>Default</td><td>37.1</td><td>63.8</td><td>79.8</td><td>39.9</td><td>72.9</td></tr><tr><td>Mimetic</td><td>37.1</td><td>64.0</td><td>79.9</td><td>40.2</td><td>73.2</td></tr><tr><td>Conditioned (ours)</td><td>37.9</td><td>64.9</td><td>80.8</td><td>40.4</td><td>73.9</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                243,
+                200,
+                753,
+                282
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.4 LANGUAGE MODELING"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                311,
+                380,
+                325
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We apply the insights from section 3 to the Crammed BERT language model (Geiping & Goldstein, 2023), trained with masked language modeling. We consider three variants: the original model with default normal initialization "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( \\mu = 0 , \\sigma = 0 . 0 2 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", one with mimetic initialization, and one with our conditioned initialization. All models are pretrained on The Pile (Gao et al., 2021) following the setup of Geiping & Goldstein (2023), and evaluated on the GLUE benchmark (Wang et al., 2018). As shown in table 5, conditioned initialization yields the strongest performance, with mimetic also outperforming the default baseline. Additional results for GPT-2 are provided in section A.3.4."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                338,
+                826,
+                436
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/4f39fdd611ee1b9ccc184132e2cb07a392d8425db5eebd8fc082f00f1da0518f.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 5: We evaluate a pretrained Crammed BERT with three different initialization schemes on the GLUE benchmark, and find that conditioned initialization outperforms the other two."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td></td><td>MNLI</td><td>SST-2</td><td>STSB</td><td>RTE</td><td>QNLI</td><td>QQP</td><td>MRPC</td><td>CoLA</td><td>Avg.</td></tr><tr><td>Default</td><td>83.8</td><td>92.3</td><td>86.3</td><td>55.1</td><td>90.1</td><td>87.3</td><td>85.0</td><td>48.9</td><td>78.6</td></tr><tr><td>Mimetic</td><td>84.1</td><td>92.5</td><td>86.5</td><td>55.1</td><td>90.3</td><td>87.5</td><td>85.1</td><td>50.1</td><td>78.9</td></tr><tr><td>Conditioned</td><td>84.8</td><td>92.9</td><td>86.9</td><td>55.5</td><td>91.1</td><td>87.7</td><td>86.0</td><td>51.7</td><td>79.6</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                173,
+                489,
+                823,
+                571
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5 LIMITATIONS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                604,
+                318,
+                619
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Our conditioned initialization is derived by optimizing an upper bound on the condition number of the self-attention Jacobian, rather than minimizing the Jacobian’s condition number directly. The motivation was to examine whether such a bound-based initialization could induce a more favorable optimization bias for training Transformers. While this approach offers useful theoretical guidance and is consistent with the empirical gains we observe, it remains an indirect proxy. Developing methods that can efficiently estimate and control the exact Jacobian conditioning during training would therefore be a valuable direction for future work."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                636,
+                826,
+                734
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "6 CONCLUSION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                755,
+                321,
+                771
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this paper, we introduced a theoretical framework that relates the conditioning of self-attention Jacobians to the spectral properties of the query, key, and value matrices in Transformer architectures. Building on this insight, we proposed a simple initialization strategy, conditioned initialization, that aims to reduce the condition number of the attention Jacobian at initialization, thereby providing a more favorable inductive bias for optimization. Extensive experiments show that this approach consistently improves performance across a wide range of Transformer models and tasks, including image classification, object detection, language modeling, and long-range sequence learning."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                787,
+                826,
+                887
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "<sup>1</sup>Digital tools were used for grammar and formatting only. No large language models contributed to the research, and all findings are original work by the authors."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                897,
+                826,
+                924
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "9"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "REFERENCES"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                102,
+                287,
+                118
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Naman Agarwal, Pranjal Awasthi, and Satyen Kale. A deep conditioning treatment of neural networks. In Algorithmic Learning Theory, pp. 249–305. PMLR, 2021."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                125,
+                823,
+                155
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Alaaeldin Ali, Hugo Touvron, Mathilde Caron, Piotr Bojanowski, Matthijs Douze, Armand Joulin, Ivan Laptev, Natalia Neverova, Gabriel Synnaeve, Jakob Verbeek, et al. Xcit: Cross-covariance image transformers. Advances in neural information processing systems, 34:20014–20027, 2021."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                162,
+                825,
+                205
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Lukas Bossard, Matthieu Guillaumin, and Luc Van Gool. Food-101–mining discriminative components with random forests. In European conference on computer vision, pp. 446–461. Springer, 2014."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                213,
+                825,
+                253
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Nicolas Carion, Francisco Massa, Gabriel Synnaeve, Nicolas Usunier, Alexander Kirillov, and Sergey Zagoruyko. End-to-end object detection with transformers. In European conference on computer vision, pp. 213–229. Springer, 2020."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                263,
+                825,
+                306
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Mostafa Dehghani, Josip Djolonga, Basil Mustafa, Piotr Padlewski, Jonathan Heek, Justin Gilmer, Andreas Peter Steiner, Mathilde Caron, Robert Geirhos, Ibrahim Alabdulmohsin, et al. Scaling vision transformers to 22 billion parameters. In International conference on machine learning, pp. 7480–7512. PMLR, 2023."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                314,
+                825,
+                371
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Mingyu Ding, Bin Xiao, Noel Codella, Ping Luo, Jingdong Wang, and Lu Yuan. Davit: Dual attention vision transformers. In European conference on computer vision, pp. 74–92. Springer, 2022."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                378,
+                825,
+                420
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner, Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly, et al. An image is worth 16x16 words: Transformers for image recognition at scale. arXiv preprint arXiv:2010.11929, 2020."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                430,
+                825,
+                484
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Ronen Eldan and Yuanzhi Li. Tinystories: How small can language models be and still speak coherent english? arXiv preprint arXiv:2305.07759, 2023."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                494,
+                823,
+                523
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Leo Gao, Stella Biderman, Sid Black, Laurence Golding, Travis Hoppe, Charles Foster, Jason Phang, Horace He, Aadi Thite, Eric Nabeshima, et al. The pile: An 800gb dataset of diverse text for language modeling. arXiv preprint arXiv:2101.00027, 2021."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                531,
+                825,
+                574
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Jonas Geiping. Cramming. https://github.com/JonasGeiping/cramming, 2023."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                582,
+                795,
+                598
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Jonas Geiping and Tom Goldstein. Cramming: Training a language model on a single gpu in one day. In International Conference on Machine Learning, pp. 11117–11143. PMLR, 2023."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                604,
+                823,
+                633
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Xavier Glorot and Yoshua Bengio. Understanding the difficulty of training deep feedforward neural networks. In Proceedings of the thirteenth international conference on artificial intelligence and statistics, pp. 249–256. JMLR Workshop and Conference Proceedings, 2010."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                174,
+                642,
+                825,
+                685
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. Delving deep into rectifiers: Surpassing human-level performance on imagenet classification. In Proceedings of the IEEE international conference on computer vision, pp. 1026–1034, 2015."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                691,
+                825,
+                736
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. Deep residual learning for image recognition. In Proceedings of the IEEE conference on computer vision and pattern recognition, pp. 770–778, 2016."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                174,
+                743,
+                823,
+                785
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Kaiming He, Georgia Gkioxari, Piotr Dollar, and Ross Girshick. Mask r-cnn. In ´ Proceedings of the IEEE international conference on computer vision, pp. 2961–2969, 2017."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                794,
+                825,
+                823
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Alex Henry, Prudhvi Raj Dachapally, Shubham Shantaram Pawar, and Yuxuan Chen. Query-key normalization for transformers. In Findings of the Association for Computational Linguistics: EMNLP 2020, pp. 4246–4253, 2020."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                830,
+                823,
+                873
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Hugging Face. Hugging face transformers — nystromformer documentation. https:// huggingface.co/docs/transformers/en/model_doc/nystromformer, 2025a. Accessed: September 2025."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                882,
+                823,
+                922
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "10"
+                    }
+                ]
+            },
+            "bbox": [
+                490,
+                948,
+                509,
+                960
+            ]
+        }
+    ]
+]

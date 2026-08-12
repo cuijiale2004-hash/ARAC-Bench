@@ -1,0 +1,1105 @@
+[
+    {
+        "type": "text",
+        "text": "ABSTRACT",
+        "text_level": 2,
+        "bbox": [
+            450,
+            279,
+            547,
+            295
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Retrieval-Augmented Generation (RAG) significantly enhances Large Language Models by integrating external knowledge sources, but at the cost of substantial computational overhead from extended input sequences. Current RAG systems exhibit two fundamental inefficiencies: redundant processing of frequently retrieved text chunks across multiple queries, and uniform deep retrieval that over-provisions context regardless of query complexity. We present AdaCache, an adaptive caching framework that addresses these limitations through dual optimization strategies. First, we introduce a cache-aware partial recomputation mechanism that profiles attention patterns to construct selective cache variants, enabling flexible reuse while preserving cross-chunk dependencies. Second, we develop adaptive context augmentation that dynamically determines optimal retrieval depth via lightweight confidence estimation, avoiding unnecessary overhead on simple queries. Comprehensive experiments across diverse datasets and LLMs demonstrate that AdaCache delivers substantial improvements in Time-To-First-Token compared to state-of-the-art RAG caching systems, while preserving generation quality.",
+        "bbox": [
+            230,
+            311,
+            767,
+            535
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "1 INTRODUCTION",
+        "text_level": 2,
+        "bbox": [
+            174,
+            561,
+            336,
+            577
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Large Language Models (LLMs) have become ubiquitous across diverse applications, from conversational chatbots and personal assistants to specialized systems handling question answering, document summarization, and machine translation (Achiam et al., 2023; Hurst et al., 2024; Guo et al., 2025; Yang et al., 2025). Despite their impressive capabilities, LLMs suffer from hallucination issues and knowledge limitations, particularly when dealing with domain-specific or up-to-date information. Retrieval-augmented generation (RAG) (Ram et al., 2023; Siriwardhana et al., 2023; Jiang et al., 2023) has emerged as a powerful paradigm to bridge this gap. By incorporating external knowledge bases, such as Wikipedia (Cohere, 2023) or domain-specific corpora, it retrieves relevant contextual information to enrich user queries. This approach has demonstrated remarkable success in improving generation quality, while enabling general-purpose LLMs to tackle specialized domain problems without costly fine-tuning.",
+        "bbox": [
+            169,
+            594,
+            826,
+            748
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Despite these benefits, RAG introduces significant system-level challenges. The injection of retrieved text chunks substantially increases the length of input prompts, leading to higher computation and memory requirements during the LLM inference. For instance, while a raw user query typically contains fewer than 200 tokens, augmenting it with retrieved context can push the sequence length beyond 2,000 tokens, leading to more than a $10 \\times$ increase in computational and memory overhead. This dramatic expansion significantly degrades Time-To-First-Token (TTFT) and system throughput, ultimately compromising user experience. The key objective is to achieve the best of both worlds: harnessing RAG's quality improvements while preserving computational efficiency.",
+        "bbox": [
+            169,
+            753,
+            826,
+            866
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Our observation reveals two major inefficiencies in current RAG systems. The first is cross-query context overlap, where identical text chunks from the external knowledge base are repeatedly retrieved across multiple user queries, and a small fraction of text chunks dominate the retrieval requests. As shown in Fig. 1a, we observe power-law distributions in text chunks popularity on the MMLU dataset (Hendrycks et al., 2020), where the most frequently accessed 10% of text chunks satisfy 80% of all questions under top-1 retrieval $^{1}$ . This skewed access pattern indicates substantial redundant computation during LLM inference, as the same contextual information is processed repeatedly for different user queries. The second inefficiency stems from over-allocation of context within individual queries, regardless of their complexity. Although LLMs consistently benefit from expanded contextual information, accuracy improvements follow a pattern of diminishing marginal utility with additional retrieved text chunks. We validate this intuition using Llama3-8B-Instruct (Dubey et al., 2024b) on MMLU, SuperGPQA (Du et al., 2025), and TriviaQA (Joshi et al., 2017) datasets, as shown in Fig. 2. By analyzing minimal knowledge requirements for accurate model predictions, we observe that over 60% of queries require only minimal context, whereas only approximately 3% need top-8 retrieval. This distribution highlights a critical inefficiency: static deep retrieval incurs unnecessary computational costs on simple queries while potentially degrading accuracy through contextual noise. These findings illuminate a fundamental optimization challenge in the RAG system: How can we achieve both computational efficiency and performance gains simultaneously?",
+        "bbox": [
+            169,
+            871,
+            826,
+            901
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_footnote",
+        "text": "\\*Corresponding author.",
+        "bbox": [
+            191,
+            910,
+            336,
+            924
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_number",
+        "text": "1",
+        "bbox": [
+            493,
+            948,
+            503,
+            959
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "chart",
+        "img_path": "images/b5048e15f9d6e106f365259d0d102ea6b9f79c4930eea3ee674f7110771ce46b.jpg",
+        "content": "",
+        "chart_caption": [
+            "(a) MMLU."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            176,
+            103,
+            387,
+            224
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "chart",
+        "img_path": "images/0e521869505128061a5e2cfd133e65c5db5e87c81a5e1d827d7fdb7dcf60620c.jpg",
+        "content": "",
+        "chart_caption": [
+            "(b) TriviaQA."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            393,
+            104,
+            604,
+            224
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "chart",
+        "img_path": "images/9e11883237f666e99605f68e7de3082adb5bd0a06ef3f7b3c03b76c02977d9c9.jpg",
+        "content": "",
+        "chart_caption": [
+            "(c) NaturalQuestions-Open."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            609,
+            103,
+            820,
+            224
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "chart",
+        "img_path": "images/a607dc0b20b581fea1b708e9e1f3d412511ed98f716171ed8108f218cd8b3389.jpg",
+        "content": "",
+        "chart_caption": [
+            "Figure 1: Retrieval pattern on different datasets.",
+            "Figure 2: Distribution of minimum top-k retrieval requirements for correct responses using Llama3-8B-Instruct model on different datasets."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            194,
+            301,
+            802,
+            460
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            531,
+            826,
+            768
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Caching represents a promising solution to address computational redundancy in RAG systems by reusing previously computed representations (i.e., KV cache). Recent advances, including vLLM (Kwon et al., 2023), SGLang (Zheng et al., 2024), and RAGCache (Jin et al., 2024), employ prefix caching to store key-value representations of processed text chunks. While maintaining generation quality equivalent to full recomputation, these methods require exact sequence matching, leading to poor hit rates with longer contexts and positional variations. Independent chunk caching approaches attempt more flexible strategies. PromptCache (Gim et al., 2024) achieves higher efficiency through independent chunk caching but sacrifices accuracy by ignoring cross-chunk attention.",
+        "bbox": [
+            169,
+            773,
+            826,
+            888
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "page_footnote",
+        "text": "$^{1}$ For top-2 and top-3 retrieval, we treat each unique combination of retrieved text chunks as a distinct context unit for cumulative distribution analysis.",
+        "bbox": [
+            169,
+            897,
+            826,
+            924
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "page_number",
+        "text": "2",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "CacheBlend (Yao et al., 2025) partially restores cross-chunk attention via selective recomputation, yet applies uniform recomputation ratios across all chunks without considering the heterogeneous attention characteristics across different chunks. Furthermore, all prior work assumes static top-k retrieval, missing query-adaptive optimization opportunities that could enable simultaneous efficiency and accuracy improvements.",
+        "bbox": [
+            169,
+            104,
+            826,
+            175
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "In this paper, we present an adaptive caching framework that addresses both computational redundancy and contextual over-provisioning in RAG systems through two complementary mechanisms. We first design a cache-aware partial recomputation method that profiles attention patterns to construct multiple cache variants per text chunk, selecting minimal recomputation strategies during reuse. Then, we introduce an adaptive context augmentation strategy that incrementally expands retrieval depth using lightweight confidence estimation to determine optimal context length for each user query. Evaluation across multiple models and datasets shows that we achieve 1.4x\\~5.0x TTFT reduction over state-of-the-art RAG caching systems while maintaining accuracy.",
+        "bbox": [
+            169,
+            181,
+            826,
+            294
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "2 BACKGROUND AND RELATED WORK",
+        "text_level": 2,
+        "bbox": [
+            171,
+            314,
+            514,
+            329
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Autoregressive Transformers execute inference in two distinct phases. In the prefill phase, the model processes the entire input sequence, performing self-attention across all tokens and materializing per-layer KV caches. In the subsequent decode phase, tokens are generated step by step while attending to this cached state. By reusing the stored projections of preceding tokens, the KV cache eliminates redundant recomputation of the prefix and enables efficient autoregressive generation.",
+        "bbox": [
+            169,
+            345,
+            826,
+            417
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "RAG extends this pipeline by incorporating external evidence. A retriever encodes the user query, searches a corpus, and returns the top-k passages (Ram et al., 2023; Siriwardhana et al., 2023; Jiang et al., 2023). The generator concatenates the query and retrieved passages, tokenizes the combined sequence, and applies the same prefill–decode process: prefill constructs KV entries for all tokens, and decode reuses them to produce the answer. However, concatenation markedly lengthens the prompt, increasing both attention cost and KV overhead in proportion to sequence length.",
+        "bbox": [
+            169,
+            422,
+            826,
+            508
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "As a result, prefill dominates serving latency, raising TTFT and reducing throughput under load. Moreover, much of the additional computation is not essential for factual grounding, such as interactions among irrelevant passages or regions with low query attention. The fundamental bottleneck is thus the cost of full prefill and KV materialization over long contexts, motivating mechanisms that preserve only query–evidence interactions while avoiding redundant computation.",
+        "bbox": [
+            169,
+            513,
+            826,
+            585
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "General LLM Inference Systems. vLLM (Kwon et al., 2023) accelerates generic serving via Page-Attention with block-wise KV paging and sharing; Orca (Yu et al., 2022) scales distributed decoding through iteration-level scheduling; prefill–decode disaggregation, as in DistServe (Zhong et al., 2024) and SplitWise (Patel et al., 2024), separates phases across GPUs to mitigate interference; and FlexGen (Sheng et al., 2023) expands effective capacity by aggregating memory and computation from the GPU, CPU, and disk. These approaches reduce phase contention and memory pressure but treat prompts as monolithic sequences, leaving them ill-suited to RAG's retrieval-induced redundancy and leading to suboptimal performance.",
+        "bbox": [
+            169,
+            589,
+            826,
+            703
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Retrieval Optimization. Sparse retrievers such as TF–IDF (Ramos et al., 2003) and BM25 (Robertson et al., 2009) enable efficient lexical matching, while dense retrievers leverage learned embeddings for higher recall at greater cost (Karpukhin et al., 2020). On top of these, rerankers refine first-stage results to improve precision with moderate overhead (Sun et al., 2023; Pradeep et al., 2023; Santhanam et al., 2021). These techniques focus on improving retrieval quality, whereas our method leaves the retrieved set unchanged and targets efficiency in post-retrieval processing.",
+        "bbox": [
+            169,
+            708,
+            826,
+            794
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Context Reusing. Caching mechanisms amortize the prefill cost by reusing KV states. Prefix caching, as in SGLang (Zheng et al., 2024), CachedAttention (Yao et al., 2025), and RAGCache (Jin et al., 2024), achieves fidelity but relies on exact prefix matches, resulting in low hit rates under long and variable RAG prompts. To alleviate this limitation, independent chunk caching relaxes matching: PromptCache (Gim et al., 2024) caches blocks independently but discards cross-chunk attention, thereby compromising accuracy, while CacheBlend (Yao et al., 2025) reintroduces interactions via selective recomputation yet applies uniform ratios oblivious to heterogeneous attention patterns. Our approach addresses these gaps by incorporating attention-aware cache variants with minimal recomputation to preserve fidelity, and by employing confidence-guided, per-query adaptive expansion. This design reduces redundant computation, lowers long-context overhead, and significantly improves both TTFT and throughput.",
+        "bbox": [
+            169,
+            799,
+            826,
+            926
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "page_number",
+        "text": "3",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            104,
+            825,
+            133
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3 ADACACHE",
+        "text_level": 2,
+        "bbox": [
+            171,
+            152,
+            305,
+            169
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "image",
+        "img_path": "images/aa821a6ddc92f7aa45a5afdc239ce244bf0df753dfabbd24844342372381bcbd.jpg",
+        "image_caption": [
+            "Figure 3: The Overview of AdaCache. It consists of two complementary modules. Cache-aware selective recomputation (upper) maintains three hierarchical cache spaces: (1) Hard prefix cache requires exact prefix matching and stores KV cache for all chunks along the matching path (solid boxes), enabling direct reuse without recomputation; (2) Soft prefix cache matches only effective prefix chunks requiring partial recomputation at ratio $\\alpha$ , where solid boxes represent cached entries while dashed boxes indicate prefix dependencies without storage; (3) Independent cache performs chunk-level matching with higher recomputation ratio $\\beta$ . The top attention diagram shows selective recomputation where 2 out of 6 tokens (blue solid blocks) are recomputed while the remaining 4 tokens reuse cached KV states. Adaptive context augmentation (lower) incrementally expands prompts by adding one text chunk at a time, evaluating confidence after each addition using a composite metric combining average KL divergence across the last few layers and output entropy, terminating when sufficient confidence is achieved or maximum context is reached."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            187,
+            191,
+            813,
+            469
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3.1 CACHE-AWARE SELECTIVE RECOMPUTATION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            679,
+            529,
+            694
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Attention Analysis. We begin by analyzing chunk-level attention patterns to understand inter-chunk dependencies in RAG contexts. The augmented prompt is segmented into discrete chunks: [system prompt, text chunk 1, ..., text chunk k, query], and we aggregate attention weights of each layer into chunk granularity. Fig. 4 demonstrates two distinct attention distributions across model depth during Qwen3-8B model inference $^{2}$ . Early layers (1-18) show localized patterns where each chunk primarily attends to its predecessor, while deeper layers (19-36) exhibit attention sink phenomena, with certain chunks capturing most attention from subsequent chunks. This pattern reveals that only a subset of chunks serves as effective prefixes, enabling joint caching of partial prefix sequences to restore cross-chunk dependencies lost in independent chunk caching.",
+        "bbox": [
+            169,
+            705,
+            826,
+            832
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Hierarchical Cache. Based on the observed attention patterns, we establish a three-tier cache hierarchy that systematically balances cache utilization efficiency against generation quality. Hard",
+        "bbox": [
+            169,
+            845,
+            826,
+            876
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "page_footnote",
+        "text": "$^{2}$ We validated these chunk-level attention patterns across Llama3-8B-Instruct, Qwen3-4B, and Qwen3-8B models on MMLU, TriviaQA, and SuperGPQA datasets, observing consistent behaviors, though the specific chunk positions serving as attention sinks vary across different contexts.",
+        "bbox": [
+            169,
+            883,
+            825,
+            924
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "page_number",
+        "text": "4",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "image",
+        "img_path": "images/912ad67149f7591d7502cc92e8f25d4f078d3a8e482ba5589534ac6b6beefa04.jpg",
+        "image_caption": [
+            "Figure 4: Chunk-level attention patterns during Qwen3-8B model inference with Top-8 retrieval. The first and last columns in each subplot correspond to the system prompt and user query, respectively. Layers 1-18 exhibit localized attention where chunks predominantly focus on their immediate predecessors with sparse attention to distant chunks. In layers 19-36, an attention sink phenomenon emerges where the 3rd chunk captures the majority of attention from subsequent chunks."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            174,
+            99,
+            821,
+            319
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Prefix Cache requires exact prefix sequence matching, making it the most restrictive but accuracy-preserving tier. Due to the causal attention mask in autoregressive inference, exact prefix matches guarantee computational equivalence to full recomputation, thereby preserving perfect generation quality when cache hits occur. However, this strict requirement significantly constrains cache utilization. Soft Prefix Cache relaxes the matching constraint to effective prefix matching, where only the sink chunk or predecessor chunk needs to match for cache reuse. This design leverages our attention analysis findings: since attention primarily flows from these key chunks, partial prefix matching can maintain most cross-chunk dependencies. Independent Cache provides the fallback mechanism when prefix matching fails entirely. Individual text chunks are precomputed and stored independently without prefix dependencies. It maximizes cache hit rates but poses the greatest risk for accuracy preservation, as cross-chunk attention dependencies must be reconstructed during LLM inference.",
+        "bbox": [
+            169,
+            426,
+            826,
+            595
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Cache Reusing and Recomputation. Building on previous work (Yao et al., 2025), only a subset of tokens within each chunk exhibit significant cross-chunk attention, leading to substantial KV states deviations compared to those in the independent cache. Critically, this sparsity pattern exhibits layer-wise consistency: tokens with the highest KV deviations in one layer are likely to have the highest deviations in subsequent layers. This insight enables efficient selective recomputation by identifying attention-critical tokens through first-layer analysis and applying the same selection across all layers. We determine recomputation candidates by analyzing cross-chunk attention ratios in the initial layer, selecting tokens with the highest proportion of cross-chunk attention weights.",
+        "bbox": [
+            169,
+            609,
+            826,
+            724
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Rather than a uniform recomputation across all chunks in context, we adapt the recomputation ratio based on available cache matches. The KV states of each chunk may have multiple cached variants stored under different prefix contexts. We retrieve from cache spaces in a hierarchical order with progressively relaxed matching constraints.",
+        "bbox": [
+            169,
+            729,
+            826,
+            786
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "We first query the hard prefix cache for exact matches, where any chunks along the matched prefix path can be directly reused without recomputation. When exact matching fails, we examine the soft prefix cache for effective prefix alignment. Note that soft prefix chunks serve only as cache key identifiers without maintaining separate cache entries. Successful soft matching requires recomputing $\\alpha$ fraction of tokens to restore global cross-chunk attention $^{3}$ . If no cached KV states exist in the soft prefix cache space, we turn to the independent cache with recomputation ratio $\\beta (\\beta > \\alpha)$ to reconstruct discarded cross-chunk dependencies. This cache reuse approach achieves an optimal efficiency-accuracy trade-off through adaptive token recomputation that responds to varying prefix match conditions: exact, partial, or absent.",
+        "bbox": [
+            169,
+            791,
+            826,
+            863
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "page_footnote",
+        "text": "$^{3}$ In the first half of model layers, effective prefixes correspond to predecessor chunks, while in the second half, they correspond to both sink chunks and predecessor chunks. We identify sink chunk positions by analyzing attention matrices at transition layers: chunks before the sink chunk require predecessor-based matching, while chunks after the sink chunk use both sink chunks and predecessor chunks as their effective",
+        "bbox": [
+            169,
+            872,
+            826,
+            925
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "page_number",
+        "text": "5",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "code",
+        "sub_type": "algorithm",
+        "code_caption": [],
+        "code_body": "<div class=\"mineru-algorithm\" style=\"white-space: pre-wrap; font-family:monospace;\">\nAlgorithm 1 Adaptive Context Augmentation\nRequire: System prompt s, query q, retrieved text chunks  $[c_{1}, \\ldots, c_{k}]$ , confidence threshold  $\\tau$ \n1: for i = 1 to k do\n2:  $p \\leftarrow s + [c_{1}, \\ldots, c_{i}] + q$  ▷ Construct context-augmented prompt\n3: for j = 1 to i - 1 do\n4: Retrieve hash( $[c_{1}, \\ldots, c_{j}]$ ) in Hard Prefix Cache ▷ Reuse KV states w/o recomputation\n5: end for\n6: if hash(effective_prefix( $[c_{1}, \\ldots, c_{i}])$ ) ∈ Soft Prefix Cache then\n7:  $\\rho \\leftarrow \\alpha$  ▷ Lower recomputation ratio for Soft Prefix Cache\n8: else\n9:  $\\rho \\leftarrow \\beta$  ▷ Higher recomputation ratio for Independent Cache\n10: end if\n11:  $T \\leftarrow \\rho$  fraction of tokens in  $c_{i}$  ▷ Selected tokens with the highest cross-chunk attention\n12:  $O \\leftarrow \\text{Prefill}(T)$  ▷ Generate logits for last l layers\n13: conf  $\\leftarrow \\lambda \\cdot \\widehat{KL}(O_{1..l-1}, O_{l}) + (1 - \\lambda) \\cdot \\widehat{H}(O_{l})$  ▷ Evaluate the confidence\n14: if conf &gt;  $\\tau$  then\n15: Execute decoding ▷ Stop context augmentation\n16: break\n17: end if\n18: Update KV states of  $c_{i}$  with hash( $[c_{1}, \\ldots, c_{i}]$ ) in Hard Prefix Cache\n19: end for\n</div>",
+        "bbox": [
+            171,
+            101,
+            823,
+            407
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            435,
+            826,
+            493
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "3.2 ADAPTIVE CONTEXT AUGMENTATION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            510,
+            480,
+            525
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Algorithm 1 presents the process of adaptive context augmentation (ACA) with cache-aware recomputation. Rather than concatenating all top-k retrieved text chunks into the user prompt simultaneously, we employ an incremental augmentation strategy that progressively incorporates one chunk at a time until reaching the k-th chunk or achieving sufficient confidence. While this approach necessitates multiple forward passes for the same query, it eliminates redundant context computation through strategic caching. At each iteration, we only recompute the KV states for the newly added chunk, storing them in the hard prefix cache space for reuse in subsequent context augmentation. This ensures that all previously processed chunks maintain cache hits, dramatically reducing computational overhead. Importantly, ACA does not introduce any additional retrieval overhead. The top-k retrieval step is executed once per query, and the augmentation loop then operates solely within the prefill phase using the already-retrieved text chunks.",
+        "bbox": [
+            169,
+            536,
+            826,
+            691
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "To decide whether augmentation should terminate, we employ a composite confidence metric combining two complementary uncertainty measures. First, we compute the average KL divergence between the logits of the last $l$ layers and the final layer, capturing internal reasoning consistency. If the model can accurately infer the answer from the current context, its logit distribution should converge early across layers. Second, we calculate the entropy of the final token distribution, reflecting output uncertainty. We normalize both the average KL divergence and entropy to [0, 1], then compute a weighted confidence score, with weights determined through optimization on the validation set. This dual-metric balances stability with predictive certainty, providing a more robust confidence estimate. Notably, the confidence metric is computationally lightweight. In practice, AdaCache computes logits only for the last 4 layers and for the final token rather than the full context, which keeps the overhead negligible at less than $1\\%$ of the prefill cost.",
+        "bbox": [
+            169,
+            696,
+            826,
+            851
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "ACA reduces computational and memory demands by avoiding excessive context allocation for simple queries. Given k retrieved text chunks of length $l_{c}$ tokens each, a query of length $l_{q}$ tokens, and early termination at step t, ACA processes at most $t \\cdot (l_{c} + l_{q})$ tokens. It yields substantial savings in computation and memory compared to static context augmentation, which requires processing $k \\cdot l_{c} + l_{q}$ tokens $^{4}$ .",
+        "bbox": [
+            169,
+            856,
+            826,
+            887
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "page_footnote",
+        "text": "prefixes. Including predecessor chunks prevents cumulative errors that would arise from inconsistency with the predecessor-based matching used in the first half of layers.",
+        "bbox": [
+            169,
+            897,
+            825,
+            924
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "page_number",
+        "text": "6",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "chart",
+        "img_path": "images/fcf17a94a636642a9a16143ca2a35ace4363b14ab0c5ad4891810e414fca38c4.jpg",
+        "content": "",
+        "chart_caption": [
+            "Figure 5: Comparison of Time-to-Tirst-Token (TTFT) and generation quality between AdaCache and baseline methods across six datasets and three models."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            176,
+            114,
+            813,
+            630
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            702,
+            825,
+            747
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "4 EVALUATION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            765,
+            316,
+            781
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "4.1 EVALUATION METHODOLOGY",
+        "text_level": 2,
+        "bbox": [
+            171,
+            796,
+            423,
+            810
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Models and Hardware Settings. We evaluate AdaCache using Llama-3-8B-Instruct (Dubey et al., 2024a), Qwen3-4B, and Qwen3-8B (Yang et al., 2025) models. Experiments are conducted",
+        "bbox": [
+            169,
+            821,
+            825,
+            852
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "$^{4}$ Retrieved text chunks are typically longer than queries, with 512 tokens being a common chunk size while queries usually contain fewer than 128 tokens. For example, with top-6 retrieval, static context augmentation processes 3,200 tokens per query during the prefill phase. In contrast, given the empirical expectation of t = 2 text chunks required across the dataset, ACA processes only 1,280 tokens, achieving 2.5x reduction in computational cost.",
+        "bbox": [
+            169,
+            859,
+            826,
+            924
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "page_number",
+        "text": "7",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "on a server equipped with 128 CPU cores (2×Intel Xeon Gold 6530), 512 GB of host memory, and NVIDIA RTX 6000 Ada GPU with 48 GB memory. Data transfers between the CPU and GPU are carried out over the PCIe 4.0×16 interface.",
+        "bbox": [
+            169,
+            104,
+            826,
+            147
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Corpus and Datasets. We use the Wikipedia dataset $^{5}$ as our knowledge base. Prior to embedding, all documents are segmented into chunks of size 512 tokens. Each chunk is then encoded using the e5-base-v2 embedding model. For vector search, we leverage the FAISS library to construct an inverted file (IVF) index with 1024 clusters, and set the default top-k retrieval to 6. AdaCache is evaluated on several rigorous benchmark datasets, including MMLU (Hendrycks et al., 2020), MMLU-Pro (Wang et al., 2024), SuperGPQA (Du et al., 2025), TriviaQA (Joshi et al., 2017), 2WikiMultihopQA (Ho et al., 2020), and HotpotQA (Yang et al., 2018), which span general knowledge, open-domain reading comprehension, and advanced reasoning.",
+        "bbox": [
+            169,
+            162,
+            826,
+            277
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Baselines. We compare AdaCache with three baselines: (i) Full Recomputation, where the raw text is fed into the LLM and the KV cache for all tokens is computed during prefill; (ii) Prefix Cache (Jin et al., 2024), which leverages SGLang (Zheng et al., 2024) to identify frequently used prefix chunks and persist their KV caches in RAM and SSD, while non-prefix tokens are still computed during prefill. For fairness, we optimistically assume no delay when loading from RAM/SSD to GPU, which favors this scheme relative to real deployments; and (iii) Selective Recomputation, which adopts CacheBlend (Yao et al., 2025) to reuse precomputed KV caches of all chunks, while selectively recomputing in each layer a small subset of high-deviation tokens to restore cross-chunk attention.",
+        "bbox": [
+            169,
+            292,
+            826,
+            419
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Metrics. We evaluate models on both accuracy and responsiveness. Accuracy is measured by Exact Match (EM), the fraction of predictions that exactly match a normalized reference answer. Responsiveness is measured by Time-To-First-Token (TTFT), the wall-clock latency from request submission to the emission of the first output token. We report results across repeated runs under controlled hardware and inference settings.",
+        "bbox": [
+            169,
+            435,
+            826,
+            506
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "4.2 EXPERIMENTAL RESULTS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            523,
+            393,
+            539
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Naive RAG systems recompute KV caches for every new request and its retrieved context. AdaCache achieves substantial TTFT reductions of $3.12 \\times$ on average and up to $6.02 \\times$ compared to full recomputation while preserving nearly identical generation quality. The performance gains derive from AdaCache's dual optimization strategy, which simultaneously eliminates cross-request computational redundancy in overlapping contexts while preventing unnecessary context augmentation for simple queries. Notably, AdaCache occasionally surpasses full recomputation in prediction accuracy, as excessive contextual information can introduce noise that degrades model reasoning. Guided by model output confidence, AdaCache ensures that the minimal sufficient context contributes to the generation process.",
+        "bbox": [
+            169,
+            550,
+            826,
+            678
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "AdaCache demonstrates $2.69\\times$ average and up to $5.0\\times$ performance improvements over prefix caching. While prefix caching eliminates redundant computation of overlapping prefixes and maintains identical generation quality to full recomputation, exact prefix matching limits its effectiveness with longer contexts or dynamic positioning of retrieved chunks. AdaCache addresses these limitations with a hierarchical cache architecture (i.e., hard prefix cache, soft prefix cache, and independent caches), enabling more flexible cache reuse.",
+        "bbox": [
+            169,
+            683,
+            826,
+            768
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "CacheBlend leverages independent caching to achieve substantial improvements in cache hit rates, employing selective recomputation to maintain cross-chunk attention and preserve generation quality. In comparison, AdaCache delivers $1.32 \\times$ on average and up to $2.34 \\times$ TTFT improvements over CacheBlend with marginally superior generation quality. AdaCache analyzes inter-chunk attention patterns across layers and constructs soft prefix caches, enabling flexible hierarchical caching that reduces token-level recomputation and decreases TTFT. Additionally, adaptive context selection reduces computational waste from non-contributory text chunks.",
+        "bbox": [
+            169,
+            773,
+            826,
+            873
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "page_footnote",
+        "text": "$^{5}$ We use the wikimedia/wikipedia dataset on Hugging Face, which contains cleaned articles from the official Wikipedia dumps. Each subset corresponds to one language and consists of a single training split with markdown and references removed. In our experiments, we adopt the English subset released on 2023-11-01.",
+        "bbox": [
+            169,
+            883,
+            825,
+            925
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "page_number",
+        "text": "8",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "chart",
+        "img_path": "images/639bb728a44d01db7cda198c31c82e3a86e386a739fd787ce07fca0da695eae5.jpg",
+        "content": "",
+        "chart_caption": [
+            "(a) Qwen3-4B."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            176,
+            101,
+            495,
+            258
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "chart",
+        "img_path": "images/0e5e186ed242e063e2300fb3c7beb8aefec4a979bab2dee7e3f2cb6b9b9ec745.jpg",
+        "content": "",
+        "chart_caption": [
+            "(b) Qwen3-8B."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            498,
+            104,
+            821,
+            258
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "chart",
+        "img_path": "images/22ff49f4556091b9d0833a83b360357b90117b21cef1c01b4a2e5c5b3faafb5d.jpg",
+        "content": "",
+        "chart_caption": [
+            "Figure 6: TTFT comparison of caching strategies combined with and without ACA across different datasets and models.",
+            "(a) Llama3-8B-Instruct."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            174,
+            340,
+            387,
+            469
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "chart",
+        "img_path": "images/ef84bec3c62977e88dc6375e3c3d4fadce8de8de273cb73e0e87a8ddd0fcdede.jpg",
+        "content": "",
+        "chart_caption": [
+            "(b) Qwen3-8B."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            392,
+            340,
+            604,
+            469
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "chart",
+        "img_path": "images/ba96df9e08990b8c52f0b377fbbd202d04897fdf10b78adecf11c9d071bdcf62.jpg",
+        "content": "",
+        "chart_caption": [
+            "(c) Qwen3-4B.",
+            "Figure 7: The context length distribution determined by adaptive context augmentation across different datasets and models."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            607,
+            343,
+            821,
+            469
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Ablation Study. To isolate the performance contributions of cache-aware selective recomputation and adaptive context augmentation (ACA), we compare four configurations: Prefix Caching combined with ACA, CacheBlend combined with ACA, AdaCache without ACA, and the full AdaCache system (Fig. 6). ACA integrates smoothly with different caching mechanisms, and when applied to Prefix Caching or CacheBlend, it consistently reduces TTFT across datasets and models, delivering average speedups of 1.65× and 1.22×, respectively.",
+        "bbox": [
+            169,
+            565,
+            826,
+            650
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "The full AdaCache system retains substantial performance advantages over ACA-enhanced baselines, achieving average speedups of $1.76\\times$ over Prefix Caching and $1.23\\times$ over CacheBlend. Notably, cache-aware selective recomputation alone occasionally outperforms even ACA-enhanced baselines. These results demonstrate the effectiveness of our hierarchical caching design and its tight integration with ACA.",
+        "bbox": [
+            169,
+            655,
+            826,
+            728
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Context Length Distribution. To better understand the performance improvements of Adaptive Context Augmentation (ACA), we analyze the distribution of context lengths identified by ACA during model inference. As shown in Fig. 7, a consistent pattern emerges across all three models and four datasets: the majority of queries require minimal context augmentation, while queries requiring longer contexts become increasingly rare. The sharp spike at maximum length includes queries that remain unanswerable even when provided with the complete top-6 retrieved text chunks, indicating persistently low confidence throughout the ACA process.",
+        "bbox": [
+            169,
+            750,
+            826,
+            849
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "The performance gains from ACA correlate strongly with this distribution pattern. Datasets exhibiting more pronounced head-heavy distributions with smaller tail proportions yield greater improvements. MMLU and TriviaQA demonstrate more skewed distributions compared to MMLU-Pro and SuperGPQA, with correspondingly higher relative performance gains. Specifically, AdaCache achieves $1.95\\times$ and $1.62\\times$ average TTFT reduction over CacheBlend on MMLU and TriviaQA, respectively, across three models, compared to more modest improvements of $1.25\\times$ and $1.14\\times$ on MMLU-Pro and SuperGPQA respectively.",
+        "bbox": [
+            169,
+            854,
+            826,
+            925
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "page_number",
+        "text": "9",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "chart",
+        "img_path": "images/4da1c10f7bdce5d9bebc0c9d7f0a7cbe17f88d8b04f949e22f3f4de7c8259865.jpg",
+        "content": "",
+        "chart_caption": [
+            "Figure 8: Comparison of TTFT between AdaCache and baseline methods across different top-k retrieval."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            174,
+            104,
+            821,
+            392
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            460,
+            825,
+            489
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "Performance Across top-k Retrieval Settings. Fig. 8 demonstrates the performance comparison between AdaCache, CacheBlend, Prefix Caching, and Full Recomputation across varying top-k retrieval configurations $^{6}$ . At top-2 retrieval, the performance gap between Prefix Caching, CacheBlend, and AdaCache remains modest. Prefix Caching achieves a substantial TTFT reduction compared to Full Recomputation due to relatively high cache hit rates in short context scenarios.",
+        "bbox": [
+            169,
+            505,
+            826,
+            575
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "However, as context expands, a clear performance divergence emerges. Prefix Caching suffers dramatic degradation, with TTFT improvements declining from an average of $1.76\\times$ at top-2 to merely $1.13\\times$ at top-8 retrieval, reflecting the fundamental limitation of strict prefix matching in long context scenarios. In contrast, AdaCache exhibits superior context scalability, with performance gains improving from an average of $2.93\\times$ to $4.67\\times$ over full recomputation. While CacheBlend's independent caching strategy substantially improves cache hit rates for long contexts compared to Prefix Caching, AdaCache achieves fundamentally better context scalability by combining hierarchical caching with adaptive context augmentation.",
+        "bbox": [
+            169,
+            580,
+            826,
+            695
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "5 CONCLUSION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            713,
+            321,
+            729
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "We present AdaCache, a comprehensive framework that addresses fundamental computational inefficiencies in RAG systems through dual optimization strategies: cache-aware partial recomputation that profiles attention patterns to construct selective cache variants, and adaptive context augmentation that dynamically determines optimal retrieval depth via lightweight confidence estimation. Our approach tackles two key inefficiencies observed in current RAG systems: the power-law distribution of context reuse across queries, where 10% of chunks satisfy 80% of retrieval requests, and the over-allocation of context, where 60% of queries require only minimal retrieval. Comprehensive evaluation demonstrates that AdaCache achieves $1.4 \\times \\sim 5.0 \\times$ TTFT reduction over state-of-the-art RAG caching systems while maintaining generation quality. Notably, our adaptive context augmentation enables seamless integration with existing caching strategies while exhibiting superior context scalability.",
+        "bbox": [
+            169,
+            744,
+            826,
+            898
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "page_footnote",
+        "text": "$^{6}$ For AdaCache, top-k refers to the maximum available context length during adaptive context augmentation.",
+        "bbox": [
+            189,
+            909,
+            825,
+            924
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "page_number",
+        "text": "10",
+        "bbox": [
+            490,
+            948,
+            509,
+            960
+        ],
+        "page_idx": 9
+    }
+]

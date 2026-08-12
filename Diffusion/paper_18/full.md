@@ -1,0 +1,328 @@
+## ABSTRACT
+
+Classifier-free guidance (CFG) is a widely used technique for improving the perceptual quality of samples from conditional diffusion models. It operates by linearly combining conditional and unconditional score estimates using a guidance weight ω. While a large, static weight can markedly improve visual results, this often comes at the cost of poorer distributional alignment. In order to better approximate the target conditional distribution, we instead learn guidance weights $\begin{array} { r } { \omega _ { c , ( s , t ) } , } \end{array}$ which are continuous functions of the conditioning c, the time t from which we denoise, and the time s towards which we denoise. We achieve this by minimizing the distributional mismatch between noised samples from the true conditional distribution and samples from the guided diffusion process. We extend our framework to reward guided sampling, enabling the model to target distributions tilted by a reward function $R ( x _ { 0 } , c )$ , defined on clean data and a conditioning c. We demonstrate the effectiveness of our methodology on low-dimensional toy examples and highdimensional image settings, where we observe improvements in Fréchet inception distance (FID) for image generation. In text-to-image applications, we observe that employing a reward function given by the CLIP score leads to guidance weights that improve image-prompt alignment.
+
+## 1 INTRODUCTION
+
+Diffusion models (Sohl-Dickstein et al., 2015; Ho et al., 2020; Song et al., 2021b; Song and Ermon, 2019) produce high-quality synthetic data in areas such as images (Saharia et al., 2022; BlackForest-Labs, 2025), videos (Google, 2025), and proteins (Watson et al., 2023; Abramson et al., 2024). These models proceed by gradually adding Gaussian noise through a diffusion process, transforming the data distribution into a Gaussian distribution. The generative model is obtained by approximating the time-reversal of this noising process. Practically, this relies on a learned denoiser network which is obtained by minimizing a regression objective. A similar strategy can, in principle, be developed to sample from a conditional distribution by learning a conditional denoiser network.
+
+Recently, Classifier-Free Guidance (CFG) (Ho and Salimans, 2022) has become a popular choice to address the task of conditional sampling. CFG modifies the generating process by incorporating a guidance term, calculated as the difference between conditional and unconditional denoiser networks. This difference is scaled by a guidance weight, ω, such that $\omega = - 1$ recovers unconditional generation whereas $\omega = 0$ corresponds to the conditional one. Empirically, it was shown that CFG can drastically improve performance of diffusion models compared to conditional generation (which only uses the conditional denoiser), especially for very high guidance weights (Saharia et al., 2022; Rombach et al., 2022a). (Chidambaram et al., 2024; Wu et al., 2024) argued that such a regime pushes the samples to the edge of support such that they become easy to classify.
+
+Classifier-free guidance was initially justified as a method for sampling from a modified distribution $p _ { \omega } ( x _ { 0 } | c ) \propto \bar { p ( x _ { 0 } ) } ^ { - \omega } p ( x _ { 0 } | c ) ^ { 1 + \omega } \stackrel { \sim } { \propto } \stackrel { \sim } { p ( x _ { 0 } ) } p ( c | x _ { 0 } ) ^ { \omega + 1 }$ , which amplifies the conditioning term (Ho and Salimans, 2022). However, subsequent work has established that the standard CFG sampling procedure does not, in fact, produce samples from this target distribution (Du et al., 2023; Koulischer et al., 2025a). Instead, CFG sampling shifts the generated samples towards the modes of the original conditional $p ( x _ { 0 } | c )$ ). While this discrepancy can be corrected with computationally intensive methods like Sequential Monte Carlo (Skreta et al., 2025; He et al., 2025) or Markov Chain Monte Carlo (Du et al., 2023; Moufad et al., 2025; Zhang et al., 2025), these approaches are often impractical for large-scale applications. More importantly, naive CFG already yields a significant quality boost and therefore such correction might not be required.
+
+Many works, see e.g. Ho and Salimans (2022); Kynkäänniemi et al. (2024); Wang et al. (2024); Kim et al. (2025), report improved FID scores when using some level of guidance $( \omega > 0 )$ . This observation is at odds with the original motivation of CFG. Given that the learned denoiser $\hat { x } _ { \theta } ( x _ { t } , c )$ is only an approximation of the true denoiser $\mathbb { E } [ x _ { 0 } | x _ { t } , c ]$ , this suggests that CFG acts as a correction to this approximation which leads to a better modeling of the target conditional distribution $p ( x _ { 0 } | c )$
+
+Based on this observation, we propose to learn a guidance weight ω in order to better approximate the conditional distribution $p ( x _ { 0 } | c )$ . We generalize the CFG method and allow the guidance weight to be both conditioning and time dependent, $\mathrm { i } . \mathrm { e } . , \omega _ { c , ( s , t ) }$ . This weight is used to guide the denoising process from time t to time s. We learn $\omega _ { c , ( s , t ) }$ by matching the distribution of samples from the true diffusion process and the distribution of samples of the guided one. Empirically, we show that our method allows us to learn $\omega _ { c , ( s , t ) }$ that better approximates the target distribution compared to the unguided model. For image generation, this leads to a consistently lower FID (Heusel et al., 2017) than the unguided model or a model with a constant guidance weight.
+
+We further develop our method in a setting where an additional reward function $R ( x _ { 0 } , c )$ is defined on samples from the diffusion model and a conditioning $c ,$ and we want to bias the samples from the model to the regions of high rewards $R ( x _ { 0 } , c )$ . In text-to-image applications, we found that empowering our method with a reward function given by the CLIP score (Hessel et al., 2021), leads to guidance weights which improve both FID and image-prompt alignment.
+
+The paper is organized as follows. In Section 2, we provide a short background on the necessary concepts. In Section 3, we describe our approach of learning guidance weights $\omega _ { s , ( s , t ) }$ . In Section 4, we present the related work on the topic. Finally, the experimental results are presented in Section 5.
+
+## 2 BACKGROUND
+
+Notation. We write $p _ { t }$ for a probability distribution $p ( x _ { t } )$ , and $p _ { s \mid t }$ to denote a conditional distribu tion $p ( x _ { s } | x _ { t } )$ for any s, t. We also use $p _ { 0 | c }$ to denote $p ( x _ { 0 } | c ) , p _ { s | t , 0 }$ for $p ( x _ { s } | x _ { t } , x _ { 0 } )$ , and $p _ { s | t , c }$ for $p ( x _ { s } | x _ { t } , c )$ . We denote by p<sub>0,c</sub> a joint distribution $p ( x _ { 0 } , c )$ . Finally, we write $\mathcal { N } ( x ; \mu , \Sigma )$ ) to denote the Gaussian density of argument x, mean $\mu$ and covariance Σ and $\mathcal { N } ( \boldsymbol { \mu } , \boldsymbol { \Sigma } )$ for the distribution.
+
+Diffusion models. The goal of conditional diffusion models is to sample from a target conditional distribution $p _ { 0 | c } \mathrm { ~ o n ~ } \mathbb { R } ^ { d }$ , where $c \sim p ( c )$ is a conditioning signal (i.e. a text prompt) sampled from a conditioning distribution. We adopt here the Denoising Diffusion Implicit Models (DDIM) framework of Song et al. (2021a). Let $x _ { t _ { 0 } } \sim p _ { 0 | c }$ and define for $0 = t _ { 0 } < \cdots < t _ { N } = 1$ the process $x _ { t _ { 1 } : t _ { N } } : = ( x _ { t _ { 1 } } , . . . , x _ { t _ { N } } )$ by
+
+$$
+p (x _ {t _ {1}: t _ {N}} | x _ {t _ {0}}) = p _ {t _ {N} | t _ {0}} (x _ {t _ {N}} | x _ {t _ {0}}) \prod_ {k = 1} ^ {N - 1} p _ {t _ {k} | t _ {k + 1}, 0} (x _ {t _ {k}} | x _ {t _ {k + 1}}, x _ {t _ {0}}),\tag{1}
+$$
+
+where, for $0 \leq s < t \leq 1$ , we have
+
+$$
+p _ {s | t, 0} (x _ {s} | x _ {t}, x _ {0}) = \mathcal {N} (x _ {s}; \mu_ {s, t} (x _ {0}, x _ {t}), \Sigma_ {s, t}).\tag{2}
+$$
+
+Both the mean $\mu _ { s , t } ( x _ { 0 } , x _ { t } )$ and covariance $\Sigma _ { s , t }$ depend on a churn parameter $\varepsilon \in [ 0 , 1 ]$ , which controls the amount of stochasticity. Their full expressions are given in (23) in Appendix B. Here, the mean and variance are selected so that for any $t \in [ 0 , 1 ]$ , we recover the noising process
+
+$$
+p _ {t | 0} (x _ {t} | x _ {0}) = \mathcal {N} (x _ {t}; \alpha_ {t} x _ {0}, \sigma_ {t} ^ {2} \mathrm{Id}),\tag{3}
+$$
+
+for $\alpha _ { t }$ and $\sigma _ { t }$ such that $\alpha _ { 0 } = 1 , \sigma _ { 0 } = 0$ and $\alpha _ { 1 } = 0 , \sigma _ { 1 } = 1$ , i.e. $p _ { 1 | 0 } ( x _ { 1 } | x _ { 0 } ) = \mathcal { N } ( x _ { 1 } ; 0 , \mathrm { I d } )$ . More precisely for any $0 \leq s \leq t \leq 1$ , we have
+
+$$
+p _ {s | 0} (x _ {s} | x _ {0}) = \int p _ {t | 0} (x _ {t} | x _ {0}) p _ {s | t, 0} (x _ {s} | x _ {t}, x _ {0}) \mathrm{d} x _ {t}.
+$$
+
+Sampling with DDIM. At inference time, $x _ { t _ { 0 } } \sim p _ { 0 | c }$ is generated by starting from a Gaussian $x _ { t _ { N } } \sim \Lambda ( 0 , \operatorname { I d } )$ and $x _ { t _ { k } } \sim p ( \cdot | x _ { t _ { k + 1 } } , c )$ for $k = N - 1 , . . . , 0$ , where for $0 \leq s < t \leq 1$
+
+$$
+p _ {s | t, c} (x _ {s} | x _ {t}, c) = \int p _ {s | t, 0} (x _ {s} | x _ {t}, x _ {0}) p _ {0 | t, c} (x _ {0} | x _ {t}, c) \mathrm{d} x _ {0},\tag{4}
+$$
+
+where $p _ { 0 | t , c } ( x _ { 0 } | x _ { t } , c )$ is a posterior distribution, see also (Song et al., 2021a) for discussion. Since we do not have access to $p _ { 0 | t , c } ,$ , we approximate it by $\delta _ { \hat { x } _ { \theta } ( x _ { t } , c ) }$ for any $t \in [ 0 , 1 ]$ , where $\hat { x } _ { \theta } ( x _ { t } , c )$ ≈ $\mathbb { E } [ x _ { 0 } | x _ { t } , c ]$ is a neural network denoiser with parameters θ trained by minimizing the loss
+
+$$
+\mathcal {L} (\theta) = \int_ {0} ^ {1} \lambda (t) \mathbb {E} _ {(x _ {0}, c) \sim p _ {0, c}, x _ {t} \sim p _ {t | 0}} [ \| x _ {0} - \hat {x} _ {\theta} (x _ {t}, c) \| ^ {2} ] \mathrm{d} t.\tag{5}
+$$
+
+Here, $\lambda ( t ) \geq 0$ is a weighting function (see (Kingma et al., 2021)). This yields the following procedure to sample approximately from $p _ { 0 | c } ,$ by starting from $x _ { t _ { N } } \sim \mathcal { N } ( 0 , \mathrm { I d } )$ , we then follow
+
+$$
+x _ {t _ {k}} \sim \mathcal {N} (\mu_ {t _ {k}, t _ {k + 1}} (\hat {x} _ {\theta} (x _ {t _ {k + 1}}, c), x _ {t _ {k + 1}}), \Sigma_ {t _ {k}, t _ {k + 1}}), \qquad k = N - 1,..., 0\tag{6}
+$$
+
+Classifier-Free Guidance (CFG). Let $\hat { x } _ { \theta } ( x _ { t } , \mathcal { D } ) \approx \mathbb { E } [ x _ { 0 } | x _ { t } ]$ be an unconditional denoiser learned using a regression objective (5) (where conditioning is omitted). CFG replaces $\hat { x } _ { \theta } ( x _ { t } , c )$ when simulating approximately from $p _ { 0 | c }$ by
+
+$$
+\hat {x} _ {\theta} (x _ {t}, c; \omega) = \hat {x} _ {\theta} (x _ {t}, c) + \omega \Delta_ {\theta} (x _ {t}, c),\tag{7}
+$$
+
+where ω is the guidance weight and $\Delta _ { \theta } ( x _ { t } , c ) = \hat { x } _ { \theta } ( x _ { t } , c ) - \hat { x } _ { \theta } ( x _ { t } , \mathcal { O } )$ . In order to sample the data with CFG, we first sample $x _ { t _ { N } } \sim \mathcal { N } ( 0 , \mathrm { H } )$ and then follow
+
+$$
+x _ {t _ {k}} \sim \mathcal {N} (\mu_ {t _ {k}, t _ {k + 1}} (\hat {x} _ {\theta} (x _ {t _ {k + 1}}, c; \omega), x _ {t _ {k + 1}}), \Sigma_ {t _ {k}, t _ {k + 1}}), \quad k = N - 1,..., 0.\tag{8}
+$$
+
+When $\omega = 0$ , the sampling procedure (8) is equivalent to conditional sampling (6), while $\omega = - 1$ corresponds to a procedure using only the unconditional denoiser, allowing to sample approximately from $p _ { 0 }$ . In practice, one sets $\omega > 0$ in order to emphasize conditioning.
+
+In this paper, we generalize CFG and make guidance weight $\omega _ { c , ( s , t ) }$ a function of conditioning c and of two time-steps $s < t ,$ , where t is the proposal timestep from which we denoise towards a target timestep s as in (4). Denoising following (8) corresponds to setting, $s = t _ { k }$ and $t = t _ { k + 1 }$ . We denote $\omega = ( \omega _ { c , ( s , t ) } ) _ { s , t \in [ 0 , 1 ] , t > s } .$ In Algorithm 2, we describe the CFG sampling method with DDIM.
+
+Maximum Mean Discrepancy. To optimize the guidance weights ω, we match the true diffusion distribution $p$ and the guided $p ^ { \omega }$ , see Section 3. We employ the Maximum Mean Discrepancy (MMD) (Gretton et al., 2012) with energy kernel (Székely and Rizzo, 2004; Sejdinovic et al., 2013),
+
+$$
+\mathrm{MMD} _ {(\beta , \lambda)} [ p ^ {\omega}, p ] = \mathbb {E} _ {p _ {\omega} \otimes p} [ | | x - y | | _ {2} ^ {\beta} ] - \frac {\lambda}{2} (\mathbb {E} _ {p ^ {\omega} \otimes p ^ {\omega}} [ | | x - x ^ {\prime} | | _ {2} ^ {\beta} ] + \mathbb {E} _ {p \otimes p} [ | | y - y ^ {\prime} | | _ {2} ^ {\beta} ]),\tag{9}
+$$
+
+for independent $x , x ^ { \prime } \sim p ^ { \omega }$ and $y , y ^ { \prime } \sim p ,$ with $\beta \in ( 0 , 2 )$ and $\lambda \in [ 0 , 1 ]$ . We require $\lambda = 1$ for a valid MMD, however $\lambda < 1$ may be preferable for generative modeling (Bouchacourt et al., 2016; De Bortoli et al., 2025); other characteristic kernels may also be used (Sriperumbudur et al., 2010).
+
+## 3 LEARNING TO GUIDE YOUR DIFFUSION MODEL
+
+In this section, we introduce our method for learning the guidance weights, $\omega ,$ , assuming access to a pre-trained conditional denoiser, $\hat { x } _ { \theta } ( x _ { t } , c )$ , and an unconditional one, $\hat { x } _ { \theta } ( x _ { t } , \theta )$ . Our approach is based on enforcing consistency conditions— that any valid diffusion process must satisfy. We first derive a theoretically sound objective from marginal consistency condition, which is however impractical to optimize due to high variance. To overcome this, we introduce a stronger, more practical condition, which we call self-consistency. Enforcing self-consistency is sufficient for achieving marginal consistency and, crucially, results in a simple, low-variance objective. We formulate our complete approach for learning guidance weights based on this simplified approach. We present alternative approaches in Appendix C.
+
+## 3.1 CONSISTENCY CONDITIONS
+
+Marginal consistency. The process defined by (1) admits the marginal distribution for $s \in ( 0 , 1 ]$
+
+$$
+p _ {s} (x _ {s}) = \int p _ {s | 0} (x _ {s} | x _ {0}) p _ {0, c} (x _ {0}, c) \mathrm{d} x _ {0} \mathrm{d} c.\tag{10}
+$$
+
+This marginal distribution can also be obtained for any $0 \leq s < t \leq 1$ via
+
+$$
+p _ {s} (x _ {s}) = \int \int \int p _ {s | t, c} (x _ {s} | x _ {t}, c) p _ {t | 0} (x _ {t} | x _ {0}) p _ {0, c} (x _ {0}, c) \mathrm{d} x _ {t} \mathrm{d} x _ {0} \mathrm{d} c,\tag{11}
+$$
+
+with $p _ { s | t , c }$ given by DDIM (4). The equality (11) states that the marginal at time s can be obtained by sampling $( x _ { 0 } , c ) \sim p _ { 0 , c } ,$ noising x<sub>0</sub> to $x _ { t } | x _ { 0 } \sim p _ { t | 0 }$ and then denoising it back to time s with $p _ { s \mid t , c } .$
+
+We now consider a denoising mechanism relying on the guided denoiser approximation (7) which follows the construction in (11) to obtain a sample at time s. Again we sample $( x _ { 0 } , c ) \sim p _ { 0 , c }$ and $x _ { t } \sim p _ { t | 0 } ( \cdot | x _ { 0 } )$ ). However, the denoising to time s where $0 \leq s < t \leq 1$ is done with the guided denoiser approximation, so that the marginal distribution of the resulting sample at time s is
+
+$$
+p _ {s} ^ {t, (\theta , \omega)} (x _ {s}) = \int \int \int p _ {s | t, c} ^ {(\theta , \omega)} (x _ {s} | x _ {t}, c) p _ {t | 0} (x _ {t} | x _ {0}) p _ {0, c} (x _ {0}, c) \mathrm{d} x _ {t} \mathrm{d} x _ {0} \mathrm{d} c,\tag{12}
+$$
+
+where
+
+$$
+p _ {s | t, c} ^ {(\theta , \omega)} (x _ {s} | x _ {t}, c) = p _ {s | t, 0} (x _ {s} | x _ {t}, \hat {x} _ {\theta} (x _ {t}, c; \omega)).\tag{13}
+$$
+
+The distribution $p _ { s } ^ { t , \left( \theta , \omega \right) } \left( 1 2 \right)$ is typically not equal to $p _ { s } \left( 1 0 \right)$ as we used a delta-function approximation (13) with a model $\hat { x } _ { \theta } ( x _ { t } , c ; \omega )$ instead of sampling from $p _ { 0 | t , c }$ as required by (4). Nevertheless, we could attempt to find guidance weights ω to satisfy marginal consistency, i.e. for all $0 \leq s < t \leq 1$
+
+$$
+p _ {s} ^ {t, (\theta , \pmb {\omega})} (x _ {s}) \approx p _ {s} (x _ {s}).\tag{14}
+$$
+
+This could be achieved by minimizing the MMD (9)
+
+$$
+\mathcal {L} _ {m} (\pmb {\omega}) = \mathbb {E} _ {(s, t) \sim p (s, t)} [ \mathrm{MMD} _ {(\beta , \lambda)} [ p _ {s} ^ {t, (\theta , \pmb {\omega})} (\cdot), p _ {s} (\cdot) ] ],\tag{15}
+$$
+
+where $p ( s , t )$ is a distribution on $0 \leq s < t \leq 1$ . This distribution is crucial for good empirical performance, and we discuss it in detail in Section 3.2. The gradient of (15) could suffer from high variance due to marginalization over $( x _ { 0 } , c )$ , however, which could make it challenging to optimize. We found that this approach did not work in practice. Below, we propose a simpler, lower variance method, albeit one that imposes more constraints on the guided backward scheme compared to (15).
+
+Self-consistency (conditioning on $( c , x _ { 0 } ) )$ . For a fixed $( x _ { 0 } , c ) \sim p ( x _ { 0 } , c )$ , we denote by
+
+$$
+p _ {s | 0, c} ^ {t, (\theta , \omega)} (x _ {s} | x _ {0}, c) = \int p _ {s | t, c} ^ {(\theta , \omega)} (x _ {s} | x _ {t}, c) p _ {t | 0} (x _ {t} | x _ {0}) \mathrm{d} x _ {t},\tag{16}
+$$
+
+which is the term under integral in (12) depending on $( x _ { 0 } , c )$ . We consider a self-consistency condition
+
+$$
+p _ {s | 0, c} ^ {t, (\theta , \omega)} (x _ {s} | x _ {0}, c) \approx p _ {s | 0, c} (x _ {s} | x _ {0}, c) = p _ {s | 0} (x _ {s} | x _ {0}),\tag{17}
+$$
+
+where $p _ { s | 0 , c } ^ { t , ( \theta , \omega ) } ( \cdot | x _ { 0 } , c )$ is given by (16) and $p _ { s | 0 } ( \cdot | x _ { 0 } )$ is a noising process (3). We used a notation $p _ { s | 0 , c } ( x _ { s } | x _ { 0 } , c ) = p _ { s | 0 } ( x _ { s } | x _ { 0 } )$ to highlight that $x _ { 0 } \sim p _ { 0 | c } ( \cdot | c )$ . Intuitively, this condition means that as we start from $x _ { 0 } | ($ c and go through the noising process $x _ { t } | x _ { 0 }$ and then denoise with guidance to time $s < t ,$ , the distribution at time s should be the same as of the noising process.
+
+The condition (17) is much stronger than (14). Indeed, if (17) is satisfied for every $( x _ { 0 } , c ) \sim p _ { 0 , c } ,$ then by integrating it over $( x _ { 0 } , c )$ , we will get (14). The reverse is not true. Moreover, the lack of dependence on $x _ { t }$ (and on $x _ { 0 } )$ in guidance weights $\omega _ { c , ( s , t ) }$ makes it very unlikely for this condition to hold. However, it provides a learning signal for guidance weights and we will aim to satisfy it approximately.
+
+For $( x _ { 0 } , c )$ in the support of $p ( x _ { 0 } , c )$ , we could approximately satisfy (17) by minimizing wrt $\omega ,$ $\mathrm { M M D } _ { ( \beta , \lambda ) } [ p _ { s | 0 , c } ^ { t , ( \theta , \omega ) } ( \cdot | x _ { 0 } , c ) , p _ { s | 0 , c } ( \cdot | x _ { 0 } ) ]$ , see (9). Averaging over all $( x _ { 0 } , c ) \sim p ( x _ { 0 } , c )$ leads to
+
+$$
+\mathcal {L} _ {\beta , \lambda} (\boldsymbol {\omega}) = \mathbb {E} _ {(x _ {0}, c) \sim p _ {0, c}, s, t \sim p (s, t)} [ \mathrm{MMD} _ {(\beta , \lambda)} [ p _ {s | 0, c} ^ {t, (\theta , \boldsymbol {\omega})} (\cdot | x _ {0}, c), p _ {s | 0, c} (\cdot | x _ {0}) ] ].\tag{18}
+$$
+
+This approach does not suffer from high variance compared to (15), since both c and $x _ { 0 }$ are fixed. Furthermore, we found that using (18) works well in practice (see our experiments in Section 5).
+
+## 3.2 LEARNING TO GUIDE
+
+We present here our approach for learning guidance weights ω based on the self-consistency loss (18). We also provide empirical evaluation of other approaches in Section 5.
+
+Guidance learning objective. For $( x _ { 0 } , c ) \sim p _ { 0 , c } ( x _ { 0 } , c )$ , we sample $x _ { s } \sim p _ { s | 0 } ( \cdot | x _ { 0 } ) , \mathrm { i . e . , } x _ { s } \sim$ $\mathcal { N } ( \alpha _ { s } x _ { 0 } , \sigma _ { s } ^ { 2 } \mathrm { I d } )$ ). We also sample $\tilde { x } _ { s } ( \omega ) \sim p _ { s | 0 , c } ^ { t , ( \theta , \omega ) }$ , i.e., sample $\tilde { x } _ { t } \sim \mathcal { N } ( \alpha _ { t } x _ { 0 } , \sigma _ { t } ^ { 2 } \mathrm { I d } )$ then
+
+$$
+\tilde {x} _ {s} (\boldsymbol {\omega}) \sim \mathcal {N} (\mu_ {s, t} (\hat {x} _ {\theta} (\tilde {x} _ {t}, c; \omega_ {c, (s, t)}), \tilde {x} _ {t}), \Sigma_ {s, t}),\tag{19}
+$$
+
+where $\mu _ { s , t }$ and $\Sigma _ { s , t }$ are given by DDIM (see (23) in Appendix B). The objective (18) can be written as
+
+$$
+\mathcal {L} _ {\beta , \lambda} (\boldsymbol {\omega}) = \mathbb {E} _ {(x _ {0}, c) \sim p _ {0, c}, s, t \sim p (s, t)} [ \mathbb {E} [ | | \tilde {x} _ {s} (\boldsymbol {\omega}) - x _ {s} | | _ {2} ^ {\beta} ] - \frac {\lambda}{2} \mathbb {E} [ | | \tilde {x} _ {s} (\boldsymbol {\omega}) - \tilde {x} _ {s} ^ {\prime} (\boldsymbol {\omega}) | | _ {2} ^ {\beta} ] ],\tag{20}
+$$
+
+where we dropped terms not depending on $\omega ,$ and with independent $\tilde { x } _ { s } ( \omega ) , \tilde { x } _ { s } ^ { \prime } ( \omega ) \sim p _ { s | 0 , c } ^ { t , ( \theta , \omega ) }$
+
+Simplified guidance learning objective. A special case of (20) with $\beta = 2$ and $\lambda = 0$ , leads to
+
+$$
+\mathcal {L} _ {\ell_ {2}} (\boldsymbol {\omega}) = \mathcal {L} _ {\beta , 0} (\boldsymbol {\omega}) = \mathbb {E} _ {(x _ {0}, c) \sim p _ {0, c}, s, t \sim p (s, t)} \left[ \mathbb {E} [ | | \tilde {x} _ {s} (\boldsymbol {\omega}) - x _ {s} | | _ {2} ^ {2} ] \right].\tag{21}
+$$
+
+We found that (21) was very effective but more sensitive to hyperparameters than (20). This approach is however cheaper than (20) since it avoids quadratic complexity $O ( m ^ { 2 } )$ of computing interaction terms. We refer the reader to Appendix D and to Algorithm 3 for more details on the use of (21).
+
+Guidance network. The guidance weights $\omega _ { c , ( s , t ) } ^ { \phi } = \omega ( s , t , c ; \phi )$ are given by a neural network with parameters $\phi$ . We use ReLU activation at the end to prevent negative guidance weights. For more details, see Appendix F. We denote $\omega ^ { \phi } = ( \omega _ { c , ( s , t ) } ^ { \phi } ) _ { s , t \in [ 0 , 1 ] , t > s }$ and employ ${ \mathcal { L } } _ { \beta , \lambda } ( \phi )$ instead of $\mathcal { L } _ { \beta , \lambda } ( \boldsymbol { \omega } )$
+
+Distribution $p ( s , t )$ . We choose target time s to be distributed as $s \sim \mathcal { U } [ S _ { \mathrm { m i n } } , 1 - \zeta - \delta ]$ . We define $\Delta t \sim \mathcal { U } [ \delta , 1 - \zeta - s ]$ and we let $t = s + \Delta t$ . Here, $S _ { \mathrm { m i n } }$ controls the minimal time, and ζ controls how close it gets to 1. The parameter δ controls the distance between time-steps and we found it to be very important, see Figure 2. Even though during inference $\begin{array} { r } { | t - s | \approx \frac { 1 } { T } } \end{array}$ is typically small (T is a number of steps), we found that using larger $\delta \approx 0 . 1$ during training worked better in practice.
+
+Empirical objective. We sample $\{ x _ { 0 } ^ { i } , c ^ { i } \} _ { i = 1 } ^ { n } \stackrel { \mathrm { i . i . d . } } { \sim } p _ { 0 , c }$ from the training set and we additionally sample noise levels $\{ s _ { i } \} _ { i = 1 } ^ { n } \stackrel { \mathrm { ~ i . i . d . ~ } } { \sim } \mathcal { U } [ S _ { \operatorname* { m i n } } , 1 - \zeta - \delta ]$ , as well as time increments $\{ \Delta t _ { i } \} _ { i = 1 } ^ { n } \stackrel { \mathrm { i . i . d . } } { \sim }$ $\mathcal { U } [ \delta , 1 - \zeta - s _ { i } ]$ and we let $t _ { i } = s _ { i } + \Delta t _ { i }$ . For each $( x _ { 0 } ^ { i } , s _ { i } )$ , we sample m “particles $\mathrm { ~ } ^ { , } \{ x _ { s _ { i } } ^ { j } \} _ { j = 1 } ^ { m } \stackrel { \mathrm { ~ i . i . d ~ } } { \sim }$ $p _ { s _ { i } | 0 } ( \cdot | x _ { 0 } ^ { i } )$ from the noising process (3), which defines the target samples. We also produce m “particles” $\{ \tilde { x } _ { s _ { i } } ^ { j } ( \omega ^ { \phi } ) \} _ { j = 1 } ^ { m } \stackrel { \mathrm { i . i . d . } } { \sim } p _ { s _ { i } | 0 , c _ { i } } ^ { t _ { i } , ( \theta , \omega ^ { \phi } ) } ( \cdot | x _ { 0 } ^ { i } , c _ { i } )$ by first sampling $\{ \tilde { x } _ { t _ { i } } ^ { j } \} _ { j = 1 } ^ { m } \stackrel { \mathrm { i . i . d . } } { \sim } p _ { t _ { i } | 0 } ( \cdot | x _ { 0 } ^ { i } )$ from the noising process (3) and then denoising with guidance and DDIM using (19). This defines the proposal samples. We expand loss function (20) as a function of guidance network parameters ϕ defined on the empirical batches as follows (where $\lambda \in [ 0 , 1 ]$ and $\beta \in ( 0 , 2 )$ , see Algorithm 1)
+
+$$
+\hat {\mathcal {L}} _ {\beta , \lambda} (\phi) = \frac {1}{n} \sum_ {i = 1} ^ {n} \left[ \frac {1}{m ^ {2}} \sum_ {j, k = 1} ^ {m} | | \tilde {x} _ {s _ {i}} ^ {j} (\boldsymbol {\omega} ^ {\phi}) - x _ {s _ {i}} ^ {k} | | _ {2} ^ {\beta} - \frac {\lambda}{2} \frac {1}{m (m - 1)} \sum_ {j \neq k} | | \tilde {x} _ {s _ {i}} ^ {j} (\boldsymbol {\omega} ^ {\phi}) - \tilde {x} _ {s _ {i}} ^ {k} (\boldsymbol {\omega} ^ {\phi}) | | _ {2} ^ {\beta} \right]
+$$
+
+Learning to guide with rewards. CFG can be used to produce samples with high reward $R ( x _ { 0 } , \stackrel { ( 2 2 ) } { c } ) ,$ set by a practitioner. Denoising with guidance from t to s as described by (19), gives us an approximation $\hat { x } _ { \theta } ( x _ { t } , c ; \omega _ { c , ( s , t ) } ^ { \phi } )$ of clean data. We could use it to optimize guidance weights, by defining the loss $\mathcal { L } _ { R } ( \phi ) = - \mathbb { E } _ { ( s , t ) \sim p ( s , t ) , x _ { 0 } , c \sim p ( x _ { 0 } , c ) , x _ { t } \sim p _ { t | 0 } ( \cdot | x _ { 0 } ) } \left[ R \left( \hat { x } _ { \theta } ( x _ { t } , c ; \omega _ { c , ( s , t ) } ^ { \phi } ) , c \right) \right]$ . Directly minimizing this loss may lead to reward hacking (Skalse et al., 2022). Thus, we regularize this objective using $\hat { \mathcal { L } } _ { \beta , \lambda }$ . For reward weight $\gamma _ { R } \geq 0$ , we optimize $\mathcal { L } _ { \mathrm { t o t } } ( \phi ) = \hat { \mathcal { L } } _ { \beta , \lambda } ( \phi ) + \gamma _ { R } \mathcal { L } _ { R } ( \phi )$ (see Algorithm 4).
+
+## 4 RELATED WORK
+
+Classifier-Free Guidance. Using guidance in the sampling of diffusion models was first investigated by Dhariwal and Nichol (2021). They proposed a classifier guidance method which linearly combines the unconditional score estimate and the input gradient of the log-probability of a (timevarying) classifier. To avoid training such classifier on noisy training data, Ho and Salimans (2022) proposed Classifier-Free Guidance (CFG), which linearly combines a conditional and unconditional denoisers. By varying the guidance weight, one is able to obtain high-quality samples. This approach has become prominent in the literature, see Adaloglou and Kaiser (2024) for a recent introduction.
+
+<div class="mineru-algorithm" style="white-space: pre-wrap; font-family:monospace;">
+Algorithm 1 Learning to Guide
+
+1: Input: Init. guidance parameters $\phi$; (frozen) denoiser $\hat{x}_{\theta}$; data distribution $p_0$; learning rate $\eta$; $\zeta &gt; 0$, $S_{\min} &gt; 0$, $\delta &gt; 0$, b.s. $n$, n. of particles $m$, $\lambda \in [0,1]$, $\beta \in [0,2]$, DDIM churn $\varepsilon \in [0,1]$.
+
+2: repeat
+
+3: Sample batch of clean data and their conditionings $\{x_0^i, c^i\}_{i=1}^n \overset{\text{i.i.d.}}{\sim} p_{0,c}$.
+
+4: Sample $\{s_i\}_{i=1}^n \overset{\text{i.i.d.}}{\sim} \mathcal{U}[S_{\min}, 1 - \zeta - \delta]$, $\{\Delta t_i\}_{i=1}^n \overset{\text{i.i.d.}}{\sim} \mathcal{U}[\delta, 1 - \zeta - s_i]$, let $t_i = s_i + \Delta t_i$
+
+5: (True process) Sample $m$ particles $\{x_{s_i}^j\}_{j=1}^m \overset{\text{i.i.d.}}{\sim} p_{s_i|0}(\cdot | x_0^i)$ from noising process (3)
+
+6: (Guided process) Sample $m$ particles $\{\tilde{x}_{t_i}^j\}_{j=1}^m \sim p_{t_i|0}(\cdot | x_0^i)$ from noising process (3)
+
+7: Compute guidance weights $\omega_i = \omega_{c_i,(s_i,t_i)}^\phi$ and $\hat{x}_{\theta}(\tilde{x}_{t_i}^j, c_i; \omega_i)$ using (7)
+
+8: Sample $\tilde{x}_{s_i}^j(\boldsymbol{\omega}^\phi) \sim p_{s_i|t_i,0}(\cdot | \tilde{x}_{t_i}^j, \hat{x}_{\theta}(\tilde{x}_{t_i}^j, c_i; \omega_i))$ from DDIM (2) with churn parameter $\varepsilon$
+
+9: (Loss) Compute loss
+
+10: $\hat{\mathcal{L}}_{\beta,\lambda}(\phi) = \frac{1}{n} \sum_{i=1}^{n} \left[ \frac{1}{m^2} \sum_{j,k=1}^{m} ||\tilde{x}_{s_i}^j(\boldsymbol{\omega}^\phi) - x_{s_i}^k||_2^\beta - \frac{\lambda}{2} \frac{1}{m(m-1)} \sum_{j \neq k} ||\tilde{x}_{s_i}^j(\boldsymbol{\omega}^\phi) - \tilde{x}_{s_i}^k(\boldsymbol{\omega}^\phi)||_2^\beta \right]$
+
+11: Update $\phi \leftarrow \phi - \eta \nabla_\phi \hat{\mathcal{L}}_{\beta,\lambda}(\phi)$
+
+12: until convergence
+
+13: Output: Optimized guidance network parameters $\phi$
+</div>
+
+CFG has been extended in many different directions, some of them proposing dynamic mixing strategies to control the guidance weight throughout the sampling process (e.g. Sadat et al. (2024a); Kynkäänniemi et al. (2024); Wang et al. (2024); Shen et al. (2024); Malarz et al. (2025); Li et al. (2024); Koulischer et al. (2025a;b); Xia et al. (2025); Sadat et al. (2024b); Zheng and Lan (2024)). Another line of research focuses on removing the need for the unconditional score component by using either an “inferior" version of the conditional model to provide a negative guidance signal (Karras et al., 2024; Adaloglou et al., 2025), by leveraging time-step information (Sadat et al., 2025), or by enabling the model to act as its own implicit classifier (Tang et al., 2025). Other approaches focus on fixing some of the limitations of classifier-free guidance; e.g., Chung et al. (2025) introduced CFG++, a modification to the standard CFG to address off-manifold issues, while Koulischer et al. (2025b) show that the true conditional distribution can be obtained by approximating a term corresponding to the derivative of a Rényi divergence. Very recently, Fan et al. (2025) introduced CFG-Zero∗, a CFG variant for flow-matching models. It leverages an optimized scale factor and a zero-init technique (skipping initial ODE steps) to correct for early velocity inaccuracies, resulting in improved text-to-image/video generation. We highlight that our approach could be seamlessly combined with any other guidance technique by simply replacing the definition ofthe guided denoiser (7). Finally, there exists a large literature on correcting CFG with Sequential Monte Carlo (Skreta et al., 2025; He et al., 2025) or MCMC techniques (Du et al., 2023; Moufad et al., 2025; Zhang et al., 2025). These approaches are mostly orthogonal to other improvements of CFG, and can be combined with most of the dynamic mixing strategies (i.e. Malarz et al. (2025)).
+
+CFG has also been reinterpreted as a predictor-corrector in Bradley and Nakkiran (2024) and analyzed theoretically in a variety of works (Fu et al., 2024; Wu et al., 2024; Chidambaram et al., 2024; Kong et al., 2024; Frans et al., 2025). Pavasovic et al. (2025) have shown that while CFG can overshoot the target distribution in low dimension, it can reproduce the target distribution in high dimensions.
+
+Concurrently to our work, Papalampidi et al. (2025) introduced dynamic classifier guidance by selecting the guidance weight among a list of pre-determined guidance weights using online evaluators.
+
+Correcting distribution mismatch. Like our method, the time-tuner approach (Xia et al., 2024) corrects the mismatch between the sampled and target conditional distributions. However, time-tuner specifically addresses backward solver discretization errors in low-NFE regimes by adjusting the denoiser’s noise level. In contrast, our approach addresses the distributional mismatch caused by CFG to improve alignment and quality, independent of NFE.
+
+Learning CFG weight. Azangulov et al. (2025) introduced an algorithm based on stochastic control to optimize the guidance weights. However, this algorithm is not scalable as it requires guided backwards trajectories to estimate the gradient. Concurrently to us, Yehezkel et al. (2025) introduced an annealing guidance scheduler that dynamically adjusts the guidance weight based on the timestep and the magnitude of the conditional noise discrepancy. The method learns an adaptive policy to better balance image quality and alignment with the text prompt throughout the generation process. One of their losses is similar to an alternative approach we explored – guided score matching (see Appendix C.1). We found that optimizing such loss led to guidance weights equal to zero.
+
+Distillation. Our method shares similarities with distillation approaches such as Diff-Instruct (Luo et al., 2023), Variational Score Distillation (Wang et al., 2023) and Moment Matching Distillation (MMD) (Salimans et al., 2024), which distill a diffusion model by approximately minimizing the KL divergence between the distilled generator and the pretrained teacher model. One could think about our method as a form of distillation where the KL divergence is replaced by a scoring rule, the pretrained teacher model is replaced by the true distribution, and the student is replaced by a guided diffusion. Our methodology could be extended to the distillation setting.
+
+Distributional approaches for diffusion models. Our objective function was motivated by (De Bortoli et al., 2025), where (9) is used to learn $p ( x _ { 0 } | x _ { t } , c )$ to obtain distributional diffusion models. Our method is also related to Inductive Moment Matching (IMM) (Zhou et al., 2025), where a generative model is trained by enforcing marginal consistency (14). Instead of directly optimizing for (14), their objective minimizes the distance between $p _ { s } ^ { t , ( \theta _ { n } , \omega ) }$ and $p _ { s } ^ { r , ( \theta _ { n - 1 } , \omega ) }$ , where n is an iteration number and $s < r < t$ is an intermediate time between s and t. However, they do not marginalize over $( x _ { 0 } , c ) \sim p _ { 0 , c }$ as in (12); instead, they sample a batch of $( x _ { 0 } , c )$ and use it for both $p _ { s } ^ { t , ( \theta _ { n } , \omega ) }$ and $p _ { s } ^ { r , ( \theta _ { n - 1 } , \omega ) }$ . This means they optimize an objective similar to self-consistency (17), where they use a batch of $( x _ { 0 } , c )$ instead of single points.
+
+## 5 EXPERIMENTAL RESULTS
+
+In this section, we present our core experimental results on learning guidance weights. In Section 5.1, we provide results for image generation benchmarks – ImageNet 64 × 64 (Deng et al., 2009) and CelebA (Liu et al., 2015) with resolution $6 4 \times 6 4$ . We provide results on text-to-image (T2I) benchmark - MS-COCO 2014 (Lin et al., 2014) (10K images) at $5 1 2 \times 5 1 2$ resolution in Section 5.2. We also refer the reader to Appendix G for a discussion about training and inference cost of our method.
+
+Ablations. We refer the reader to Appendix H for ablations of our method. In Appendix H.1, we provide ablations over $\beta$ and m on ImageNet 64 × 64 and in Appendix H.2, we provide ablation over conditioning in T2I. Finally, in Appendix H.3, we provide ablation over guidance network size and architecture on T2I.
+
+Additional results. We refer the reader to Appendix I for additional results and comparisons. In Appendix I.1, we provide comparisons to clamp-linear schedule (Wang et al., 2024) on ImageNet 64 × 64, and in Appendix I.2, we add comparisons to limited interval guidance (LIG) (Kynkäänniemi et al., 2024) and clamp linear schedule on T2I. Moreover, in Appendix I.3, we add results on Stable Diffusion-v1.5 (Rombach et al., 2022b). Furthermore, we report 2D Mixture of Gaussians (MoG) results in Appendix I.4. Finally, in Appendix J, we provide an analysis of learned guidance weights in T2I and ImageNet $6 4 \times 6 4$
+
+## 5.1 IMAGE GENERATION
+
+Experimental setting. We evaluate the performance of our method on ImageNet 64 × 64 and CelebA with resolution 64×64. As evaluation metrics, we use FID (Heusel et al., 2017) and Inception Score (IS) (Salimans et al., 2016). First, we pretrain diffusion models on ImageNet and CelebA. We then freeze these models and train guidance network $\omega _ { c , ( s , t ) } ^ { \phi }$ via Algorithm 1. We also train a variant of our method where conditioning is omitted, i.e. $\omega _ { ( s , t ) } ^ { \phi }$ . On top of that, we also train the simplified $\ell _ { 2 }$ method using Algorithm 3 using the same methodology. We report metrics based on 50k samples. Please refer to Appendix F for more details.
+
+Baselines. We report performance of the unguided model as well as the model with a constant guidance. We further report performance of limited interval guidance (LIG) (Kynkäänniemi et al., 2024). Guidance scale and intervals were selected via grid search for the lowest FID (see Appendix F).
+
+Table 1: ImageNet 64x64. We report FID and IS for different methods (the best are in bold).
+
+<table><tr><td>Method Name</td><td>Guidance Weight</td><td>FID ↓</td><td>Inception Score (IS) ↑</td></tr><tr><td colspan="4">Baselines</td></tr><tr><td>Unguided</td><td> $\omega = 0$ </td><td>4.46</td><td>43.52</td></tr><tr><td>Constant guidance</td><td> $\omega = 0.25$ </td><td>2.40</td><td>66.72</td></tr><tr><td>Limited interval guidance</td><td> $\omega(t) = 0.95 \text{ for } t \in [0.2, 0.8]$ </td><td>2.11</td><td>71.60</td></tr><tr><td colspan="4">Learned guidance approaches</td></tr><tr><td>Self-consistency (20)</td><td> $\omega_{c,(s,t)}^{\phi}$ </td><td>1.99</td><td>73.62</td></tr><tr><td>Self-consistency (20)</td><td> $\omega_{(s,t)}^{\phi}$ </td><td>2.07</td><td>76.7</td></tr><tr><td> $\ell_2$  objective (21)</td><td> $\omega_{c,(s,t)}^{\phi}$ </td><td>2.09</td><td>75.93</td></tr><tr><td> $\ell_2$  objective (21)</td><td> $\omega_{(s,t)}^{\phi}$ </td><td>2.10</td><td>77.55</td></tr></table>
+
+Results. The results for ImageNet $6 4 \times 6 4$ are given in Table 1 and for CelebA in Table 2. In both cases, the LIG baseline outperforms the other baselines in terms of FID and Inception Score. Our self-consistency approach (20) leads to the best results, especially when the conditioning information is provided. This highlights the importance of adjusting guidance weights for different conditioning.
+
+![](images/7b28e41978662b17ed09779e24770385d32fef9a39c5dc3223a4d32754e20306.jpg)
+
+![](images/887d5fed44496a1f46fc8c97bf6b3a839daa5dea25deb8265c7a7f9c8447ee75.jpg)  
+Figure 1: Learned guidance weights on ImageNet 64x64. Left, guidance weights $\omega _ { ( t - d t , t ) } ^ { \phi }$ (conditioning-agnostic) for baselines as well as for self-consistency (20) and (conditioning-agnostic) for baselines as well as for self-consistency (20) and $\ell _ { 2 } \left( 2 1 \right)$ objectives, where objectives, where $d t = 1 / 1 0 0 . \mathrm { X } \mathrm { - a x i s }$ is time. Right, guidance weights is time. Right, guidance weights $\omega _ { c , ( t - d t , t ) } ^ { \phi }$ for specific ImageNet classes. for specific ImageNet classes.
+
+In Figure 1, left, we visualize the learned conditioning-agnostic guidance weights $\omega _ { ( t - d t , t ) } ^ { \phi }$ with $d t = 1 / 1 0 0$ , for self-consistency (20) and $\ell _ { 2 } \left( 2 1 \right)$ approaches, as well as for the baselines. Learned guidance weights seem to be positive on a similar interval as $\mathrm { L I G } ,$ but the shape of the weights is quite different. In Figure 1, right, we visualize guidance weights $\omega _ { c , ( t - d t , t ) } ^ { \phi }$ for different classes of ImageNet, learned by self-consistency (20). First, we arbitrary choose some classes – 0 (tench), 10 (brambling), 100 (black swan) and 999 (toilet tissue). Then, we visualize the ones which achieve the largest and the lowest guidance weights, i.e. 83 (prairie chicken) $\begin{array} { r l } { \mathbf { \sigma } } & { { } = \arg \operatorname* { m i n } _ { c } [ \operatorname* { m a x } _ { t } \boldsymbol { \omega } _ { c , ( t - d t , t ) } ^ { \phi } ] } \end{array}$ and 696 (paintbrush) $= \arg \operatorname* { m a x } _ { c } [ \operatorname* { m a x } _ { t } \omega _ { c , ( t - d t , t ) } ^ { \phi } ]$ . For the class 83 (prairie chicken), the guidance weight is zero. For the class 696 (paintbrush) it has quite a different behavior compared to others, being more aggressive and positive on a larger interval. Overall, this, variability highlights importance of adjusting guidance weights per conditioning.
+
+Ablations. In Figure 2, we study impact of δ and $S _ { \mathrm { m i n } }$ on ImageNet $6 4 \times 6 4$ . We always use $\zeta = 0 . 0 1$ which introduces a small "safety margin" over the original diffusion model (i.e. $t \in [ \zeta , 1 - \zeta ]$ instead of $t \in [ 0 , 1 ] )$ . The self-consistency approach (17) is less sensitive to the parameters compared to $\ell _ { 2 } \ ( 2 1 )$ . Overall, very small $\delta = 0 . { \dot { 0 } } 1$ leads to worse performance compared to larger ones, motivating us to train with large gaps $( \delta \approx 0 . 1 )$ between s and t. This finding is surprising because during sampling $| s - t | \sim 0 . 0 1$ for 100 sampling steps. We hypothesize that a larger gap |s−t| provides a more stable and informative gradient signal for the guidance network, which then successfully generalizes to the small-step intervals used during inference thanks to the smoothness of the network $\omega _ { c , ( \cdot , \cdot ) } ^ { \phi }$ . The performance is not very sensitive to $S _ { \mathrm { m i n } }$ , but we found $S _ { \mathrm { m i n } } = 0 . 2$ worked the best.
+
+Table 2: CelebA $6 4 \times 6 4$ . We report FID and IS for different methods (the best are in bold).
+
+<table><tr><td>Method Name</td><td>Guidance Weight</td><td>FID ↓</td><td>Inception Score (IS) ↑</td></tr><tr><td colspan="4">Baselines</td></tr><tr><td>Unguided</td><td> $\omega = 0$ </td><td>2.44</td><td>2.94</td></tr><tr><td>Constant guidance</td><td> $\omega = 0.01$ </td><td>2.45</td><td>2.94</td></tr><tr><td>Limited interval guidance</td><td> $\omega(t) = 0.7 \text{ for } t \in [0.0, 0.8]$ </td><td>2.37</td><td>2.96</td></tr><tr><td colspan="4">Learned guidance approaches</td></tr><tr><td>Self-consistency (20)</td><td> $w_{c,(s,t)}^{\phi}$ </td><td>2.10</td><td>2.98</td></tr><tr><td>Self-consistency (20)</td><td> $w_{(s,t)}^{\phi}$ </td><td>2.28</td><td>2.97</td></tr><tr><td> $\ell_2$  objective (21)</td><td> $w_{c,(s,t)}^{\phi}$ </td><td>2.36</td><td>2.95</td></tr><tr><td> $\ell_2$  objective (21)</td><td> $w_{(s,t)}^{\phi}$ </td><td>2.33</td><td>2.95</td></tr></table>
+
+![](images/6a7ed885e3909213fe7d1cca7180968abb641571552aa955d69e455f8b10466b.jpg)
+
+![](images/dced13fa9728b8fd4bc9784db7641fbe3487884824301fb89eb8db186b89117b.jpg)
+
+![](images/f0e0ef37aa0c4001d37ec1534ec927b1becf981dc6965caf515d66fc13717ab5.jpg)
+
+![](images/7bf11985faf62072ddf155ea159b8e3a741b584fa5fa2119fe02f0975dd6588f.jpg)  
+Figure 2: Ablation over $\delta$ and $S _ { \mathrm { m i n } }$ on ImageNet $6 4 \times 6 4 .$ . On the X-axis we report values of $S _ { \mathrm { m i n } }$ and on Y-axis we show FID. Each column denotes a method while a color corresponds to a value of δ.
+
+## 5.2 TEXT-TO-IMAGE GENERATION
+
+We evaluate our method on MS COCO 2014 dataset at $5 1 2 \times 5 1 2$ resolution for text-to-image (T2I) task. We pretrain a 1.05B parameter flow matching model (Lipman et al., 2023) that uses a Multimodal Diffusion Transformer backbone (BlackForestLabs, 2025). We freeze it and train a guidance network $\omega _ { c _ { \mathrm { C L I P } } , c _ { \mathrm { T } 5 , ( s , t ) } } ^ { \phi }$ via Algorithm 1, where $c _ { \mathrm { C L I P } }$ and $c _ { \mathrm { T 5 } }$ denote CLIP (Radford et al., 2021) and T5 (Raffel et al., 2020) embeddings of the text prompt. As baseline, we consider manually selected guidance weight ω. Instead of an empty prompt ∅ for the unconditional term (7), we replace it with a fixed negative prompt $c _ { \mathrm { n { e g } } } =$ “blurred, blurry, disfigured, ugly, tiling, poorly drawn”. This ’negative guidance’ setup is for both our learned model and the baseline. We also consider a setting with a reward function $R ( x _ { 0 } , c )$ given by CLIP score (Hessel et al., 2021) computed between image $x _ { 0 }$ and prompt c. We train guidance network via Algorithm 4 with $\gamma _ { R } = 1 0 ^ { 5 }$ . We report FID (Heusel et al., 2017) and CLIP Score using 10K samples. For more experimental details, see Appendix F.
+
+Results. The quantitative results are summarized in Table 3. Our method outperforms unguided and guided baselines in terms of FID, which is consistent to image experiments. However, it achieves a lower CLIP score than a guided baseline. Adding CLIP score reward leads a similar CLIP score as guided baseline, but achieves lower FID. We provide qualitative results in Figures (4)-(6), see Appendix A. Our method generates images that are more realistic and better aligned with the text prompts. The learned guidance weights are shown in Figure 3. We observe high variability depending on the prompt.
+
+## 6 DISCUSSION
+
+In this paper, we presented an approach to learn CFG weights $\omega _ { c , ( s , t ) }$ as a function of conditioning c and times s and t, using the self-consistency condition (17). This rather strong condition is motivated by a weaker marginal consistency condition (14), which is satisfied by the true backwards diffusion process. Our approach yields guidance weights that improve FID on image generation tasks – ImageNet 64 × 64 and CelebA 64 × 64. Our analysis reveals that guidance weights vary significantly de pending on the conditioning information, implying that CFG with learnable, conditioning-dependent weights can improve conditional sampling performance.
+
+Table 3: MS COCO 512 × 512. FID and CLIP score for different methods (the best are in bold). We report the best qualitative results for the baselines: limited interval guidance (Kynkäänniemi et al., 2024) and clamp-linear schedule (Wang et al., 2024). We perform extensive hyperparameter tuning for each of these baselines as shown in Table 10 and Table 9
+
+<table><tr><td>Method Name</td><td>Guidance Weight</td><td>FID ↓</td><td>CLIP Score ↑</td></tr><tr><td colspan="4">Baselines</td></tr><tr><td>Unguided</td><td> $\omega = 0$ </td><td>24.74</td><td>0.278</td></tr><tr><td>Constant guidance</td><td> $\omega = 7.5$ </td><td>31.2</td><td>0.306</td></tr><tr><td>Limited interval guidance</td><td> $\omega(t) = 15.0 \text{ for } t \in [0.1, 0.9]$ </td><td>24.95</td><td>0.304</td></tr><tr><td>Clamp-linear guidance</td><td> $\omega = 14.0$ </td><td>27.14</td><td>0.305</td></tr><tr><td colspan="4">Our approaches</td></tr><tr><td>Self-consistency (20)</td><td> $\omega_{c_{\text{CLIP}}, c_{\text{T5},(s,t)}}^{\phi}$ </td><td>18.01</td><td>0.295</td></tr><tr><td>Self-consistency (20) + CLIP reward</td><td> $\omega_{c_{\text{CLIP}}, c_{\text{T5},(s,t)}}^{\phi}$ </td><td>28.37</td><td>0.306</td></tr></table>
+
+![](images/3fe99f4e4c5115d73e0633acb765008895777496e1f4b47581c697d48d6845b7.jpg)  
+Prompt 1. Man performing stunt on a skateboard on a road.  
+Prompt 2. A street with cars and construction workers working.  
+Prompt 3. A bird is sitting on a branch among unfocused trees.  
+Prompt 4. A wooden table topped with four white bowls.  
+Prompt 5. A light brown horse’s face is shown at close range.  
+Prompt 6. A living room with furniture, a fireplace, and a large scenic window.  
+Prompt 7. The large bird has a red face and black feathers.  
+Prompt 8. A small dog on TV behind the words: "What did I do wrong?"  
+Figure 3: Learned guidance weights on MS COCO 512 × 512 trained with self-consistency (20) and CLIP reward loss. Please refer to Figures 4 and 5 for the corresponding images.
+
+We extended our methodology to text-to-image tasks with a reward function given by the CLIP score. We found that our approach leads to highly variable prompt-dependent guidance weights and visually provides better prompt alignment compared to baselines. Quantitatively, however, we found that the performance was close to a baseline with a manually selected guidance weight function.
+
+Future work will focus on theoretical understanding of our objective function and its guidance solutions. Moreover, we will explore alternative reward functions for better prompt-image alignment, and investigate the impact of different guidance approaches. We hope our work motivates further research into how time- and conditioning-dependent guidance weights affect the sampled distributions.
+
+## REFERENCES
+
+Abramson, J., Adler, J., Dunger, J., Evans, R., Green, T., Pritzel, A., Ronneberger, O., Willmore, L., Ballard, A. J., Bambrick, J., et al. (2024). Accurate structure prediction of biomolecular interactions with AlphaFold 3. Nature, 630(8016):493–500.
+
+Adaloglou, N. and Kaiser, T. (2024). An overview of classifier-free guidance for diffusion models. theaisummer.com.
+
+Adaloglou, N., Kaiser, T., Iagudin, D., and Kollmann, M. (2025). Guiding a diffusion model using sliding windows. arXiv preprint arXiv:2411.10257.
+
+Azangulov, I., Potaptchik, P., Li, Q., Aamari, E., Deligiannidis, G., and Rousseau, J. (2025). Adaptive diffusion guidance via stochastic optimal control. arXiv preprint arXiv:2505.19367.
+
+BlackForestLabs (2025). Flux.1 kontext: Flow matching for in-context image generation and editing in latent space. arXiv preprint arXiv:2506.15742.

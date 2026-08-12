@@ -1,0 +1,2338 @@
+[
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "ABSTRACT"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                450,
+                318,
+                547,
+                334
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Multimodal Large Language Models (MLLMs) face significant computational overhead when processing long videos due to the massive number of visual tokens required. To improve efficiency, existing methods primarily reduce redundancy by pruning or merging tokens based on importance or similarity. However, these approaches largely overlook a critical dimension of video content, i.e., changes and turning points, and they lack a collaborative model for spatio-temporal relationships. To address this, we propose a new perspective: similarity is for identifying redundancy, while difference is for capturing key events. Based on this, we designed a training-free framework named ST-SimDiff. We first construct a spatiotemporal graph from the visual tokens to uniformly model their complex associations. Subsequently, we employ a parallel dual-selection strategy: 1) similaritybased selection uses community detection to retain representative tokens, compressing static information; 2) temporal difference-based selection precisely locates content-changing points to preserve tokens that capture key dynamic shifts. This allows it to preserve both static and dynamic content with a minimal number of tokens. Extensive experiments show our method significantly outperforms state-of-the-art approaches while substantially reducing computational costs. Our code is available in https://github.com/bingjunluo/ST-SimDiff ."
+                    }
+                ]
+            },
+            "bbox": [
+                230,
+                349,
+                767,
+                602
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "1 INTRODUCTION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                174,
+                627,
+                338,
+                642
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The rise of Large Language Models (LLMs) has significantly propelled advancements of Large Vision-Language Models (LVLMs), which have demonstrated remarkable capabilities in image and video understanding (Zhang et al., 2024c; Liu et al., 2024c). For video processing, current LVLMs typically sample a video into a sequence of frames and then convert each frame into hundreds or even thousands of visual tokens for the LLM (Bai et al., 2025; Li et al., 2024). While this paradigm is effective, the number of tokens grows explosively with increasing video duration and resolution. This leads to prohibitive computational and storage burdens, severely limiting the application of LVLMs in scenarios such as long-video analysis and real-time interaction (Fu et al., 2024b)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                657,
+                826,
+                770
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To address this challenge, various methods are proposed to enhance the efficiency of LVLMs. These approaches can be categorized into two types. One category is importance-based pruning. As observed by FastV (Chen et al., 2024), there is redundancy in the attention distribution across different layers when LVLMs process visual information. Therefore, visual tokens with lower attention scores in the deeper layers of the model can be pruned to reduce the computational load. The other category is similarity-based merging/selection. Existing works have found high similarity among visual tokens, either between adjacent video frames or within a single frame. FrameFusion (Fu et al., 2024b) reduces redundancy by merging similar tokens from adjacent frames, while VisionZip (Yang et al., 2025) directly selects dominant tokens at the vision encoder level."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                776,
+                826,
+                902
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "Corresponding author."
+                    }
+                ]
+            },
+            "bbox": [
+                191,
+                910,
+                336,
+                924
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "1"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                503,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/d1e3ee5237570013f4771df2dcbaae76fbd776a737361ac0f42342ddfb33063e.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 1: The core motivation of ST-SimDiff. We posit that efficient video understanding requires handling two scenarios simultaneously: Spatiotemporal Similarity (left) can be utilized to compress redundant information both spatially within a frame and temporally across adjacent frames. Temporal Difference (right) should be detected to capture the key actions or events that define the plot."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                267,
+                104,
+                732,
+                308
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Despite the success of existing methods in visual token reduction, they face two key limitations. First, existing token pruning methods often focus on spatial correlations within the same frame or temporal correlations at the same positions across different frames. This lack of joint modeling and analysis of spatio-temporal correlations prevents them from effectively capturing complex dynamic events. Furthermore, these methods share a potential blind spot: they mainly focus on informational commonalities, like similarity and importance, while neglecting crucial changes and differences. Since the narrative of the video is often driven by turning events, a model that only seeks similarity might smooth over a sudden action, leading to a misinterpretation of the content."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                425,
+                826,
+                539
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Based on this, we propose a new perspective: similarity is for identifying redundancy, while difference is for capturing key moments. We believe that an ideal video token compression algorithm should achieve two goals simultaneously: representing the stable content of a video with the fewest tokens, and precisely preserving the key changes. To this end, we propose ST-SimDiff, a dual token selection framework based on a spatio-temporal graph. Specifically, the framework consists of two parts. The first is similarity-based representative token selection: we treat all visual tokens of a video as nodes and construct a graph based on their feature similarity in the spatio-temporal dimension. Using a graph community detection algorithm, we find tightly connected token clusters in the graph, which represent stable and persistent visual elements in the video. We select a few central tokens with higher centrality from each cluster as representatives. The second part is difference-based event token selection: we pay special attention to the edges connecting along the time axis in the graph. When the similarity between corresponding tokens of adjacent frames drops sharply, we consider it a turning point and mark these tokens as critical event tokens that must be retained. Finally, we merge these two sets of tokens to be input into the LLM. Our contributions can be summarized as follows:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                544,
+                826,
+                753
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• We are the first to propose that the similarity and difference of tokens should be given equal importance in VLM efficiency research."
+                    }
+                ]
+            },
+            "bbox": [
+                215,
+                771,
+                825,
+                801
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• We design a spatio-temporal graph framework to uniformly model the complex spatiotemporal relationships between video tokens. We propose a novel dual token selection strategy that can simultaneously screen for both representative and pivotal event tokens."
+                    }
+                ]
+            },
+            "bbox": [
+                215,
+                819,
+                825,
+                864
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• We conduct extensive experiments on video understanding benchmarks, and the results show that ST-SimDiff significantly reduces the visual token budget while maintaining or even improving performance."
+                    }
+                ]
+            },
+            "bbox": [
+                215,
+                882,
+                826,
+                924
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "2"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2 RELATED WORK"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                102,
+                346,
+                118
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2.1 LARGE VISION LANGUAGE MODELS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                141,
+                470,
+                155
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The rapid advancement of Large Language Models (LLMs) (Touvron et al., 2023; Achiam et al., 2023; Ouyang et al., 2022) has significantly propelled progress in multimodal understanding, leading to the emergence of numerous prominent Large Vision Language Models (LVLMs) (Liu et al., 2024b; Bai et al., 2023). These LVLMs typically process images or video frames by converting them into visual tokens via pre-trained visual encoders, which are then fed into LLMs. Various alignment modules commonly connect the visual encoder and the LLM, including MLPs (Liu et al., 2024a;b) and Q-Formers (Li et al., 2023; Dai et al., 2023). This architecture enables LVLMs to exhibit exceptional capabilities in multimodal tasks (Xi et al., 2025; Holdaway et al., 2024; Zhang et al., 2025a). Particularly in video understanding, they show promise in processing longer, higher-resolution complex videos (Bai et al., 2025; Li et al., 2024; Zhang et al., 2024c; Liu et al., 2024c)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                172,
+                826,
+                313
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "However, this powerful capability also introduces significant computational challenges, especially in video understanding scenarios. Due to the need to process continuous sequences of frames, the number of visual tokens grows exponentially, far exceeding that of static images, posing a severe challenge to the training and inference efficiency of LVLMs. Therefore, how to efficiently process massive video visual tokens and reduce computational overhead remains a critical issue in current LVLM research."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                318,
+                826,
+                402
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2.2 VISUAL TOKEN COMPRESSION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                431,
+                431,
+                446
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Driven by the substantial overhead of video processing, visual token compression has become a critical method for improving the efficiency of Large Visual Language Models (LVLMs). Existing methods primarily approach compression from two aspects: token importance and similarity."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                462,
+                825,
+                506
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Earlier methods primarily focused on importance-based token pruning, aiming to identify and remove visual tokens that contribute less to model performance. These methods typically utilize attention scores or other feature metrics to quantify token importance, such as FastV (Chen et al., 2024) and FasterVLM (Zhang et al., 2024b). Subsequent works (Shang et al., 2024; Ye et al., 2025) have started to further consider token similarity to more effectively reduce redundancy and preserve critical information. These methods recognize that even important tokens can exhibit high similarity, leading to informational redundancy. For instance, FrameFusion (Fu et al., 2024b) combines similarity-based merging with importance-based pruning. VisionZip (Yang et al., 2025) reduces redundancy by selecting dominant tokens and merging contextual information. VisPruner (Zhang et al., 2025b) leverages visual cues to remove redundant items."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                511,
+                826,
+                651
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Despite significant progress in visual token redundancy, existing work hardly addresses the intricate, global spatio-temporal similarity relationships between tokens. In video scenarios, visual information is redundant both spatially and temporally. Existing similarity-driven methods, like FrameFusion, mainly only on the temporal similarity between adjacent frames, failing to utilize complex spatio-temporal relevant information. This limits their ability to fully exploit inherent video redundancy, restricting performance in extreme token reduction scenarios."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                657,
+                825,
+                743
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3 PROBLEM DEFINITION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                173,
+                773,
+                395,
+                789
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Given a video V and a text query "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "Q ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", a standard Large Vision-Language Model (LVLM) first encodes the video into a full sequence of N visual tokens, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T _ { \\mathrm { f u l l } } = \\{ t _ { 1 } , t _ { 2 } , \\dots , t _ { N } \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". This process is computationally demanding, as the self-attention mechanism’s complexity scales quadratically with the token count "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "N , \\mathrm { i . e . , } O ( \\bar { N } ^ { 2 } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Our task is therefore to design an efficient token selection function, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "f ( \\cdot )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", that takes the full sequence "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T _ { \\mathrm { f u l l } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and a compression ratio r to produce a much smaller subset "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T _ { \\mathrm { s u b } } = f ( T _ { \\mathrm { f u l l } } , r )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". The objective is to maximize the LVLM’s downstream task performance using this subset, subject to the constraint that its size "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "| T _ { \\mathrm { s u b } } |"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is approximately "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "r \\cdot N"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". The core challenge is to design the selection function "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "f ( \\cdot )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to retain the most critical information within the subset "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T _ { \\mathrm { s u b } } ^ { \\bar { } }"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                813,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "3"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/8bc10f06ea2c68143d9ee4797c239aea7cd78e17dfd8f23908f899165a9c17f8.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 2: The overview framework of ST-SimDiff, which consists of three parts: Spatio-Temporal Graph Construction, Similarity-based Representative Token Selection, and Difference-based Event Token Selection."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                183,
+                106,
+                816,
+                277
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4 ST-SIMDIFF"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                353,
+                310,
+                368
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.1 METHOD OVERVIEW"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                383,
+                359,
+                398
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "As illustrated in Figure 2, the proposed ST-SimDiff method comprises two key components that operate in parallel on a spatio-temporal graph constructed from the video’s visual tokens: Similaritybased Representative Token Selection (SRTS) and Difference-based Event Token Selection (DETS). First, in the SRTS module, we identify and condense the video’s stable and redundant content. By applying community detection algorithms to the graph, we group highly similar tokens into clusters, which correspond to persistent visual elements like static backgrounds. From each cluster, we then select a few highly central tokens to form a representative set, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T _ { \\mathrm { r e p } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Second, the DETS module is designed to capture the video’s crucial dynamic shifts. It analyzes the temporal edges of the graph, identifying moments where the similarity between corresponding tokens in adjacent frames drops sharply. These points of high difference signify turning points, and the tokens framing these transitions are preserved as critical event tokens, forming the set "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T _ { \\mathrm { t r a n s } } ."
+                    },
+                    {
+                        "type": "text",
+                        "content": ". By synergistically combining these two components, ST-SimDiff generates a final token subset "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T _ { \\mathrm { s u b } } \\stackrel { \\cdot } { = } \\dot { T _ { \\mathrm { r e p } } } \\cup \\bar { T } _ { \\mathrm { t r a n s } } ."
+                    },
+                    {
+                        "type": "text",
+                        "content": ", which is both highly compact and information-rich, retaining stable content while precisely capturing key events."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                409,
+                826,
+                592
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.2 SPATIO-TEMPORAL GRAPH CONSTRUCTION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                607,
+                522,
+                621
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Given a video, the vision encoder transforms it into a sequence of tokens "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T = \\{ t _ { 1 } , t _ { 2 } , \\ldots , t _ { N } \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "Each token "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "t _ { k } ~ \\in ~ T"
+                    },
+                    {
+                        "type": "text",
+                        "content": "corresponds to a specific spatio-temporal location and is associated with a feature vector "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { x } _ { k }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". We define the location of each token "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "t _ { k }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "by its frame index "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T ( t _ { k } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", its spatial height index "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "H ( t _ { k } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and its spatial width index "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W ( t _ { k } )"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                633,
+                825,
+                690
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We model the relationships between these tokens using a spatio-temporal graph "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "G = ( V , E )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", where the vertex set V represents all tokens in T. The edge set "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "E"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the union of two distinct subsets, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "E = E _ { S } \\cup E _ { T }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", which capture spatial and temporal relationships respectively. The spatial edges "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "E _ { S }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "connects tokens that are spatially adjacent within the same frame:"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                695,
+                825,
+                752
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\begin{array}{c} E _ {S} = \\{(v _ {i}, v _ {j}) \\in V \\times V \\mid T (t _ {i}) = T (t _ {j}) \\text {   and   } \\\\ | H (t _ {i}) - H (t _ {j}) | + | W (t _ {i}) - W (t _ {j}) | = 1 \\} \\end{array}\\tag{1}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/7d6853be79ecbc06f9db45e0e288536907f5006f5a483861ead0c4d8518f1f88.jpg"
+                }
+            },
+            "bbox": [
+                334,
+                755,
+                660,
+                789
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The temporal edges "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "E _ { T }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "connects tokens that are at the same spatial position but in adjacent frames, capturing temporal continuity:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                792,
+                823,
+                823
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\begin{array}{c} E _ {T} = \\{(v _ {i}, v _ {j}) \\in V \\times V \\mid H (t _ {i}) = H (t _ {j}), \\\\ W (t _ {i}) = W (t _ {j}), \\text {   and   } | T (t _ {i}) - T (t _ {j}) | = 1 \\} \\end{array}\\tag{2}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/160e35be508054aaf4be2a7e961c39ee62225956be9b56aa5ee459bead096f8b.jpg"
+                }
+            },
+            "bbox": [
+                333,
+                825,
+                663,
+                859
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The weight of any edge "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "w ( v _ { i } , v _ { j } ) \\in E"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is defined by the cosine similarity of the feature vectors of the corresponding tokens:"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                871,
+                825,
+                900
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "w (v _ {i}, v _ {j}) = \\frac {\\mathbf {x} _ {i} \\cdot \\mathbf {x} _ {j}}{\\| \\mathbf {x} _ {i} \\| \\| \\mathbf {x} _ {j} \\|}\\tag{3}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/415a2ffc7a184d137f82f390db39a57fe7354f1be58eddc986573def338bd5eb.jpg"
+                }
+            },
+            "bbox": [
+                419,
+                897,
+                573,
+                929
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "4"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "This sparse graph structure efficiently encodes local spatial relationships and temporal continuity, providing a unified foundation for our dual-path token selection strategy."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                104,
+                823,
+                133
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.3 SIMILARITY-BASED REPRESENTATIVE TOKEN SELECTION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                148,
+                617,
+                164
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Video content is inherently characterized by substantial spatio-temporal redundancy. For instance, in a static scene that persists for several seconds, the background tokens exhibit high similarity over time. Similarly, for an object moving across the screen, its corresponding tokens, despite changing spatial positions, maintain a high degree of semantic correlation. Existing methods often address temporal and spatial similarities in isolation. In contrast, our spatio-temporal graph is designed to capture these joint similarities. Within this graph, semantically related tokens form dense “communities” or “clusters” based on their feature similarity, irrespective of their specific frame or location. Therefore, selecting representatives from each community emerges as a highly efficient strategy for compressing redundant information while preserving core semantics."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                175,
+                826,
+                301
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To accurately identify strongly correlated token clusters, we first threshold the graph G. We set a similarity threshold "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\tau _ { \\mathrm { s i m } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and retain only the edges with weights above this threshold, forming a new graph "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\dot { G ^ { \\prime } } = ( V , E ^ { \\prime } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "E ^ { \\prime } = \\{ \\bar { ( } v _ { i } , v _ { j } ) \\ \\in \\ E ~ | \\ w ( v _ { i } , v _ { j } ) > \\tau _ { \\mathrm { s i m } } \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "Next, we apply a graph community detection algorithm (e.g., the Louvain method (Blondel et al., 2008)) on "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\overset { \\bullet } { G } ^ { \\prime }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to identify token clusters "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "C = \\{ c _ { 1 } , c _ { 2 } , \\ldots , c _ { m } \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". For each community "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "c _ { k } \\in C ."
+                    },
+                    {
+                        "type": "text",
+                        "content": ", we rank and filter its internal tokens based on their centrality. The centrality score "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "S _ { c } ( t _ { a } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "of a token "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "t _ { a } \\in c _ { k }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is defined as its average similarity with all other tokens within the community:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                306,
+                826,
+                406
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "S _ {c} (t _ {a}) = \\frac {1}{| c _ {k} | - 1} \\sum_ {t _ {b} \\in c _ {k}, b \\neq a} w (t _ {a}, t _ {b})\\tag{4}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/6f4a17d457370da737e533dd8683254c45dc4a8e3e5d7657127a229f916f73ab.jpg"
+                }
+            },
+            "bbox": [
+                372,
+                411,
+                622,
+                448
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Subsequently, we set the intra-community retention rate to the globally preset compression ratio "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "r ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and preserve the top "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\lceil \\lvert c _ { k } \\rvert \\cdot r \\rceil"
+                    },
+                    {
+                        "type": "text",
+                        "content": "tokens with the highest centrality scores from each community "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "c _ { k }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". This uniform filtering process naturally handles all communities, including single-node communities composed of unique tokens (in which case the sole node is retained). Formally, the set of representative tokens, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T _ { \\mathrm { r e p } } ."
+                    },
+                    {
+                        "type": "text",
+                        "content": ", is defined as:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                463,
+                826,
+                534
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "T _ {\\text { rep }} = \\bigcup_ {k = 1} ^ {m} \\operatorname{TopK} _ {t \\in c _ {k}, \\text { score } = S _ {c} (t)} (\\lceil | c _ {k} | \\cdot r \\rceil)\\tag{5}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/5c377a98ed89eeee690f0ea3f90e8d14c3671a9646f01cde3e619bba8c1650b7.jpg"
+                }
+            },
+            "bbox": [
+                374,
+                540,
+                620,
+                579
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where the TopK function returns the set of k elements with the highest scores from a given set. In summary, this strategy efficiently compresses the static and persistent content of the video by identifying and retaining the most central tokens within each semantic cluster."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                585,
+                825,
+                630
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.4 DIFFERENCE-BASED EVENT TOKEN SELECTION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                645,
+                549,
+                659
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "If similarity defines the “norm” of a video, then difference defines its “events”. A model focusing only on similarity may excel at understanding “what is” but struggle with “what happened”. A video’s plot is driven by key events, and the essence of an event is change—the appearance of a new object, the start of an action, or a scene transition. In our model, these changes manifest as a sharp difference in the features of temporally adjacent tokens. Therefore, accurately capturing these “turning points” of significant difference is crucial for understanding the video’s dynamic content and correctly answering questions like “when” and “why”."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                671,
+                826,
+                770
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Difference, particularly along the temporal dimension, often signals the occurrence of a key event. For example, the entry of a new object, a scene change, or the beginning/end of an action will cause drastic changes in the visual features at corresponding positions in adjacent frames. We specifically analyze the temporal edges "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( E _ { T } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "in our spatio–temporal graph. For any temporal edge "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( v _ { k } , v _ { l } ) \\in E _ { T }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "in the graph, which connects two temporally adjacent tokens "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "t _ { k }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "t _ { l } ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": "we set a dynamic threshold "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\tau \\ ( \\mathrm { e . g . }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "., the 95th percentile of all temporal edge difference scores). When the difference score of a temporal edge "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( v _ { k } , v _ { l } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "exceeds this threshold, i.e., "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "w ( t _ { k } , t _ { l } ) < \\tau _ { \\mathrm { d i f f } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", we consider the subsequent token t<sub>l</sub> as a critical event token and retain it. Formally, the set of event tokens, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T _ { \\mathrm { e v e n t } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", is defined as:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                775,
+                826,
+                888
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\begin{array}{c} T _ {\\text { event }} = \\{t _ {l} \\mid \\exists t _ {k} \\text {   s.t.   } (v _ {k}, v _ {l}) \\in E _ {T}, \\\\ T (t _ {l}) > T (t _ {k}), \\text {   and   } w (v _ {k}, v _ {l}) <   \\tau_ {\\text { diff }} \\} \\end{array}\\tag{6}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/dbeedfb5c2fcc6f555ab5cae11f9319311e283f9d607305f9311e71010d2eb2a.jpg"
+                }
+            },
+            "bbox": [
+                344,
+                893,
+                651,
+                926
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "5"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "With this strategy, tokens that signify moments of significant temporal change can be preserved. By capturing these key transitions, we ensure that the crucial dynamic aspects of the video’s narrative are not overlooked during the compression process."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                104,
+                825,
+                147
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.5 OVERALL REDUCTION PROCESS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                198,
+                441,
+                212
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In the proposed framework, we first compute the representative token set "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T _ { \\mathrm { r e p } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and the event token set "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T _ { \\mathrm { e v e n t } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "in parallel, and take their union, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T _ { \\mathrm { c a n d i d a t e } } = T _ { \\mathrm { r e p } } \\cup T _ { \\mathrm { e v e n t } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", as the initial candidate set.To precisely meet the target token count "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "N _ { \\mathrm { t a r g e t } } = \\lceil r \\cdot N \\rceil"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", we introduce a final pruning step. If the size of the candidate set, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\left| T _ { \\mathrm { c a n d i d a t e } } \\right|"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", exceeds "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "N _ { \\mathrm { t a r g e t } } ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", we remove the "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "| T _ { \\mathrm { c a n d i d a t e } } | \\stackrel { - } { - } N _ { \\mathrm { t a r g e t } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "tokens with the lowest importance. Following existing work (Chen et al., 2024), the importance of a token is determined by its attention score in the shallow layers of the LLM. This step ensures that our method can flexibly meet any computational budget while preserving critical information."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                238,
+                826,
+                337
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In summary, our overall method adeptly combines two strategies: graph-based token selection and attention-based dynamic pruning. The former leverages the intrinsic structure of the video content (similarity and difference) to ensure the retention of core information, while the latter provides a flexible mechanism to precisely meet any given computational budget. This design makes our token compression process both principled and adaptive, thereby achieving a robust balance between efficiency and performance."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                342,
+                826,
+                428
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.6 COMPUTATIONAL COMPLEXITY ANALYSIS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                478,
+                511,
+                492
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The computational overhead of our proposed ST-SimDiff framework can be analyzed in three main stages: Spatio-Temporal Graph Construction, Similarity-based Representative Token Selection (SRTS), and Difference-based Event Token Selection (DETS)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                517,
+                825,
+                561
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The initial stage involves building the graph. For each of the N visual tokens, we compute the cosine similarity with its spatially and temporally adjacent neighbors. As each token has a small, constant number of neighbors, this step requires a single pass over all tokens, resulting in a complexity of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "O ( N d )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", where d is the feature dimension of each token."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                566,
+                826,
+                625
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Following graph construction, the SRTS module identifies token clusters. As detailed in our implementation (Section 5.2), we employ a connected components algorithm, which operates with a near-linear time complexity of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "O ( N + | E | )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Since the number of edges |E| is at most 3N, this simplifies to "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "O ( N )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". The subsequent filtering step within each community could be computationally intensive. A naive approach of calculating all-pairs similarity within each community "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "c _ { k }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "would have a complexity of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "O \\dot { ( } | C | \\cdot | c _ { k } | ^ { 2 } \\cdot d )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". To prevent this, we impose a constraint on the maximum size of any community. In the rare event that a community exceeds a predefined threshold (e.g., "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\vert c _ { k } \\vert > \\sqrt { N } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", we partition it. This ensures the filtering process remains efficient and does not dominate the overall complexity. While other mainstream graph clustering algorithms such as the Louvain and Leiden methods offer more complex community definitions, their computational complexity is higher, approaching O(N log N). Therefore, we opted for the simpler and highly efficient connected components algorithm to ensure minimal processing overhead."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                630,
+                825,
+                800
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The DETS module involves a single pass through all temporal edges in the graph to identify significant changes by comparing token similarities against a threshold. This process has a linear complexity of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "O ( N d )"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                805,
+                825,
+                849
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In summary, the total complexity of our ST-SimDiff framework is governed by these linear-time operations, culminating in an overall complexity of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "O ( N d )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "This is substantially more efficient than the quadratic complexity of the self-attention mechanism, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "O ( N ^ { 2 } d )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", used in the Large Language Model. Therefore, our method provides significant token reduction with only a negligible computational footprint relative to the model’s main inference cost."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                854,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "6"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/3918b302df5da33cb3df6f9661f75658846501fee76781c1d51f1941115b5663.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 1: Performance comparison on long-form video understanding benchmarks on LLaVA-Video-7B for 64 input frames (%). The best performance among all methods is emphasized in bold."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\">Method</td><td colspan=\"4\">VideoMME</td><td colspan=\"3\">LongVideoBench</td><td rowspan=\"2\">EgoSchema</td></tr><tr><td>Short</td><td>Medium</td><td>Long</td><td>Overall</td><td>Relation</td><td>Perception</td><td>Overall</td></tr><tr><td colspan=\"9\">Upper Bound (Full Performance)</td></tr><tr><td>LLaVA-Video</td><td>-</td><td>-</td><td>-</td><td>63.3</td><td>-</td><td>-</td><td>58.2</td><td>57.3</td></tr><tr><td colspan=\"9\">Token Retain Ratio  $r = 30\\%$ </td></tr><tr><td>FastV</td><td>68.2</td><td>58.6</td><td>51.2</td><td>59.3</td><td>48.0</td><td>59.9</td><td>53.5</td><td>51.3</td></tr><tr><td>PruMerge</td><td>70.2</td><td>57.3</td><td>52.2</td><td>59.9</td><td>49.6</td><td>60.5</td><td>54.7</td><td>50.9</td></tr><tr><td>FasterVLM</td><td>71.3</td><td>57.6</td><td>51.4</td><td>60.1</td><td>51.0</td><td>61.3</td><td>55.8</td><td>52.6</td></tr><tr><td>VisionZip</td><td>68.4</td><td>55.9</td><td>50.4</td><td>58.3</td><td>46.9</td><td>60.3</td><td>53.2</td><td>53.0</td></tr><tr><td>FrameFusion</td><td>74.0</td><td>59.8</td><td>50.0</td><td>61.3</td><td>49.7</td><td>63.3</td><td>56.0</td><td>53.0</td></tr><tr><td>ST-SimDiff (Ours)</td><td>74.7</td><td>61.9</td><td>53.0</td><td>63.2</td><td>52.5</td><td>63.2</td><td>57.5</td><td>56.0</td></tr><tr><td colspan=\"9\">Token Retain Ratio  $r = 50\\%$ </td></tr><tr><td>FastV</td><td>73.9</td><td>61.4</td><td>51.3</td><td>62.2</td><td>50.1</td><td>62.2</td><td>55.7</td><td>54.7</td></tr><tr><td>PruMerge</td><td>72.3</td><td>58.7</td><td>52.8</td><td>61.3</td><td>51.4</td><td>63.2</td><td>56.9</td><td>54.6</td></tr><tr><td>FasterVLM</td><td>74.0</td><td>59.2</td><td>51.8</td><td>61.7</td><td>51.3</td><td>62.2</td><td>56.4</td><td>56.2</td></tr><tr><td>VisionZip</td><td>72.6</td><td>57.7</td><td>51.6</td><td>60.6</td><td>51.3</td><td>63.2</td><td>56.8</td><td>54.2</td></tr><tr><td>FrameFusion</td><td>74.6</td><td>61.2</td><td>52.0</td><td>62.6</td><td>51.7</td><td>64.2</td><td>57.6</td><td>55.8</td></tr><tr><td>ST-SimDiff (Ours)</td><td>76.2</td><td>62.4</td><td>52.7</td><td>63.8</td><td>52.3</td><td>64.3</td><td>57.9</td><td>57.3</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                189,
+                99,
+                807,
+                444
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5 EXPERIMENTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                516,
+                328,
+                532
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.1 EXPERIMENTAL SETUP"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                547,
+                377,
+                561
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Baselines To comprehensively evaluate our method’s effectiveness, we use LLaVA-Video (Zhang et al., 2024c) and NVILA (Liu et al., 2024c) as our base models and compare our approach against a range of state-of-the-art video token compression techniques. These baselines cover diverse strategies, including importance-based reduction methods like FastV (Chen et al., 2024) and Faster-VLM (Zhang et al., 2024b), and hybrid reduction methods like VisionZip (Yang et al., 2025), FrameFusion (Fu et al., 2024b), and PruMerge (Shang et al., 2024). To ensure a fair and complete comparison, we also include the original uncompressed model (Vanilla) as a performance upper bound and Random Sampling of an equivalent number of tokens as a lower bound."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                573,
+                826,
+                686
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Benchmarks To test our method’s capabilities in long-video understanding, we adopt three challenging benchmark datasets: VideoMME (Fu et al., 2024a), LongVideoBench (Wu et al., 2025), and EgoSchema (Mangalam et al., 2024). VideoMME is a comprehensive benchmark for foundational video understanding, featuring diverse video types and three length categories: Short, Medium, and Long. LongVideoBench evaluates the ability to retrieve and reason about details in long videos through a “referring reasoning” task, with videos of four lengths: 15s, 60s, 600s, and 3600s. EgoSchema is a question-answering dataset focused on long-term, first-person videos that tests the model’s ability to understand character intentions and causal chains of actions."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                699,
+                826,
+                813
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.2 IMPLEMENTATION DETAILS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                828,
+                408,
+                843
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We use NVIDIA L20 GPUs with 48GB VRAM on an Ubuntu 22.04. The inference evaluation is conducted based on the lmms-eval (Zhang et al., 2024a) library. For LLaVA-Video, we follow its original setting of 64 input frames. To ensure a fair comparison of computational efficiency and resource usage under similar conditions, we establish a consistent setup by also setting the input frame count for NVILA to 64. As for the hyperparameters, we set the similarity threshold "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\tau _ { \\mathrm { s i m } } = 0 . 8 ."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                854,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "7"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/b0cc02ebf34d163b5ff872a3653b144e3a22043247efa60206f659eba13b5622.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 2: Performance comparison on long-form video understanding benchmarks on NVILA-Video-8B for 64 input frames (%). The best performance among all methods is emphasized in bold."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\">Method</td><td colspan=\"4\">VideoMME</td><td colspan=\"3\">LongVideoBench</td><td rowspan=\"2\">EgoSchema</td></tr><tr><td>Short</td><td>Medium</td><td>Long</td><td>Overall</td><td>Relation</td><td>Perception</td><td>Overall</td></tr><tr><td colspan=\"9\">Upper Bound (Full Performance)</td></tr><tr><td>NVILA-Video</td><td>-</td><td>-</td><td>-</td><td>61.5</td><td>-</td><td>-</td><td>56.3</td><td>52.9</td></tr><tr><td colspan=\"9\">Token Retain Ratio  $r = 30\\%$ </td></tr><tr><td>FastV</td><td>69.4</td><td>55.3</td><td>48.8</td><td>57.9</td><td>50.8</td><td>55.6</td><td>53.0</td><td>49.7</td></tr><tr><td>PruMerge</td><td>71.0</td><td>53.7</td><td>49.9</td><td>58.2</td><td>49.3</td><td>58.1</td><td>53.4</td><td>47.5</td></tr><tr><td>FasterVLM</td><td>72.6</td><td>56.9</td><td>51.0</td><td>60.1</td><td>48.7</td><td>57.8</td><td>53.0</td><td>49.3</td></tr><tr><td>VisionZip</td><td>71.4</td><td>56.2</td><td>49.7</td><td>59.1</td><td>46.3</td><td>56.2</td><td>50.9</td><td>48.9</td></tr><tr><td>FrameFusion</td><td>72.1</td><td>55.7</td><td>48.7</td><td>58.8</td><td>51.3</td><td>59.3</td><td>54.9</td><td>51.3</td></tr><tr><td>ST-SimDiff (Ours)</td><td>73.3</td><td>57.7</td><td>49.7</td><td>60.2</td><td>51.7</td><td>59.2</td><td>55.2</td><td>51.7</td></tr><tr><td colspan=\"9\">Token Retain Ratio  $r = 50\\%$ </td></tr><tr><td>FastV</td><td>71.9</td><td>58.3</td><td>49.3</td><td>58.9</td><td>49.5</td><td>58.8</td><td>53.9</td><td>50.2</td></tr><tr><td>PruMerge</td><td>71.2</td><td>54.8</td><td>46.8</td><td>57.6</td><td>49.7</td><td>58.7</td><td>53.9</td><td>48.9</td></tr><tr><td>FasterVLM</td><td>74.6</td><td>57.8</td><td>50.1</td><td>60.8</td><td>48.5</td><td>58.1</td><td>53.0</td><td>50.5</td></tr><tr><td>VisionZip</td><td>72.8</td><td>58.1</td><td>50.6</td><td>60.5</td><td>50.4</td><td>58.9</td><td>54.4</td><td>50.3</td></tr><tr><td>FrameFusion</td><td>72.7</td><td>57.2</td><td>48.3</td><td>59.4</td><td>51.0</td><td>59.2</td><td>54.8</td><td>52.6</td></tr><tr><td>ST-SimDiff (Ours)</td><td>73.9</td><td>59.7</td><td>51.4</td><td>61.7</td><td>52.3</td><td>61.3</td><td>56.5</td><td>52.5</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                189,
+                99,
+                807,
+                444
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "and the difference threshold "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\tau _ { \\mathrm { d i f f } } = 0 . 2 ."
+                    },
+                    {
+                        "type": "text",
+                        "content": "Experiments are conducted with token compression rates of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "r = 3 0 \\%"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "r = 5 0 \\%"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", respectively. In our practical implementation, considering the tradeoff between time consumption and performance improvement, we opt to use connected component finding as community detection algorithm."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                523,
+                826,
+                580
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.3 COMPARISON WITH STATE-OF-THE-ARTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                603,
+                501,
+                618
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To comprehensively evaluate our proposed ST-SimDiff framework, we compare it against a range of mainstream efficient video language model (VLM) compression methods. All experiments are conducted on three widely-used long-form video understanding benchmarks: VideoMME, LongVideoBench, and EgoSchema. To validate the generalization ability and robustness of our method, we report detailed performance data on two different base models, LLaVA-Video-7B and NVILA-8B, under token retain ratios of 30% and 50%. The experimental results are presented in Table 1 and Table 2."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                631,
+                826,
+                729
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "(1) ST-SimDiff consistently outperforms all competing methods across all test configurations. A particularly noteworthy finding is that at a 50% token retain ratio, the overall performance of our method on both base models not only surpasses other compression algorithms but, on some benchmarks, even matches or exceeds that of the original model using 100% of the tokens. This result validates the effectiveness and novelty of ST-SimDiff and prompts a deeper analysis of the strategies and limitations of existing baselines."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                734,
+                826,
+                821
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "(2) In importance-based baseline methods "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( \\mathrm { e . g . }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "., FastV, FasterVLM), FasterVLM typically exhibits relatively stronger performance. However, their common limitation lies in the inefficient handling of temporal redundancy prevalent in videos, as they tend to retain important yet repetitive tokens, thereby limiting information compression efficiency. Hybrid baseline methods (e.g., PruMerge, VisionZip, FrameFusion) demonstrate more competitive performance than importance-only approaches, with FrameFusion generally showing the most outstanding overall results. Nevertheless, the common optimization goal of these methods is still to identify and preserve representative “commonality” information, with a theoretical blind spot of potentially overlooking key narrative information driven by “turning points” and “abrupt events”."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                825,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "8"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/5b0e564fb173addedc1d150d03ee503bee7bddba51083ea75c59865f599053b1.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 3: Ablation results of different components (%)."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td colspan=\"2\">Method</td><td>VideoMME</td><td>LongVideoBench</td><td>EgoSchema</td></tr><tr><td colspan=\"5\">Token Retain Ratio r = 30%</td></tr><tr><td colspan=\"2\">Baseline</td><td>60.3</td><td>56.2</td><td>54.8</td></tr><tr><td rowspan=\"3\">+ Sim</td><td>Spatial</td><td>61.5</td><td>56.5</td><td>55.2</td></tr><tr><td>Temporal</td><td>61.7</td><td>56.8</td><td>55.1</td></tr><tr><td>Spa. + Tem.</td><td>62.6</td><td>57.0</td><td>55.3</td></tr><tr><td colspan=\"2\">++ Diff (Proposed)</td><td>63.2</td><td>57.5</td><td>56.0</td></tr><tr><td colspan=\"5\">Token Retain Ratio r = 50%</td></tr><tr><td colspan=\"2\">Baseline</td><td>63.2</td><td>56.7</td><td>56.5</td></tr><tr><td rowspan=\"3\">+ Sim</td><td>Spatial</td><td>63.3</td><td>57.0</td><td>56.7</td></tr><tr><td>Temporal</td><td>63.7</td><td>57.2</td><td>56.9</td></tr><tr><td>Spa. + Tem.</td><td>63.7</td><td>57.8</td><td>57.2</td></tr><tr><td colspan=\"2\">++ Diff (Proposed)</td><td>63.8</td><td>57.9</td><td>57.3</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                243,
+                101,
+                753,
+                339
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                405,
+                823,
+                435
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "(3) In summary, existing baselines reflects a deepening understanding of “redundancy” in videos, yet they still face two core challenges: first, a lack of synergistic analysis of spatio-temporal joint similarity between visual tokens, making it difficult to capture complex redundancies; and second, a general neglect of “difference” detection, failing to actively preserve key changes that define plot development. The performance gain of ST-SimDiff stems from addressing these issues by constructing a spatio-temporal graph to uniformly model complex spatio-temporal relationships and innovatively introducing difference detection."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                440,
+                826,
+                540
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.4 ABLATION STUDY"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                561,
+                344,
+                575
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To validate the effectiveness of each core component within our ST-SimDiff framework, we conducted a series of detailed ablation studies. We started with a Baseline strategy that includes only fundamental importance-based pruning and progressively introduced our proposed similarity selection module (+Sim) and difference selection module (++Diff) to quantify their respective contributions. All experiments were conducted at token retain ratios of 30% and 50%, with the results presented in Table 5."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                589,
+                826,
+                675
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "(1) First, we evaluated the effectiveness of the +Sim module. The experimental results clearly indicate that introducing similarity modeling on top of the baseline consistently improves model performance. We further broke down the similarity strategy into three types: spatial-only (Spatial), temporal-only (Temporal), and spatio-temporal joint (Spa. + Tem.). The data shows that collaboratively modeling the spatio-temporal associations between visual tokens is the most effective way to compress redundancy."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                680,
+                826,
+                766
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "(2) After integrating the optimal spatio-temporal joint similarity module, we introduced the difference selection module (++Diff) to form our complete framework. The addition of this module provides a significant performance leap, particularly under the high compression ratio of 30%. This demonstrates its vital complementary role: while the aggressive +Sim module focuses on redundancy, the ++Diff module acts as a safety net to identify and preserve unique event tokens that define the video’s narrative. In contrast, the module’s marginal gain is smaller at a 50% retention ratio. This is because the more lenient +Sim module is more likely to have already captured these event tokens, and the overall model performance is already approaching its upper bound. This analysis confirms our core motivation: the framework’s strength lies in its ability to balance similarity-based redundancy compression with the crucial preservation of difference-based events, especially in demanding high-compression scenarios."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                771,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "9"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/0b8d90946175a61289541434a06bacda6858ae436198c9140c073052b9d453e8.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 3: Computational cost comparison between our method and the baseline LLaVA-Video model in average inference time and peak GPU memory usage under a 30% token budget."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                256,
+                101,
+                740,
+                261
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.5 COMPUTATIONAL COST ANALYSIS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                342,
+                457,
+                357
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To quantify the efficiency advantages of our proposed ST-SimDiff method in practical applications, we conducted detailed tests on its inference time and peak GPU memory usage under a 30% token budget. We compared it against the baseline model (Baseline LLaVA-Video) without any compression. The experimental results in Figure 3 cover video inputs lengths from 32 to 128 frames."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                373,
+                826,
+                431
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Inference Time ST-SimDiff demonstrates a significant speedup. As the number of input video frames increases, the average inference time of the baseline model grows sharply from 1.56 seconds (32 frames) to 6.50 seconds (128 frames). In contrast, our method effectively curtails this growth, with an average time of only 4.54 seconds when processing 128 frames. This means that ST-SimDiff achieves an increasingly higher time-saving rate for longer videos, improving from 23.0% for 32 frames to 30.2% for 128 frames."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                455,
+                826,
+                541
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Memory Cost ST-SimDiff also performs exceptionally well. The peak GPU memory usage of the baseline model climbs linearly with video length, from 20.9 GB (32 frames) to 35.0 GB (128 frames). Our method significantly reduces memory pressure by substantially decreasing the number of tokens fed into the large language model. When processing 128-frame videos, ST-SimDiff’s peak memory usage is only 23.9 GB, saving 31.7% of the memory space compared to the baseline. This advantage enables our model to process longer videos on hardware with limited memory, greatly expanding its potential applications."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                566,
+                826,
+                667
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In summary, ST-SimDiff not only achieves leading performance but also demonstrates significant advantages in computational efficiency (both time and memory), proving its efficiency for video understanding."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                672,
+                826,
+                715
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "6 CONCLUSION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                746,
+                321,
+                762
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this paper, we address the computational inefficiency of Multimodal Large Language Models when processing long videos, a problem rooted in the excessive number of visual tokens and the neglect of critical content changes. We propose ST-SimDiff, a framework requiring no training that builds a spatiotemporal graph to model complex associations between tokens. The method utilizes a dual selection strategy where similarity based selection identifies redundancy via community de tection and temporal difference based selection preserves tokens at key transition points. Extensive experiments on VideoMME and LongVideoBench show that ST-SimDiff significantly reduces processing time and memory usage while consistently surpassing state of the art performance. This work introduces a new research direction by balancing content representativeness with transitional events to create a more efficient representation of video data."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                785,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "10"
+                    }
+                ]
+            },
+            "bbox": [
+                490,
+                948,
+                509,
+                960
+            ]
+        }
+    ]
+]

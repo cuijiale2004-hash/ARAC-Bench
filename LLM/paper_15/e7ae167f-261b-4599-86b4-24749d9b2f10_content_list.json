@@ -1,0 +1,1442 @@
+[
+    {
+        "type": "text",
+        "text": "ABSTRACT",
+        "text_level": 2,
+        "bbox": [
+            450,
+            265,
+            547,
+            281
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Large Language Model (LLM) agents show great promise for complex, multi-turn tool-use tasks, but their development is often hampered by the extreme scarcity of high-quality training data. Supervised fine-tuning (SFT) on synthetic data leads to overfitting, whereas standard reinforcement learning (RL) struggles with a critical cold-start problem and training instability. To address these challenges, we introduce ENVIRONMENT TUNING, a novel training paradigm that enables agents to learn complex behaviors directly from problem instances without relying on precollected expert trajectories. ENVIRONMENT TUNING orchestrates this learning process through a structured curriculum, actionable environment augmentation that provides corrective feedback, and fine-grained progress rewards to ensure stable and efficient exploration. Using only 400 problem instances from Berkeley Function-Calling Leaderboard (BFCL) benchmark, our method not only achieves competitive in-distribution performance against strong baselines but also demonstrates superior out-of-distribution generalization, overcoming the performance collapse common to SFT-based approaches. Our work presents a paradigm shift from supervised finetuning on static trajectories to dynamic, environment-based exploration, paving the way for training more robust and data-efficient agents.",
+        "bbox": [
+            230,
+            294,
+            767,
+            532
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "1 INTRODUCTION",
+        "text_level": 2,
+        "bbox": [
+            174,
+            558,
+            338,
+            573
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "The emergence of Large Language Model (LLM)-based agents, equipped with capabilities for intricate reasoning, planning, and tool interaction (Wang et al., 2024; Weng, 2023), has unlocked the potential to address complex, real-world problems across diverse domains like software engineering (Jimenez et al., 2023; Yang et al., 2024), computer use (Xie et al., 2024; OpenAI, 2025c; Wang et al., 2025a) and web browsing (Wei et al., 2025; OpenAI, 2025a; Moonshot AI, 2025). Much of this success has been demonstrated in single-turn tasks, such as mathematical reasoning, where plentiful datasets (Hendrycks et al., 2021; Sun et al., 2025), automated verifiers (Kydlícekˇ , 2025), and advanced algorithms (Shao et al., 2024; Yu et al., 2025) have enabled significant progress (Zeng et al., 2025; He et al., 2025). Despite their utility, these agents, limited by a structured and single-turn paradigm, are insufficient to tackle the full complexity of real-world problems: this limitation motivates the transition of agents capable of engaging in dynamic, multi-turn interactions with external tools and environments (Wang et al., 2025c; Mai et al., 2025; Feng et al., 2025b).",
+        "bbox": [
+            169,
+            587,
+            826,
+            755
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "However, the transition to multi-turn tool-use settings introduces several key challenges:",
+        "bbox": [
+            171,
+            758,
+            753,
+            772
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "• Data scarcity (C1): High-quality multi-turn tool-use datasets are exceedingly scarce due to the labor-intensive nature of human annotation and validation. For instance, BFCL V3 (Patil et al., 2025b) multi-turn dataset contains only 800 samples, severely limiting the effectiveness of traditional data-driven approaches.",
+        "bbox": [
+            176,
+            775,
+            826,
+            830
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "• Complex environment (C2): Multi-turn tool-use scenarios require agents to navigate complex, interconnected tool ecosystems spanning multiple domains. Like BFCL V3, the benchmark spans 8 different domains with 84 distinct tools, requiring cross-domain API calls and sophisticated tool orchestration.",
+        "bbox": [
+            176,
+            830,
+            826,
+            888
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_footnote",
+        "text": "Equal contribution. Work was done during internship in Ant Group.",
+        "bbox": [
+            191,
+            896,
+            602,
+            910
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_footnote",
+        "text": "<sup>†</sup>Corresponding author.",
+        "bbox": [
+            192,
+            910,
+            336,
+            924
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_number",
+        "text": "1",
+        "bbox": [
+            493,
+            949,
+            503,
+            959
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "image",
+        "img_path": "images/4bad616659097e5fbd949b30e6ad37970dd6a6fc8b3dac2cbf6dbd0b74688891.jpg",
+        "image_caption": [
+            "Figure 1: Limitations of Existing Paradigms and the ENVIRONMENT TUNING Advantage. This figure contrasts three agent training approaches on a travel planning task. (Left) Supervised Fine-Tuning (SFT) on static trajectories struggles with generalization. (Center) Reinforcement Learning (RL) in a traditional environment provides only sparse, uninformative feedback. (Right) Our approach uses an augmented environment that provides actionable, fine-grained feedback upon failure."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            174,
+            102,
+            821,
+            273
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "• Long interaction chain (C3): Success in multi-turn scenarios demands consistent performance across all interaction turns, where any single failure leads to complete task failure. Each test sample involves multiple user queries, where success requires passing all checks in every turn.",
+        "bbox": [
+            176,
+            358,
+            825,
+            402
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "While constructing synthetic trajectories for Supervised Fine-Tuning (SFT) is a dominant strategy (Prabhakar et al., 2025; Liu et al., 2024; Yin et al., 2025) to mitigate data scarcity (C1), it suffers from a critical flaw: agents trained on these static, synthetic traces often fail to generalize to real-world scenarios, a limitation we demonstrate empirically in Section 4.2.",
+        "bbox": [
+            171,
+            407,
+            826,
+            464
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Reinforcement Learning (RL) (Shao et al., 2024; Yu et al., 2025; Hu et al., 2025) offers a natural alternative, promising to improve generalization through online interaction and exploration (Chu et al., 2025; Shenfeld et al., 2025). However, this approach is plagued by its own severe challenges. The complexity of the environment (C2) creates a critical “cold-start” problem: an agent that is not yet proficient cannot explore the vast action space effectively, becoming trapped in cycles of low-quality rollouts and failing to generate the meaningful experiences required for improvement. Furthermore, even if an agent overcomes this initial hurdle, the long interaction chains (C3) inherent to these tasks make the training process notoriously unstable and prone to performance collapse (Wang et al., 2025c; Xue et al., 2025).",
+        "bbox": [
+            169,
+            463,
+            826,
+            589
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "This collectively leads to our central research question:",
+        "bbox": [
+            171,
+            594,
+            537,
+            609
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "How can we train a high-quality agent for complex, multi-turn tool use under extreme data scarcity, ensuring both generalization and stability?",
+        "text_level": 2,
+        "bbox": [
+            259,
+            627,
+            738,
+            657
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Addressing the critical intersection of data scarcity, generalization, and learning stability requires a paradigm shift in agent training. In response, we introduce ENVIRONMENT TUNING, a novel framework designed to cultivate both generalization and stability from extremely scarce data. At its core, ENVIRONMENT TUNING orchestrates learning via three complementary principles: (1) a Structured Curriculum that guides the agent from simple to complex tasks to build skills progressively; (2) Actionable Environment Augmentation that provides corrective hints upon failure, turning deadend explorations into rich learning signals; and (3) Fine-Grained Progress Rewards that replace sparse, binary outcomes with a continuous measure of task completion, providing a dense and informative learning signal.",
+        "bbox": [
+            169,
+            672,
+            826,
+            800
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "By combining this deliberate curriculum with enriched feedback and dense rewards, ENVIRONMENT TUNING enables an agent to acquire sophisticated, multi-step behaviors from scratch, demonstrating that robust learning is achievable even in the complete absence of expert demonstrations. The key contributions of this work are as follows:",
+        "bbox": [
+            169,
+            805,
+            826,
+            862
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "• A novel learning paradigm for data-scarce environments. We propose ENVIRONMENT TUN-ING, which enables agents to learn multi-turn tool-use capabilities directly from problem instances without expert demonstrations, shifting from trajectory-based imitation to environment-based exploration.",
+        "bbox": [
+            176,
+            868,
+            826,
+            924
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "page_number",
+        "text": "2",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "image",
+        "img_path": "images/4633823c75859e761f6cd1e61c7c6589db705ec74e3b6d74ca0f48084355b56d.jpg",
+        "image_caption": [
+            "Figure 2: An illustration of multi-turn tool-use scenarios, adapted from an official example in the BFCL V3 Blog (Patil et al., 2025a). All three tracks start from the same initial user request. The Base multi-turn track (center) shows a successful execution path. The Missing parameter track (top) illustrates a scenario where the agent must handle ambiguity by asking for clarification. The Missingfunction track (bottom) shows a case where the agent needs to recognize that a required tool is unavailable. These scenarios highlight the diverse reasoning capabilities our curriculum is designed to address."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            174,
+            99,
+            823,
+            268
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "• A practical curriculum with environment engineering. We develop a four-stage curriculum leveraging actionable environment augmentation and fine-grained progress rewards to transform sparse feedback into rich learning signals for effective exploration.",
+        "bbox": [
+            176,
+            362,
+            825,
+            404
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "• Empirical validation in extreme data scarcity. With only 400 training samples, our method proves effective for both base and SFT-tuned models. It lifts a base model like Qwen2.5-7B from near-zero to strong in-distribution performance, and also boosts SFT-tuned models such as watt-tool-8B to 54.25%, surpassing most proprietary models. Notably, it nearly doubles ToolACE-2’s out-of-distribution score on ACEBench (8.5% to 15.0%), showing that ENVIRONMENT TUNING fosters robust generalization where SFT often fails.",
+        "bbox": [
+            176,
+            404,
+            826,
+            489
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "2 RELATED WORK",
+        "text_level": 2,
+        "bbox": [
+            171,
+            503,
+            344,
+            521
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Tool-integrated reasoning. A prominent line of research focuses on augmenting LLMs with external tools, a paradigm often termed Tool-Integrated Reasoning (TIR). Many works have leveraged RL as an alternative to SFT for teaching agents strategic tool invocation (Li et al., 2025; Feng et al., 2025a). However, direct application of trajectory-level algorithms (Shao et al., 2024; Yu et al., 2025) often leads to training instability and performance collapse (Wang et al., 2025c; Mai et al., 2025; Xue et al., 2025). To address this challenge, recent works have proposed sophisticated mechanisms like fine-grained credit assignment (Feng et al., 2025b), entropy-guided exploration (Dong et al., 2025), and trajectory filtering to prevent gradient explosion (Xue et al., 2025). While effective in their respective domains, such as computational reasoning (Li et al., 2025; Singh et al., 2025) or open-domain web search (Jin et al., 2025a; Zheng et al., 2025), these methods are typically evaluated in settings where the primary challenge is to master a single tool or a small, homogeneous set of tools. Our work, in contrast, addresses the distinct challenge of orchestrating a large and diverse toolset to complete complex, stateful tasks that unfold over multiple interaction turns.",
+        "bbox": [
+            169,
+            532,
+            828,
+            715
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Multi-turn tool orchestration. Distinct from tool-augmented reasoning, another major challenge involves enabling agents to orchestrate a large set of diverse APIs to accomplish complex, stateful tasks over multiple turns. Benchmarks like BFCL (Patil et al., 2025b) and ACEBench (Chen et al., 2025a) have emerged to evaluate these sophisticated capabilities. However, as these benchmarks are derived from realistic scenarios, they feature high-quality but scarce human-annotated data, posing a significant training challenge.",
+        "bbox": [
+            169,
+            726,
+            826,
+            811
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "To address the aforementioned data scarcity issue, two primary strategies have been explored. The dominant approach involves large-scale synthetic data generation for SFT, where recent works (Prabhakar et al., 2025; Liu et al., 2024; Yin et al., 2025; Zhang et al., 2024) focus on creating vast corpora of tool-use trajectories. An alternative strategy explores applying online RL directly. Works such as ReCall (Chen et al., 2025b) and ARTIST (Singh et al., 2025) attempt to improve policies through direct environment interaction. However, these online RL approaches have so far yielded only modest gains on benchmarks like BFCL, highlighting the difficulty of effective exploration in a complex environment and motivating the need for more efficient learning paradigms.",
+        "bbox": [
+            169,
+            813,
+            826,
+            925
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "page_number",
+        "text": "3",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "image",
+        "img_path": "images/795ce4a275a8ac8b214adf38d117e85d98c4525beab06334e0005404b047a247.jpg",
+        "image_caption": [
+            "Figure 3: An overview of ENVIRONMENT TUNING. Our core innovation is the ENVIRONMENT TUNING module, which implements a four-stage curriculum. It dynamically configures the reward function, environment feedback (Standard vs. Augmented), and data split for the Agent Learning Loop. This staged approach transforms ambiguous errors into actionable lessons (highlighted in the Environment Augmentation in Action panel), enabling efficient and stable learning from limited data."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            181,
+            102,
+            821,
+            275
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3 ENVIRONMENT TUNING",
+        "text_level": 2,
+        "bbox": [
+            171,
+            351,
+            408,
+            367
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "To overcome the challenge of learning in complex, data-scarce environments, we propose ENVIRON-MENT TUNING, a framework that orchestrates training through three complementary mechanisms (see Figure 3). It combines (1) a Structured Curriculum (Section 3.2) for progressive skill acquisition; (2) Actionable Environment Augmentation (Section 3.3) to turn failures into rich learning signals via corrective hints; and (3) a Fine-Grained Progress Reward (Section 3.4) to provide dense feedback that overcomes the limitations of sparse signals. These pillars collectively create a manageable learning path for stable and data-efficient agent training.",
+        "bbox": [
+            169,
+            378,
+            826,
+            476
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3.1 PRELIMINARY AND CHALLENGES",
+        "text_level": 2,
+        "bbox": [
+            171,
+            486,
+            447,
+            501
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "This work tackles multi-turn tool use: a challenging task where an agent must achieve a complex goal through a series of interactions with external tools. Unlike single-step problems, this process is dynamic and demands sophisticated reasoning, as a single task can unfold in numerous ways (Figure 2). The agent must navigate an interactive loop of understanding user requests, executing tool calls, and generating responses until the overall objective is complete. We mathematically formalize this problem as a Partially Observable Markov Decision Process (POMDP) in Section B.",
+        "bbox": [
+            169,
+            507,
+            826,
+            593
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "On the challenge of multi-turn tool use. Training an RL agent for multi-turn tool use is non-trivial: an agent must simultaneously master low-level syntax skills (e.g., precise tool-call formatting that the environment can parse) and high-level reasoning abilities (e.g., multi-step planning across dependent subtasks). In complex interactive environments, base models lacking these skills exhibit a diverse range of failure modes, including void incorrect parameter filling, calls to non-existent tools, and irreversible environment corruption.",
+        "bbox": [
+            169,
+            599,
+            826,
+            685
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "As noted by Xue et al. (2025), RL optimization on such noisy trajectories is extremely sensitive to these error patterns: if they persist in the rollouts, training instability and gradient explosion are likely. Our numerical experiments also confirm this fragility: whenfine-tuning Qwen2.5-7B-Instruct directly in a single-stage RL setup with 400 training instances, training collapsed within 70 steps, yielding a mere 10% improvement in success rate, as detailed and visualized in Appendix Section F.2.",
+        "bbox": [
+            169,
+            686,
+            826,
+            758
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3.2 STRUCTURED CURRICULUM RL TRAINING",
+        "text_level": 2,
+        "bbox": [
+            171,
+            768,
+            511,
+            782
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "The aforementioned observations suggest that naively optimizing for full task success from the start is ineffective in long-horizon, sparse-reward settings. We therefore propose a structured curriculum that gradually increases objective complexity. This four-stage curriculum allows the agent to progress from mastering foundational skills to handling the full complexity of multi-turn tool use, while maintaining training stability",
+        "bbox": [
+            169,
+            787,
+            826,
+            859
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Stage 1: mastering syntactic and schematic correctness. The goal of this initial stage is to train the agent to produce well-formed outputs with valid tool calls, forming a reliable foundation for all sub sequent learning. Before an agent can reason effectively, it must first “speak the language” of the envi ronment; otherwise, learning is confounded by penalties for both poor strategy and invalid formatting.",
+        "bbox": [
+            169,
+            868,
+            828,
+            925
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "page_number",
+        "text": "4",
+        "bbox": [
+            491,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "To isolate this foundational skill, we deconstruct the agent’s actions $( a _ { t } ^ { \\mathrm { t o o l } }$ and $a _ { t } ^ { \\mathrm { a n s w e r } } )$ and design a reward function focused exclusively on their structural integrity. As illustrated in Figure 3, we use several task-agnostic, turn-by-turn counters:",
+        "bbox": [
+            169,
+            103,
+            825,
+            146
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "$C _ { c o r r e c t } { . }$ the number of tool calls with a correct tool name and valid arguments;",
+        "bbox": [
+            176,
+            148,
+            718,
+            162
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "$C _ { e r r o r } \\mathrm { : }$ : the number of calls with a correct tool name but invalid arguments;",
+        "bbox": [
+            178,
+            162,
+            687,
+            176
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "$C _ { f o r m a t } { : }$ the number of turns violating the required XML-like format.",
+        "bbox": [
+            176,
+            176,
+            656,
+            191
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "These counters are combined into a Format Reward $R _ { \\mathrm { f o r m a t } }$ and a Tool Call Reward $R _ { \\mathrm { t o o l } }$ , defined as",
+        "bbox": [
+            171,
+            193,
+            821,
+            209
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\nR _ {\\text { format }} = (N - C _ {\\text { format }}) / N, \\quad R _ {\\text { tool }} = C _ {\\text { correct }} / (C _ {\\text { correct }} + C _ {\\text { error }}),\\tag{1}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            274,
+            215,
+            720,
+            232
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "where N is the total number of turns in the episode. The final reward for this stage, $R _ { \\mathrm { S t a g e 1 } }$ , combines these components and is gated by an indicator $I _ { \\mathrm { t o o l } }$ that is 1 if the agent attempts at least one tool call and 0 otherwise, encouraging active tool use:",
+        "bbox": [
+            169,
+            239,
+            825,
+            282
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\nR _ {\\text { Stage1 }} = I _ {\\text { tool }} \\cdot (R _ {\\text { format }} + R _ {\\text { tool }})  .\\tag{2}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            385,
+            289,
+            609,
+            306
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "As we demonstrate in our analysis of training dynamics (Section F.1), this specialized reward allows the agent to rapidly master the required syntax. This proves that dedicating a stage to this foundational skill is a crucial prerequisite for efficient learning in more complex, task-oriented stages.",
+        "bbox": [
+            169,
+            315,
+            825,
+            359
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Stage 2: basic learning with augmented feedback. With the agent now proficient in syntax, the curriculum transitions to learning task-oriented reasoning. This stage utilizes the full Base split from BFCL, focusing on foundational multi-turn capabilities. To accelerate learning, we introduce two critical components to allow the agent to efficiently learn core reasoning skills in a guided manner.",
+        "bbox": [
+            169,
+            369,
+            825,
+            426
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "1. Progress Reward (c.f. Section 3.4): we replace the task-agnostic reward with a Progress Reward $( R _ { P } )$ , a fine-grained measure of task completion that provides a more informative signal than sparse binary outcomes (detailed in Section 3.4).",
+        "bbox": [
+            171,
+            428,
+            825,
+            469
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "2. Actionable Environment Augmentation (c.f. Section 3.3): we employ such augmentation to enable the environment to provide detailed, corrective hints upon failure instead of ambiguous error messages, turning failed explorations into valuable learning opportunities.",
+        "bbox": [
+            169,
+            469,
+            826,
+            513
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Stage 3: advanced learning on complex scenarios. Building on the foundational skills from the previous stage, the agent is now exposed to the full spectrum of challenges. We introduce the complete training dataset, incorporating samples from the Missing Parameters, Missing Functions, and Long-Context splits. The objective is to train the agent to handle ambiguity, recognize functional gaps, and perform information retrieval from noisy contexts. The training setup remains consistent with Stage 2, continuing to leverage both the Progress Reward and Actionable Environment Augmentation to help the agent navigate these more complex problem spaces.",
+        "bbox": [
+            169,
+            522,
+            826,
+            622
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Stage 4: alignment with the evaluation environment. The final stage is designed to align the agent with the true evaluation conditions. While still training on the full dataset with the Progress Reward, we now disable the Actionable Environment Augmentation. This forces the agent to generalize its learned policies, relying on its internal reasoning capabilities to handle uninformative or standard error messages, just as it would during final evaluation. This step is crucial for ensuring that the agent’s performance is robust in OOD scenarios and not overly dependent on the training scaffolds provided in earlier stages.",
+        "bbox": [
+            169,
+            631,
+            826,
+            729
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Remark 3.1 (Checkpoint selection for stage transitions). A key element ofour curriculum is determining when to transit to the next stage. In our multi-turn tool-use setting, we adopt a validationand stability-based stage transition rule: we advance to the next stage only when the validation accuracy has plateaued and its gradient norm is stable.",
+        "bbox": [
+            169,
+            733,
+            826,
+            790
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "This joint condition, further discussed in Section F.1, serves two purposes. First, the converged validation performance ensures the agent has mastered the current stage’s skills. Second, the stable optimization dynamics confirm it is ready for more complex tasks, mitigating the risk of gradient explosions common in long-horizon RL (Xue et al., 2025). This rule is crucial for maintaining training stability and maximizing the curriculum’s effectiveness.",
+        "bbox": [
+            169,
+            791,
+            826,
+            863
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "3.3 ACTIONABLE ENVIRONMENT AUGMENTATION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            875,
+            534,
+            888
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "In multi-turn tool-use tasks, an agent often needs to execute complex chains of function calls where the output of one tool becomes the input to another. However, standard training environments typically return cryptic or overly generic error messages (like simple error codes or “not found” responses) that neither identify the root cause of failure nor indicate a viable next action. This lack of actionable guidance severely limits the agent’s ability to discover dependencies between tools and to understand each tool’s usage constraints, forcing it to rely on inefficient trial-and-error exploration, which leads to poor performance (as validated by the ablation in Section 4.3 that isolates the effect of environment augmentation). To address these issues, we design Actionable Environment Augmentation, which modifies the environment’s feedback to provide pedagogical hints that directly inform the agent about dependency relationships and operational rules, turning failed trajectories into constructive learning opportunities.",
+        "bbox": [
+            169,
+            895,
+            826,
+            925
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "page_number",
+        "text": "5",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            104,
+            826,
+            231
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Discovering inter-tool dependencies via guided discovery. Our first goal is to empower the agent to discover and resolve inter-tool dependencies on its own. While prior work often relies on pre-constructed dependency graphs to explicitly teach agents sequential tool-call patterns (Prabhakar et al., 2025; Liu et al., 2024), our method embeds these dependencies within the environment’s feedback. This encourages the agent to learn the underlying logic through interaction and inference rather than memorization, leading to better generalization in unseen scenarios.",
+        "bbox": [
+            169,
+            239,
+            825,
+            325
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "For example, in the BFCL Travel API task, an agent might incorrectly try to book a flight without first finding the correct airport code.",
+        "bbox": [
+            171,
+            327,
+            825,
+            356
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "• Standard feedback: A vague message like “No available route” gives the agent no clue about the root cause of the failure.",
+        "bbox": [
+            176,
+            358,
+            825,
+            385
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "• Augmented feedback: Our environment provides a precise hint: “Invalid airport code $[ s ] : \\dots \\dots ^ { \\prime \\prime }$ . This message suggests that another tool is needed to find the correct airport code first, effectively prompting the agent to discover the dependency through interaction.",
+        "bbox": [
+            176,
+            386,
+            825,
+            429
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Revealing internal tool constraints with pedagogical hints. Our second objective is to provide actionable hints that reveal a tool’s specific internal rules and constraints. This moves beyond the simple diagnostic errors returned by standard code interpreters (e.g., “FileNotFoundError”) toward providing pedagogical feedback that explains why an action failed. By revealing the “rules of the game” to the agent, we dramatically prune the exploration space by invalidating entire classes of incorrect attempts.",
+        "bbox": [
+            169,
+            439,
+            826,
+            523
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "For instance, an agent’s pretrained knowledge might suggest using full paths with the $\" \\mathrm { { r m } } ^ { \\prime \\prime }$ command. However, the BFCL File System environment may not support this.",
+        "bbox": [
+            171,
+            525,
+            826,
+            555
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "• Standardfeedback: A generic “FileNotFoundE $\\boldsymbol { \\tt { r r o r } } ^ { \\prime \\prime }$ would be misleading, as the file might actually exist.",
+        "bbox": [
+            176,
+            556,
+            825,
+            584
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "• Augmentedfeedback: Our environment returns an explicit rule: “Paths are not allowed. $\\mathsf { S p e c i f y ~ o n l y ~ \\mathsf { f i l e / d i r e c t o r y ~ n a m e \\ldots ~ \\mathsf { ? } } }$ . This hint directly corrects the agent’s misunderstanding of the tool’s protocol within this specific environment.",
+        "bbox": [
+            176,
+            584,
+            826,
+            627
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "This LLM-driven workflow for generating augmentations is detailed in Section C. As illustrated in the file system and multi-API travel case studies (Sections H.1 and H.2), our augmented feedback transforms failed turns into explicit, actionable guidance. This enables agents to diagnose root causes accurately and discover corrective strategies that would be infeasible under baseline environments with ambiguous signals.",
+        "bbox": [
+            169,
+            628,
+            826,
+            700
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "3.4 FINE-GRAINED PROGRESS REWARD",
+        "text_level": 2,
+        "bbox": [
+            171,
+            713,
+            460,
+            727
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "A key challenge in training long-horizon, multi-turn tool-use agents is reward sparsity: a single binary signal at the end of a long trajectory provides insufficient guidance for effective learning (Feng et al., 2025b).",
+        "bbox": [
+            169,
+            734,
+            825,
+            777
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "To overcome these challenges, we introduce a fine-grained Progress Reward $( R _ { P } )$ that provides a denser, turn-by-turn learning signal. Instead of rewarding individual tokens, we evaluate success at the end of each turn based on two criteria: the correctness of the resulting environment state and the execution result of the agent’s chosen action. This allows us to distinguish “nearly correct” from “completely wrong” trajectories.",
+        "bbox": [
+            169,
+            779,
+            825,
+            849
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Formally, for each turn t in an episode of length $T ,$ we define binary scores for the state evaluation $( r _ { t } ^ { \\mathrm { s t a t e } } )$ and execution result evaluation $( r _ { t } ^ { \\mathrm { e x e c } } )$ . A turn is successful only if both are correct, with its reward being their product: $r _ { t } = r _ { t } ^ { \\mathrm { s t a t e } } \\cdot r _ { t } ^ { \\mathrm { e x e c } }$ . The total Progress Reward $R _ { P }$ is then the average success rate across all turns: $\\begin{array} { r } { R _ { P } = \\frac { 1 } { T } \\sum _ { t = 1 } ^ { T } r _ { t } = \\frac { 1 } { T } \\sum _ { t = 1 } ^ { T } ( r _ { t } ^ { \\mathrm { s t a t e } } \\cdot r _ { t } ^ { \\mathrm { e x e c } } ) } \\end{array}$ . This formulation provides a rich, informative signal throughout the episode, enabling the agent to learn efficiently from partially",
+        "bbox": [
+            169,
+            851,
+            826,
+            924
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "page_number",
+        "text": "6",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "table",
+        "img_path": "images/9dbd74bece39e99584f091f92d153b1e6e548c6deb68b6e31b9b9ac5f100c8c3.jpg",
+        "table_caption": [
+            "Table 1: Main results on the BFCL V3 multi-turn benchmark. Our method, ENVIRONMENT TUNING, significantly boosts the performance of all base models, achieving competitive results against proprietary models and outperforming several strong baselines using only 400 training samples.",
+            "successful attempts while still having the freedom to discover novel problem-solving strategies. A detailed breakdown of the evaluation criteria is provided in Section D."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td rowspan=\"2\">Model</td><td colspan=\"5\">BFCL V3 Multi Turn</td></tr><tr><td>Average (%)</td><td>Base (%)</td><td>Miss Func (%)</td><td>Miss Param (%)</td><td>Long Context (%)</td></tr><tr><td>Claude Sonnet 4</td><td>57.00</td><td>63.00</td><td>58.00</td><td>51.00</td><td>56.00</td></tr><tr><td>GPT-4o</td><td>51.00</td><td>59.00</td><td>54.00</td><td>41.00</td><td>50.00</td></tr><tr><td>Gemini 2.5 Pro</td><td>28.75</td><td>32.00</td><td>29.00</td><td>22.00</td><td>32.00</td></tr><tr><td>o3</td><td>49.25</td><td>47.00</td><td>55.00</td><td>47.00</td><td>48.00</td></tr><tr><td>Arch-Agent-7B</td><td>42.05</td><td>47.15</td><td>53.75</td><td>34.20</td><td>33.10</td></tr><tr><td>xLAM-2-8b-fc-r</td><td>70.50</td><td>77.85</td><td>69.15</td><td>65.80</td><td>69.20</td></tr><tr><td>BitAgent-8B</td><td>36.99</td><td>47.85</td><td>33.20</td><td>26.15</td><td>40.75</td></tr><tr><td>Qwen2.5-7B-Instruct</td><td>7.00</td><td>9.33</td><td>9.33</td><td>6.33</td><td>3.00</td></tr><tr><td>+ ToolRL</td><td>18.00 (+11.00)</td><td>23.00 (+13.67)</td><td>26.00 (+16.67)</td><td>16.00 (+9.67)</td><td>7.00 (+4.00)</td></tr><tr><td>+ ENVIRONMENT TUNING</td><td>36.92 (+29.92)</td><td>50.33 (+41.00)</td><td>40.33 (+31.00)</td><td>29.33 (+23.00)</td><td>27.67 (+24.67)</td></tr><tr><td>Llama-3.1-8B-Instruct</td><td>5.48</td><td>6.15</td><td>6.80</td><td>3.20</td><td>5.75</td></tr><tr><td>+ ToolRL</td><td>11.25 (+5.77)</td><td>9.00 (+2.85)</td><td>10.00 (+3.20)</td><td>9.00 (+5.80)</td><td>17.00 (+11.25)</td></tr><tr><td>+ ENVIRONMENT TUNING</td><td>28.25 (+22.77)</td><td>28.20 (+22.05)</td><td>25.85 (+19.05)</td><td>22.15 (+18.95)</td><td>36.80 (+31.05)</td></tr><tr><td>ToolACE-2-Llama-3.1-8B</td><td>37.99</td><td>48.85</td><td>34.15</td><td>25.20</td><td>43.75</td></tr><tr><td>+ ToolRL</td><td>33.75 (-4.24)</td><td>46.00 (-2.85)</td><td>29.00 (-5.15)</td><td>22.00 (-3.20)</td><td>38.00 (-5.75)</td></tr><tr><td>+ ENVIRONMENT TUNING</td><td>47.18 (+9.19)</td><td>55.20 (+6.35)</td><td>38.15 (+4.00)</td><td>38.20 (+13.00)</td><td>57.15 (+13.40)</td></tr><tr><td>watt-tool-8B</td><td>35.74</td><td>45.85</td><td>33.15</td><td>25.20</td><td>38.75</td></tr><tr><td>+ ToolRL</td><td>42.00 (+6.26)</td><td>55.00 (+9.15)</td><td>35.00 (+1.85)</td><td>31.00 (+5.80)</td><td>47.00 (+8.25)</td></tr><tr><td>+ ENVIRONMENT TUNING</td><td>54.34 (+18.50)</td><td>64.15 (+18.30)</td><td>48.15 (+15.00)</td><td>40.20 (+15.00)</td><td>64.85 (+26.10)</td></tr></table>",
+        "bbox": [
+            174,
+            146,
+            820,
+            393
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "4 EXPERIMENT",
+        "text_level": 2,
+        "bbox": [
+            171,
+            452,
+            320,
+            467
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "4.1 EXPERIMENT SETTINGS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            481,
+            380,
+            494
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Benchmark. Our primary evaluations are conducted on the multi-turn subset of the Berkeley Function-Calling Leaderboard (BFCL) V3 (Patil et al., 2025b). This benchmark comprises a total of 800 samples, divided equally into four challenging splits: Base, Missing Functions, Missing Parameters, and Long-Context. More specifically, we construct a training set of 400 samples by selecting 100 from each split. The remaining 400 samples serve as our held-in test set to evaluate in-distribution performance. For out-of-distribution (OOD) evaluation, we use the BFCL V4 web search and memory tracks (Patil et al., 2025b), τ<sup>2</sup>-bench (Barres et al., 2025) and ACEBench Agent split (Chen et al., 2025a) as our held-out test set. Notably, our training set (BFCL V3) is confined to closed-domain API calls, while our OOD benchmarks introduce entirely distinct domains and capabilities. This clear separation ensures a rigorous evaluation of generalization. A detailed description of these benchmarks and their evaluation methodologies is available in Section E.1.",
+        "bbox": [
+            169,
+            503,
+            828,
+            672
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Models. To comprehensively evaluate our approach, we categorize the models used in our experiments into three groups.",
+        "bbox": [
+            169,
+            685,
+            828,
+            714
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "• Base models: These are the open-source models upon which we apply ENVIRON-MENT TUNING method. We select Qwen2.5-7B-Instruct (Qwen et al., 2025) and Llama-3.1-8B-Instruct (Grattafiori et al., 2024) as our primary base models. As successfully applying reinforcement learning to Llama-based models has proven difficult (Zeng et al., 2025; Wang et al., 2025b; Gandhi et al., 2025), we also include two SFT-tuned versions of Llama 3.1-8B-Instruct: ToolACE-2-Llama-3.1-8B (Liu et al., 2024) and watt-tool-8B<sup>1</sup>. Using these SFT-tuned models as base models allows us to demonstrate the general applicability of ENVIRONMENT TUNING on models that are already strong in tool use.",
+        "bbox": [
+            174,
+            717,
+            828,
+            828
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "• Open-source baselines: To contrast our environment-centric RL approach with prevailing datadriven methods, we compare against four state-of-the-art SFT-tuned models: Arch-Agent-7B<sup>2</sup>, xLAM-2-8b-fc-r (Prabhakar et al., 2025), and BitAgent-8B<sup>3</sup>. As discussed in Section 2, these models are representative of the dominant data synthesis paradigm to handle data scarcity issue (C1).",
+        "bbox": [
+            176,
+            828,
+            828,
+            871
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "page_footnote",
+        "text": "<sup>1</sup>https://huggingface.co/watt-ai/watt-tool-8B",
+        "bbox": [
+            191,
+            882,
+            588,
+            896
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "page_footnote",
+        "text": "<sup>2</sup>https://huggingface.co/katanemo/Arch-Agent-7B",
+        "bbox": [
+            191,
+            895,
+            602,
+            910
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "page_footnote",
+        "text": "<sup>3</sup>https://huggingface.co/BitAgent/BitAgent-8B",
+        "bbox": [
+            191,
+            910,
+            584,
+            924
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "page_number",
+        "text": "7",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "table",
+        "img_path": "images/85518ff965c113a56c19335cd59a5b72757bc619b28a32c4978e3fe86362d7d9.jpg",
+        "table_caption": [
+            "Table 2: OOD Generalization performance on BFCL $\\mathbf { V } 4 , \\tau ^ { 2 } .$ -bench, and ACEBench Agent benchmarks. All results are compared against the Llama-3.1-8B-Instruct base model. Blue text indicates a performance improvement over the base model, while orange text indicates a performance degradation. Models trained with ENVIRONMENT TUNING (rows in blue) show consistent improvements, whereas SFT baselines (rows in red) often underperform the base model on these OOD tasks. Scores for xLAM on the Retail and Airline domains are grayed out as it was trained on the original τ-bench, making them invalid for OOD evaluation."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td rowspan=\"2\">Model</td><td colspan=\"3\">BFCL V4</td><td colspan=\"4\"> $\\tau^2$ -bench</td><td colspan=\"3\">ACEBench Agent</td></tr><tr><td>Avg. (%)</td><td>Web Search (%)</td><td>Memory (%)</td><td>Avg. (%)</td><td>Retail (%)</td><td>Airline (%)</td><td>Telecom (%)</td><td>Avg. (%)</td><td>Multi-turn (%)</td><td>Multi-step (%)</td></tr><tr><td>xLAM-2-8b-fc-r</td><td>9.17</td><td>5.00</td><td>13.33</td><td>36.67</td><td>57.50</td><td>40.00</td><td>12.50</td><td>1.65</td><td>0.00</td><td>3.33</td></tr><tr><td>BitAgent-8B</td><td>7.41</td><td>4.50</td><td>10.32</td><td>10.00</td><td>7.50</td><td>15.00</td><td>7.50</td><td>5.00</td><td>10.00</td><td>0.00</td></tr><tr><td>Llama-3.1-8B-Instruct</td><td>8.46</td><td>1.00</td><td>15.91</td><td>20.00</td><td>2.50</td><td>30.00</td><td>27.50</td><td>1.65</td><td>0.00</td><td>3.33</td></tr><tr><td>+ ToolRL</td><td>11.52</td><td>11.00</td><td>12.04</td><td>21.67</td><td>10.00</td><td>25.00</td><td>30.00</td><td>1.65</td><td>0.00</td><td>3.33</td></tr><tr><td>+ ENVIRONMENT TUNING</td><td>16.53</td><td>15.00</td><td>18.06</td><td>21.67</td><td>5.00</td><td>30.00</td><td>30.00</td><td>4.17</td><td>5.00</td><td>3.33</td></tr><tr><td>ToolACE-2-Llama-3.f-8B</td><td>15.90</td><td>9.00</td><td>22.80</td><td>10.83</td><td>10.00</td><td>15.00</td><td>7.50</td><td>8.34</td><td>10.00</td><td>6.67</td></tr><tr><td>+ ToolRL</td><td>18.91</td><td>9.00</td><td>28.82</td><td>14.17</td><td>5.00</td><td>30.00</td><td>7.50</td><td>6.65</td><td>3.30</td><td>10.00</td></tr><tr><td>+ ENVIRONMENT TUNING</td><td>16.79</td><td>14.00</td><td>19.57</td><td>20.83</td><td>20.00</td><td>30.00</td><td>12.50</td><td>15.00</td><td>10.00</td><td>20.00</td></tr><tr><td>watt-tool-8B</td><td>8.67</td><td>4.00</td><td>13.33</td><td>13.33</td><td>15.00</td><td>20.00</td><td>5.00</td><td>2.50</td><td>5.00</td><td>0.00</td></tr><tr><td>+ ToolRL</td><td>13.12</td><td>1.50</td><td>24.73</td><td>11.67</td><td>12.50</td><td>15.00</td><td>7.50</td><td>9.15</td><td>3.30</td><td>15.00</td></tr><tr><td>+ ENVIRONMENT TUNING</td><td>13.68</td><td>8.00</td><td>19.35</td><td>15.83</td><td>20.00</td><td>20.00</td><td>7.50</td><td>7.50</td><td>0.00</td><td>15.00</td></tr></table>",
+        "bbox": [
+            174,
+            183,
+            821,
+            292
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            189,
+            303,
+            823,
+            330
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "• Proprietary models: To benchmark against the absolute state-of-the-art, we include leading proprietary models such as Claude Sonnet 4 (Anthropic, 2025), GPT-4o (Hurst et al., 2024), Gemini $2 . 5 \\mathrm { ~ \\textit ~ { ~ P ~ r ~ o ~ } ~ }$ (Comanici et al., 2025), and o3 (OpenAI, 2025b). These models serve as a reference for top-tier performance.",
+        "bbox": [
+            176,
+            330,
+            826,
+            388
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Agent training. For agent training, we employ an adapted version of the Group-Relative Policy Optimization (GRPO) algorithm (Shao et al., 2024), enhanced with a decoupled clipping mechanism and a KL-divergence penalty to ensure stable and effective exploration; full implementation details are provided in Section E.2. As a baseline, we also implement ToolRL (Qian et al., 2025), which applies the GRPO algorithm directly with a reward function of $R _ { \\mathrm { f o r m a t } } + R _ { \\mathrm { c o r r e c t } } .$ , where $R _ { \\mathrm { c o r r e c t } }$ measures the correctness of tool calls.",
+        "bbox": [
+            169,
+            397,
+            826,
+            482
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "4.2 MAIN RESULTS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            494,
+            323,
+            510
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Results on multi-turn tool use. Our method demonstrates substantial effectiveness in the indistribution, multi-turn tool use scenarios presented in BFCL V3. As shown in Table 1, ENVIRON-MENT TUNING yields significant performance gains across all base models.",
+        "bbox": [
+            169,
+            516,
+            826,
+            560
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "• Significant performance uplift from scratch. When applied directly to base models, ENVIRON-MENT TUNING proves to be a highly effective training paradigm that consistently works across different model architectures. For instance, it boosts Qwen2.5-7B-Instruct’s score from 7.00% to 36.92%, surpassing two strong baselines (BitAgent-8B and Arch-Agent-7B) and the proprietary Gemini 2.5 Pro model.",
+        "bbox": [
+            176,
+            561,
+            826,
+            631
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "• Effective enhancement of SFT-tuned models. Our method also serves as a powerful online refinement tool for models that have already undergone SFT. On ToolACE-2-Llama-3.1-8B, a model built upon the RL-challenging Llama architecture, ENVIRONMENT TUNING still provides a significant improvement (9.19%). This elevates its performance to 47.18%, surpassing the proprietary Gemini 2.5 Pro model. Similarly, on watt-tool-8B, ENVIRONMENT TUNING achieves an impressive 18.50% improvement, boosting performance from 35.74% to 54.34%, which exceeds most proprietary models including o3 and GPT-4o.",
+        "bbox": [
+            176,
+            631,
+            826,
+            729
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "• Superiority over direct RL. Our method consistently and substantially outperforms the ToolRL baseline. While ToolRL alone yields only modest gains and can be unstable on SFT-tuned models (e.g., degrading ToolACE-2-Llama-3.1-8B’s performance by −4.24%), ENVIRONMENT TUNING delivers much larger improvements across the board (e.g., +29.92% on Qwen2.5-7B-Instruct and +9.19% on ToolACE-2-Llama-3.1-8B), underscoring the necessity of our curriculum and environment augmentations for effective learning.",
+        "bbox": [
+            176,
+            728,
+            826,
+            813
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Results on OOD agentic tasks. One strength of ENVIRONMENT TUNING lies in its ability to foster robust generalization, which we evaluate on the OOD benchmarks from BFCL ${ \\mathrm { V } } 4 , \\tau ^ { 2 }$ -bench, and ACEBench Agent (Table 2). The results reveal a clear distinction between ENVIRONMENT TUNING and supervised fine-tuning on trajectories.",
+        "bbox": [
+            169,
+            823,
+            826,
+            880
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "• Superior generalization over SFT baselines. The limitations of overfitting to static datasets become evident here. Both SFT baselines exhibit a dramatic performance collapse on the OOD Web Search task, with even the top-performer, xLAM-2 (70.50% on BFCL V3), dropping to just 5.00%. This pattern persists across diverse OOD benchmarks, which underscores a critical weakness in training solely on synthetic trajectories.",
+        "bbox": [
+            174,
+            882,
+            826,
+            925
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "page_number",
+        "text": "8",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "chart",
+        "img_path": "images/281493055cf8965b488a66b0634e625f1b5f415606a174a2960f5dfe45d26e77.jpg",
+        "content": "",
+        "chart_caption": [
+            "(a) Ablation study for environment augmentation.",
+            "(b) Ablation study for progress reward.",
+            "Figure 4: Training dynamics comparison for ENVIRONMENT TUNING on Qwen2.5-7B-Instruct. (a) The effect of Actionable Environment Augmentation on learning stability and performance across different data splits. (b) The impact of fine-grained Progress Reward versus binary reward on training effectiveness, showing the critical role of dense reward signals in complex multi-turn scenarios."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            176,
+            103,
+            818,
+            273
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            187,
+            366,
+            825,
+            393
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "• ENVIRONMENT TUNING fosters robust generalization. In contrast to the SFT baselines, our method demonstrates superior generalization by training agents through direct environmental interaction. For instance, ENVIRONMENT TUNING transforms Llama-3.1-8B-Instruct, which performs poorly on the Web Search task (1.00%), into a strong performer at 15.00%, showcasing its ability to teach general problem-solving principles rather than dataset-specific patterns.",
+        "bbox": [
+            176,
+            393,
+            826,
+            464
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "• Enhances generalization of already proficient models. Our method can also patch the generalization gaps left by SFT. The base ToolACE-2 model already shows decent OOD performance (9.00% on Web Search), far exceeding other baselines. Yet, ENVIRONMENT TUNING further enhances its capability, increasing its score to 14.00%, demonstrating that interactive learning is crucial for building truly adaptable agents. This enhancement extends to ACEBench Agent, where ENVIRONMENT TUNING boosts ToolACE-2’s average score from 8.34% to 15.00%.",
+        "bbox": [
+            176,
+            464,
+            826,
+            547
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "• Advantage over direct RL on complex OOD tasks. Our framework demonstrates stronger and more stable generalization than the ToolRL baseline, particularly on complex benchmarks like ACEBench and τ<sup>2</sup>-bench. For instance, on ACEBench Agent, ENVIRONMENT TUNING lifts ToolACE-2-Llama-3.1-8B’s score from 8.34% to 15.00%, whereas direct RL causes a performance drop to 6.65%. This highlights that our curriculum and augmentations are key to fostering robust, generalizable capabilities not achieved by direct RL alone.",
+        "bbox": [
+            176,
+            547,
+            826,
+            631
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "4.3 ABLATION STUDY",
+        "text_level": 2,
+        "bbox": [
+            171,
+            643,
+            343,
+            657
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Effect of structured curriculum. To isolate the impact of our four-stage curriculum, we conduct an ablation study comparing our full method against two baselines on the Qwen2.5- 7B-Instruct model: (1) the base pre-trained model, and (2) a direct GRPO training baseline. For this baseline, the agent is trained on the full 400-sample dataset from the start using a combined reward function of $0 . 9 \\cdot R _ { P } + 0 . 1 \\cdot R _ { \\mathrm { f o r m a t } } ,$ without changing all other hyperparameters. As shown in Table 3, directly applying RL yields minimal gains, highlighting the “coldstart” problem where the agent fails to learn",
+        "bbox": [
+            169,
+            662,
+            486,
+            844
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "table",
+        "img_path": "images/70502fce2009fd5969f521ca00fd42a1fa1ad4a8b19a97231c3b7c86cca922d3.jpg",
+        "table_caption": [
+            "Table 3: Effectiveness of the structured curriculum on Qwen2.5-7B. Performance comparison across different training stages, showing how each stage contributes to overall improvement. Abbreviations: M. Func = Missing Functions, M. Param = Missing Parameters, L. Ctxt = Long-Context."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td rowspan=\"2\">Training Stage</td><td colspan=\"5\">BFCL V3 Multi Turn</td></tr><tr><td>Avg.</td><td>Base</td><td>M. Func</td><td>M. Param</td><td>L. Ctxt</td></tr><tr><td>Qwen2.5-7B-Instruct</td><td>7.00</td><td>9.33</td><td>9.33</td><td>6.33</td><td>3.00</td></tr><tr><td>+ GRPO</td><td>17.42</td><td>20.00</td><td>24.67</td><td>14.67</td><td>10.33</td></tr><tr><td>+ Stage 1</td><td>15.50</td><td>19.00</td><td>22.33</td><td>9.33</td><td>11.33</td></tr><tr><td>+ Stage 2</td><td>25.83</td><td>32.00</td><td>33.67</td><td>20.00</td><td>17.67</td></tr><tr><td>+ Stage 3</td><td>32.00</td><td>44.67</td><td>34.33</td><td>25.33</td><td>23.67</td></tr><tr><td>+ Stage 4 (ours)</td><td>36.92</td><td>50.33</td><td>40.33</td><td>29.33</td><td>27.67</td></tr></table>",
+        "bbox": [
+            500,
+            750,
+            821,
+            837
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "effectively. In contrast, our curriculum provides a clear and steady improvement path. Each stage brings varying degrees of improvement, ultimately boosting the final performance to 36.92%, a 19.50% increase over the direct GRPO baseline.",
+        "bbox": [
+            169,
+            843,
+            825,
+            886
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Effect of actionable environment augmentation. To validate the contribution of our Actionable Environment Augmentation, we conduct an ablation study comparing training dynamics with and without the augmented feedback mechanism. As illustrated in Figure 4a, the augmented environment provides crucial learning signals that enable the agent to navigate complex scenarios more effectively.",
+        "bbox": [
+            169,
+            895,
+            826,
+            925
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            173,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "page_number",
+        "text": "9",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            104,
+            826,
+            133
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "• The augmented environment consistently leads to more stable learning curves across all data splits, particularly in the challenging Missing Parameters and Missing Functions scenarios.",
+        "bbox": [
+            176,
+            133,
+            825,
+            175
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "• For the Missing Parameters and Missing Functions splits, Environment Augmentation brings substantial performance improvements of over 20%, demonstrating its critical role in enabling effective learning on these complex, ambiguous tasks.",
+        "bbox": [
+            176,
+            176,
+            826,
+            219
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "Effect of fine-grained progress reward. We also conduct an ablation study to verify the effectiveness of our fine-grained Progress Reward $( R _ { P } )$ against a standard binary reward. As shown in Figure 4b, the impact of the reward design varies significantly with task complexity:",
+        "bbox": [
+            171,
+            228,
+            826,
+            271
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "• During Stage 2, which focuses on the Base data, the performance difference is subtle, suggesting that a simple binary signal is sufficient for foundational tasks.",
+        "bbox": [
+            176,
+            272,
+            825,
+            301
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "• However, as the curriculum progresses to more complex splits in Stage 3, the necessity of a denser reward becomes starkly evident. For the Missing Parameters and Missing Functions splits, the binary reward leads to complete trainingfailure, with performance close to zero, as the sparse signal provides no incentivefor the necessary exploratory actions.",
+        "bbox": [
+            176,
+            300,
+            825,
+            356
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "• Meanwhile, on the Long Context split, our Progress Reward leads to substantially more stable and effective learning.",
+        "bbox": [
+            176,
+            354,
+            825,
+            383
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "5 CONCLUSION",
+        "text_level": 2,
+        "bbox": [
+            173,
+            398,
+            321,
+            414
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "In this work, we proposed ENVIRONMENT TUNING, a novel training paradigm for multi-turn, toolaugmented agents under extreme data scarcity. By shifting the focus from trajectory imitation to environment-driven exploration, and combining a structured curriculum, actionable environment augmentation, and fine-grained progress rewards, our method enables agents to learn stably and generalize from only 400 problem instances without expert demonstrations. Experiments on BFCL show that ENVIRONMENT TUNING not only yields substantial in-distribution improvements but also significantly enhances out-of-distribution generalization, outperforming several strong supervised baselines. We believe this environment-centric approach offers a promising direction for developing robust, adaptable agents in realistic, resource-limited settings. Our work also opens several exciting avenues for future research, including the development of automated mechanisms for curriculum and feedback generation and the extension of ENVIRONMENT TUNING to more complex, multi-modal agentic scenarios.",
+        "bbox": [
+            169,
+            425,
+            826,
+            594
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "page_number",
+        "text": "10",
+        "bbox": [
+            488,
+            946,
+            509,
+            960
+        ],
+        "page_idx": 9
+    }
+]

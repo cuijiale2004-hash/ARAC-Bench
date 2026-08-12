@@ -1,0 +1,2569 @@
+[
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "ABSTRACT"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                450,
+                635,
+                547,
+                651
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The choice of initial noise strongly affects quality and prompt alignment in video diffusion; different seeds for the same prompt can yield drastically different results. While recent methods use externally designed priors (e.g., frequency filtering or inter-frame smoothing), they often overlook internal model signals that indicate inherently preferable seeds. To address this, we propose ANSE (Active Noise Selection for Generation), a model-aware framework that selects high-quality seeds by quantifying attention-based uncertainty. At its core is BANSA (Bayesian Active Noise Selection via Attention), an acquisition function that measures entropy disagreement across multiple stochastic attention samples to estimate model confidence and consistency. For efficient inference-time deployment, we introduce a Bernoulli-masked approximation of BANSA that estimates scores from a single diffusion step and a subset of informative attention layers. Experiments across diverse text-to-video backbones demonstrate improved video quality and temporal coherence with marginal inference overhead, providing a principled and generalizable approach to noise selection in video diffusion. See our project page: https://anse-project.github.io/anse-project/."
+                    }
+                ]
+            },
+            "bbox": [
+                228,
+                666,
+                769,
+                891
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "<sup>†</sup>First and corresponding author, this work was done while the author was at Samsung Research."
+                    }
+                ]
+            },
+            "bbox": [
+                192,
+                909,
+                761,
+                924
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "1"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                949,
+                503,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/72446a9aea1dd234e75f0530f898b7ee83df8c901ee7cef4e53e17263924cb99.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 2: Conceptual comparison of noise initialization. (a) Prior methods (Wu et al., 2024; Yuan et al., 2025) refine noise via frequency priors and full diffusion sampling, leading to high cost. (b) Our method instead selects noise seeds by estimating attention-based uncertainty at the first denoising step, enabling efficient, model-aware selection."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                207,
+                101,
+                789,
+                239
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "1 INTRODUCTION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                173,
+                318,
+                338,
+                334
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Diffusion models have rapidly established themselves as a powerful class of generative models, demonstrating state-of-the-art performance across images and videos (Rombach et al., 2022; Esser et al., 2024; Xie et al., 2024; Chen et al., 2024b;a; Wang et al., 2025; Yang et al., 2024; Zheng et al., 2024; Team, 2025). In particular, Text-to-Video (T2V) diffusion models have received increasing attention for their ability to generate temporally coherent and visually rich video sequences. To achieve this, most T2V model architectures extend Text-to-Image (T2I) diffusion backbones by incorporating temporal modules or motion-aware attention layers (Blattmann et al., 2023; He et al., 2022; Wang et al., 2023; Chen et al., 2023; 2024a; Guo et al., 2024b; Wang et al., 2025). Furthermore, other works explore video generative structures, such as causal autoencoders or video autoencoderbased models, which aim to generate full video volumes rather than a sequence of independent frames (Hong et al., 2022; Yang et al., 2024; HaCohen et al., 2024; Kong et al., 2024; Zheng et al., 2024; Team, 2025)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                353,
+                828,
+                521
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Beyond architectural design, another promising direction lies in improving noise initialization at inference time for T2I and T2V generation (Guo et al., 2024a; Eyring et al., 2024; Chen et al., 2024c; Xu et al., 2025). This aligns with the growing trend of inference-time scaling, observed not only in Large Language Models (Brown et al., 2024; Snell et al., 2024) but also in diffusion-based generation systems (Ma et al., 2025). Due to the iterative nature of the diffusion process, the choice of initial noise profoundly influences video quality, temporal consistency, and prompt alignment (Ge et al., 2023; Wu et al., 2024; Qiu et al.; Yuan et al., 2025). As illustrated in Figure 1, the same prompt can lead to drastically different videos depending solely on the noise seed, motivating the need for intelligent noise selection."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                526,
+                826,
+                654
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Recent approaches tackle this by introducing external noise priors. PYoCo (Ge et al., 2023) enforces inter-frame dependent patterns for coherence but requires heavy fine-tuning. FreeNoise (Qiu et al.) reschedules noise across time with a fusion strategy, FreeInit (Wu et al., 2024) preserves lowfrequency components via frequency filtering, and FreqPrior (Yuan et al., 2025) extends this with Gaussian-shaped priors and partial sampling. While effective, these methods rely on external priors and repeated full diffusion passes, while ignoring internal model signals that identify inherently preferable seeds."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                659,
+                826,
+                758
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To address this limitation, we propose a model-aware noise selection framework, ANSE (Active Noise Selection for Generation), grounded in Bayesian uncertainty. At the core of ANSE is BANSA (Bayesian Active Noise Selection via Attention), an acquisition function that identifies noise seeds inducing confident and consistent attention behaviors under stochastic perturbations. A conceptual comparison between our method and prior frequency-based approaches is illustrated in Figure 2, highlighting the difference between external priors and model-informed uncertainty estimates."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                763,
+                826,
+                849
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Unlike BALD (Gal et al., 2017), which estimates uncertainty from classification logits, BANSA measures entropy in attention maps, arguably the most informative signals in diffusion. It compares the mean of per-pass entropies with the entropy of the mean map, capturing both uncertainty and cross-pass disagreement. A lower BANSA score indicates more confident, consistent attention and empirically correlates with more coherent video generation (Fig. 1). To make BANSA inferencefriendly, we approximate it with Bernoulli-masked attention, yielding multiple stochastic attention samples from a single forward pass. We further cut cost by evaluating early denoising steps and only a subset of informative layers selected via correlation analysis. Our contributions are threefold:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                854,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "2"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                825,
+                147
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• We present ANSE, the first active noise selection framework for video diffusion, grounded in a Bayesian formulation of attention-based uncertainty."
+                    }
+                ]
+            },
+            "bbox": [
+                215,
+                156,
+                825,
+                186
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• We introduce BANSA, an acquisition function that measures attention consistency under stochastic perturbations, enabling model-aware noise selection without retraining."
+                    }
+                ]
+            },
+            "bbox": [
+                215,
+                189,
+                825,
+                218
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• Our method improves video quality and temporal consistency across diverse text-to-video backbones, with only marginal inference overhead."
+                    }
+                ]
+            },
+            "bbox": [
+                215,
+                220,
+                825,
+                250
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2 PRELIMINARY"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                268,
+                326,
+                285
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Video Diffusion Models Diffusion models (Ho et al., 2020; Song et al., 2021b) have achieved strong results across generative tasks. In T2V, pixel-space diffusion is costly, so most video diffusion models adopt latent diffusion and operate in a compressed latent space. A video autoencoder with encoder "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { E }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and decoder D reconstructs x as "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { x } = \\mathcal { D } ( \\mathcal { E } ( \\mathbf { x } ) )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Let "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\bf z } _ { 0 } = \\mathcal { E } ( { \\bf x } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "). The forward diffusion then progressively adds noise over time:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                299,
+                825,
+                371
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathbf {z} _ {t} = \\sqrt {\\bar {\\alpha} _ {t}} \\mathbf {z} _ {0} + \\sqrt {1 - \\bar {\\alpha} _ {t}} \\boldsymbol {\\epsilon}, \\quad \\boldsymbol {\\epsilon} \\sim \\mathcal {N} (0, \\mathbf {I}), \\quad t = 1, \\ldots , T,",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/9ea0ef66686c4061e7219a426a7b947b8c20f0b9cfd211efc4bc80cb62b043b5.jpg"
+                }
+            },
+            "bbox": [
+                300,
+                375,
+                694,
+                391
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\bar { \\alpha } _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is a pre-defined variance schedule. To learn the reverse process, a denoising network "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\epsilon _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is trained using the denoising score matching loss (Vincent, 2011):"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                395,
+                823,
+                424
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {L} _ {\\theta} = \\mathbb {E} _ {\\mathbf {z} _ {t}, \\epsilon , t} \\left[ \\left\\| \\boldsymbol {\\epsilon} _ {\\theta} (\\mathbf {z} _ {t}, \\mathbf {c}, t) - \\boldsymbol {\\epsilon} \\right\\| ^ {2} \\right],",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/9ff7ce9f0fdfa16c9024c8076e7598c42ca3f48a30e9fef07740f93c73da1edf.jpg"
+                }
+            },
+            "bbox": [
+                380,
+                429,
+                616,
+                454
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where c is the conditioning text. Sampling starts from Gaussian noise "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { z } _ { T } \\sim \\mathcal { N } ( 0 , \\mathbf { I } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and uses a deterministic DDIM solver (Song et al., 2021a). Each step updates as:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                459,
+                825,
+                488
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathbf {z} _ {t - 1} = \\sqrt {\\bar {\\alpha} _ {t}} \\hat {\\mathbf {z}} _ {0} (t) + \\sqrt {1 - \\bar {\\alpha} _ {t - 1}} \\boldsymbol {\\epsilon} _ {\\theta} (\\mathbf {z} _ {t}, \\mathbf {c}, t),",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/0dc2d852f7cfc3349e122b900c77eb4134a13bb645625be0ced307b41a917c08.jpg"
+                }
+            },
+            "bbox": [
+                346,
+                493,
+                647,
+                510
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where the denoised latent estimate "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\begin{array} { r } { \\hat { \\mathbf { z } } _ { 0 } ( t ) : = \\frac { \\mathbf { z } _ { t } - \\sqrt { 1 - \\bar { \\alpha } _ { t } } \\epsilon _ { \\theta } ( \\mathbf { z } _ { t } , \\mathbf { c } , t ) } { \\sqrt { \\bar { \\alpha } _ { t } } } } \\end{array}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is obtained using Tweedie’s formula (Efron, 2011; Kim & Ye, 2021). This iterative process continues until "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "t = 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", yielding the final denoised latent "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { z } _ { 0 } ."
+                    },
+                    {
+                        "type": "text",
+                        "content": ", which is decoded into a video via D."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                517,
+                826,
+                566
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Bayesian Active Learning by Disagreement (BALD) Active learning selects the most informative samples from an unlabeled pool to improve training. Acquisition functions are commonly uncertaintybased (Houlsby et al., 2011; Gal et al., 2017; Kirsch et al., 2019; Yoo & Kweon, 2019) or distributionbased (Mac Aodha et al., 2014; Yang et al., 2015; Sener & Savarese, 2017; Sinha et al., 2019), and some use external modules such as auxiliary predictors (Yoo & Kweon, 2019; Tran et al., 2019; Kim et al., 2021). While most prior work targets image classification, we adapt uncertainty-based acquisition to text-to-video generation without additional models."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                579,
+                826,
+                678
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Predictive entropy is widely used, but it reflects data noise and does not isolate parameter uncertainty. BALD instead measures epistemic uncertainty via the mutual information between predictions y and parameters θ:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                683,
+                826,
+                726
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathrm{BALD} (\\mathbf {x}) = \\mathcal {H} [ p (\\mathbf {y} | \\mathbf {x}) ] - \\mathbb {E} _ {p (\\theta | \\mathcal {D} _ {U})} \\left[ \\mathcal {H} [ p (\\mathbf {y} | \\mathbf {x}, \\theta) ] \\right],\\tag{1}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/196c59e12d3cbf92482aac4178a93d23cc0318e57aef2381c1bf80228cbecfd2.jpg"
+                }
+            },
+            "bbox": [
+                325,
+                729,
+                671,
+                748
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\begin{array} { r } { \\mathcal { H } [ p ] = - \\sum _ { y } p ( y ) } \\end{array}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "log p(y) is Shannon entropy (Shannon, 1948). The first term is the entropy of the mean prediction, and the second is the average entropy across stochastic forward passes. A high BALD score means predictions are confident yet disagree, indicating high epistemic uncertainty. Since the posterior over θ is intractable, BALD is approximated using K stochastic forward passes (e.g., Monte Carlo dropout):"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                751,
+                826,
+                825
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\widehat {\\mathrm{BALD}} (\\mathbf {x}) = \\mathcal {H} \\left[ \\frac {1}{K} \\sum_ {k = 1} ^ {K} p ^ {(k)} (\\mathbf {y} | \\mathbf {x}) \\right] - \\frac {1}{K} \\sum_ {k = 1} ^ {K} \\mathcal {H} \\left[ p ^ {(k)} (\\mathbf {y} | \\mathbf {x}) \\right].\\tag{2}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/cbf6cd28d7f964f5040d0dba7a260b2240d27f1127b55419c74f22b3672155d2.jpg"
+                }
+            },
+            "bbox": [
+                290,
+                828,
+                704,
+                871
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We reinterpret BALD for inference-time generative modeling. Rather than selecting samples for labeling, we apply BALD to rank noise seeds by their epistemic uncertainty. Selecting seeds with lower BALD scores results in more stable model behavior and leads to higher-quality generations."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                881,
+                825,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "3"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/da9ed95a3923c0186cff4519c6403dc46de4056a2abb8e82997872fd0e9005af.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 3: Overview of our BANSA-based noise selection process. Given a text prompt "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "c ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": "we compute BANSA scores for multiple noise seeds "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\left\\{ \\mathbf { z } _ { 1 } , \\dots , \\mathbf { z } _ { M } \\right\\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "using Bernoulli-masked attention maps from selected layers at an early diffusion step. The seed with the lowest score, indicating confident and consistent attention, is selected for generation."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                269,
+                101,
+                720,
+                306
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3 METHODS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                381,
+                294,
+                397
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We propose ANSE, a framework for selecting high-quality noise seeds in T2V diffusion based on model uncertainty (Fig. 2). ANSE centers on BANSA, an acquisition function that transfers uncertainty criteria from classification to the attention space of generative diffusion models (Sec. 3.1). For efficient inference, we approximate BANSA via Bernoulli-masked attention sampling (Sec. 3.2). To avoid redundancy, we select a representative attention layer using correlation-based linear probing (Sec. 3.3). The full pipeline appears in Fig. 3."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                411,
+                826,
+                497
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.1 BANSA: BAYESIAN ACTIVE NOISE SELECTION VIA ATTENTION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                512,
+                663,
+                527
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We introduce BANSA, an acquisition function for selecting optimal noise seeds in T2V diffusion. Unlike classifiers with explicit predictive distributions, diffusion models do not expose such outputs, so we estimate uncertainty in the attention space where text and visual tokens align during generation. We treat attention maps as stochastic predictions conditioned on the seed z, prompt c, and timestep t. BANSA measures both disagreement and confidence across multiple attention samples, providing a BALD-style uncertainty criterion tailored to the generative setting."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                537,
+                826,
+                623
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Definition 1 (BANSA Score). Let z be a noise seed, c a text prompt, and t a diffusion timestep. Let "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { Q } ( \\mathbf { z } , c , t ) , \\mathbf { K } ( \\mathbf { z } , c , t ) \\in \\mathbb { R } ^ { N \\times d }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denote the query and key matricesfrom a denoising network "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\epsilon _ { \\theta } ."
+                    },
+                    {
+                        "type": "text",
+                        "content": ". The attention map is computed as:"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                626,
+                825,
+                667
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "A (\\mathbf {z}, c, t) := S o f t m a x \\left(\\mathbf {Q} (\\mathbf {z}, c, t) \\mathbf {K} (\\mathbf {z}, c, t) ^ {\\top}\\right) \\in \\mathbb {R} ^ {N \\times N}.\\tag{3}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/d8d3850983030d5868d9f0e14a86673a6546c21da3aed411c07cebd8d55b38be.jpg"
+                }
+            },
+            "bbox": [
+                305,
+                672,
+                692,
+                691
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Let "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { A } ( \\mathbf { z } , c , t ) = \\{ A ^ { ( 1 ) } , \\ldots , A ^ { ( K ) } \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denote a set ofK stochastic attention maps obtained viaforward passes with random perturbations (e.g., Bernoulli masking). The BANSA score is defined as:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                705,
+                825,
+                734
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "B A N S A (\\mathbf {z}, c, t) := \\mathcal {H} \\left(\\frac {1}{K} \\sum_ {k = 1} ^ {K} A ^ {(k)}\\right) - \\frac {1}{K} \\sum_ {k = 1} ^ {K} \\mathcal {H} (A ^ {(k)}),\\tag{4}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/84559e90bb7f2761476ef47f1e196517194a45e5eeaa9ba8a871ccf4d20b10ed.jpg"
+                }
+            },
+            "bbox": [
+                307,
+                739,
+                687,
+                782
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\begin{array} { r } { \\mathcal { H } ( A ) : = \\frac { 1 } { N } \\sum _ { i = 1 } ^ { N } \\sum _ { j = 1 } ^ { N } - A _ { i j } } \\end{array}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "log "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "A _ { i j }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". This formulation captures both the sharpness (confidence) and the consistency (agreement) of attention behavior. BANSA can be applied to various attention types (e.g., cross-, self-, or temporal) and allows layer-wise interpretability."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                796,
+                826,
+                843
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Given a noise pool "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { Z } = \\{ \\mathbf { z } _ { 1 } , \\dotsc , \\mathbf { z } _ { M } \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", we select the optimal noise seed that minimizes score:"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                848,
+                790,
+                863
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathbf {z} ^ {*} := \\arg \\min _ {\\mathbf {z} \\in \\mathcal {Z}} \\operatorname{BANSA} (\\mathbf {z}, c, t).\\tag{5}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/694e6cd1751185f6e1cb3e10abdf0b45f3c33f5d3e3ec3710bedf3efc1c5d1e5.jpg"
+                }
+            },
+            "bbox": [
+                390,
+                868,
+                602,
+                890
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "A desirable property of BANSA is that its score becomes zero when all attention samples are identical, reflecting complete agreement and certainty. We formalize this as follows:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                895,
+                826,
+                924
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "4"
+                    }
+                ]
+            },
+            "bbox": [
+                491,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "algorithm",
+            "content": {
+                "algorithm_caption": [],
+                "algorithm_content": [
+                    {
+                        "type": "text",
+                        "content": "Algorithm 1: Active Noise Selection with BANSA Score for Video Generation\nInput: Text prompt c, noise pool   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "Z = \\{z_{1}, \\ldots, z_{M}\\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": " , timestep t, cutoff layer   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "d^{*}"
+                    },
+                    {
+                        "type": "text",
+                        "content": " \n\n1 foreach   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "z_{i} \\in Z"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  do\n\n2 Compute BANSA score:   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\widehat{\\text{BANSA-E}_{\\leq d^{*}}(z_{i}, c, t)}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  via Eq. (7);\n\n3 Select optimal noise:   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "z^{*} = \\arg \\min_{z_{i}} \\widehat{\\text{BANSA-E}_{\\leq d^{*}}(z_{i}, c, t)}"
+                    },
+                    {
+                        "type": "text",
+                        "content": " ;\n\n4 return Generate video:   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat{v} = \\text{SampleVideo}(z^{*}, c, t)"
+                    },
+                    {
+                        "type": "text",
+                        "content": " ;"
+                    }
+                ]
+            },
+            "bbox": [
+                156,
+                104,
+                823,
+                210
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Proposition 1 (BANSA Zero Condition). Let "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { A } ( { \\bf z } , c , t ) = \\left\\{ A ^ { ( 1 ) } , \\ldots , A ^ { ( K ) } \\right\\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "be a set of rowstochastic attention maps. Then:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                237,
+                826,
+                267
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "B A N S A (\\mathbf {z}, c, t) = 0 \\quad \\Leftrightarrow \\quad A ^ {(1)} = \\dots = A ^ {(K)}.",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/ade4a53d7243e61e291b29ca8da7177ea48b8b0c8b5e7763ad3b366967c55ae9.jpg"
+                }
+            },
+            "bbox": [
+                336,
+                268,
+                658,
+                287
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The proof is deferred to the Appendix B. This result implies that minimizing the BANSA score encourages attention that is both confident and consistent under stochastic perturbations. Empirically, low BANSA correlates with better prompt alignment, temporal coherence, and visual fidelity. Thus, BANSA provides a principled, model-aware criterion for noise selection in T2V."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                297,
+                826,
+                356
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.2 STOCHASTIC APPROXIMATION OF BANSA VIA BERNOULLI-MASKED ATTENTION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                369,
+                785,
+                385
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "While BANSA is principled for noise selection, computing it with K independent passes per seed z is costly. We instead draw K stochastic attention samples from a single pass via Bernoulli-masked attention. Rather than running K passes, we inject stochasticity directly into the attention scores. For each "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "k = 1 , \\ldots , K"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", sample a binary mask "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathop { m _ { k } } ^ { \\prime } \\in \\{ 0 , 1 \\} ^ { N \\times N }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "i.i.d. from Bernoulli(p) and compute masked attention map, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat { A } ^ { ( k ) } ( { \\mathbf { z } } , c , t ) : = A ( { \\mathbf { z } } , c , t ) \\odot \\dot { m _ { k } } ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": "⊙ denotes element-wise multiplication and rows are re-normalized. Using these K such samples, we define the approximate BANSA:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                396,
+                826,
+                484
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathrm{BANSA-E} (\\mathbf {z}, c, t) := \\mathcal {H} \\left(\\frac {1}{K} \\sum_ {k = 1} ^ {K} \\hat {A} ^ {(k)} (\\mathbf {z}, c, t)\\right) - \\frac {1}{K} \\sum_ {k = 1} ^ {K} \\mathcal {H} (\\hat {A} ^ {(k)} (\\mathbf {z}, c, t)).\\tag{6}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/e42fda9bc70f623b9336e8bf7fb78a4b43a16ccc28bd7c83326a774f43c004b1.jpg"
+                }
+            },
+            "bbox": [
+                248,
+                486,
+                746,
+                529
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "By concavity of entropy, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\tt B A N S A - E } \\geq 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Although approximate, it efficiently captures attention-level epistemic uncertainty and serves as a practical surrogate for model-aware noise selection. <sup>†</sup> As shown in Table 4, experimental validation confirms that this method is sufficient for selecting optimal noisy samples from the model’s perspective."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                537,
+                826,
+                595
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.3 LAYER SELECTION VIA CUMULATIVE BANSA CORRELATION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                609,
+                645,
+                625
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "BANSA can be computed at any layer, but behavior differs across depth. Using all layers is costly, so we truncate at the smallest depth "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "d ^ { * }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "where the average BANSA up to d remains highly correlated with the full-layer score. Given a noise seed "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { z } _ { i } \\in \\mathcal { Z } = \\left\\{ \\mathbf { z } _ { 1 } , \\ldots , \\mathbf { z } _ { M } \\right\\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and L attention layers, we compute per-layer scores BANSA- "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { - E } ^ { ( l ) } ( \\mathbf { z } _ { i } , c , t )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and define the cumulative average up to layer d as:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                636,
+                825,
+                696
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\widehat {\\mathrm{BANSA}} - \\mathrm{E} _ {\\leq d} (\\mathbf {z} _ {i}, c, t) := \\frac {1}{d} \\sum_ {l = 1} ^ {d} \\mathrm{BANSA} - \\mathrm{E} ^ {(l)} (\\mathbf {z} _ {i}, c, t).\\tag{7}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/9809631086ec5bf1cd8a8991710905632b9585dcd197f39cacdc46d95c032e25.jpg"
+                }
+            },
+            "bbox": [
+                316,
+                699,
+                676,
+                739
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To find "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "d ^ { * }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", we compute the Pearson correlation (Pearson, 1895) between the partial average "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\widetilde { \\mathbf { B A N S A - E } } _ { < d }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and the full-layer average "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\widehat { \\mathbf { B } \\mathrm { A N S A } } \\mathbf { - } \\mathbf { E } _ { \\leq L }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and choose the smallest "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "d"
+                    },
+                    {
+                        "type": "text",
+                        "content": "such that Corr "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\cdot \\Bigl ( { \\tt B A N S A - E } _ { \\leq d } , { \\tt B A N S A - E } _ { \\leq L } \\Bigr ) \\geq \\tau"
+                    },
+                    {
+                        "type": "text",
+                        "content": "We validate this procedure using 100 prompts and 10 noise seeds across all evaluated models as detailed in Appendix D. As shown in Figure 7, the correlation quickly stabilizes at a moderate depth, allowing us to select "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "d ^ { * }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "without using all layers. We then define the BANSA score as "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\widehat { \\mathbf { B A N S A - E } } _ { \\leq d ^ { * } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to guide noise selection, as summarized in Algorithm 1. With "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "d ^ { * }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "fixed per model, it adds no runtime cost, and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\widehat { \\mathbf { B A N S A - E } } _ { \\leq d ^ { * } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "(truncated layer) consistently matches the full-layer score and robustly preserves generation quality across models, confirming its reliability as a practical surrogate as shown Appendix D and E (see detail)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                744,
+                826,
+                891
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "<sup>†</sup>We use “Bayesian” in the sense of epistemic uncertainty estimation, following BALD (Houlsby et al., 2011), rather than a full posterior derivation."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                896,
+                826,
+                924
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "5"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4 ANALYSIS OF BANSA-SELECTED NOISE"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                102,
+                550,
+                119
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this section, we aim to investigate the property of noise seeds selected by BANSA, and consist of three experiments which declare our framework and interpret the noise seeds. Our framework does not seek a universal “golden” seed, but selects the most suitable one for each prompt by minimizing uncertainty. The effectiveness of a noise seed is therefore prompt-dependent: a seed that improves one prompt may degrade another."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                133,
+                826,
+                205
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Experiment 1: Cross-Prompt Behavior. To demonstrate this prompt-dependent behavior, We select a high-BANSA (worst-performing) seed from prompt A and applied it to prompts B and C (Table 1) and measures Subject and Background Consistency. The seed degraded quality for prompt C but improved performance for prompt B, con-"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                212,
+                503,
+                310
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/8e6d55e153da6c858a3729954b37e8ca876205abdb057762b9fa7cf6c9c31bcb.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 1: Cross-prompt evaluation of a high-BANSA seed from A."
+                    },
+                    {
+                        "type": "text",
+                        "content": "firming that noise effectiveness depends on prompt context rather than intrinsic seed quality."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>From</td><td>To</td><td>Subject.</td><td>BackGround</td></tr><tr><td>A</td><td>B</td><td>0.8491→0.8703</td><td>0.9157→0.9538</td></tr><tr><td>A</td><td>C</td><td>0.7683→0.7213</td><td>0.9368→0.9169</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                509,
+                244,
+                831,
+                301
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "While Experiment 1 shows how noise effectiveness varies across prompts, the following two experiments examine whether similar patterns also emerge within afixed prompt."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                330,
+                826,
+                359
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Table 2: Pairwise distances within attentionExperiment 2: Intra-Prompt Attention Consismaps.tency. To examine whether BANSA uncertainty re-"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                361,
+                823,
+                390
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "lates to attention stability, we generate five samples per prompt (total 100 prompts), selected the highest- Type High (intra) Low (intra) Cross and lowest-scoring seeds, and computed pairwise Eu- Euclid. 1.635 1.567 1.735 clidean distances between their attention maps (Ta-"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                391,
+                823,
+                444
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "ble 2). Low-BANSA seeds showed smaller intra-group distances, indicating more stable and consistent patterns, while high-BANSA seeds exhibited higher variability."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                444,
+                826,
+                474
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Table 3: Latent stability and visual dy-Experiment 3: Latent Trajectory and Expressiveness. namics.Beyond attention maps, we further investigate latent-space"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                481,
+                826,
+                511
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/c6bf751a3b926c5d8b58bda1e3699cb2b8fa761ded85d7d90dcca3dea12629e1.jpg"
+                },
+                "table_caption": [],
+                "table_footnote": [],
+                "html": "<table><tr><td>Group</td><td>Traj. Var. ↓</td><td>Var. ↑</td></tr><tr><td>High BANSA</td><td>52.34</td><td>0.041</td></tr><tr><td>Low BANSA</td><td>51.07</td><td>0.053</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                566,
+                515,
+                813,
+                568
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "nents (Wu et al., 2024; Yuan et al., 2025) and computing their temporal variation, where lower values indicate smoother and more stable trajectories; and (2) Intra-frame Variance, the average spatial variance within frames, where higher values indicate richer dynamic expressiveness. Low-BANSA seeds showed both lower trajectory variation and higher intra-frame variance, combining temporal stability with more expressive video generation."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                578,
+                826,
+                650
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Takeaway and Relation to Prior Work. The three findings indicate that BANSA identifies seeds with lower uncertainty, leading to (1) prompt-specific improvements, (2) more stable attention, and (3) smoother yet more expressive latent dynamics. This is consistent with FreeInit Wu et al. (2024) and FreeQPrior (Yuan et al., 2025), which emphasize stable latent initialization and low-frequency structure. BANSA complements these insights by offering an uncertainty-driven selector that explains why such seeds generalize within a prompt while remaining prompt-dependent across prompts."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                662,
+                826,
+                750
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5 EXPERIMENTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                768,
+                328,
+                784
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Experimental Setting. We evaluate ANSE on diverse T2V diffusion backbones—AnimateDiff (Guo et al., 2024b), CogVideoX-2B/5B (Yang et al., 2024), Wan2.1 (Team, 2025), and Hunyuan-Video (Kong et al., 2024). To rigorously evaluate our method, we follow each model’s official sampling protocol; for resolution, Wan2.1 is evaluated at 480p and HunyuanVideo at 360p due to resource limits. Results for noise-prior refinement baselines (FreqPrior (Yuan et al., 2025)) are reported only on AnimateDiff, as they lack official support on the others and incur ∼3× inference time. ANSE is orthogonal and can be combined with these priors. Unless noted, we use a noise pool of M=10 with K=10 stochastic passes per seed, and Bernoulli-masked attention with p=0.2. All experiments run on NVIDIA H100 GPUs. Further details are in the Appendix C."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                799,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "6"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/a68fbc90ec36ac681c701eaeacf696581aa2cade1abb18110e0a01a304a42dc6.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 4: Quantitative results on VBench using AnimateDiff, CogVideoX-2B and -5B."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Backbone Model</td><td>Method</td><td>Quality Score</td><td>Semantic Score</td><td>Total Score</td><td>Inference Time</td></tr><tr><td rowspan=\"4\">AnimateDiff (Guo et al., 2024b)</td><td>Vanilla</td><td>80.22</td><td>69.03</td><td>77.98</td><td>28.23s</td></tr><tr><td>+ Ours</td><td>81.66</td><td>71.09</td><td>79.33</td><td> $31.33s_{(+10.98\\%)}$ </td></tr><tr><td>Freqprior</td><td>81.22</td><td>70.45</td><td>79.07</td><td> $58.01_{(+105.36\\%)}$ </td></tr><tr><td>+ Ours</td><td>82.23</td><td>73.23</td><td>80.43</td><td> $61.12s_{(+5.36\\%)}$ </td></tr><tr><td rowspan=\"2\">CogVideoX-2B (Yang et al., 2024)</td><td>Vanilla</td><td>82.08</td><td>76.83</td><td>81.03</td><td>247.8s</td></tr><tr><td>+ Ours</td><td>82.56</td><td>78.06</td><td>81.66</td><td> $269.3s_{(+8.67\\%)}$ </td></tr><tr><td rowspan=\"2\">CogVideoX-5B (Yang et al., 2024)</td><td>Vanilla</td><td>82.53</td><td>77.50</td><td>81.52</td><td>667.3s</td></tr><tr><td>+ Ours</td><td>82.70</td><td>78.10</td><td>81.71</td><td> $754.1s_{(+13.1\\%)}$ </td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                241,
+                128,
+                746,
+                263
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/0f9d0e1e56e5236b87eb73e834a6c6fa8150dc3744f4e6585c798669f5874969.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 5: Quantitative results on quality score metrics for HunyuanVideo and Wan2.1"
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Backbone Model</td><td>Method</td><td>Subject Consistency ↑</td><td>Background Consistency ↑</td><td>Motion Smoothness ↑</td><td>Aesthetic Quality ↑</td><td>Imaging Quality ↑</td><td>Temporal Flickering ↑</td><td>Inference Time ↓</td></tr><tr><td rowspan=\"2\">Hunyuan Video (Kong et al., 2024)</td><td>Vanilla</td><td>0.9562</td><td>0.9656</td><td>0.9850</td><td>0.6276</td><td>0.6137</td><td>0.9921</td><td>52.3s</td></tr><tr><td>+ Ours</td><td>0.9612</td><td>0.9661</td><td>0.9858</td><td>0.6268</td><td>0.6151</td><td>0.9938</td><td> ${59.8}{\\mathrm{\\;s}}_{\\left( +{14.34}\\% \\right) }$ </td></tr><tr><td rowspan=\"2\">Wan2.1 (Team, 2025)</td><td>Vanilla</td><td>0.9562</td><td>0.9656</td><td>0.9850</td><td>0.6276</td><td>0.6137</td><td>0.9943</td><td>43.8s</td></tr><tr><td>+ Ours</td><td>0.9612</td><td>0.9661</td><td>0.9858</td><td>0.6268</td><td>0.6151</td><td>0.9956</td><td> ${50.7}{\\mathrm{\\;s}}_{\\left( +{15.75}\\% \\right) }$ </td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                238,
+                290,
+                754,
+                354
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Evaluation Metric. We evaluate with VBench (Huang et al., 2024), which reports a quality score and a semantic score, combined into a total score on a 0–100 scale. For AnimateDiff and CogVideoX 2B/5B, we report both quality and semantic scores. For HunyuanVideo and Wan2.1, we restrict evaluation to the six quality dimensions due to computational constraints, while noting that semantic evaluation can also be applied in principle. All reported results are obtained by repeating each evaluation dimension five times and averaging the scores."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                366,
+                826,
+                450
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Quantitative Comparison. As shown in Table 4, ANSE consistently improves performance across diverse T2V backbones. On AnimateDiff, ANSE outperforms the vanilla baseline and further demonstrates clear advantages over noise-initialization methods such as FreqPrior (Yuan et al., 2025)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                455,
+                826,
+                500
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Notably, ANSE is also fully compatible with FreqPrior, achieving even higher scores when combined. Table 4 also reports results on CogVideoX-2B and -5B, which adopt the more advanced MMDiT architecture. ANSE improves quality, semantic, and total VBench scores on both scales, demonstrating robust generalization across architectures and model sizes."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                505,
+                828,
+                563
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Table 5 presents additional results on recent state-of-the-art models, HunyuanVideo and Wan2.1. ANSE achieves consistent improvements across quality metrics, underscoring its plug-and-play applicability to a wide spectrum of video diffusion models—from U-Net to MMDiT, and from midscale to the latest state-of-the-art systems. The statistical signicanse analysis of these are provied in Appendix J."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                569,
+                555,
+                667
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/fa7f1b9eb94d3f9d36f417fe72f705e9b08f3fdb9d67c1fa26e856ad2c7a662e.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 6: Comparison with FVMD met rics on MSRVTT dataset."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Backbone Model</td><td>Methods</td><td>FVMD ↓</td></tr><tr><td>HunyuanVideo (Kong et al., 2024)</td><td>Vanilla + Ours</td><td>17641.1916491.68</td></tr><tr><td>Wan2.1(1.3B) (Team, 2025)</td><td>Vanilla + Ours</td><td>16495.5914306.19</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                589,
+                601,
+                792,
+                671
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We further evaluate motion quality using the Fréchet Video Motion Distance (FVMD) (Liu et al., 2024) on MSR-VTT (Xu et al., 2016), as shown in Table 6. We sample 200 text prompts from the test split and generate videos with ANSE, using the corresponding real videos as the reference distribution. ANSE consistently obtains lower FVMD scores, indicating improved motion fidelity and reinforcing the motion-related gains observed in VBench."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                672,
+                826,
+                744
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Qualitative Comparison. Figure 4 presents representative qualitative comparisons on CogVideoX-2B, CogVideoX-5B, and Wan2.1 with and without ANSE. Our approach consistently enhances semantic fidelity, motion realism, and visual clarity across diverse prompts. For example, in separate prompts such as \"exploding\" and \"descends gracefully\", ANSE captures critical semantic transitions—generating visible explosions in the former and preserving smooth temporal continuity in the latter. In other prompts like \"koala playing the piano\" and \"tasting beer\", it produces anatomically coherent bodies with natural, expressive motion. These examples highlight ANSE’s ability to improve spatial-temporal fidelity while generalizing effectively to large-scale video diffusion models. Additional qualitative results, including other backbones, are provided in Appendix L."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                750,
+                828,
+                877
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Computational Cost. As shown in Table 4 and Table 5, ANSE introduces only a minimal increase in inference time while delivering consistent quality gains. On AnimateDiff, inference time increases by just +10.98%, compared to more than +105% when combined with FreqPrior and over +200% “A vibrant, water-filled balloon hanas suspended in mid-air ggginst a dark backdrop. ... Suddenlu, a pin pierces the balloon, and in extreme slow motion, the rubber exploding apart, creating a mesmerizing cascade of water droplets...\""
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                881,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "7"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                256,
+                204,
+                738,
+                219
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/ecd74cedd6ac607c9c881e343052b701907bc2a1ebb7a13d33ae4cb55ff6071e.jpg"
+                },
+                "content": "",
+                "image_caption": [],
+                "image_footnote": [
+                    {
+                        "type": "text",
+                        "content": "\"In a magical forest bathed in dappled sunlight, a charming koala bear sits at a grand piano, its furry paws gently pressing the keus. The kogla, with its soft areu fur and expressive eues, wears a tinu bow tie, gdding a whimsical touch...\""
+                    },
+                    {
+                        "type": "text",
+                        "content": "\"A bearded man in his thirties, wearing a plaid shirt and jeans, sits at a rustic wooden bar, surrounded by an array of beer taps and vintage brewery decor. He carefullu lifts a frostu pint glass filled with amber beer...\""
+                    },
+                    {
+                        "type": "text",
+                        "content": "\"A colossal, hyper-realistic spaceship descends gracefully onto the rugged Martian surface, its sleek metallic hull reflecting the crimson hues of the planet. Dust and small rocks scatter as the landing thrusters engage, creating a dramatic cloud..'"
+                    }
+                ]
+            },
+            "bbox": [
+                253,
+                103,
+                741,
+                551
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Figure 4: Qualitative comparison with and without ANSE. (CogvideoX-2B, 5B and Wan2.1). With ANSE, videos exhibit improved visual quality, better text alignment, and smoother motion transitions compared to the baseline. White numbers show BANSA scores for the same prompt."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                574,
+                825,
+                617
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "for FreeInit. On CogVideoX models, the overhead is similarly small: +8% on the 2B variant and +13% on the 5B variant. For more recent architectures, ANSE adds only +14% on HunyuanVideo and +15% on Wan2.1. The overhead comes only from seed evaluation and leaves the sampling process and memory usage unchanged. In contrast, FreeInit and FreqPrior require multiple full passes, causing large slowdowns. ANSE improves quality across diverse backbones while keeping inference overhead below +15%, making it a practical plug-and-play solution for video diffusion."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                633,
+                826,
+                719
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "6 ABLATION STUDY"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                739,
+                359,
+                756
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Comparison of Acquisition Functions. Using CogVideoX-2B, we compare BANSA with random sampling, entropy-based selection, and two variants: BANSA (B) with Bernoulli masking and BANSA (D) with dropout-based stochasticity (Table 7). All methods improve over the baseline, but BANSA (B) consistently achieves the best scores across quality, semantic, and total metrics. This suggests that Bernoulli masking better captures attention-level uncertainty than dropout, underscoring the importance of modeling uncertainty in line with the model’s structure."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                777,
+                826,
+                863
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Effect of Ensemble Size K. We investigate how the number of stochastic forward passes K influences subject and background consistency (Table 8). Both metrics improve as K increases from 1 to 10, indicating that larger ensembles provide more reliable noise evaluation. Performance saturates at K = 10, which we set as the default in all experiments."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                867,
+                825,
+                924
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "8"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/849cf15749875bdfb193d5944ec258d075af0c15e31d9bac28e058d355491415.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 7: Comparison of different acquisition functions for noise selection."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Method</td><td>Quality Score</td><td>Semantic Score</td><td>Total Score</td></tr><tr><td>Random</td><td>82.08</td><td>76.83</td><td>81.03</td></tr><tr><td>Entropy</td><td>82.23</td><td>76.73</td><td>81.13</td></tr><tr><td>BANSA (D)</td><td>82.43</td><td>76.91</td><td>81.33</td></tr><tr><td>BANSA (B)</td><td>82.56</td><td>78.06</td><td>81.66</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                194,
+                135,
+                467,
+                193
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/787a39fe61d515170f61b4cfc4608f3733a7be15dc40f568e0dec2da5c0206b6.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 8: Effect of varying the number of K."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>K</td><td>Subject Consistency</td><td>Background Consistency</td></tr><tr><td>1</td><td>0.9618</td><td>0.9788</td></tr><tr><td>3</td><td>0.9623</td><td>0.9793</td></tr><tr><td>5</td><td>0.9632</td><td>0.9798</td></tr><tr><td>7</td><td>0.9638</td><td>0.9802</td></tr><tr><td>10</td><td>0.9641</td><td>0.9811</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                531,
+                122,
+                800,
+                193
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/a76e75a6a5306544e579e098af52dca9084a97a8db9d4615cb57a01d2ba660af.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 9: Quantitative comparison of reversed BANSA scoring on CogVideoX-2B. This presents results when selecting samples using the highest BANSA scores, compared to the default selection."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Method</td><td>Subject Consistency</td><td>Background Consistency</td><td>Temporal Flickering</td><td>Motion Smoothness</td><td>Aesthetic Quality</td><td>Imaging Quality</td><td>Dynamic Degree</td><td>Quality Score</td></tr><tr><td>Vanilla</td><td>0.9616</td><td>0.9788</td><td>0.9715</td><td>0.9743</td><td>0.6195</td><td>0.6267</td><td>0.6380</td><td>82.08</td></tr><tr><td>+ Ours (reverse)</td><td>0.9626</td><td>0.9785</td><td>0.9700</td><td>0.9741</td><td>0.6181</td><td>0.6253</td><td>0.6328</td><td>81.93</td></tr><tr><td>+ Ours</td><td>0.9641</td><td>0.9811</td><td>0.9775</td><td>0.9746</td><td>0.6202</td><td>0.6276</td><td>0.6511</td><td>82.56</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                254,
+                237,
+                738,
+                292
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/4433dc0cd41efff8e0b7558ab9b46c22e5e4a6cd4cdc4457efd4e02e87f37945.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 10: Component analysis of Bernoulli masking parameters on Wan2.1 1.3B."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Backbone Model</td><td>Bernoulli p</td><td>Subject Consistency ↑</td><td>Motion Smoothness ↑</td><td>Aesthetic Quality ↑</td><td>Imaging Quality ↑</td><td>Overall Consistency ↑</td></tr><tr><td rowspan=\"5\">Wan2.1 1.3B</td><td>0.0</td><td>0.9254</td><td>0.9751</td><td>0.6464</td><td>0.6459</td><td>0.2731</td></tr><tr><td>0.2</td><td>0.9310</td><td>0.9786</td><td>0.6559</td><td>0.6516</td><td>0.2763</td></tr><tr><td>0.5</td><td>0.9308</td><td>0.9779</td><td>0.6543</td><td>0.6533</td><td>0.2727</td></tr><tr><td>0.7</td><td>0.9302</td><td>0.9778</td><td>0.6557</td><td>0.6529</td><td>0.2726</td></tr><tr><td>1.0</td><td>0.9232</td><td>0.9753</td><td>0.6451</td><td>0.6508</td><td>0.2721</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                254,
+                320,
+                735,
+                416
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/ef252a2a0f127f940d3570733dcedf70139d28e3d4d0eb99ec766bdf9a98731a.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 11: Quantitative evaluation on the IPOC-2B after post-training and Wan2.1 14B model."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Backbone Model</td><td>Method</td><td>Subject Consistency ↑</td><td>Background Consistency ↑</td><td>Temporal Flickering ↑</td><td>Motion Smoothness ↑</td><td>Aesthetic Quality ↑</td><td>Imaging Quality ↑</td><td>Dynamic Degree ↑</td></tr><tr><td rowspan=\"2\">IPOC-2B</td><td>Vanilla</td><td>0.9273</td><td>0.9535</td><td>0.9918</td><td>0.9741</td><td>0.6554</td><td>0.664</td><td>0.7527</td></tr><tr><td>+ Ours</td><td>0.9281</td><td>0.9534</td><td>0.9921</td><td>0.9745</td><td>0.6561</td><td>0.6644</td><td>0.7721</td></tr><tr><td rowspan=\"2\">Wan2.1 14B</td><td>Vanilla</td><td>0.9290</td><td>0.9587</td><td>0.9931</td><td>0.9759</td><td>0.6572</td><td>0.6552</td><td>0.5916</td></tr><tr><td>+ Ours</td><td>0.9302</td><td>0.9596</td><td>0.9938</td><td>0.9772</td><td>0.6601</td><td>0.6529</td><td>0.6277</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                254,
+                444,
+                736,
+                511
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Effect of Noise Pool Size M. We analyze the effect of noise pool size M, which controls the diversity of candidate seeds in BANSA. Larger M improves the chance of finding high-quality seeds but increases inference cost. As shown in Figure 8 (Appendix), performance saturates around M = 10 for CogVideoX-2B and -5B, which we adopt as the default for each model."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                520,
+                826,
+                578
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Reversing the BANSA Criterion. To further validate BANSA, we conduct a control experiment where the noise seed with the highest BANSA score is selected—i.e., choosing the seed associated with the greatest model uncertainty. As shown in Table 9, this reversal results in degradation of quality-related metrics, confirming that lower BANSA scores are predictive of perceptually stronger generations and supporting the validity of our selection strategy."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                582,
+                826,
+                655
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Effect of Bernoulli masking probability p. We conduct a sensitivity analysis on the Bernoulli masking probability p using the Wanx 2.1 (1.3B) model. As shown in Table 10, both disabling masking (p = 0) and fully random masking (p = 1) degrade performance, indicating that the masking probability has a meaningful impact on the results. The method remains stable within the intermediate range p ∈ [0.2, 0.7], where overall performance varies only slightly. Among these configurations, p = 0.2 delivers the best performance, which supports our choice of the default setting."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                669,
+                826,
+                753
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Evaluation on strong video backbones and post-RL models. We further evaluate our method on stronger settings, including the large-capacity Wan2.1 14B backbone and the post-trained IPOC-2B model. IPOC-2B is refined with a DPO-related preference alignment method (Yang et al., 2025), making it a competitive post-RL baseline. As shown in Table 11, our method consistently improves over the vanilla models across most VBench dimensions, demonstrating generalization to larger architectures and robustness under preference-aligned post-RL training."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                768,
+                826,
+                854
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "User Study. We conducted a human preference study in which evaluators compared paired videos generated with and without our method along two criteria: overall quality and text–video alignment. As shown in Fig. 5 (a), our method is consistently preferred on both aspects, indicating improvements in perceptual quality and semantic alignment. The details are provided in Appendix K."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                867,
+                828,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "9"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/f95a89b670a8f19e18f0f635cbb56f4d914125ddd70c529b1617f37d195f41b6.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                171,
+                99,
+                357,
+                224
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/0c68afb46e4b3928af4761a331b7a46081b970d68572e264c096344bb1a2ab8c.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                359,
+                102,
+                521,
+                224
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/67f12db49b2bac49fcec5b26b8bb456f6517c9385f1bef45e16c2589958282ec.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                517,
+                103,
+                671,
+                224
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/e21a7e25a03702be668fc41c036bb9884fa86527ec8d642fa50dafb1d248720b.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 5: (a) User study showing consistent human preference for our method in overall quality and text–video alignment. (b) Correlation analysis where BANSA scores exhibit strong negative trends with key VBench metrics, indicating that lower scores correspond to higher-quality generations."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                669,
+                103,
+                823,
+                224
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/7535af18774e0920339c66eca3b6f8175526aec92a415333b8f954208baa159d.jpg"
+                },
+                "content": "",
+                "image_caption": [],
+                "image_footnote": [
+                    {
+                        "type": "text",
+                        "content": "A majestic chestnut horse with a flowing mane stands at the edge of a crystal-clear river, ... The sunlight filters through the trees, casting a golden glow on the scene. The horse gracefully bends its neck, its reflection shimmering in the gentle ripples of the water."
+                    }
+                ]
+            },
+            "bbox": [
+                254,
+                292,
+                740,
+                393
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Figure 6: Failure case and limitation of our method. Although the BANSA score indicates low uncertainty, the resulting video still contains unnatural content. This represent a limitation of ours: we select optimal seeds but do not alter the generation process itself."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                412,
+                826,
+                457
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Analysis on correlation with actual quality. We examined how BANSA scores relate to quality by sampling diverse prompts and noise inputs and visualizing their score–quality trends in Fig. 5(b). Pearson correlations show strong negative relationships with Subject Consistency (–0.6672), Background Consistency (–0.7492), and Motion Smoothness (–0.6769), indicating that lower BANSA scores reliably associate with higher-quality and more stable generations."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                476,
+                826,
+                549
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "7 DISCUSSION AND LIMITATIONS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                574,
+                468,
+                590
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Our method focuses on noise–seed selection based on model uncertainty, which introduces several limitations. As shown in Figure 6, even seeds with low BANSA scores may still produce unnatural results because ANSE does not modify the subsequent sampling process. Moreover, BANSA captures uncertainty at the attention level, which does not fully account for semantic or aesthetic quality. Although evaluating multiple candidates with stronger quality metrics could reduce this gap, such an approach is computationally prohibitive. A promising direction for future work is to integrate ANSE with post-training refinement methods—such as Self-Forcing (SF) (Huang et al., 2025)—that directly enhance sample quality. Notably, ANSE already works effectively with post-RL refinement methods like IPoC, and extending this compatibility to SF represents a natural next step. Such combinations may yield complementary gains in both quality and robustness beyond seed selection alone."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                609,
+                826,
+                752
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "8 CONCLUSION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                173,
+                777,
+                321,
+                792
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We present ANSE, a framework for active noise selection in video diffusion models. At its core is BANSA, an acquisition function that leverages attention-derived uncertainty to identify noise seeds yielding confident, consistent attention and thus higher-quality generations. BANSA adapts the BALD principle to the generative setting by operating in attention space, with efficient deployment enabled through Bernoulli-masked attention and lightweight layer selection. Experiments across multiple T2V backbones show that ANSE improves video quality and prompt alignment with minimal inference overhead. This introduces an inference-time scaling paradigm, enhancing generation not by altering the model or sampling steps, but through informed seed selection."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                811,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "10"
+                    }
+                ]
+            },
+            "bbox": [
+                488,
+                948,
+                509,
+                960
+            ]
+        }
+    ]
+]

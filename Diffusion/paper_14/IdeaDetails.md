@@ -1,0 +1,73 @@
+**1. Research Background and Existing Pain Points**
+
+**Research Background:** The remarkable progress in text-to-image synthesis, powered by diffusion models, has unlocked unprecedented creative potential. However, generating images from diffusion models requires hundreds of sampling steps to achieve sufficient generation quality. Consequently, a critical frontier of research is not only in training more powerful models, but also in enhancing inference in terms of efficiency and controllability without the need for costly retraining. A cornerstone of controlling the generation process at inference time is classifier-free guidance (CFG), which has become the de facto standard in image generation. CFG provides a mechanism to amplify the influence of the text prompt, allowing to trade diversity for stronger adherence to the conditioning signal via a single guidance scale.
+
+**Existing Pain Points:** The effectiveness of classifier-free guidance (CFG) is limited by the use of static guidance scales. This "one-size-fits-all" approach fails to adapt to the diverse requirements of different prompts during inference. For example, a prompt requiring complex compositional arrangements may need strong guidance for text alignment, whereas a prompt focused on a specific artistic aesthetic might benefit from lower guidance to preserve visual fidelity and diversity. Generating specific, challenging attributes like legible text within an image often responds poorly to standard guidance strengths. This rigidity forces an undesirable compromise, where optimizing for one aspect (e.g., alignment) often degrades another (e.g., aesthetics). Moreover, prior solutions like gradient-based correction or fixed heuristic schedules introduce additional complexities, require manual hyperparameter tuning, and fail to generalize across different model architectures and training regimes.
+
+**2. Core Research Motivation and Scientific Questions**
+
+**Core Research Motivation:** This work challenges the notion of a static guidance scale in diffusion models. The core motivation is the hypothesis that the optimal trade-off between prompt alignment and visual quality is not fixed, but is a dynamic function of the prompt’s content, the current generation stage, and the diffusion model itself. There is a need for a framework that can adaptively select the optimal CFG scale during inference time without increasing the Number of Function Evaluations (NFEs) or requiring costly retraining, thereby overcoming the limitations of static or heuristic schedules that are brittle and model-specific.
+
+**Scientific Questions:** How can we dynamically select the optimal CFG scale during the denoising process tailored specifically to each prompt and its evolving sample? How can we efficiently obtain online feedback at each sampling step to guide this dynamic selection? How can we combine feedback from multiple general-purpose and specialized evaluators that measure distinct generation capabilities (such as alignment, visual quality, text rendering, and numerical reasoning) to achieve fine-grained, multi-faceted control without significant computational overhead? How does the optimal guidance schedule vary depending on the specific requirements of the prompt and the stage of generation?
+
+**3. Overall Core Idea and Design Philosophy**
+
+**Overall Core Idea:** The paper proposes a framework for dynamically optimizing the CFG schedule during generation by leveraging online feedback from a suite of general-purpose and specialized small-scale latent-space evaluators. These evaluators assess generation quality at each step of the reverse diffusion process. Based on this feedback, a greedy search-based optimization is performed at each sampling step to evaluate a discrete set of candidate CFG scales, selecting the one that maximizes a composite score. This procedure generates a unique, dynamic CFG schedule tailored specifically to every prompt and its evolving sample.
+
+**Design Philosophy:** The optimal guidance schedule is inherently dynamic and prompt-dependent. Different properties emerge at different stages of generation; for instance, coarse-grained alignment is established early on, while text legibility and artifact removal are late-stage concerns. Therefore, a static, time-independent weighting of evaluator scores is insufficient. The framework is founded on the principle of employing a dynamic weighting scheme that adjusts the influence of each evaluator according to the current timestep, amplifying an evaluator’s influence at the precise moment its signal becomes meaningful. Furthermore, to ensure efficiency and scalability, evaluators must operate directly on noisy diffusion latents, providing rich feedback with negligible computational overhead (around 1% increase in FLOPs) compared to operating in the pixel space.
+
+**4. Core Innovation Points**
+
+*   **Introduction of a Dynamic CFG Scheduling Framework:** Challenging the static paradigm of classifier-free guidance by introducing a framework that performs a greedy search over multiple CFG scales at each sampling step, selecting the one that maximizes the latent evaluators’ scores. This creates a unique guidance schedule tailored to every prompt and sample.
+*   **Suite of Efficient Latent-Space Evaluators:** Proposing a suite of small-scale, general-purpose, and specialized latent-space evaluators (alignment, visual quality, reward, text rendering, numerical reasoning) that operate directly in the diffusion latent space. This increases the computational requirements during inference by only 1%, in contrast to a 400% increase for a pixel-space equivalent.
+*   **Greedy Search without Increasing NFEs:** Optimizing the final sample quality via a greedy search across timesteps without increasing the Number of Function Evaluations (NFEs). By denoising once to obtain the conditional and unconditional predictions and then cheaply testing multiple CFG scales, the search is performed efficiently.
+*   **Adaptive Evaluators' Weighting Scheme:** Proposing a dynamic weighting scheme that adjusts the influence of each evaluator according to the current denoising timestep, based on detecting a significant change in an evaluator's score across timesteps. This ensures that an evaluator’s influence is amplified at the precise moment its signal becomes meaningful, which is critical for optimal performance.
+*   **Specialized Capability-Specific Evaluators:** Extending the framework with specialized evaluators for text rendering and numerical reasoning, enabling fine-grained, multi-faceted control and significant improvements on capability-specific prompt sets.
+
+**5. Overview of the Overall Technical Solution**
+
+The overall technical solution involves dynamically selecting the optimal CFG scale per timestep given feedback from online latent evaluators. Given a noisy latent sample xt at denoising step t, scores et are computed for evaluating the sample’s quality across specific dimensions using the suite of evaluators. The conditional and unconditional noise predictions are computed once. A greedy search is then performed over a discrete set of CFG scales S = {s1, s2, . . . , sn}. For each scale s, the CFG equation is applied to compute the guided noise prediction, and the corresponding latent xt is evaluated. The scale that maximizes the timestep-conditioned evaluator’s score for the conditioning prompt c is selected for that timestep. To combine feedback from multiple evaluators, an adaptive weighting scheme is used, where the combined score is a sum of individual evaluator scores multiplied by dynamic weights. These dynamic weights are calculated based on the change in the evaluator's score across timesteps, ensuring that evaluators are weighted more heavily when they provide the most meaningful signal. This process repeats for every timestep, resulting in a dynamic, prompt-dependent CFG schedule.
+
+**6. Detailed Module Design**
+
+*   **Alignment Evaluator Module:** This module computes noisy latent CLIP scores as a prediction of final sample alignment. It is initialized from a standard pre-trained CLIP model trained on clean real images and corresponding captions from the WebLI dataset. The embedding layer of the vision encoder is replaced with a randomly initialized one matching the dimensionality of the diffusion encoder (e.g., converting ViT-B/16 to ViT-B/4 for LDM, resulting in a 256 token sequence for a 512x512 image encoded into latents). The model is fine-tuned on image-text pairs after encoding the images into diffusion latents and injecting random noise with a similar time schedule as for the diffusion model training. The vision encoder is conditioned on timestep t, converting CLIP into a time-conditioned encoder. The standard CLIP contrastive objective is used to map noisy latents to text descriptions. Training details include 90k steps, a batch size of 512, a cosine learning rate schedule with linear warm up, no weight decay, and a base learning rate of 5e-5, trained on 64 TPUv5e chips for 1.5 days.
+
+*   **Visual Quality Evaluator Module:** This module computes a score corresponding to the likelihood of an image being real independently of the conditioning prompt c via a noisy latent Discriminator. It is trained to differentiate between real and generated images. The discriminator is initialized from the latent CLIP vision encoder, and a classification head is introduced on top for predicting whether the images are synthetic or real. It is trained on a small set of real vs. generated images from the MSCOCO dataset.
+
+*   **Reward (Human Preference) Evaluator Module:** Similarly to reward modeling, the latent alignment evaluator is further fine-tuned on pairs of generated images for the same prompt given human preference labels that reflect overall preference (aesthetics, alignment, artifacts). To convert pairwise comparisons to scores, the Bradley-Terry (BT) model is used, where CLIP is further optimized according to the BT training objective.
+
+*   **Text Rendering Evaluator Module:** This is a capability-specific evaluator for text rendering. The alignment evaluator is fine-tuned on generated images labeled with scores by an OCR model. A multimodal head is introduced on top of the dual encoder, and the model is trained to predict text rendering specific scores. The evaluator is optimized with an MSE objective against the OCR scores.
+
+*   **Numerical Reasoning Evaluator Module:** This is a capability-specific evaluator for numerical reasoning. The noisy latent CLIP is fine-tuned on a subset of WebLI-100B images filtered to contain countable entities. The model is fine-tuned with the original contrastive objective on the capability-specific dataset (100K re-captioned image-text pairs by Gemini 2.5 Pro for accurate descriptions of object counts).
+
+*   **Dynamic CFG Search Module:** This module performs a greedy search-based optimization at each sampling step to evaluate a discrete set of candidate CFG scales. It selects the scale that maximizes the composite score from the latent evaluators. For each timestep t, it denoises once to obtain the conditional and unconditional predictions, and then cheaply tests multiple CFG scales via the CFG equation. For LDM, the search set is [1, 3, 7.5, 11, 15]. For Imagen 3, the search is extended to a set of 24 discrete CFG values.
+
+*   **Adaptive Evaluators' Weighting Module:** This module combines feedback from general and capability-specific evaluators using a dynamic weighting scheme that adjusts the influence of each evaluator according to the current timestep. The adaptive weight is defined by detecting a significant change in an evaluator's score across timesteps. A time-weighted loss schedule is applied during the training of the reward and text rendering evaluators. A near-zero weight (0.05) is applied during the initial high-noise phase (t > t_min + 1/3 (t_max - t_min)). For the subsequent phase (t <= t_min + 1/3 (t_max - t_min)), the loss weight ramps up exponentially to a maximum of 1 at the final timestep.
+
+**7. All Mathematical Formulas and Symbol Definitions**
+
+*   **Forward Process:** xt = √(αt)x0 + √(1−αt)ϵt, ϵt ∼ N (0, I), where αt ∈ (0, 1) are pre-defined schedule parameters.
+*   **Backward Process Prediction:** x̂0 = (1/√(αt)) (xt − √(1−αt)ϵθ(xt, t)), where ϵθ(xt, t) is the model’s noise prediction.
+*   **Alignment Score:** eCLIP = CLIPvisionxt ∗ CLIPtextc / T
+*   **Visual Quality Score:** eDisc = −log(p(xt|t) / (1−p(xt|t))), where p(xt|t) is the time-conditional probability of image xt to be real on timestep t.
+*   **Reward Probability:** p(i > j|c) = p(i|c) / (p(i|c) + p(j|c)), where p(i|c) and p(j|c) is CLIP similarity between the prompt c and each image i, j in the comparison pair, with i being the preferred one.
+*   **Text Rendering MSE Loss:** MSETR = (1/n) Σ_{i=1}^n (e_i^TR − e_i^OCR)^2, where e_TR, e_OCR are the scores predicted by the latent evaluator and OCR model, respectively.
+*   **Classifier-Free Guidance Equation:** ϵθ(xt|c) = ϵθ(xt|∅) + s(ϵθ(xt|c)− ϵθ(xt|∅)), where θ is the parameters of the diffusion model, c is the condition applied to the diffusion model, and ∅ is an empty sequence used for training the unconditional variant.
+*   **Dynamic CFG Selection:** ŝt = argmax_{s∈S} et(x^s_t, c), where S = {s1, s2, . . . , sn} is a set of CFG scales.
+*   **Adaptive Evaluators' Weighting:** êt = Σ_{e∈E} αe,t ∗ et, where αe,t = (et − et+1) / et+1.
+*   **Time-Weighted Loss Schedule:** 
+    wloss(t) = { 0.05 if t > t_min + 1/3 (t_max − t_min); 0.05 + 0.95 · (e^{k(t−α)/β} − 1) / (e^k − 1) otherwise }
+    where t_max is the timestep corresponding to pure noise, t_min corresponds to clean data, α = 2(t_max − t_min)/3, β = (t_max + 2t_min)/3 and k is a hyper-parameter defining the sharpness of the curve which is set to 5.
+
+**8. Algorithm Pseudocode**
+
+The paper does not provide explicit algorithm pseudocode. The iterative process is described as follows:
+1. For each denoising timestep t from T down to 1:
+2. Obtain conditional noise prediction ϵθ(xt|c) and unconditional noise prediction ϵθ(xt|∅).
+3. For each candidate CFG scale s in the set S = {s1, s2, ..., sn}:
+4. Compute guided noise prediction: ϵθ(xt|c) = ϵθ(xt|∅) + s(ϵθ(xt|c)− ϵθ(xt|∅))
+5. Compute the corresponding latent xt^s.
+6. Evaluate the latent using the suite of evaluators to get scores et.
+7. Apply adaptive weighting to combine the evaluator scores: êt = Σ_{e∈E} αe,t ∗ et.
+8. Select the CFG scale ŝt = argmax_{s∈S} êt that maximizes the combined score.
+9. Proceed to the next timestep using the selected CFG scale ŝt.

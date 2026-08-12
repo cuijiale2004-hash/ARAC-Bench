@@ -1,0 +1,226 @@
+## ABSTRACT
+
+The increasing deployment of powerful Multimodal Large Language Models (MLLMs), typically hosted on cloud platforms, urgently requires effective compression techniques to efficiently transmit signal inputs (e.g., images, videos) from edge devices with minimal bandwidth usage. However, conventional image codecs are optimized for fidelity to serve the Human Visual System (HVS) and illsuited for MLLMs, in which diverse downstream tasks are jointly considered. In this paper, we first systematically analyze the impact of compression artifacts on several mainstream MLLMs. We find that: Compression distortion unevenly impacts different-level image features, leading to varying effects on MLLMs’ downstream tasks depending on theirfeature-level reliance. Motivated by this discovery, we propose an image Codec TAilored to MLLMs (CoTAM) designed to adaptively protect multi-level features and suit different demands of downstream tasks. The encoder leverages CLIP’s shallow-layer attention to generate an importance map for bit allocation, preserving critical semantic regions. Concurrently, the decoder integrates a lightweight adapter with a multi-level loss function to ensure the faithful reconstruction both of low-level details and high-level semantic context for robust synthesis of cross-level features. Extensive experiments validate that our method achieves up to 35.99% bitrate saving while maintaining the same performance on the MLLM tasks, outperforming previous SOTA neural codecs. The code is released at https://github.com/jmliu206/CoTAM.
+
+## 1 INTRODUCTION
+
+The proliferation of MLLMs, such as GPT-4o Hurst et al. (2024), Gemini Team et al. (2023), and LLaVA Liu et al. (2023a), has marked a paradigm shift in artificial intelligence, revolutionizing human-machine interaction, content understanding Li et al. (2023a), and automation Yin et al. (2024). These models possess an insatiable appetite for high-quality visual data Zhu et al. (2025) to fuel their powerful capabilities. As MLLM applications become ubiquitous—from real-time visual question answering on mobile devices to complex scene analysis in cloud-based services—the demand for transmitting and storing image and video data is growing at an explosive rate. This surge creates a critical bottleneck: the conflict between the needfor high-fidelity visual input and the constraints of limited communication bandwidth and storage resources. Consequently, developing highly efficient compression techniques tailored for this new era is not just beneficial but imperative.
+
+However, existing compression techniques are ill-suited for the versatile, open-world nature of MLLMs. Conventional codecs are engineered for the HVS Wallace (1991); He et al. (2022); Li et al. (2024c), while Image Coding for Machine (ICM) methods target specific, narrow computer vision tasks Feng et al. (2022); Chamain et al. (2021). This misalignment leads to inconsistent performance across the diverse capabilities of MLLMs. As illustrated in Fig. 1(a)(b), both methods exhibit erratic performance, excelling in some tasks while failing in others He et al. (2022); Kao et al. (2025). Fundamentally, these approaches do not address the crucial question of how MLLMs holistically perceive and are affected by compression artifacts.
+
+![](images/e9b231b0a54478f5c511a9df1fb4bbadecfc824905f22a8890bc12d8e015e02b.jpg)
+
+To address this gap, our work begins with a systematic investigation into this question. Our analysis reveals a crucial insight: Compression distortion unevenly impacts different-level image features, leading to varying effects on MLLMs’ downstream tasks depending on their feature-level reliance. Specifically, as shown in Fig. 1(c)(d), our analysis reveals that: tasks that rely on either low-level structural features (e.g., large-font OCR) or global high-level semantic features (e.g., overall scene understanding) both demonstrate relatively robust to compressed distortion. In contrast, tasks requiring a synthesis of cross-level features (e.g., counting objects) are highly susceptible, as compression artifacts disrupt the crucial integration of low-level information into a coherent high-level semantic. Motivated by this finding, we introduce an image Codec TAilored to MLLMs (CoTAM). At the encoder, our codec leverages priors from the shallow layers of a pre-trained CLIP model Radford et al. (2021) to guide rate allocation. At the decoder, a lightweight adapter with the reconstruction prior and a multi-level objective function ensures that both low-level fidelity and high-level perception are faithfully restored. This mechanism resolves the conflicting demands of different task types, ensuring the reconstructed output is faithful to the MLLMs’ needs. The main contributions of this work are summarized as follows:
+
+• We first provide a systematic analysis of MLLM performance under compression, revealing how MLLMs are affected by compression distortion.
+
+• We propose CoTAM whose encoder uses lightweight CLIP-based semantic priors for rate allocation while the decoder uses a multi-level loss and adapter with reconstruction priors to preserve multi-level information.
+
+• Our approach achieve significant bitrate savings while delivering consistently high performance across a wide spectrum of MLLM tasks, and also shows compatibility with highresolution and video-based MLLM scenarios.
+
+![](images/0a39e8893dba0d7853062fb2d99536da3930ce71ad5b759fb2c9bad2b9343430.jpg)  
+Figure 1: (a)(b) Performance comparison of compression methods on MME Fu et al. (2023) and MMBench Liu et al. (2024b) under similar bitrates. For MMBench, we report the 10 most affected tasks (largest score drops). Human-centric codec ELIC He et al. (2022) excels on low-level structural tasks (e.g., Large-font OCR) and the ICM method Bridge-d1 Kao et al. (2025) excels on high-level tasks (e.g., landmark identification), while our method consistently outperforms both. (c)(d) Compression distortion (from ELIC) affects tasks differently: Tasks relying on either low-level structural features or coarse high-level semantics (e.g., OCR and scene understanding) tend to be relatively robust, whereas those depending on cross-level features (e.g., counting) suffer more, reflecting a synthesis that fails when corrupted low-level information can no longer be coherently structured by the high-level context. Seeing more benchmarks’ sub-tasks and images in Appendix.
+
+## 2 IMPACT ANALYSIS OF IMAGE DISTORTION ON MLLMS
+
+## 2.1 PRELIMINARIES: THE MLLM PIPELINE
+
+The architecture of mainstream MLLMs Li et al. (2024a); Zhu et al. (2025) comprises three key parts: a vision encoder Radford et al. (2021); Zhai et al. (2023), a projector, and a LLM Bai et al. (2023); Touvron et al. (2023). The vision encoder, often a Vision Transformer (ViT) Han et al. (2022), serves as the model’s “eye”, responsible for transforming an input image into a sequence of vision tokens. These vision tokens are then passed through the projector (e.g., some MLP layers), a lightweight network that maps them into the LLM’s feature space. Finally, the LLM backbone (e.g.,
+
+![](images/4f6e7b5c677d88230e41e14b65f814e209c58575f45babec26caa90b410e9a04.jpg)
+
+![](images/93abcfe91c78e830c2bdb9072331b06d90ee259aaa9cfe7b88d7514f389f09fb.jpg)
+
+Figure 2: How compression affects VQA tasks: while the MLLM’s robust low-level structural and coarse-grained high-level semantic abilities enable it to identify the “strawberry” and “AI”, it fails on tasks demanding fine-grained cross-level information, such as providing an accurate count.  
+![](images/9fa73e3234b258f82573a70f0bf9ccc14d9b2c97d9bd2be91ad9ba649de6bfec.jpg)  
+Figure 3: Information flow across different layers of the vision encoder. According to the flows, we can divide the information processing to three stages as Table 1. In stage 3, a token with high attention no longer represents its own local visual content, but instead transforms into a high-level ‘summary token’ Liu et al. (2025); Li et al. (2023c) responsible for integrating global information.
+
+LLama Touvron et al. (2023), Qwen Team (2024)) processes these projected vision tokens alongside a text prompt to perform cross-modal reasoning and generate the final output.
+
+This work investigates the effects of the compression distortion on the Vision Encoder. Because it serves as the sole gateway for visual information into the MLLM, the quality of its output tokens directly dictates the upper bound on the entire model’s downstream performance. To this end, in this work, we isolate our analysis from the LLM backbone, whose behavior is conditioned on specific textual prompts, in order to derive general conclusions about the visual processing pipeline itself.
+
+## 2.2 EXPLORING THE IMPACT OF IMAGE COMPRESSION DISTORTION TO MLLMS
+
+To design a codec tailored to MLLMs, we must first understand what visual information MLLMs require and how this information acquisition process is affected by compression artifacts.
+
+## 2.2.1 HOW DOES VISUAL INFORMATION FLOW IN MLLMS?
+
+Prior work shows that weak high-level semantic capability in MLLMs induces hallucinations Fu et al. (2023), whereas supplying richer, clearer image details substantially improves performance Liu et al. (2024a). Together, these findings imply that strong MLLMs must exploit both low-level cues and high-level semantics. A scan of mainstream benchmarks (MME Fu et al. (2023), MMBench Liu et al. (2024b), SEED-Bench Li et al. (2023a)) confirms this breadth: tasks span object recognition and counting, spatial reasoning, OCR, compositional inference, and the interpretation of abstract concepts like emotion and intent. The diversity of these tasks also indicates that MLLMs rely on visual information across multiple levels of granularity—from low-level pixel details to high-level semantic abstractions. For example, in Fig. 2, answering “What is the word?” requires low-level structural OCR capabilities, determining “What is this fruit?” demands high-level global semantic reasoning, while the response to “How many strawberries are in this picture?” needs both structural information and global semantics. This raises a pivotal question: how does the vision encoder transform raw pixels into a feature representation that balances both low-level details and highlevel semantics? To investigate this, we analyze the information flow within the vision encoder (CLIP Radford et al. (2021)), inspired by the inflow/outflow methodology of Tong et al. (2025). Specifically, for a self-attention map $\pmb { A } \in \mathbb { R } ^ { N \times N }$ in a given layer, where $A _ { j i }$ denotes the attention from source token i to target token $j ,$ we define two metrics Information Inflow & Outflow to trace the primary information pathways. Inflow $( k ) = \operatorname { a r g m a x } _ { j } A _ { k j }$ , and Outflow(k) = argmax $A _ { i k }$ i
+
+Table 1: The Three-Stage Pattern of Visual Information Processing in the Vision Encoder.
+
+<table><tr><td>Stage</td><td>Information Flow (Fig. 3)</td><td>[CLS] Attention (Fig. 4(a)(b))</td><td>PCA-Visualized Features (Fig. 4(c))</td></tr><tr><td>Stage 1:Preliminary Screening(Shallow Layers)</td><td>Inflow:Receives global guidance from [CLS].Outflow:Scattered, performs a broad initial screening.</td><td>Broad, with higher intensity on key areas.</td><td>Resemble raw textures and edges; no significant aggregation.</td></tr><tr><td>Stage 2:Local Information Extraction(Middle Layers)</td><td>Inflow:Remains anchored to the [CLS] token.Outflow:Concentrates on neighboring patches.</td><td>Converges on certain edges and local regions.</td><td>Extracts low-level features with clear structures.</td></tr><tr><td>Stage 3:Global Semantic Integration(Deep Layers)</td><td>Inflow:Diversifies, from [CLS] and summary tokens.Outflow:Disperses again to integrate refined features.</td><td>Converges on a few summary tokens.</td><td>Extracts cross-level to abstract, high-level semantics; structural details are discarded.</td></tr></table>
+
+![](images/1d6f5392f8fcae33be230b4e85f44e4c48f254e601d9f2495f8351bf1f3932ea.jpg)  
+Figure 4: Three stages’ CLS attention maps and PCA features in Table 1 (layer 0, 5, 15, 22 in vision encoder) for (a) the raw image and (b) the compressed image. (c) The visualization of cosine similarity between raw tokens and distorted tokens. Simiarity is lowest at Early Stage 3, indicating a significant impact on cross-level features.
+
+The visualization of this information flow (Fig. 3) reveals a distinct three-stage feature processing pattern, which is detailed in Table 1 and corroborated by the PCA Mackiewicz & Ratajczak (1993)´ visualization and [CLS] attention maps in Fig. 4(a). The process begins with Stage 1: Preliminary Screening, where shallow layers perform a broad, initial scan of the image, with attention scattered to capture raw textures and edges. This is followed by Stage 2: Local Information Extraction, where middle layers consolidate these findings; the Outflow becomes shorter, with attention converging on neighboring patches to analyze local features with clear structures. Finally, the deep layers execute Stage 3: Global Semantic Integration. In this phase, the model integrates refined local features into a holistic, semantic representation, with attention converging on a few key “summary tokens.” Liu et al. (2025); Li et al. (2023c)
+
+To quantitatively validate our three-stage finding, we measure two layer-wise attention distance metrics Dosovitskiy et al. (2020) on 1,000 images from the CC3M dataset Changpinyo et al. (2021): the Average Attention Distance $( D _ { \mathrm { a v g } } )$ and the Average Max Attention Distance $( D _ { \mathrm { t o p 1 } } )$
+
+$$
+D _ {\text { avg }} = \frac {1}{N} \sum_ {i = 1} ^ {N} \sum_ {j = 1} ^ {N} A _ {i j} \cdot d (p _ {i}, p _ {j}), \quad D _ {\text { top1 }} = \frac {1}{N} \sum_ {i = 1} ^ {N} d (p _ {i}, p _ {\operatorname{argmax} _ {j} A _ {i j}})
+$$
+
+Here, A is the NN attention map from a self-attention layer, where $A _ { i j }$ is the attention weight from token $j$ to token i. The term $p _ { i }$ denotes the 2D spatial position of the i-th token in the input image. Consequently, $d ( p _ { i } , p _ { j } )$ represents the Euclidean distance between the positions of tokens i and $j .$ As plotted in Fig. 5(a)(b), both metrics exhibit a clear U-shaped trend. The average distance is high during Stage 1, decreases for Stage 2, and increases again during Stage 3. This quantitative trend strongly corroborates our findings.
+
+## 2.2.2 HOW DOES COMPRESSION DISTORTION AFFECT MLLMS?
+
+Having established the three-stage information flow model, we analyze its vulnerability to compression distortion. By measuring the cosine similarity of feature tokens between original and compressed images at each layer, a clear pattern emerges, as shown in Fig. 5(c). While the low-level features in Stage 1 and 2 prove relatively robust to compression, linearly and slowly decrease in similarity layer by layer, we observe a sharp drop in similarity in the early phase of Stage 3, which marks a critical failure in the formation of cross-level features. These features are uniquely vulnerable because their creation requires a delicate synthesis of high-fidelity low-level details from Stage
+
+![](images/82c3e8ff422d12d0720960f295cd89ae602c48ec0b0b19cceca50187812b4fe0.jpg)  
+(a) Average Attention Distance
+
+![](images/7299092d90d8fe594d793ffcf3cf5464be5136d283b021e509968c4eddfc7760.jpg)  
+(b) Average Max Attention Distance
+
+![](images/f735ec2219a6088684bdf82d3b1f39c38fa81e52795c757058ca5055aded4834.jpg)  
+(c) Cosine Similarity between raw token and distorted token in each layer  
+Figure 5: (a)(b) Attention distance and (c) the impact of distortion on internal tokens in the vision encoder. Low-level (Stage 2) and coarse high-level features (the later phase of Stage 3) are relatively robust to compression artifacts, while cross-level features (the early phase of Stage 3) are significantly affected because they require both high-fidelity low-level details and emerging highlevel semantic context. Blue, green, and red indicate stages 1, 2, and 3, respectively.
+
+2 and emerging high-level semantic context from Stage 3. Consequently, even the subtle corruption of the low-level details by compression leads to a disproportionately large failure in this synthesis process. In contrast, the similarity recovers in the later part of Stage 3, demonstrating that coarse, high-level semantics are more resilient. This finding is further corroborated by the attention maps, PCA features and cosine similarity in Fig 4(b)(c). While these visualizations show little change in PCA features and high cosine similarity in stages 1 and 2 between original and compressed images, the token similarity in the early phase of stage 3 is significantly decreased. The later part of stage 3 is aimed at generating coarse high-level semantic information. Therefore, the impact of distorted details is diminished, resulting in a higher overall cosine similarity. As shown in Fig. 2, compression distortion only minimally affects questions of high-level semantics (e.g., “What is the fruit?”) or low-level structure (e.g., “What is the word?”). Its impact is much greater, however, on tasks like counting or texture analysis, which demand both local details and global context.
+
+Task-level validation confirms this hypothesis. As shown in Fig. 1(c)(d), tasks requiring the synthesis of both detailed and semantic information (e.g., “count”) degrade severely under compression. Conversely, tasks reliant on either robust low-level structures (OCR) or coarse high-level semantics (positional reasoning) remain resilient. This leads to a key insight: the critical failure point of compression is not a uniform loss of different feature types, but a disproportionate collapse of the cross-level representations that bridge low-level and high-level information.
+
+The takeaways of the above analysis are the following:
+
+## Takeaways:
+
+1. MLLMs require visual information at different levels to perform diverse tasks.
+
+2. The vision encoder in MLLMs operates in three stages: shallow layers handle initial filtering, middle layers extract low-level features via local analysis, and deep layers perform global semantic integration, sequentially assembling thesefeatures into cross-level and then high-level semantic representations.
+
+3. Compression-induced information loss increases linearly in early layers, indicating that low-level features suffer only modest degradation. However, this compromises cross-level features, which rely on integrating low-level information with high-level context to preserve fine-grained semantics. In contrast, coarse high-level features are moderately affected, as they depend more on abstract representations.
+
+These expose a fundamental paradox in current ICM approaches Kao et al. (2025); Li et al. (2024b); Chamain et al. (2021). They only try to preserve the high-level information but ignore the low-level information, which is important for MLLMs to generate cross-level features. Our work is thus built upon a new cornerstone: An effective codec must simultaneously preserve proper both low-level fidelity and high-level semantic information.
+
+![](images/ef1252f482007fc18cf64b972eeb5476bf19dda210919774d40e6291ecbf67c4.jpg)  
+Figure 6: The framework of our method.
+
+## 3 COTAM: CODEC TAILORED TO MLLMS
+
+AdapterOur analysis reveals a core principle for a codec tailored to MLLMs: it must preserve multi-level <sup>Transform</sup>visual information. Based on this principle, we introduce CoTaM, a codec designed with a dualstrategy approach, as depicted in Fig. 6(b). First, drawing upon the insight from Takeaway 2—that the initial layers of a vision encoder perform preliminary information filtering—our encoder uses shallow CLIP attention to guide bitrate allocation, prioritizing important regions for MLLMs. Second, inspired by Takeaways 1 and 3, our decoder uses the decompressed image as a reconstruction prior to retain robust low-level details and avoid domain shift. A latent feature adapter then injects semantic enhancements, and the entire model is optimized with a multi-level loss that supervises fidelity at multi-level features. Furthermore, for high-resolution inputs, CoTaM incorporates a Hierarchical Guidance mechanism to fuse multi-scale semantic information, making it compatible with the patch-based processing Liu et al. (2024a) common in MLLMs for both images and videos.
+
+## 3.1 BASE CODEC
+
+Our base codec enables variable bitrates by adapting the multi-quantizer methodology from Jia et al. (2025); Cui et al. (2021). We equip its internal layers with multiple sets of learned quantization vectors for each bitrate to adaptively allocate bits for each spatial location. This allows the semantic importance map to select a specific vector for each region, thereby assigning more bits to critical areas and fewer to the rest areas. Further architectural details are provided in the Appendix.
+
+## 3.2 SHALLOW CLIP-GUIDED ENCODER
+
+Our Shallow CLIP-guided encoder is born from the Takeaways 2 of our prior analysis: the shallow layers of an MLLM’s vision encoder perform a preliminary screening to identify regions of potential importance. To leverage this early-stage intelligence, we average the [CLS] attention scores from the first three layers of a frozen CLIP model Radford et al. (2021)—chosen for their high attention distance (Fig. 5)—to create a small downsampled spatial map (e.g., 8x8), which quantifies the semantic richness of each region.
+
+This continuous map is subsequently converted into a discrete, three-level mask via a statisticsbased quantization method $\mu \pm k \sigma$ . The three integer levels in this mask directly correspond to rate allocation instructions: decrease bitrate, maintain base bitrate, or increase bitrate. Crucially, due to the small size of this map and its quantization into only three values, the bitrate overhead for this map is negligible (128 bits for 336x336 input). This final mask then directly modulates the quantization parameters of our learned compression backbone on a patch-wise basis, ensuring that semantically critical regions for MLLMs are allocated more bitrate and with higher fidelity.
+
+## 3.3 MULTI-LEVEL FIDELITY DECODER
+
+Our analysis revealed a critical flaw in existing ICM methods: in their pursuit of high-level semantic fidelity, they often degrade the low-level structured information, and also in turn lead to a significant loss of cross-level features. To resolve this problem, our decoder is designed to preserve fidelity across the entire feature hierarchy. It achieves this through two key components:
+
+First, our design leverages the decoded image as a reconstruction prior. This approach serves two critical functions. On the one hand, as shown in Fig. 1 and takeaway 3, since standard compression is already effective at preserving robust low-level structures, using the decoded image ensures this foundational information is retained. On the other hand, it mitigates a potential domain shift, as
+
+MLLM vision encoders are pre-trained on natural RGB images; providing the decoded image as a prior grounds the input in the expected domain. Upon this prior, a lightweight Latent Feature Adapter, composed of a single transformer block, operates directly on the decoded latent code from the bitstream. It generates a semantic enhancement feature that is fused (via element-wise addition) with the patch embeddings extracted from the decoded image. This strategy injects highlevel guidance directly into the feature domain without disrupting the crucial low-level information.
+
+Second, as illustrated in Fig. 6(a), the entire framework is trained end-to-end using a multi-level fidelity loss, ${ \mathcal { L } } _ { \mathrm { t o t a l } } .$ , to supervise the fidelity at both ends of the feature spectrum. This loss is a weighted sum of two components:
+
+$$
+\mathcal {L} _ {\text { total }} = \lambda_ {\text { low }} \mathcal {L} _ {\text { low }} + \lambda_ {\text { high }} \mathcal {L} _ {\text { high }}\tag{1}
+$$
+
+The first component, the low-level fidelity loss $( \mathcal { L } _ { \mathrm { l o w } } )$ , is designed to preserve fine-grained details often damaged by existing methods. Guided by our finding in Takeaway 3, it imposes critical constraints on the shallow layers by minimizing the Mean Squared Error (MSE) between the patch embedding features of the original and decoded images. Simultaneously, the high-level perceptual loss $( { \mathcal { L } } _ { \mathbf { h i g h } } )$ ) ensures global semantic coherence by minimizing the MSE between the final-layer token representations of the original and our processed output.
+
+## 3.4 EXTENSION TO HIGH-RESOLUTION AND VIDEO INPUTS
+
+Handling high-resolution images is a critical capability for MLLMs, making it imperative for codecs to support them efficiently. This presents a core dilemma. On one hand, guidance from a single, fixed-size downsampled image is too coarse; as shown in Fig. 6(c), the background attention is relatively coarse, failing to focus on important information. A direct strategy to adapt to this, inspired by mainstream MLLM processing pipelines, is to employ a patch-based method where local guidance is applied to each patch independently. The fundamental limitation of this approach, however, is its lack of global perception; it cannot determine which local information is crucial for building coherent semantics across different patches. For instance, in Fig. 6(c), it lacks sufficient attention on the person’s head. Therefore, to resolve this conflict between local detail preservation and global semantic integrity, we propose our Hierarchical Guidance to fuse (via addition) both global and local maps, creating a comprehensive guidance signal that is both locally precise and globally aware. On the other hand, we resize the decoded high-resolution features to get a global feature before they are processed by the adapter. This is done to match the expected input of the high-resolution MLLM, which is composed of multiple high-resolution patches and a downsampled global patch.
+
+Our method is also compatible with video MLLMs. Current mainstream approaches typically process videos by sampling a sequence of individual frames, a strategy analogous to the patch-based processing of high-resolution images. Consequently, our semantic guidance mechanism can be applied on a frame-by-frame basis to guide the compression of videos.
+
+## 4 EXPERIMENT
+
+## 4.1 EXPERIMENTAL SETTINGS
+
+Codec Setting. Our framework is built upon two learned image compression models, ELIC He et al. (2022) and DCAE Lu et al. (2025) to demonstrate the versatility of our approach in being integrated with different codecs. For model training, we utilized a dataset comprising one million images randomly sampled from the CC3M dataset Changpinyo et al. (2021). The training protocol spans a total of five epochs, with the first epoch dedicated to an initialization phase using only the low-level fidelity loss $( \mathcal { L } _ { l o w } )$ . This pre-training step ensures a stable optimization trajectory by allowing the network to first grasp the reconstruction of basic structural features. For hyperparameters k, $\lambda _ { l o w }$ and $\lambda _ { h i g h }$ , we empirically set them to 0.75, 0.1, and 1, respectively.
+
+MLLM Setting. For MLLM evaluation, our primary experiments were conducted on LLaVA-1.5 Liu et al. (2024a)(both 7B and 13B variants with a CLIP encoder Radford et al. (2021)) to assess performance and scalability. To further substantiate the generalization capabilities of our method, we also performed tests on LLaVA-Onevision-7B Li et al. (2024a) (with a SigLIP encoder Zhai et al. (2023)) and InternVL2-8B Chen et al. (2024) (with an InternViT encoder Gao et al. (2024)).
+
+![](images/baf89a85c793ac4390b4969058b32d7ca69ea5aff47d4d8372e7425f6eac553d.jpg)  
+Figure 7: Performance comparison on LLaVA-1.5-7B.
+
+![](images/5ffd92b3bbf5833f0c87116cd3f94163597fa32d373411cc41458a73210eefbc.jpg)  
+Figure 8: Left three: Performance comparison on LLaVA-1.5-13B. Right three: Performance comparison with methods that fine-tuned the codec encoder.
+
+Testing Benchmark Our evaluation protocol is twofold, assessing both MLLM tasks performance and image reconstruction quality. For image benchmark, we evaluated on MME Fu et al. (2023), TextVQA Singh et al. (2019), POPE Li et al. (2023b), SeedBench Li et al. (2023a), VQAv2 Goyal et al. (2017), MMMU Yue et al. (2024), and MMBench Liu et al. (2024b). For video benchmark: we used Video-MME Fu et al. (2025). For reconstruction metric, we report PSNR.
+
+Compared Methods To position our work within the current landscape, we compared the codec against a comprehensive set of baselines. For human-centric image compression methods, we selected ELIC He et al. (2022), and DACE Lu et al. (2025). For coding for machine methods, we compared against Bridge-d1 (fixing encoder), Bridge-d3 (finetuning encoder) Kao et al. (2025) and ICMH-adapt Li et al. (2024b). Since ICMH-adapt Li et al. (2024b) only supports the ResNet architecture, we reimplemented this method and trained it with our multi-level loss.
+
+## 4.2 PERFORMANCE COMPARISON
+
+## 4.2.1 LOW-RESOLUTION IMAGE BENCHMARK
+
+Our primary validation, presented in Fig. 7, is conducted on the LLaVA-v1.5-7B model with a 336x336 input resolution. Using ELIC as the base codec, our method consistently outperforms previous approaches across six diverse benchmarks. As shown in Table 2, under the same performance level, it achieves a 35.99% bitrate saving. To demonstrate its generalizability, we integrated our method with another SOTA codec, DCAE Lu et al. (2025), and achieved similar performance gains. The scalability of our approach is further validated in Fig. 8, where we also show improvements on the larger LLaVA-1.5-13B model, proving its effectiveness across different model scales.
+
+Finetuning Codec. While our main approach freezes the codec to sidestep the performance–reconstruction trade-off, we also test a fine-tuning variant by adding a rate loss Minnen et al. (2018) to the objective (Eq. 1). The results, presented in Fig. 8, show that even in this comparison with another fine-tuning method Kao et al. (2025), our approach demonstrates superior performance. Furthermore, both methods significantly outperform the original, non-fine-tuned base codec.
+
+![](images/e5b447b3b754f1f365cd1b645767ff9a2fd45ae528c5472310b0e39f2aa3959f.jpg)
+
+![](images/2a570f7a9303c025cbc1b1e929ab3ab5dd0a9aa51c771aa58a480a3b36c0244f.jpg)
+
+![](images/9a82e157d7a1a46a7425c8c9e42bb874486806115471c49fa446012a9aceff2e.jpg)
+
+![](images/690eb686b3f49a01c97ad967d7598330545e6e8cc386947eab03acb0b523d264.jpg)
+
+![](images/2f51f22ef6b6cda40bf0bac84fc662a62bf5056e3420cb6cec5adc0df6c7b14a.jpg)  
+Figure 9: Performance comparison on High-resolution and Video MLLM. Left three: LLaVA-Onevision-7B. Right three: InternVL2-8B.
+
+![](images/922d430f3636c4ab4f8d54f71e4a3f9ecf879db6ccf220b034e322e571d37136.jpg)
+
+## 4.2.2 HIGH-RESOLUTION IMAGE AND VIDEO BENCHMARK
+
+Addressing the significant overhead of high-resolution data, we extend our method to this domain. To the best of our knowledge, our work is the first to pioneer a coding framework for high-resolution image and video MLLMs. We validate this on two mainstream models, LLaVA-OneVision-7B and InternVL2-8B, with results presented in Fig. 9. For high-resolution images, our approach consistently outperforms the base codec. Because the current mainstream Video LLM usually extracts video frames into fixed frame images (such as 16, 32 frames), our method can also be directly applied to video MLLM. The codec also achieves superior performance on Video-MME.
+
+## 4.3 ABLATION STUDY
+
+Framework. To assess each component’s contribution, we perform an ablation study. As shown in Fig. 10(a)(b)(c), the removal of the Adapter module induces a catastrophic degradation in performance across all three benchmarks. This consistent and vast performance underscores the Adapter’s role as an essential bridge between the compressed features and the downstream MLLM; its function in aligning feature spaces is both indispensable and universally critical.
+
+Conversely, ablating the image reconstruction module (blue curve) also impacts performance, but with varying severity across benchmarks, reflecting different dependencies on visual fidelity. For TextVQA (Fig. 10(a)) and SeedBench (Fig. 10(c)), “Ours (w/o Rec.)” drops sharply relative to the full model, highlighting the value of reconstruction-induced prior knowledge. In contrast, the impact on MME (Fig. 10(b)) is much milder.
+
+Lastly, removing the clip guidance module (brown curve) consistently reduces performance across benchmarks, indicating it as an effective general optimization.
+
+![](images/6380808d89da06a11527b81643f23eb3ec1b0e4af092420316373bca350e6f38.jpg)  
+(a)
+
+![](images/95734ce59fb228717a8477644bb6a2355f0e6a2c91a611d99887741d0930a6a3.jpg)  
+(b)
+
+![](images/04b48d3b74e35261da6a91619a705efefe5c9da81c41e2aa26ea57e6592b81b2.jpg)  
+(c)
+
+(c)  
+![](images/94256e0431cb3ab8abff67f5b87b8c5ddcc8b20280ed1a204df0248c49ccc38d.jpg)
+
+![](images/12768c7ad44a9dc0faf35a999a9f905bc668eb89fcbf48813e0b663b23640940.jpg)  
+Figure 10: Ablation study on framework.  
+Figure 11: Ablation study on modules. We test BD-score using ELIC as the anchor on MME.
+
+Training Loss. We validate the necessity of our multi-level loss design. As shown in Fig. 11(a), relying solely on the high-level loss fails to capture essential low-level details, while using only the low-level loss produces detailed yet semantically inconsistent results. Optimal performance is achieved by integrating both.
+
+Hierarchical Guidance. For high-resolution images, our proposed Hierarchical Guidance improves the importance map by fusing local and global attention. The results in Fig. 11(b) demonstrate that it yields a clear performance improvement over a purely global guidance strategy.
+
+Attention Maps. Our use of averaged attention maps from CLIP’s first three layers is validated in Fig. 11(c), achieving optimal performance as shallow layers are better for holistic screening. In contrast, deeper layers emphasize global aggregation and thus degrade performance, consistent with our three-stage information flow model.
+
+## 4.4 COMPLEXITY ANYLSIS
+
+We analyze the computational complexity of our method in Table 2. Since our approach only utilizes the first three shallow layers of the CLIP encoder, the increase in encoding time is marginal compared to the base codec. Furthermore, as our framework does not require fine-tuning the codec and the CLIP guidance only reallocates bit rates, the overall PSNR in Fig. 12 shows only a minor degradation compared to the base codec.
+
+![](images/16b4c04d15bb7ada448ef5f8cc51952765109ab291719876f0d030042ccfd896.jpg)  
+Figure 12: PSNR comparison on Kodak dataset.
+
+<table><tr><td>Method</td><td>Encoding (s)</td><td>Decoding (s)</td><td>Total (s)</td><td>BD-Rate↓</td></tr><tr><td>ELIC</td><td>0.173</td><td>0.096</td><td>0.269</td><td>0.00</td></tr><tr><td>Ours (ELIC)</td><td>0.178 (+2.9%)</td><td>0.101 (+5.2%)</td><td>0.279 (+3.7%)</td><td>-35.99%</td></tr><tr><td>DCAE</td><td>0.077</td><td>0.085</td><td>0.162</td><td>0.00</td></tr><tr><td>Ours (DCAE)</td><td>0.080 (+3.9%)</td><td>0.091 (+7.1%)</td><td>0.171 (+5.6%)</td><td>-31.05%</td></tr></table>
+
+Table 2: Comparison of times on Kodak dataset (resized as 336x336), and average BD-rate on six MLLM benchmarks, which represents the bitrate saved to achieve the same score.
+
+## 5 CONCLUSION
+
+We conduct a comprehensive analysis of how compression artifacts affect MLLMs, revealing that fine-grained semantic features in cross-level features are highly vulnerable to subtle low-level distortions. Based on this insight, we propose a codec tailored to MLLMs, featuring CLIP-guided bit allocation and a multi-level fidelity preserved decoder. Our method consistently achieves significant bitrate savings while preserving MLLM performance across diverse tasks. This work underscores the importance of compression strategies aligned with the feature hierarchy of MLLMs.
+
+## 6 ACKNOWLEDGMENTS
+
+This work was supported by Grants of NSFC 62302246, ZJNSFC LQ23F010008, Ningbo 2023Z237 & 2024Z284 & 2024Z289 & 2023CX050011 & 2025Z038 & 2025Z059, and supported by High Performance Computing Center at Eastern Institute of Technology and Ningbo Institute of Digital Twin.

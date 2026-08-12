@@ -1,0 +1,340 @@
+## ABSTRACT
+
+Deep spiking neural networks (SNNs) hold immense promise for low-power event-driven computing, but their direct training via backpropagation through time (BPTT) incurs prohibitive memory cost, which limits their scalability. Existing memory-saving approaches, such as online learning, BPTT-to-BP, and reversible networks, compromise accuracy, training speed, or applicability. In this work, we propose a novel and broadly applicable pipeline for memory-efficient SNN training that preserves BPTT’s accuracy. Our pipeline integrates layer-wise gradient checkpointing with lossless spike compression to eliminate internal state storage and reduce the memory cost of per-layer input spikes. We also introduce a multi-stage checkpoint adjustment strategy that adaptively refines checkpoint placement based on profiling results to further optimize memory usage and improve training speed. Wrapped in an optimization pass, the pipeline automatically restructures the computation flow before training with minimal user effort. Extensive experiments on diverse architectures and tasks demonstrate up to 8× memory efficiency gains with ≤ 20% speed reduction and no accuracy loss. Our method provides a practical solution for efficient and scalable SNN training. Code is available at https: //github.com/AllenYolk/snn-gradient-checkpointing.
+
+## 1 INTRODUCTION
+
+Inspired by the dynamics of biological neurons (Gerstner et al., 2014), spiking neural networks (SNNs) have emerged as the third generation of neural network models (Maass, 1997). SNNs transmit information via discrete spikes rather than continuous activations in conventional artificial neural networks (ANNs). Their sparse and event-driven nature makes them ideal for deployment on neuromorphic chips (Merolla et al., 2014; Akopyan et al., 2015; Davies et al., 2018; Pei et al., 2019) for inference, offering significant potential for low-power edge computing (Yao et al., 2024). To train a deep SNN end-to-end, the temporal dimension is discretized into T time steps so that the SNN can be considered as a binary-activated recurrent neural network (RNN) (Fang et al., 2023a; Eshraghian et al., 2023). Then, backpropagation through time (BPTT) (Werbos, 1990) is adopted to compute parameter updates, with surrogate gradient (SG) tackling the non-differentiable spike emission process (Neftci et al., 2019; Wu et al., 2018; Shrestha & Orchard, 2018). With the BPTTbased framework, low-latency deep SNNs can be directly trained using powerful graphics processing units (GPUs) (Chetlur et al., 2014) and yield competitive performance (Yao et al., 2025; Wang et al., 2024; Lv et al., 2024a; Chen et al., 2025).
+
+Despite its high accuracy and broad applicability, BPTT imposes intensive memory overhead (Meng et al., 2023). For an L-layer SNN unfolded over T time steps, BPTT requires O(LT) memory to store intermediate states, compared to O(L) for a structurally similar ANN. Consequently, SNN direct training is more likely to exceed the memory capacity of computational devices. The scaling of SNNs to deeper architectures and more time steps is thus severely hindered.
+
+![](images/bd4cdb280083d14c60b69c39d95574c702e988331ace0d2ead75e1044eb4525e.jpg)  
+Figure 1: Comparison of (a) BPTT and (b) gradient checkpointing with spike compression. We use grey boxes with dashed borders to denote gradient checkpointing segments. (c) Spatial segment partitioning. (d) Temporal segment partitioning.
+
+Several approaches have been explored to reduce the memory demands of BPTT-based SNN training, including online learning (Bellec et al., 2020; Xiao et al., 2022; Meng et al., 2023; Yin et al., 2023; Jiang et al., 2024), BPTT-to-BP (Xiao et al., 2021; Wu et al., 2023; Kheradpisheh et al., 2022; Yu et al., 2024), and reversible networks (Zhang & Zhang, 2024; Hu et al., 2024). However, these methods compromise training speed, accuracy, or generality across SNN models (see Section 2.2 and Table 5 for details). Also, their implementations require manual architectural modifications or training code rewrites, which are error-prone and cumbersome. These limitations highlight the need for a broadly applicable and user-friendly solution that improves the memory efficiency of SNN direct training while preserving training speed and performance.
+
+In this work, we propose an automatic pipeline that combines gradient checkpointing (Chen et al., 2016) and spike compression to address the challenge (Figure 1). Our analysis identifies internal states and per-layer input spikes as the dominant memory consumers in SNN training. To this end, we employ layer-wise gradient checkpointing to eliminate internal state storage, and losslessly compress the input spikes before saving them to reduce their memory footprint. To further optimize peak memory usage, we insert additional checkpoints spatio-temporally into high-cost layers. Checkpointed segments with no benefit on peak memory are then greedily reverted to standard BPTT segments to accelerate training. The entire process is encapsulated in an optimization pass that automatically reconfigures the computation flow before training, requiring minimal user intervention. The proposed method obtains up to 8× memory efficiency gains with an affordable training speed drop and preserved accuracy on extensive experiments. Our main contributions are:
+
+(1) Memory cost analysis. We analyze the memory cost of SNN direct training and identify input spikes and internal states as primary memory consumers.
+
+(2) An automatic pipeline. We propose a broadly applicable pipeline that integrates gradient checkpointing with spike compression for memory-efficient SNN training.
+
+(3) Efficiency and Accuracy. We obtain substantial memory savings on diverse SNN models and task settings with acceptable speed trade-offs and maintained accuracy.
+
+## 2 RELATED WORK
+
+## 2.1 BPTT-BASED SNN DIRECT TRAINING
+
+If simulated on discrete time steps, SNNs can be trained end-to-end as binary-activated RNNs through BPTT (Werbos, 1990), with SG addressing the non-differentiability of the spike firing process (Neftci et al., 2019; Wu et al., 2018; Shrestha & Orchard, 2018). Compared to ANN-to-SNN conversion (Cao et al., 2015; Bu et al., 2022; Hu et al., 2023; Hao et al., 2023b;a), this approach enables low inference latency (Wu et al., 2019) and broader task applicability, thus attracting increasing attention. Recent advancements have improved the performance of SNN direct training by adapting ANN architectures like ResNet (He et al., 2016) and Transformer (Vaswani et al., 2017; Dosovitskiy et al., 2021) to spiking ResNets (Fang et al., 2021a; Hu et al., 2025) and spiking Transformers (Zhou et al., 2023; Yao et al., 2023; Zhou et al., 2024). Other works enhance neuron models (Fang et al., 2021b; Yao et al., 2022; Fang et al., 2023b; Huang et al., 2024a; Li et al., 2024b; Huang et al., 2024b). For instance, the parallel spiking neuron (PSN) family (Fang et al., 2023b) models neuronal dynamics as a linear projection of the input over time, enabling temporal parallelization and efficient capturing of long-term dependencies. Despite the advances in performance, the memory overhead of BPTT remains a key bottleneck.
+
+## 2.2 MEMORY-EFFICIENT SNN DIRECT TRAINING
+
+BPTT’s $\mathcal { O } ( L T )$ memory complexity motivates methods to reduce SNN training memory usage. Online learning (Bellec et al., 2020; Xiao et al., 2022; Meng et al., 2023; Yin et al., 2023; Bohnstingl et al., 2023; Jiang et al., 2024) truncates temporal gradients and stores only the intermediate results at the current step. However, the gradient mismatch results in a severe performance drop on temporal tasks. Its step-wise running mode undermines its compatibility with widely adopted temporal parallelization techniques like PSN (Fang et al., 2023b). BPTT-to-BP approximation (Xiao et al., 2021; Wu et al., 2023; Kheradpisheh et al., 2022; Yu et al., 2024) trains an SNN by backpropagating through a static proxy based on firing rates, effectively removing the temporal gradient dimension. Despite its memory and time efficiency, BPTT-to-BP can hardly handle sequential data due to the neglect of temporal information, thus limiting its applicability. Last but not least, reversible networks (Gomez et al., 2017; Zhang & Zhang, 2024; Hu et al., 2024) reconstruct intermediate features reversely during backward pass rather than storing them. It preserves BPTT-level accuracy, but imposes strict architectural constraints and significantly slows training. In conclusion, existing methods trade off accuracy, speed, or applicability; they also require manual modifications on model architectures and training codes. In contrast, our pipeline reduces memory usage with an affordable extra time cost, maintains accuracy and broad compatibility, and demands minimal user effort.
+
+## 3 PRELIMINARIES
+
+## 3.1 SPIKING NEURAL NETWORKS
+
+SNNs can be regarded as ANNs augmented with bioinspired spiking neuronal dynamics (Li et al., 2024a). To train an SNN directly, its dynamics are simulated on T discrete time steps, and the spike signals are represented as binary activations. For example, the discrete-time dynamics of a L-layer SNN composed of leaky integrate-and-fire (LIF) neurons (Gerstner et al., 2014) can be described as
+
+$$
+\begin{array}{r l} & {\mathbf {X} ^ {l} [ t ] = g ^ {l} (\mathbf {S} ^ {l - 1} [ t ]; \mathbf {W} ^ {l}),} \\ & {\mathbf {H} ^ {l} [ t ] = \lambda \mathbf {V} ^ {l} [ t - 1 ] + \mathbf {X} ^ {l} [ t ],} \\ & {\mathbf {S} ^ {l} [ t ] = \Theta (\mathbf {H} ^ {l} [ t ] - V _ {\mathrm{th}}),} \\ & {\mathbf {V} ^ {l} [ t ] = \mathbf {H} ^ {l} [ t ] (1 - \mathbf {S} ^ {l} [ t ]).} \end{array}\tag{1}
+$$
+
+Equation (1). Here, $l \in \{ 1 , \ldots , L \}$ is the layer index, and $t \in \{ 1 , \ldots , T \}$ is the time step index. X is the input current, H and V are the membrane potentials before and after spike emission, and S is the output spike (a.k.a. activation). $\mathbf { X } ^ { l } [ t ]$ can be computed from the previous layer’s output $\mathbf { S } ^ { l - 1 } [ t ]$ via a linear transformation $g ^ { l }$ with weight $\mathbf { W } ^ { l }$ (bias is omitted). $\lambda \in ( 0 , 1 )$ is the decay factor, $\bar { V _ { \mathrm { t h } } } > 0$ is the firing threshold, and $\Theta ( x )$ is the Heaviside step function (yields 1 if $x \geq 0$ and 0 otherwise). The elements of $\mathbf { S } ^ { l } \left( l > 0 \right)$ are either 0 (no spike) or 1 (spike), while the network input ${ \bf S } ^ { 0 }$ is not necessarily binary (Rathi & Roy, 2023). Notice that the second to fourth lines of Equation (1) are element-wise, and secondary neuronal parameters like the reset and resting potentials are omitted for simplicity. We use LIF as the default neuron model throughout this work.
+
+## 3.2 GRADIENT CHECKPOINTING
+
+Gradient checkpointing (GC) (Chen et al., 2016) was originally proposed for ANN training to trade computation for memory. Standard backpropagation stores all intermediate results for gradient computation, as Figure 1(a) shows. By contrast, GC stores merely a subset of activations (a.k.a. checkpoints) and discards the others; the network is thus divided into several GC segments, each saving only its input. During backward pass on a segment, the forward computation is rerun from the segment’s checkpointed input to restore the dropped activations needed for calculating gradients, as illustrated in Figure 1(b). Since forward pass is far less costly than backward pass, $\mathbf { G C } \mathbf { \ ' } _ { \mathbf { S } }$ extra time cost is affordable. GC has been successfully applied to temporal models like recurrent neural networks (Gruslys et al., 2016) and neural ordinary differential equations (Zhuang et al., 2020) to reduce training memory cost.
+
+![](images/8ba474a2c525b2a7fc6589eb05828a158986909dd2fdb3059489742fd77f2ad6.jpg)  
+Figure 2: The memory cost breakdown of ANNs and SNNs when peak memory consumption is reached during training on ImageNet (see Appendix A).
+
+![](images/21f2f4b13505188a2ac1eeda0ef4b4763ccc2d8afc65a58269f8fd69ff6e6d16.jpg)  
+Figure 3: The memory cost evolution when training a Spiking VGG on CIFAR10-DVS. Dashed lines indi cate peak memory consumptions.
+
+Previous studies have explored applying GC along the temporal dimension of SNNs (Singh et al., 2022; Bencheikh et al., 2024), achieving notable memory savings on shallow networks with a large $T \left( T \geq 1 0 0 \right)$ . However, these approaches do not consider the spatial dimension, and have not been evaluated on advanced larger-scale SNNs that typically adopt short time horizons $( T \leq 1 6 )$ . In addition, they lack an automated, user-friendly GC workflow, which limits ease of use in practice.
+
+## 4 METHODS
+
+## 4.1 MEMORY COST ANALYSIS OF BPTT-BASED SNN DIRECT TRAINING
+
+In BPTT-based SNN direct training, memory usage primarily stems from: (1) model parameters, (2) gradients, (3) optimizer states, (4) intermediate features, including each layer’s input and internal states, that are stored during forward pass for backward gradient computation, and (5) temporary runtime variables dynamically allocated and immediately freed. An upper bound for the peak memory can be formulated as:
+
+$$
+\mathcal {M} _ {\mathrm{BPTT}} ^ {\text { peak }} \leq \sum_ {l} \left(\mathcal {M} _ {\mathbf {W} ^ {l}} + \mathcal {M} _ {\mathbf {G} ^ {l}} + \mathcal {M} _ {\Lambda^ {l}} + \mathcal {M} _ {\mathbf {S} ^ {l - 1}} + \mathcal {M} _ {\Omega^ {l}}\right) + \max _ {l} \mathcal {M} _ {\mathbf {R} ^ {l}},\tag{2}
+$$
+
+where $\mathcal { M } _ { \mathbf { W } ^ { l } } , \mathcal { M } _ { \mathbf { G } ^ { l } } , \mathcal { M } _ { \Lambda ^ { l } } , \mathcal { M } _ { \mathbf { S } ^ { l - 1 } } , \mathcal { M } _ { \Omega ^ { l } }$ , and $\mathcal { M } _ { \mathbf { R } ^ { l } }$ are the memory consumptions of the weights, gradients, optimizer states, inputs, internal states, and runtime variables at layer l, respectively.
+
+A key feature of SNN direct training is that intermediate features (inputs and internal states) dominate memory usage. As shown in Figure 2, for ResNet-34 (He et al., 2016) and ViT (Dosovitskiy et al., 2021) trained on ImageNet (Deng et al., 2009), intermediate features occupy about $7 7 \%$ of the memory at peak usage. In contrast, for their SNN counterparts with $T = 4 ,$ , the ratios rise to over 96%. This is because SNNs’ T time steps scale intermediate feature sizes by $\mathcal { O } ( T )$ , while the sizes of weights, gradients and optimizer states stay unchanged. Therefore, memory optimization for SNN direct training should prioritize reducing internal states and input spike storage at each layer.
+
+## 4.2 LAYER-WISE GRADIENT CHECKPOINTING
+
+In standard BPTT, all internal states must be stored, resulting in a memory cost of up to $\sum _ { l } \mathcal { M } _ { \Omega ^ { l } }$ . To reduce this cost, we apply GC (Chen et al., 2016) to each layer $l \in \{ 1 , \ldots , L \}$ . During the forward pass on layer l, only the input $\dot { \mathbf { S } } ^ { l - 1 }$ and weight $\mathbf { W } ^ { l }$ are stored. In the backward pass, internal states $\dot { \Omega } ^ { l }$ are reconstructed through an extra local forward pass given $\mathbf { S } ^ { l - 1 }$ and $\mathbf { W } ^ { l }$ . With $\mathbf { S } ^ { l - 1 } , \mathbf { W } ^ { l }$ and $\Omega ^ { l }$ , we can propagate the gradients back through layer l, as Figure 1(b) shows.
+
+With GC, $\Omega ^ { l }$ is allocated and freed during layer $l \mathrm { { s } }$ backward pass. Thus, at most one layer’s internal states are stored in memory at any given time. The peak memory’s upper bound then becomes:
+
+$$
+\mathcal {M} _ {\mathrm{GC}} ^ {\mathrm{peak}} \leq \sum_ {l} \left(\mathcal {M} _ {\mathbf {W} ^ {l}} + \mathcal {M} _ {\mathbf {G} ^ {l}} + \mathcal {M} _ {\Lambda^ {l}} + \mathcal {M} _ {\mathbf {S} ^ {l - 1}} + \mathcal {M} _ {\Omega^ {l}}\right) + \max _ {l} \left(\mathcal {M} _ {\Omega^ {l}} + \mathcal {M} _ {\mathbf {R} ^ {l}}\right).\tag{3}
+$$
+
+Since internal states in SNNs consume far more memory than in ANNs (Figure 2), GC’s effectiveness will be more pronounced in SNNs compared to ANNs.
+
+## 4.3 LOSSLESS INPUT SPIKE COMPRESSION
+
+Input spikes $\mathbf { S } ^ { l - 1 }$ must be stored even if GC is applied. For most SNN programming frameworks (Fang et al., 2023a; Eshraghian et al., 2023), spikes are represented as 32-bit floats (or 16-bit with automatic mixed precision) for compatibility with arithmetic operations. However, 32-bit storage is redundant for binary values. Therefore, instead of storing $\mathbf { S } ^ { l - 1 }$ as floats during forward pass, we store its compressed form $\tilde { \mathbf { S } } ^ { l - 1 }$ , as Figure 1(b) shows. $\tilde { \mathbf { S } } ^ { l - 1 }$ is decompressed to $\mathbf { S } ^ { \bar { l _ { - 1 } } }$ when needed in backward pass (Algorithm 1). The peak memory’s upper bound then becomes:
+
+$$
+\mathcal {M} _ {\mathrm{GC+Comp}} ^ {\mathrm{peak}} \leq \sum_ {l} \left(\mathcal {M} _ {\mathbf {W} ^ {l}} + \mathcal {M} _ {\mathbf {G} ^ {l}} + \mathcal {M} _ {\Lambda^ {l}} + \mathcal {M} _ {\mathbf {S} ^ {l - 1}} + \mathcal {M} _ {\tilde {\mathbf {S}} ^ {l - 1}}\right) + \max _ {l} \left(\mathcal {M} _ {\Omega^ {l}} + \mathcal {M} _ {\mathbf {R} ^ {l}}\right).\tag{4}
+$$
+
+The spike compressor must be lossless to ensure computational equivalence with standard BPTT. For instance, bit representation uses 1 bit per binary value, achieving up to 32× compression over 32-bit floats. Alternatives include sparse representation that records the indices of non-zero elements, and lossless bit stream compressors like Zstandard (Collet & Kucherawy, 2018) and asymmetric numeral systems (ANS) (Duda, 2013). While bit representation cannot benefit from spike sparsity, it is faster and more memory-saving than the alternatives in most cases (see Appendix M). Hence, we choose it by default. To further accelerate compression and decompression, we handcraft Triton kernels (Tillet et al., 2019). Notice that compression is skipped for non-binary inputs $( \mathbf { e . g . , S ^ { 0 } } )$ .
+
+## 4.4 ADJUSTING GRADIENT CHECKPOINTING STRUCTURE
+
+Figure 3 depicts the memory evolution during a training iteration of a Spiking VGG on CIFAR10-DVS (see Appendix B for explanations). For standard BPTT (blue), the peak occurs in deep layers during backward pass. Layer-wise GC (green) reduces deep-layer memory, shifting the peak to shallower layers, and spike compression (orange) further lowers deep-layer cost. After these optimizations, the global peak memory $\dot { \mathcal { M } } ^ { \mathrm { p e a k } }$ achieved at the critical layer far exceeds the local peaks elsewhere. Notice that model trainability on specific devices depends only on this global peak. This motivates us to adjust the GC structure to further enhance global efficiency by allowing slightly higher memory usage in non-critical layers. We propose three strategies accordingly and summarize them in Algorithm $\bar { 2 } .$
+
+Spatial Segment Partitioning To reduce $\mathcal { M } ^ { \mathrm { p e a k } }$ , we first identify the GC segment $l ^ { * }$ with the largest peak memory and then insert a spatial checkpoint within it. In other words, we split $l ^ { * }$ along the layer dimension into two spatial subsegments $l _ { 1 } ^ { * }$ and $l _ { 2 } ^ { \ast } ,$ as Figure 1(c) shows. The spatial partition point is defined by the user (see Appendix I). Since $\mathcal { M } _ { \Omega ^ { l ^ { * } } } ^ { \mathrm { ~ - ~ } } > \operatorname* { m a x } \{ \mathcal { M } _ { \Omega ^ { l _ { 1 } ^ { * } } } , \mathcal { M } _ { \Omega ^ { l _ { 2 } ^ { * } } } \}$ , a reduction of $\operatorname* { m a x } _ { l } \mathcal { M } _ { \Omega ^ { l } }$ is guaranteed. However, $\mathcal { M } ^ { \mathrm { p e a k } }$ may not drop due to the added checkpoint. This process repeats until $\bar { \mathcal { M } } ^ { \mathrm { p e a k } }$ cannot further decrease.
+
+Temporal Segment Partitioning Temporal partitioning similarly finds the critical segment $l ^ { * }$ and splits it along the time axis into k sequential temporal subsegments, as shown in Figure 1(d). Each temporal subsegment checkpoints both its inputs and initial hidden states to enable recomputation during backward pass. Users should set the temporal partitioning factor k and define the state transition function (see Appendix I). The procedure repeats until $\mathcal { M } ^ { \mathrm { p e a k } }$ cannot be further reduced. Temporal partitioning is applied conservatively after spatial partitioning as a complementary strategy, since splitting segments along time disables temporal parallelism and limits temporal kernel fusion, resulting in restricted applicability and slower training.
+
+Greedy Segment Restoration For GC segments whose local memory cost is well below $\mathcal { M } ^ { \mathrm { p e a k } }$ we can safely revert them to standard BPTT blocks (i.e., storing all intermediate features) without increasing $\mathcal { M } ^ { \mathrm { p e a k } }$ . Since GC segments require an extra forward pass for recomputation, restoring them accelerates training. Specifically, we first profile the forward time cost of each GC segment, and then greedily restore the segments with the largest time cost. The change is kept only if M<sup>peak</sup> does not increase. This process terminates after all segments are considered.
+
+<div class="mineru-algorithm" style="white-space: pre-wrap; font-family:monospace;">
+Algorithm 1 One iteration of SNN training with layer-wise GC and spike compression.
+
+Input: parameters $\{\mathbf{W}^l\}_{l=1}^L$; network input $\mathbf{S}^0$; compressor $C(\cdot)$; other hyperparameters.
+
+Output: trained parameters $\{\mathbf{W}^l\}_{l=1}^L$.
+
+1: // forward pass
+
+2: for $l=1,2,\ldots,L$ do
+
+3: $\mathbf{S}^l \leftarrow \text{layer}^l(\mathbf{S}^{l-1}; \text{autograd} = \text{False})$;
+
+4: if $\mathbf{S}^{l-1}$ is binary then
+
+5:    Compress: $\tilde{\mathbf{S}}^{l-1} \leftarrow C(\mathbf{S}^{l-1})$;
+
+6:    Save $\tilde{\mathbf{S}}^{l-1}$, and free $\mathbf{S}^{l-1}$;
+
+7: else
+
+8:    Save $\mathbf{S}^{l-1}$;
+
+9: end if
+
+10: end for
+
+11: Compute the loss $\mathcal{L}$ and the gradient $\frac{\partial \mathcal{L}}{\partial \mathbf{S}^L}$;
+
+12: // backward pass
+
+13: for $l=L,L-1,\ldots,1$ do
+
+14: if $\mathbf{S}^{l-1}$ is compressed then
+
+15:    Decompress: $\mathbf{S}^{l-1} \leftarrow C^{-1}(\tilde{\mathbf{S}}^{l-1})$;
+
+16: end if
+
+17: $\mathbf{S}^l \leftarrow \text{layer}^l(\mathbf{S}^{l-1}; \text{autograd} = \text{True})$;
+
+18:    Compute $\frac{\partial \mathcal{L}}{\partial \mathbf{W}^l}, \frac{\partial \mathcal{L}}{\partial \mathbf{S}^{l-1}}$ by BPTT;
+
+19:    Free the saved tensors of layer $l$;
+
+20: end for
+
+21: Update the parameters $\{\mathbf{W}^l\}_{l=1}^L$.
+
+Algorithm 2 GC structure adjustment.
+
+Input: A list of GC segments $\Psi = [\text{seg }^l]_{l=1}^L$.
+
+Output: the adjusted GC segment list.
+
+1: // spatial partitioning
+
+2: while True do
+
+3:    Find $l^* = \arg \max_l (\mathcal{M}_l^{\text{peak}})$;
+
+4:    Spatially split: $\text{seg }^{l^*} \to \{\text{seg }^{l_1^*}, \text{seg }^{l_2^*}\}$
+
+5:    if global $\mathcal{M}^{\text{peak}}$ doesn't decrease then
+
+6:    Revert the split; break;
+
+7:    end if
+
+8: end while
+
+9: // temporal partitioning
+
+10: while True do
+
+11:    Find $l^* = \arg \max_l (\mathcal{M}_l^{\text{peak}})$;
+
+12:    Temporally split: $\text{seg }^{l^*} \to \{\text{seg }^{l_i^*}\}_{i=1}^k$;
+
+13:    if global $\mathcal{M}^{\text{peak}}$ doesn't decrease then
+
+14:    Revert the split; break;
+
+15:    end if
+
+16: end while
+
+17: // greedy restoration
+
+18: sort $\Psi$ descendingly by forward time cost;
+
+19: for $\text{seg }^l$ in $\Psi$ do
+
+20:    Restore $\text{seg }^l$ to a BPTT segment;
+
+21:    if global $\mathcal{M}^{\text{peak}}$ increases then
+
+22:    Re-enable GC for $\text{seg }^l$;
+
+23:    end if
+
+24: end for
+</div>
+
+## 4.5 AUTOMATIC PIPELINE
+
+To minimize user intervention, we wrap all the above strategies into an automatic pipeline. Users can set the level parameter to specify the applied strategy set. At level $O _ { 1 } .$ , only layer-wise GC and spike compression are enabled; $O _ { 2 }$ additionally applies spatial segment partitioning; $O _ { 3 }$ further incorporates temporal partitioning; $O _ { 4 }$ additionally activates greedy segment restora-
+
+```python
+net = memory_optimization(
+    net,
+    (Conv1dBNNeuron, Conv2dBNNeuron, QKACore, SSACore),
+    dummy_input=torch.rand(32, 3, 224, 224),
+    compress_x=True,
+    level=4,
+    verbose=True,
+    temporal_split_factor=2,
+)
+Figure 4: The pipeline's user interface.
+```
+
+tion. Default settings cover most cases, while advanced users can customize spatio-temporal partition schemes. This design balances simplicity and extensibility.
+
+## 4.6 MEMORY-EFFICIENT LIF KERNEL
+
+Beyond the optimization pipeline, kernel-level improvements can bring further efficiency gains. We therefore design a Triton kernel (Tillet et al., 2019) for the widely adopted LIF neuron. The BPTT formulation of LIF can be derived from Equation (1) as:
+
+$$
+\begin{array}{r l} & {\frac {\partial \mathcal {L}}{\partial \mathbf {X} ^ {l} [ t ]} = \left(\frac {\partial \mathcal {L}}{\partial \mathbf {S} ^ {l} [ t ]} - \frac {\partial \mathcal {L}}{\partial \mathbf {V} ^ {l} [ t ]} \mathbf {H} ^ {l} [ t ]\right) \Theta_ {\mathrm{sg}} ^ {\prime} (\mathbf {H} ^ {l} [ t ] - V _ {\mathrm{th}}) + \frac {\partial \mathcal {L}}{\partial \mathbf {V} ^ {l} [ t ]} (1 - \mathbf {S} ^ {l} [ t ]),} \\ & {\frac {\partial \mathcal {L}}{\partial \mathbf {V} ^ {l} [ t - 1 ]} = \lambda \frac {\partial \mathcal {L}}{\partial \mathbf {X} ^ {l} [ t ]},} \end{array}\tag{5}
+$$
+
+Table 1: Comparison of training speed and memory cost. The throughput and memory cost ratios relative to “SJLIF, BPTT” are shown in parentheses.
+
+<table><tr><td>Task</td><td>T</td><td>Batch Size</td><td>Network</td><td>LIF impl.</td><td>Method</td><td>Throughput (sample / s) ↑</td><td>Peak Alloc. Mem. (MB) ↓</td></tr><tr><td rowspan="3">Sequential CIFAR-10</td><td rowspan="3">32</td><td rowspan="3">128</td><td rowspan="3">SCNN</td><td>SJLIF</td><td>BPTT</td><td>4872.23</td><td>1317.23</td></tr><tr><td>PTLIF</td><td>BPTT</td><td>1054.68</td><td>1264.97</td></tr><tr><td>MELIF</td><td> $O_4$ </td><td>5138.76 (1.05×)</td><td>474.98 (0.36×)</td></tr><tr><td rowspan="3">DVS128 Gesture</td><td rowspan="3">16</td><td rowspan="3">16</td><td rowspan="3">7B-Net</td><td>SJLIF</td><td>BPTT</td><td>114.52</td><td>8984.02</td></tr><tr><td>PTLIF</td><td>BPTT</td><td>36.52</td><td>8067.41</td></tr><tr><td>MELIF</td><td> $O_4$ </td><td>120.04 (1.05×)</td><td>4213.86 (0.47×)</td></tr><tr><td rowspan="3">CIFAR10-DVS</td><td rowspan="3">10</td><td rowspan="3">32</td><td rowspan="3">Spiking VGG</td><td>SJLIF</td><td>BPTT</td><td>290.26</td><td>6131.07</td></tr><tr><td>PTLIF</td><td>BPTT</td><td>150.69</td><td>5889.44</td></tr><tr><td>MELIF</td><td> $O_4$ </td><td>270.79 (0.93×)</td><td>2349.39 (0.38×)</td></tr><tr><td rowspan="9">ImageNet</td><td rowspan="9">4</td><td rowspan="9">32</td><td rowspan="3">SEW ResNet-34</td><td>SJLIF</td><td>BPTT</td><td>309.04</td><td>8821.28</td></tr><tr><td>PTLIF</td><td>BPTT</td><td>202.83</td><td>7140.09</td></tr><tr><td>MELIF</td><td> $O_4$ </td><td>281.39 (0.91×)</td><td>2004.14 (0.23×)</td></tr><tr><td rowspan="3">Spikformer (8-512)</td><td>SJLIF</td><td>BPTT</td><td>116.70</td><td>34264.76</td></tr><tr><td>PTLIF</td><td>BPTT</td><td>71.03</td><td>28779.13</td></tr><tr><td>MELIF</td><td> $O_4$ </td><td>93.58 (0.80×)</td><td>7640.68 (0.22×)</td></tr><tr><td rowspan="3">QKFormer (10-512)</td><td>SJLIF</td><td>BPTT</td><td>86.15</td><td>44571.33</td></tr><tr><td>PTLIF</td><td>BPTT</td><td>55.65</td><td>37375.90</td></tr><tr><td>MELIF</td><td> $O_4$ </td><td>76.51 (0.89×)</td><td>5219.93 (0.12×)</td></tr></table>
+
+where $\mathcal { L }$ is the loss and $\Theta _ { \mathrm { s g } } ^ { \prime }$ is the surrogate gradient function. Accordingly, BPTT on a LIF layer requires storing only $\{ \mathbf { H } ^ { l } [ t ] \} _ { t = 1 } ^ { T }$ and $\{ \mathbf { S } ^ { l } [ t ] \} _ { t = 1 } ^ { T }$ during forward pass. We further avoid storing $\{ \mathbf { S } ^ { \dot { l } } [ t ] \} _ { t = 1 } ^ { T }$ by reconstructing it during the LIF layer’s backward pass through $\mathbf { S } ^ { l } [ t ] = \Theta ( \mathbf { H } ^ { l } [ t ] - V _ { \mathrm { t h } } \breve { ) }$ In this way, the floating-point spikes can be dropped once their compression at the subsequent layer is done. We name the kernel as memory-efficient LIF (MELIF) and use it by default.
+
+## 5 EXPERIMENTS
+
+In this section, we evaluate the proposed method’s memory efficiency, as well as training speed, compatibility, and accuracy. We also conduct case studies to highlight the importance of our method.
+
+## 5.1 MEMORY COST AND TRAINING SPEED
+
+We assess the memory and time cost of our method on Sequential CIFAR-10 (Fang et al., 2021b), DVS128 Gesture (Amir et al., 2017), CIFAR10-DVS (Li et al., 2017), and ImageNet (Deng et al., 2009). For ImageNet, we try three architectures: SEW ResNet-34 (Fang et al., 2021a), Spikformer (Zhou et al., 2023), and QKFormer (Zhou et al., 2024). See Appendix C for more details. As Table 1 shows, our memory optimization pipeline at $O _ { 4 }$ combined with the Tritonbased LIF kernel (MELIF) reduces the peak memory consumption to $0 . 1 2 \times \sim 0 . 4 7 \times$ of SNNs trained with standard BPTT using SpikingJelly’s CuPy-based
+
+Table 2: Ablation study of LIF implementation and optimization levels on CIFAR10- DVS.
+
+<table><tr><td>LIF impl.</td><td>Opt.Level</td><td>Throughput (sample / s) ↑</td><td>Peak Alloc. Mem. (MB) ↓</td></tr><tr><td>SJLIF</td><td>-</td><td>290.26</td><td>6131.07</td></tr><tr><td>PTLIF</td><td>-</td><td>150.69</td><td>5889.44</td></tr><tr><td rowspan="4">MELIF</td><td>-</td><td>331.30</td><td>4865.06</td></tr><tr><td> $O_1$ </td><td>246.81</td><td>2887.75</td></tr><tr><td> $O_3$ </td><td>247.83</td><td>2349.39</td></tr><tr><td> $O_4$ </td><td>270.79</td><td>2349.39</td></tr></table>
+
+LIF (SJLIF). This great reduction in memory footprint is achieved with no or only a slight training slowdown $( \leq 2 0 \% )$ see Appendix K for a more detailed runtime decomposition). Table 2 shows that the proposed Triton kernel is significantly more memory- and time-efficient than SJLIF and the LIF in pure PyTorch (PTLIF). Moreover, layer-wise GC $( O _ { 1 } )$ ) and spatio-temporal GC segment partitioning $\left( O _ { 3 } \right)$ further reduce memory, while greedy restoration $( O _ { 4 } )$ mitigates the recomputation overhead of GC. A fine-grained ablation study on three GC adjustment strategies is provided in Appendix L.
+
+![](images/92348ca72947f5e4650b6907648422dadc06eba5bc9f2717e3575e6daab28e92.jpg)
+
+![](images/6e774562dd72561016ba95ef4b01881ada2e27419f535fd14b54cf3724abff93.jpg)  
+Figure 5: Spiking VGG memory evolution on CIFAR10-DVS under different optimization levels.
+
+Table 3: Compatibility with temporally parallel SNNs.
+
+<table><tr><td>Task</td><td>Network</td><td>Neuron</td><td>Method</td><td>Peak Alloc. Mem. (MB) ↓</td></tr><tr><td rowspan="2">Sequential CIFAR-10</td><td rowspan="2">SCNN</td><td rowspan="2">Sliding PSN</td><td>BPTT</td><td>1302.69</td></tr><tr><td> $O_4$ </td><td>599.34 (0.46×)</td></tr><tr><td rowspan="2">ImageNet</td><td rowspan="2">SEW ResNet-34</td><td rowspan="2">PSN</td><td>BPTT</td><td>7602.64</td></tr><tr><td> $O_4$ </td><td>2544.28 (0.33×)</td></tr></table>
+
+Table 4: Compatibility with AMP and LOMO. Condition: ImageNet, QKFormer, MELIF, $O _ { 4 }$
+
+<table><tr><td>AMP?</td><td>LOMO?</td><td>Peak Alloc. Mem. (MB) ↓</td></tr><tr><td>✕</td><td>✕</td><td>5219.93</td></tr><tr><td>✕</td><td>✕</td><td>5190.60</td></tr><tr><td>✕</td><td>✕</td><td>3158.02</td></tr><tr><td>✕</td><td>✕</td><td>3142.86</td></tr></table>
+
+Finally, Figure 5 demonstrates that spike compression brings memory saving by providing more free space for GC structure adjustment (see Appendix J for a detailed discussion).
+
+## 5.2 COMPATIBILITY WITH OTHER METHODS
+
+Beyond LIF neurons, our method is compatible with other spiking neuron models. Table 3 shows that our approach effectively reduces memory usage for SNNs built with PSNs and Sliding PSNs (Fang et al., 2023b). Note that temporal parallelism is not compatible with BPTT-to-BP or online learning. Moreover, Table 4 demonstrates that our method can be seamlessly combined with prevalent memory-saving techniques, such as automatic mixed precision (AMP) (Micikevicius et al., 2018) and low-memory optimizer (LOMO) (Lv et al., 2024b) (see Appendix E for introductions).
+
+## 5.3 MATHEMATICAL EQUIVALENCE WITH CONVENTIONAL BPTT
+
+To verify that our pipeline produces unbiased gradients with respect to standard BPTT, we compare Sequential CIFAR-10 accuracies in Figure 6. The MELIF curves with and without $O _ { 4 }$ optimization (green and orange) exactly overlap, showing that GC and spike compression do not introduce gradient bias. Their minor difference from the baseline (SJLIF, blue) stems from the different numerical behavior of Triton and CuPy. This gap is negligible, as the orange curve lies almost entirely within the baseline’s error band. Additional results and discussion
+
+![](images/fe9bb3b08a3cd72f789e6cb0b77e5e86839e3b812eee47770dff6030b29695f2.jpg)
+
+![](images/29d0cc31bc758267b113f35a939d3aaba8d0785af79e54dd329ac804940a936f.jpg)  
+Figure 6: Sequential CIFAR-10 accuracies. SJLIF shows mean ± std over three runs, while the other two curves are single runs with a fixed seed.
+
+on numerical discrepancies are provided in Appendices F and G. Overall, our pipeline preserves BPTT-level accuracy, which is its main advantage over other efficient training approaches.
+
+## 5.4 COMPARISON WITH OTHER EFFICIENT TRAINING METHODS
+
+Table 5 compares throughput, memory usage, gradient fidelity, and applicability constraints of representative efficient training methods. All methods use the same Spiking VGG model, except reversible networks, whose architectures are adjusted to match the VGG in parameter count (9.2 M)
+
+Table 5: Comparison of SNN efficient training methods. Throughput and memory are tested on CIFAR10-DVS. ‘Grad. Bias’ indicates additional gradient approximation beyond surrogate gradients.
+
+<table><tr><td>Category</td><td>Method</td><td>Throughput (sample / s) ↑</td><td>Peak Alloc. Mem. (MB) ↓</td><td>Grad. Bias</td><td>Constraints</td></tr><tr><td>Vanilla</td><td>BPTT</td><td>290.26</td><td>6131.07</td><td>✕</td><td>✕</td></tr><tr><td rowspan="3">Online Learning</td><td>SLTT</td><td>297.45</td><td>736.63</td><td></td><td></td></tr><tr><td>OTTT</td><td>216.78</td><td>969.21</td><td>✕</td><td>step-wise only</td></tr><tr><td>NDOT</td><td>168.48</td><td>1467.90</td><td></td><td></td></tr><tr><td rowspan="2">BPTT-to-BP</td><td>Tandem SNN</td><td>551.96</td><td>1706.68</td><td>✕</td><td>no temporal dependency</td></tr><tr><td>Rate-based</td><td>497.07</td><td>1540.65</td><td></td><td></td></tr><tr><td rowspan="2">Reversible Network</td><td>RevSResNet</td><td>157.46</td><td>3198.78</td><td>✕</td><td>reversible models only</td></tr><tr><td>T-RevSNN</td><td>191.36</td><td>1089.43</td><td></td><td></td></tr><tr><td>Ours</td><td> $O_4$ </td><td>270.79</td><td>2349.39</td><td>✕</td><td>layer-wise only</td></tr></table>
+
+![](images/5d4e8c4e97831702a9f4cb07eb5ed6246d30cd1f5b2e139ca6b2c945b22dbd4e.jpg)
+
+![](images/5402fbcbbc9bb8844529382217b364cd2cbe41c54a7bdb891023c950974ce048.jpg)
+
+![](images/4eabdbed85e0340da0b5698b2f0be0aa44c17a73964d1b8c614451800703546f.jpg)
+
+![](images/104158edba5db91b07239df3b04e5a483858d46a40c8292f4d0419104c5544b8.jpg)  
+Figure 7: Case studies. The proposed pipeline enables (a) larger batch size, (b) finer temporal resolution, and (c) training large-scale SNNs on more accessible devices. The heatmap in (b) shows which intermediate features are saved during forward pass after $O _ { 4 }$ optimization when $T = 1 0 0 0$
+
+and feature-map resolution. Online learning methods like SLTT (Meng et al., 2023), OTTT (Xiao et al., 2022) and NDOT (Jiang et al., 2024) achieve the lowest memory cost but require step-wise execution, prohibiting techniques like temporal parallelism (Fang et al., 2023b) that are common in modern SNNs. BPTT-to-BP, such as Tandem SNN (Wu et al., 2023) and Rate-based BP (Yu et al., 2024), shows higher throughput but introduces substantial gradient bias, making it unsuitable for tasks with rich temporal dependencies. Reversible networks like RevSResNet (Zhang & Zhang, 2024) and T-RevSNN (Hu et al., 2024) reduce memory cost but significantly slow down training and impose strict architectural constraints. In contrast, our method balances speed and memory while maintaining mathematical equivalence to BPTT and supporting generic layer-wise SNNs.
+
+## 5.5 CASE STUDIES
+
+QKFormer on ImageNet Take QKFormer trained on ImageNet $( T = 4 )$ as an example. With our pipeline, the batch size can be increased by nearly 8× without consuming more memory. Enlarging the batch size from 8 to 64 yields about 1.43× training speedup, as shown in Figure 7(a).
+
+DH-SFNN on SHD We evaluate our method on Spiking Heidelberg Digits (SHD) (Cramer et al., 2022) using DH-SFNN, a fully connected SNN $( 7 0 0 \to 1 0 2 4 \to 1 0 2 4 \to 5 1 2 \to 2 0 )$ with dendritic heterogeneity LIF (DH-LIF) neurons (Zheng et al., 2024). Each DH-LIF contains four dendritic branches and a soma, resulting in five internal states per neuron. Batch size is set to 128. Existing efficient training approaches can hardly work here: online learning and BPTT-to-BP struggle with SHD’s rich temporal dynamics, while reversible network is infeasible due to architectural constraints. In contrast, as Figure 7(b) shows, our method enables 4× increase in T with negligible extra memory cost, allowing finer temporal resolution and potentially better sequence modeling quality.
+
+SpikeVideoFormer on Kinetics-400 We train a SpikeVideoFormer (Zou et al., 2025) (55.9 M parameters) on Kinetics-400 (Kay et al., 2017) with $\bar { T ^ { \mathrm { ~ } } } = 3 2$ frames and 224 × 224 input resolution. Training with a batch size of 4 per GPU requires 54.43 GB of memory per device, restricting experiments to high-end hardware. Indeed, the original work uses eight A6000 GPUs, which is not affordable for many researchers. With our method, the peak memory per GPU is reduced to 11.17 GB, enabling its training on widely accessible GPUs (e.g., 4090, 24 GB), as Figure 7(c) shows. This demonstrates that our approach can lower hardware barriers for cutting-edge SNN research.
+
+## 6 CONCLUSION
+
+In this work, we presented an automatic memory optimization pipeline for SNN direct training. The pipeline integrates layer-wise GC with lossless spike compression to reduce the memory footprint of intermediate features. We then adaptively adjust GC structure by spatio-temporal segment partitioning and greedy restoration to further reduce memory demand and GC’s recomputation overhead. Experi ments show that our pipeline achieves high memory efficiency while maintaining acceptable training speed, BPTT-level accuracy, and broad compatibility. This work provides a practical approach for efficiently training large-scale SNNs. Limitations and future directions are discussed in Appendix N.
+
+## ACKNOWLEDGMENTS
+
+This work was supported by the National Natural Science Foundation of China (62425101, 62332002), and Beijing Key Laboratory of Brain-inspired Spiking Large Models.
+
+## REFERENCES
+
+Filipp Akopyan, Jun Sawada, Andrew Cassidy, Rodrigo Alvarez-Icaza, John Arthur, Paul Merolla, Nabil Imam, Yutaka Nakamura, Pallab Datta, Gi-Joon Nam, Brian Taba, Michael Beakes, Bernard Brezzo, Jente B. Kuang, Rajit Manohar, William P. Risk, Bryan Jackson, and Dharmendra S. Modha. Truenorth: Design and tool flow of a 65 mw 1 million neuron programmable neurosynaptic chip. IEEE Transactions on Computer-Aided Design ofIntegrated Circuits and Systems, 34(10): 1537–1557, 2015.
+
+Arnon Amir, Brian Taba, David Berg, Timothy Melano, Jeffrey McKinstry, Carmelo Di Nolfo, Tapan Nayak, Alexander Andreopoulos, Guillaume Garreau, Marcela Mendoza, Jeff Kusnitz, Michael Debole, Steve Esser, Tobi Delbruck, Myron Flickner, and Dharmendra Modha. A low power, fully event-based gesture recognition system. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition, pp. 7243–7252, 2017.
+
+Guillaume Bellec, Franz Scherr, Anand Subramoney, Elias Hajek, Darjan Salaj, Robert Legenstein, and Wolfgang Maass. A solution to the learning dilemma for recurrent networks of spiking neurons. Nature Communications, 11(1):3625, 2020.
+
+Wadjih Bencheikh, Jan Finkbeiner, and Emre Neftci. Optimal gradient checkpointing for sparse and recurrent architectures using off-chip memory. arXiv preprint arXiv:2412.11810, 2024.
+
+Thomas Bohnstingl, Stanisław Wo´zniak, Angeliki Pantazi, and Evangelos Eleftheriou. Online spatiotemporal learning in deep neural networks. IEEE Transactions on Neural Networks and Learning Systems, 34(11):8894–8908, 2023.
+
+Tong Bu, Wei Fang, Jianhao Ding, PENGLIN DAI, Zhaofei Yu, and Tiejun Huang. Optimal ANN-SNN conversion for high-accuracy and ultra-low-latency spiking neural networks. In The Tenth International Conference on Learning Representations, 2022.
+
+Yongqiang Cao, Yang Chen, and Deepak Khosla. Spiking deep convolutional neural networks for energy-efficient object recognition. International Journal ofComputer Vision, 113(1):54–66, 2015.
+
+Tianqi Chen, Bing Xu, Chiyuan Zhang, and Carlos Guestrin. Training deep nets with sublinear memory cost. arXiv preprint arXiv:1604.06174, 2016.
+
+Xinyi Chen, Jibin Wu, Chenxiang Ma, Yinsong Yan, Yujie Wu, and Kay Chen Tan. Pmsn: A parallel multi-compartment spiking neuron for multi-scale temporal processing. arXiv preprint arXiv:2408.14917, 2024.
+
+Zehao Chen, Zhan Lu, De Ma, Huajin Tang, Xudong Jiang, Qian Zheng, and Gang Pan. Evhdrgs: Event-guided hdr video reconstruction with 3d gaussian splatting. Proceedings of the AAAI Conference on Artificial Intelligence, 39(3):2367–2375, 2025.

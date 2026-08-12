@@ -1,0 +1,2644 @@
+[
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "ABSTRACT"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                450,
+                263,
+                547,
+                279
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Large Language Models (LLMs) often struggle with problems that require multistep reasoning. For small-scale open-source models, Reinforcement Learning with Verifiable Rewards (RLVR) fails when correct solutions are rarely sampled even after many attempts, while Supervised Fine-Tuning (SFT) tends to overfit long demonstrations through rigid token-by-token imitation. To address this gap, we propose Supervised Reinforcement Learning (SRL), a framework that reformulates problem solving as generating a sequence of logical “actions”. SRL trains the model to generate an internal reasoning monologue before committing to each action. It provides smoother rewards based on the similarity between the model’s actions and expert actions extracted from the SFT dataset in a step-wise manner. This supervision offers richer learning signals even when all rollouts are incorrect, while encouraging flexible reasoning guided by expert demonstrations. As a result, SRL enables small models to learn challenging problems previously unlearnable by SFT or RLVR. Moreover, initializing training with SRL before refining with RLVR yields the strongest overall performance. Beyond reasoning benchmarks, SRL generalizes effectively to agentic software engineering tasks, establishing it as a robust and versatile training framework for reasoning-oriented LLMs."
+                    }
+                ]
+            },
+            "bbox": [
+                228,
+                294,
+                769,
+                532
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/a533cddd08df148f1379ab4509132c58dde0cae33eaeeed1f50766cb7a71fd7b.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 1: Performance of our method (SRL) against baselines on math reasoning benchmarks, with all models trained on the challenging s1k dataset (Muennighoff et al., 2025). Our key observations are: (1) Directly applying SFT on this dataset leads to performance degradation compared to the base model. (2) While RLVR can improve generalization over SFT, the gains are marginal. (3) Our proposed SRL method substantially outperforms these baselines, and the SRL → RLVR pipeline achieves the highest performance, overcoming the challenges of training on difficult data."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                189,
+                556,
+                797,
+                719
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "1 INTRODUCTION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                173,
+                829,
+                339,
+                845
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Large Language Models (LLMs) have demonstrated remarkable versatility across diverse domains, ranging from mathematical problem-solving (Wang et al., 2025) and search-result integration (Jin et al., 2025; Hsu et al., 2024) to tool-use (Yin et al., 2025; Qian et al., 2025) and long-horizon agentic interaction (Xie et al., 2024; Li et al., 2025c; Tan et al., 2025). A pivotal recent advancement involves the use of reinforcement learning (RL) to bolster complex reasoning capabilities (Shao et al., 2024; Ahmadian et al., 2024; Lambert et al., 2024). By optimizing models through reward signals tied to verifiable outcomes—such as final answer accuracy—RL provides a scalable framework for eliciting sophisticated problem-solving behaviors, including self-reflection (Guo et al., 2025; Xie et al., 2025)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                861,
+                826,
+                891
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "* Equal contribution. † This work was done while the author interned at Google Cloud AI Research. Correspondence: yihedeng@g.ucla.edu, ihung.hsu@gmail.com, chenyulee@google.com"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                897,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "1"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                503,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                826,
+                189
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The effectiveness of these outcome-based RL methods fundamentally depends on the policy model’s ability to discover correct solutions within a limited rollout budget (Brown et al., 2024). However, given practical computational constraints, this learning paradigm struggles on challenging problems from the training data, where the model’s success rate is effectively zero (when the pass@k rate remains zero even after sampling k rollouts). Such cases are increasingly common in tasks requiring complex, multi-step reasoning (Yue et al., 2025; Wang et al., 2024). For these problems, an incorrect intermediate step can derail the entire reasoning chain for a 7B-scale LLM, resulting negative learning signals regardless of any partially correct solutions. Furthermore, naively penalizing all incorrect final outputs can further introduce training instability and hinder progress, making these difficult reasoning tasks largely intractable for standard outcome-based RL methods (Xiong et al., 2025)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                194,
+                826,
+                335
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "An alternative approach is imitation learning, commonly implemented via Supervised Fine-Tuning (SFT) on expert demonstrations (Ross et al., 2011). While SFT can instill valuable reasoning behaviors, its next-token prediction objective enforces rigid, token-level imitation, limiting the model’s ability to generalize beyond the training data. This problem becomes particularly pronounced when training data are modest in scale and when the model itself is relatively less capable. Under such conditions, long and complex demonstrations often lead to overfitting and shallow reasoning behaviors (Chu et al., 2025a; Li et al., 2025b), as illustrated by the performance decline in our Figure 1. Consequently, both SFT and outcome-based RL struggle on challenging reasoning tasks, leaving a critical gap for training small open-source models to effectively learn difficult problems."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                340,
+                826,
+                468
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To address this gap, we introduce Supervised Reinforcement Learning (SRL), a framework that reformulates problem-solving as a sequential decision-making process. Rather than optimizing for a final answer or imitating an entire expert trajectory, SRL trains the model to reproduce the sequence of key actions underlying expert reasoning, following an RL-style objective. Specifically, expert demonstrations are decomposed into a series of intermediate actions, each representing a meaningful decision step. During training, the model first generates an internal monologue to articulate its reasoning and then commits to an “action”. At every step, SRL provides a reward based on the similarity between the model’s predicted action and the corresponding expert action, thereby providing fine-grained, efficiently computable supervision that scales to large datasets."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                473,
+                826,
+                599
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Our work makes the following contributions:"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                604,
+                470,
+                619
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• We propose SRL, a novel framework designed to enable effective learning on difficult reasoning tasks where SFT and RLVR struggle, by providing dense and smooth rewards based on similarity with expert actions."
+                    }
+                ]
+            },
+            "bbox": [
+                178,
+                626,
+                825,
+                667
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• We demonstrate the effectiveness and robustness of SRL through extensive experiments on challenging mathematical reasoning and agentic software engineering benchmarks. Our results show that SRL significantly outperforms strong baselines across both domains (5.1 & 5.3)."
+                    }
+                ]
+            },
+            "bbox": [
+                178,
+                670,
+                825,
+                713
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• Through detailed analysis, we show that granular guidance is vital to SRL’s reward and its impact on model behavior. We observe that SRL induces flexible and sophisticated reasoning patterns, such as interleaved planning and verification, which improve solution quality without simply increasing output length (5.2)."
+                    }
+                ]
+            },
+            "bbox": [
+                178,
+                714,
+                826,
+                771
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2 RELATED WORK"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                792,
+                346,
+                809
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2.1 SFT (DISTILLATION) FOR LLM REASONING."
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                827,
+                529,
+                840
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Distilling reasoning into smaller models via SFT on teacher-generated long Chain-of-Thought (CoT) rationales has proven highly effective for transferring complex problem-solving skills (Li et al., 2023; Huang et al., 2024; Min et al., 2024; Yeo et al., 2025), as exemplified by the small models distilled from DeepSeek R1 (Guo et al., 2025). Research indicates this process is surprisingly data-efficient, with small, high-quality datasets often being sufficient (Ye et al., 2025; Muennighoff et al., 2025)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                854,
+                828,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "2"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/5557b67460fb46ea8630836c947ac6915a353dabc8c40de8ecd90a7419e199a8.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 2: Illustration of SRL as compared to RL(VR) and SFT. (a) RL(VR) takes a query as input and performs k rollouts. The final answer correctness is used as the reward. (b) SFT uses both a query x and a complete teacher response y as input, training with a per-token loss to maximize the probability "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p ( \\mathbf { y } \\vert \\mathbf { x } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". (c) SRL also uses a query and a teacher response. It breaks the response into step actions and, at each step, uses the previous steps as context. The model generates a next step action along with its step-wise inner thoughts, and the reward "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "r _ { k }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is based on the similarity between the model’s and the teacher’s action."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                204,
+                101,
+                787,
+                251
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Given the success, research has focused on the underlying factor for effective SFT distillation (Chen et al., 2025a). Some emphasized the logical structure of the reasoning trace rather than its semantic correctness (Luo et al., 2025; Stechly et al., 2025), as models can learn from demonstrations with factual errors (Li et al., 2025a). Moreover, significant challenges remain in the student-teacher gap where the student fails to learn from overly complex data (Li et al., 2025b), and the risk of teacher hacking, where the student overfits to a teacher’s specific flaws (Tiapkin et al., 2025). Ultimately, distillation from a teacher model imposes a performance ceiling on the student (Huang et al., 2024)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                377,
+                826,
+                478
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2.2 RL FOR LLM REASONING."
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                494,
+                403,
+                508
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The development of DeepSeek-R1 (Guo et al., 2025) showed the effectiveness of rule-based RL for enhancing the reasoning capabilities of LLMs. This approach utilizes a scalable reward system based on final answer correctness, exemplified by the Group Relative Policy Optimization (GRPO) algorithm (Shao et al., 2024) and parallel algorithms (Ahmadian et al., 2024; Lambert et al., 2024; Xie et al., 2025). Building on this foundation, subsequent research has introduced numerous algorithmic refinements. For example, Dr. GRPO (Liu et al., 2025) mitigates bias by removing variance normalization, while DAPO (Yu et al., 2025) introduces a token-level loss and relaxes the policy update constraint by increasing the clipping threshold. Other notable advancements include modifications to clipping methods, normalization techniques, the KL divergence loss, and dynamic sampling strategies (Chu et al., 2025b; Zhang & Zuo, 2025; Zhang et al., 2025; Chen et al., 2025b). Despite these algorithmic variations, these approaches primarily rely on the final outcome’s reward signal. A critical challenge arises when the rollouts fail to identify a correct solution trajectory, particularly for difficult queries. DAPO (Yu et al., 2025), for instance, addresses this by filtering out instructions that do not yield any successful rollouts."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                521,
+                826,
+                718
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3 PRELIMINARIES"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                739,
+                341,
+                753
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "A Large Language Model (LLM) is formally defined by a probability distribution "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "over sequences of tokens, parameterized by a set of model weights "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\bar { \\theta } } ."
+                    },
+                    {
+                        "type": "text",
+                        "content": "Given an input prompt, represented as a token sequence "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { x } = [ x _ { 1 } , \\ldots , x _ { n } ] ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", the model generates a response sequence "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { y } = [ y _ { 1 } , \\dots , y _ { m } ]"
+                    },
+                    {
+                        "type": "text",
+                        "content": "The response is produced autoregressively, where the generation of the token "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "y _ { j }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "at any step j is conditioned on the initial prompt x and all preceding tokens in the generated sequence, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\left( y _ { 1 } , \\ldots , y _ { j - 1 } \\right)"
+                    },
+                    {
+                        "type": "text",
+                        "content": "The joint probability of the entire response sequence y given the prompt x is thus factorized as: "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\begin{array} { r } { p _ { \\boldsymbol { \\theta } } ( \\mathbf { y } | \\mathbf { x } ) = \\bar { \\prod } _ { j = 1 } ^ { m } p _ { \\boldsymbol { \\theta } } ( y _ { j } | \\mathbf { x } , y _ { 1 } , \\dots , y _ { j - 1 } ) } \\end{array}"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                772,
+                826,
+                873
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Supervised Fine-Tuning (SFT). SFT is typically employed to specialize LLM for downstream applications or domains. It is also commonly used to establish a cold start for subsequent RL training phases that requires certain reply format/pattern, such as RL for reasoning (Deng et al., 2025) or tool use (Feng et al., 2025). Specifically, the process utilizes a dataset "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { D } = \\{ ( \\mathbf { x } ^ { ( i ) } , \\mathbf { y } ^ { ( i ) } ) \\} _ { i = 1 } ^ { N }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", where each "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { x } ^ { ( i ) }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is an input prompt and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { y } ^ { ( i ) }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the corresponding desired model output. The primary objective is to update the parameters θ to maximize the conditional probability of generating the target response "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { y } ^ { ( i ) }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "given the input prompt "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { x } ^ { ( i ) }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". This goal is formally achieved by minimizing the negative log-likelihood loss function: "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\begin{array} { r } { \\mathcal { L } _ { \\mathrm { S F T } } ( \\boldsymbol { \\theta } ) = - \\sum _ { i = 1 } ^ { N } \\log p _ { \\boldsymbol { \\theta } } ( \\mathbf { y } ^ { ( i ) } | \\mathbf { x } ^ { ( i ) } ) } \\end{array}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "over the entire dataset. By minimizing this loss, the model learns to produce responses that are closely aligned with the exact words demonstrated in the labeled training examples."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                881,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "3"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                103,
+                826,
+                209
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Reinforcement Learning (RL). Recent literature on improving model reasoning capability has focused on RL with verifiable reward (RLVR), where the policy model receives reward signals purely based on the final answer correctness. Building on this principle, Group Relative Policy Optimization (GRPO) (Shao et al., 2024) involves sampling a group of G response trajectories, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{ \\mathbf { o } _ { i } \\} _ { i = 1 } ^ { G }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", from the previous policy model, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\theta _ { o l d }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", for each input query x. The objective function for GRPO is:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                215,
+                825,
+                286
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\begin{array}{l} \\mathbb {E} \\left[ \\frac {1}{G} \\sum_ {i = 1} ^ {G} \\frac {1}{| \\mathbf {o} _ {i} |} \\sum_ {t = 1} ^ {| \\mathbf {o} _ {i} |} \\min \\left(\\frac {p _ {\\theta} (o _ {i , t} | \\mathbf {x} , \\mathbf {o} _ {i , <   t})}{p _ {\\theta_ {o l d}} (o _ {i , t} | \\mathbf {x} , \\mathbf {o} _ {i , <   t})} \\hat {A} _ {i, t}, \\operatorname{clip} \\left(\\frac {p _ {\\theta} (o _ {i , t} | \\mathbf {x} , \\mathbf {o} _ {i , <   t})}{p _ {\\theta_ {o l d}} (o _ {i , t} | \\mathbf {x} , \\mathbf {o} _ {i , <   t})}, 1 - \\epsilon , 1 + \\epsilon\\right) \\hat {A} _ {i, t}\\right) \\right] \\\\ - \\beta \\mathbb {D} _ {\\mathrm{KL}} \\left[ p _ {\\theta} \\| p _ {\\text {ref}} \\right]. \\end{array} \\tag {3}\\tag{1}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/3aa8a92ee8c49031bb4670fcf9a0cada527c047fd2bee9a125946a54bf38e104.jpg"
+                }
+            },
+            "bbox": [
+                179,
+                290,
+                813,
+                356
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The hyperparameter "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\epsilon > 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": "defines the clipping range for the policy update ratio, and the coefficient "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\beta > 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": "modulates the influence of the KL-divergence penalty against the policy update. The term "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\theta _ { o l d }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "refers to the policy from the previous iteration. The advantage function, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat { A } _ { i , t } = ( \\tilde { r } _ { i } - \\mathrm { m e a n } ( \\tilde { r } ) ) / \\mathrm { s t d } ( \\tilde { r } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is defined as the group-level normalized reward."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                359,
+                825,
+                419
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "A key challenge for these RL algorithms emerges when input queries are either too easy or too hard, resulting in uniform correctness within policy rollouts "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{ \\mathbf { o } _ { i } \\} _ { i = 1 } ^ { G }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". In such cases, the advantage estimate "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\hat { A } } _ { i , j }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "vanishes, yielding an uninformative policy gradient and preventing model updates. A common strategy to mitigate this is to dynamically sample the batches, filtering out samples and re-sampling until the data sample satisfies "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\bar { 0 } < | \\{ \\mathbf { o } _ { i } | \\mathrm { i } \\bar { \\mathbf { s } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "_correct(o<sub>i</sub>)}| < G (Yu et al., 2025)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                425,
+                826,
+                500
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4 METHODOLOGY"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                517,
+                343,
+                532
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.1 THE CHALLENGE OF HARD REASONING PROBLEM"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                547,
+                560,
+                561
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "RL with verifiable reward is a prominent technique for enhancing the reasoning capabilities of LLMs. The strategy is to close the gap between a model’s potential performance across multiple attempts (pass@k) (Brown et al., 2024; Yue et al., 2025). However, this paradigm falters on problems where the model’s pass@k rate is already near zero. For this set of difficult problems, which we term "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { D } _ { \\mathrm { h a r d } } ."
+                    },
+                    {
+                        "type": "text",
+                        "content": "positive reward signals are too sparse for RLVR to be effective (Xiong et al., 2025). Moreover, simply penalizing incorrect outputs can be detrimental to model performance (Yu et al., 2025; Xiong et al., 2025), creating a significant challenge for improving model reasoning."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                573,
+                826,
+                672
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Formally, we define "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { D } _ { \\mathrm { h a r d } } = \\{ \\mathbf { x } ^ { ( i ) } , a ^ { ( i ) } \\} _ { i = 1 } ^ { N }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "as the set of problems "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( \\mathbf { x } , a )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "where policy model’s success rate is low with k samples: "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\begin{array} { r } { \\frac { 1 } { k } \\sum _ { j = 1 } ^ { k } \\mathbb { I } \\big ( \\mathrm { E x t r a c t A n s w e r } ( \\mathbf { y } ^ { ( j ) } ) \\ = = \\ a \\big ) \\ \\leq \\ \\epsilon ; } \\end{array}"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", where each solution attempt "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { y } ^ { ( j ) }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is sampled from the policy "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { \\pmb { \\theta } } ( \\cdot | \\mathbf { x } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\epsilon > 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is a small constant."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                678,
+                825,
+                729
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Due to the scarcity of successful trajectories, standard RL with verifiable reward struggles on "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { D } _ { \\mathrm { h a r d } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "Such data is further difficult to be learned by SFT, due to its limited amount and complexity in teacher reasoning trajectories (Li et al., 2025b)."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                734,
+                825,
+                777
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.2 SUPERVISED REINFORCEMENT LEARNING (SRL)"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                794,
+                558,
+                809
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To address the challenge of learning from "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { D } _ { \\mathrm { h a r d } } ."
+                    },
+                    {
+                        "type": "text",
+                        "content": ", we introduce Supervised Reinforcement Learning (SRL), a framework that decomposes complex problem-solving as a sequential decision-making process, and thus can be easily learned on how to properly operate step-wise. Instead of generating a monolithic solution, the model learns to take actions similar to the expert while producing their own inner reasoning process in a step-by-step manner. The whole framework is illustrated in Figure 3. <sup>1</sup>"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                819,
+                825,
+                891
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "(e.g., “2."
+                    }
+                ]
+            },
+            "bbox": [
+                558,
+                898,
+                607,
+                911
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "<sup>1</sup>Empirically, we found that providing the subsquent step title **Coprime Pairs**” in Figure 3) as the additional context for the learner to predict the rest of the step content can further boost the performance."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                897,
+                825,
+                924
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "4"
+                    }
+                ]
+            },
+            "bbox": [
+                491,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/e61ea32f2c94d774e2de22acf8c040f103e8cd3a74d617b94b4b1597df52af00.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 3: Given a solution trajectory, we take each summarized step as an action to be learned and take the partial solution before the step as the context of our newly created data. The model is then prompted to generate its thinking process followed by the action for the current step. A reward "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( r _ { 2 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "in the figure) is then calculated based on the similarity between the model’s and the expert’s action."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                205,
+                95,
+                787,
+                301
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Action-based problem formulation. Given an expert solution trajectory y that leads to a correct final answer, we decompose y into a sequence of tuples: "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { y } = \\{ \\mathbf { y } _ { \\mathrm { s t e p } _ { n } } \\} _ { n = 1 } ^ { N } ."
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Each step represents a logical action: the concrete action to be operated. This formulation is domain-agnostic; for instance, an action in mathematical reasoning could be an algebraic manipulation, while for a software agent, it could be a command executed in a code repository."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                405,
+                826,
+                476
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Step-wise training data construction. To create training data for SRL, we leverage a powerful teacher model, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\theta _ { e x p e r t } ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", to generate solution trajectories. From a single complete solution with N steps, we construct "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "N - 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": "partial trajectories. For each step "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "k \\in \\{ 1 , \\overline { { \\mathbf { \\Omega } } } , \\mathbf { \\Omega } . \\mathbf { \\Omega } . , N \\overline { { \\mathbf { \\Omega } } } - 1 \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", we create a new input prompt "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf x _ { \\mathrm { s t e p } _ { k } } = [ \\mathbf x , \\mathbf y _ { \\mathrm { s t e p } _ { 1 } } , \\dots , \\mathbf y _ { \\mathrm { s t e p } _ { k - 1 } } ]"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", where the model’s task is to predict the subsequent step, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { y } _ { \\mathrm { s t e p } _ { k } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". This process transforms one expert solution into a rich set of training instances that teach the model to proceed correctly from various intermediate states."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                482,
+                825,
+                569
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Learning with a sequence similarity reward with own inner monologue. Given a partial context "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { x } _ { \\mathrm { s t e p } _ { k } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "containing the problem and a partial solution, the policy model p<sub>θ</sub> is prompted to generate the subsequent action step with their own inner monologue "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { y } _ { \\mathrm { t h i n k } } ^ { \\prime }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", which is encapsulated by “<think>” tags. We then provide a dense reward based on the quality of the generated logical action "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { y } _ { \\mathrm { s t e p } _ { k } } ^ { \\prime }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". The prediction can be formally specified as: "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { y } ^ { \\prime } \\sim p _ { \\pmb { \\theta } } ( \\cdot | \\mathbf { x } _ { \\mathrm { s t e p } _ { k } } ) = [ \\mathbf { y } _ { \\mathrm { t h i n k } } ^ { \\prime } , \\mathbf { y } _ { \\mathrm { s t e p } _ { k } } ^ { \\prime } ]"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                574,
+                826,
+                651
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To guide training, we consider the reward function that measures the similarity between the generated action: "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\begin{array} { r } { R ( \\mathbf { y } _ { \\mathrm { s t e p } _ { k } } ^ { \\prime } , \\mathbf { y } _ { \\mathrm { s t e p } _ { k } } ) = \\frac { 2 M } { T } } \\end{array}"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", where"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                656,
+                823,
+                686
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• T (Total elements): This is the total number of elements in both sequences combined. It is calculated as the sum of the lengths of the two sequences: "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T = | S _ { 1 } | + | \\overline { { S } } _ { 2 } |"
+                    }
+                ]
+            },
+            "bbox": [
+                178,
+                694,
+                823,
+                724
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• M (Matched elements): The total count of elements found in all non-overlapping matching blocks between the two sequences. The algorithm first finds the longest contiguous matching subsequence and then recursively searches for more matches in the segments to the left and right of that block. If we represent the set of all such matching blocks as a list of tuples "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( i , j , n )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", where n is the length of the matching block, then M is the sum of all lengths n: "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\begin{array} { r } { M = \\sum _ { ( i , j , n ) \\in \\mathrm { M a t c h i n g B l o c k s } } n } \\end{array}"
+                    }
+                ]
+            },
+            "bbox": [
+                178,
+                724,
+                826,
+                797
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Combining these definitions, we can calculate the similarity ratio "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "R \\in [ 0 , 1 ]"
+                    },
+                    {
+                        "type": "text",
+                        "content": "as:"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                806,
+                692,
+                821
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "R = \\frac {2 \\sum_ {(i , j , n) \\in \\text { MatchingBlocks }} n}{| S _ {1} | + | S _ {2} |}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/797b88fed632602e3bdac84e61a1287336877b8aa4e8893fa8ad40d991bdc4bd.jpg"
+                }
+            },
+            "bbox": [
+                395,
+                834,
+                601,
+                869
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "While the choice of similarity function can be adapted to specific data distributions or task requirements, we employ Python’s difflib.SequenceMatcher for our implementation. Furthermore, a negative reward is assigned if the generated output "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { y } ^ { \\prime }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "fails to adhere to the required format. Hence,"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                881,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "5"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "the final reward used is:"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                104,
+                333,
+                119
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "r (\\mathbf {y} _ {\\text { step } _ {k}} ^ {\\prime}, \\mathbf {y} _ {\\text { step } _ {k}}) = \\left\\{ \\begin{array}{l l} R (\\mathbf {y} _ {\\text { step } _ {k}} ^ {\\prime}, \\mathbf {y} _ {\\text { step } _ {k}}) & \\text { if   } \\mathbf {y} ^ {\\prime} \\text {   follows   format }, \\\\ - 1 & \\text { otherwise }. \\end{array} \\right.",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/f5c03469cedbfec315c07d87908e93020228fc876a1f874355ddb0f13d288e73.jpg"
+                }
+            },
+            "bbox": [
+                297,
+                118,
+                694,
+                156
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The policy "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is then optimized using this reward signal with the GRPO objective function defined in Equation 1. Notably, our reward is computed only on the logical action, not the internal monologue. This grants the model flexibility to develop its own internal reasoning style while ensuring its external actions align with the expert’s strategy. This design provides dense, step-level feedback and allows for rapid reward calculation, making the SRL framework both effective and scalable."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                157,
+                826,
+                229
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Dynamic sampling for SRL. As our reward signal "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "r \\in [ 0 , 1 ] \\cup \\{ - 1 \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is dense, we generalize the dynamic sampling strategy previously designed for outcome accuracy and implement it to filter samples with less meaningful updates. Specifically, a sample should be filtered out if its rollouts yield rewards with near-zero variance, providing a weak advantage and thus weak learning signal. With the sequence similarity reward in SRL, we retain a sample if the standard deviation of the reward scores of its rollouts exceeds a threshold "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\epsilon > 0 :"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                234,
+                826,
+                319
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\sqrt {\\frac {\\sum_ {i = 1} ^ {G} (r (\\mathbf {o} _ {i} , \\mathbf {y}) - \\bar {r}) ^ {2}}{G}} > \\epsilon",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/325e231cc241a9aca4d019f349cd1610d19b76e45fa52d8d6cdefe38525fa49f.jpg"
+                }
+            },
+            "bbox": [
+                401,
+                320,
+                594,
+                359
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where G is the number of generated rollouts, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "r ( \\mathbf { o } _ { i } , \\mathbf { y } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the sequence similarity reward for the i-th rollout "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { o } _ { i }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "given the expert trajectory "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { y } ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\bar { r }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the mean reward for the sample. To maintain a consistent batch size of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\dot { \\mathbf { B } } } ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", we continuously sample and filter until the batch is filled."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                359,
+                826,
+                404
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5 EXPERIMENTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                422,
+                328,
+                438
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.1 MAIN RESULTS: MATH REASONING"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                452,
+                467,
+                468
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Setup. We finetue Qwen2.5-7B-Instruct (Yang et al., 2024) on the s1K-1.1 dataset (Muennighoff et al., 2025). This dataset contains 1,000 diverse and challenging questions, each accompanied by a detailed reasoning trace and a final solution generated by DeepSeek R1. The solutions from DeepSeek R1 are formatted with structured, numbered steps "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( \\mathrm { e . g . , \\tilde { \\Omega } ^ { 6 } 1 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Title of Step 1”). We leverage this structure to generate intermediate training targets by parsing these solutions and treating each complete step as a ground-truth continuation. Any data points that do not adhere to this format are excluded.The detailed data preparation process can be found in Appendix B.3. We hold out 60 questions from the dataset to form our validation set."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                479,
+                826,
+                590
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Baselines. We benchmark our proposed methods against several baselines, all initialized from the Qwen2.5-7B-Instruct model. These baselines include:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                595,
+                825,
+                626
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "1. SFT on either the complete reasoning traces (R1 reasoning) or the final solutions from the s1K-1.1 dataset (R1 outline)"
+                    }
+                ]
+            },
+            "bbox": [
+                207,
+                633,
+                825,
+                662
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "2. s1K-7B, the official distilled model released by the dataset’s authors"
+                    }
+                ]
+            },
+            "bbox": [
+                207,
+                666,
+                683,
+                681
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "3. RLVR, which we implement using the GRPO algorithm. To ensure fair comparison, we implement additional dynamic sampling as in Yu et al. (2025), which removes samples with all correct or incorrect rollouts."
+                    }
+                ]
+            },
+            "bbox": [
+                207,
+                684,
+                826,
+                726
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "4. SFT → RLVR, the same RLVR algorithm applied after an initial SFT phase"
+                    }
+                ]
+            },
+            "bbox": [
+                209,
+                729,
+                736,
+                744
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "5. "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { R } ^ { 3 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "(Xi et al., 2024), which applies a reverse curriculum RL learning strategy by starting near the end of the demonstration solution and working backward with step-by-step decomposition to make the sparse final reward easier to find <sup>2</sup>."
+                    }
+                ]
+            },
+            "bbox": [
+                209,
+                746,
+                826,
+                790
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Our proposed method, SRL, is likewise evaluated both as a standalone technique and in a sequential configuration where it precedes RLVR (SRL then RLVR). All models are trained for up to 30 epochs, and for each method, we select the checkpoint with the best performance on the validation set."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                799,
+                826,
+                842
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Evaluation. We evaluate all models on the following four competition-level mathematical reasoning benchmarks: AMC23, AIME24, AIME25<sup>3</sup> and Minerva Math (Lewkowycz et al., 2022). Our evaluation protocol for all benchmarks follows the package released by Qwen2.5-Math<sup>4</sup> and report the accuracy of greedy sampling. The evaluation prompt can be viewed in Appendix B.2.2. In addition, for AMC23, AIME24 and AIME25, we report the average@32 score with a temperature of 1.0 for all baselines to ensure a more robust evaluation, referenceing the evaluation in Yu et al. (2025)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                847,
+                826,
+                877
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "<sup>2</sup>We re-implement this method by reformulating the data from s1K-1.1."
+                    }
+                ]
+            },
+            "bbox": [
+                191,
+                883,
+                617,
+                898
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "<sup>3</sup>Data available on HuggingFace (https://huggingface.co/datasets): AI-MO/aimo-validation-amc, AI-MO/aimo-validation-aime, and math-ai/aime25"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                897,
+                826,
+                924
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "6"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                826,
+                161
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Performance. The performance results of our models are summarized in Table 1. Consistent with the officially released S1K-7B model, our model trained with SFT on the same dataset exhibited a notable performance degradation. In contrast, methods based on RL maintained generalization on the evaluation benchmarks. Specifically, while RLVR maintained the performance, SRL provided a substantial boost of 3.0% on average. Furthermore, applying RLVR after SRL training yielded a 3.7% increase on average, leveraging only 1k training data."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                166,
+                826,
+                253
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Comparatively, while the baseline "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { R } ^ { 3 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "also use teacher demonstrations to structured a step-by-step learning, it exhibits distinct performance characteristics. As shown in Table 1, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\tt R } ^ { 3 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "performs competitively on AMC23 but lags behind SRL on the more challenging AIME24 and AIME25 benchmarks (e.g., SRL achieves 16.7% vs. "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathsf { R } ^ { 3 } \\mathsf { \\bar { s } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "13.3% on AIME24). This divergence highlights a critical difference between SRL and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathsf { R } ^ { 3 } \\mathsf { \\bar { s } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "objective, which relies on a reverse curriculum to facilitate exploration towards a sparse outcome reward. In contrast, SRL employs dense, intrinsic supervision, rewarding the model for the quality of its step-wise “actions” rather than just the final answer. Consequently, for complex reasoning tasks where outcome-based exploration is very challenging, SRL provides a more robust learning signal, effectively teaching the model how to reason and act."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                257,
+                828,
+                383
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/69fa2f2f4013116dcdf61cfdcb703c2e3bae60f8183e646a1d3d44fc6a6b7aa8.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 1: Evaluation results across competition-level math benchmarks. We take Qwen2.5-7B-Instruct as the base model and report the performance of different training schemes (SFT, RLVR via GRPO, and SRL) using the same set of training data. The bold numbers indicate the best results among the open-source models and the underscored numbers represent the second-best results."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\">Model</td><td colspan=\"2\">AMC23</td><td colspan=\"2\">AIME24</td><td colspan=\"2\">AIME25</td><td rowspan=\"2\">Minerva Math</td><td rowspan=\"2\">Average</td></tr><tr><td>Avg@32</td><td>Greedy</td><td>Avg@32</td><td>Greedy</td><td>Avg@32</td><td>Greedy</td></tr><tr><td colspan=\"9\">Base Model</td></tr><tr><td>Qwen2.5-7B-Instruct</td><td>49.3</td><td>50.0</td><td>10.5</td><td>13.3</td><td>7.5</td><td>6.7</td><td>34.9</td><td>24.6</td></tr><tr><td colspan=\"9\">Training with SFT</td></tr><tr><td>S1K-7B</td><td>24.1</td><td>25.0</td><td>2.2</td><td>3.3</td><td>3.7</td><td>3.3</td><td>20.2</td><td>11.7</td></tr><tr><td>SFT (R1 reasoning)</td><td>26.8</td><td>40.0</td><td>3.9</td><td>10.0</td><td>5.4</td><td>10.0</td><td>20.2</td><td>16.6</td></tr><tr><td>SFT (R1 outline)</td><td>36.2</td><td>27.5</td><td>5.1</td><td>3.3</td><td>3.8</td><td>6.7</td><td>31.6</td><td>16.3</td></tr><tr><td colspan=\"9\">Training with Outcome-Reward RL</td></tr><tr><td>RL(VR)</td><td>52.0</td><td>47.5</td><td>11.1</td><td>10.0</td><td>7.4</td><td>10.0</td><td>33.8</td><td>24.5</td></tr><tr><td>SFT (outline) → RL(VR)</td><td>37.6</td><td>35.0</td><td>4.9</td><td>3.3</td><td>4.5</td><td>6.7</td><td>30.1</td><td>17.4</td></tr><tr><td> $R^3$ </td><td>52.5</td><td>57.5</td><td>10.0</td><td>13.3</td><td>7.4</td><td>10.0</td><td>35.3</td><td>26.6</td></tr><tr><td colspan=\"9\">Training with SRL</td></tr><tr><td>SRL</td><td>51.5</td><td>50.0</td><td>13.2</td><td>16.7</td><td>7.1</td><td>13.3</td><td>36.4</td><td>27.6</td></tr><tr><td>SRL → RLVR</td><td>52.1</td><td>57.5</td><td>13.3</td><td>20.0</td><td>8.6</td><td>10.0</td><td>36.4</td><td>28.3</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                173,
+                460,
+                823,
+                675
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.2 ANALYSIS: MATH REASONING"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                703,
+                431,
+                718
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Effect of dynamic sampling in SRL. In Table 2, we analyze the impact of the dynamic sampling component in SRL, based on thresholding the standard deviation of sequence similarity rewards within rollouts. For both models, we train until the training reward converges and select checkpoint based on validation scores. Our results are consistent the findings of DAPO (Yu et al., 2025), which stated that removing samples that provide a zero learning signal is critical in the effectiveness of the RL training loop, showing non-trivial d performance improvement."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                729,
+                826,
+                815
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Disentangling the impact of guidance granularity in SRL. To isolate the effects of guidance granularity from the benefits of sequence similarity rewards, we evaluated our multi-step method against two simplified, one-step baselines:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                820,
+                826,
+                864
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• Final-answer reward: This baseline utilizes RLVR trained with GRPO, rewarding the model solely based on the correctness of the final answer."
+                    }
+                ]
+            },
+            "bbox": [
+                176,
+                871,
+                825,
+                900
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "<sup>4</sup>https://github.com/QwenLM/Qwen2.5-Math"
+                    }
+                ]
+            },
+            "bbox": [
+                192,
+                909,
+                465,
+                924
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "7"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                946,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/262673627c6da820c747926e1be8918d8bd667fe31f3f2e12a09f365d2a2bd4a.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 2: The effect of dynamic filtering on SRL. Filtering out samples with less meaningful updates provides non-trivial performance improvement. DS stands for dynamic sampling."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\">Model</td><td colspan=\"2\">AMC23</td><td colspan=\"2\">AIME24</td><td colspan=\"2\">AIME25</td><td rowspan=\"2\">Minerva Math</td><td rowspan=\"2\">Average</td></tr><tr><td>Avg@32</td><td>Greedy</td><td>Avg@32</td><td>Greedy</td><td>Avg@32</td><td>Greedy</td></tr><tr><td>SRL w/out DS</td><td>48.5</td><td>52.5</td><td>11.1</td><td>13.3</td><td>6.8</td><td>6.7</td><td>33.8</td><td>24.7</td></tr><tr><td>SRL w/ DS</td><td>51.5</td><td>50.0</td><td>13.2</td><td>16.7</td><td>7.1</td><td>13.3</td><td>36.4</td><td>27.6</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                174,
+                138,
+                823,
+                203
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/a149fdf2f54240c8e27a1f54fd80f954f9fd37a94c3224614e37afe618306f8b.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 3: Model Performance of different reward functions and density. For sequence similarity reward, we implement it with the entire expert output as a one-step supervision. The model benefits from our multi-step decomposition on the small set of challenging training data."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\">Model</td><td colspan=\"2\">AMC23</td><td colspan=\"2\">AIME24</td><td colspan=\"2\">AIME25</td><td rowspan=\"2\">Minerva Math</td><td rowspan=\"2\">Average</td></tr><tr><td>Avg@32</td><td>Greedy</td><td>Avg@32</td><td>Greedy</td><td>Avg@32</td><td>Greedy</td></tr><tr><td colspan=\"9\">Final Answer Reward</td></tr><tr><td>One-step (RLVR)</td><td>52.0</td><td>47.5</td><td>11.1</td><td>10.0</td><td>7.4</td><td>10.0</td><td>33.8</td><td>24.5</td></tr><tr><td colspan=\"9\">Sequence Similarity Reward</td></tr><tr><td>One-step</td><td>51.8</td><td>52.5</td><td>11.7</td><td>13.3</td><td>6.9</td><td>10.0</td><td>34.9</td><td>25.9</td></tr><tr><td>Multi-step (SRL)</td><td>51.5</td><td>50.0</td><td>13.2</td><td>16.7</td><td>7.1</td><td>13.3</td><td>36.4</td><td>27.6</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                173,
+                281,
+                823,
+                395
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• Holistic sequence similarity reward: The model generates a complete solution in a single step. This entire solution is then evaluated for similarity against the complete ground-truth trajectory."
+                    }
+                ]
+            },
+            "bbox": [
+                178,
+                435,
+                826,
+                465
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "As shown in Table 3, the results underscore the value of fine-grained guidance for sequence similarity reward. While the holistic sequence-similarity reward improved performance on average, providing granular, step-by-step guidance led to markedly superior performance across benchmarks."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                473,
+                826,
+                518
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Model size variation. To evaluate the scalability of our approach, we apply our method to Qwen2.5- 3B-Instruct (Yang et al., 2024) using the identical data setup from Table 1. As summarized in Table 4, our method yields a consistent performance boost, improving the average score over base model by 3.1% and surpassing RL(VR). Notably, while the limited capacity of the smaller base model restricts improvements on extremely difficult benchmarks (e.g., AIME24 & AIME25), we observe significant gains on more tractable tasks like AMC23 and Minerva Math."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                522,
+                828,
+                608
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/eff66c807be0ae02ffbaa140e0cff1dc938e934ee92c36c0c3bb948c26906154.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 4: Evaluation results across competition-level math benchmarks using smaller base model. We take Qwen2.5-3B-Instruct as the base model in this table to test the generalization of our method."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\">Model</td><td colspan=\"2\">AMC23</td><td colspan=\"2\">AIME24</td><td colspan=\"2\">AIME25</td><td rowspan=\"2\">Minerva Math</td><td rowspan=\"2\">Average</td></tr><tr><td>Avg@32</td><td>Greedy</td><td>Avg@32</td><td>Greedy</td><td>Avg@32</td><td>Greedy</td></tr><tr><td>Qwen2.5-3B-Instruct</td><td>32.5</td><td>45.0</td><td>3.3</td><td>3.3</td><td>1.7</td><td>3.3</td><td>25.7</td><td>16.4</td></tr><tr><td>RL(VR)</td><td>35.0</td><td>42.5</td><td>6.7</td><td>3.3</td><td>6.7</td><td>3.3</td><td>26.5</td><td>17.7</td></tr><tr><td>SRL → RLVR</td><td>37.5</td><td>47.5</td><td>6.7</td><td>3.3</td><td>6.7</td><td>6.7</td><td>28.3</td><td>19.5</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                173,
+                667,
+                823,
+                742
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Interleaved reasoning behaviors. Beyond achieving superior performance, models trained with SRL exhibit distinctive and adaptive reasoning trajectories. While conventional models typically generate a single, monolithic reasoning block at the outset, our SRL-finetuned models—particularly those trained with RLVR—dynamically interleave reasoning steps throughout the generation process. This behavior manifests in three primary modes: (1) Structured Planning, where the model outlines a comprehensive roadmap before execution; (2) Dynamic Adjustment, where the model inserts iterative reasoning blocks to refine its trajectory mid-solution; and (3) Reflective Verification, where the model pauses to evaluate its logic and verify the answer before committing to a final output. These emergent patterns are illustrated in Example 1 and Example 2 (see Appendix), which showcase the model’s transition from static generation to an integrated, \"think-and-act\" reasoning process. For further qualitative analysis and studies, please refer to Appendix C."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                771,
+                826,
+                926
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "8"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "algorithm",
+            "content": {
+                "algorithm_caption": [],
+                "algorithm_content": [
+                    {
+                        "type": "text",
+                        "content": "Example 1: Interleaved thinking and self-verification\nQuestion: What is the least positive integer value of x for which the inequality   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "3x > 2x + 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  is true?\n<think>\nTo solve the inequality   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "3x > 2x + 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": " , we can start by isolating x. Let's subtract 2x from both sides of the inequality.\n</think>\nSubtract 2x from both sides:\n  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "3x - 2x > 2x + 1 - 2x"
+                    },
+                    {
+                        "type": "text",
+                        "content": " \nThis simplifies to:\nx > 1\n<think>\nWe can verify this by substituting x = 2 into the original inequality to ensure it holds true.\n</think>\nThe inequality x > 1 tells us that x must be greater than 1. The smallest positive integer greater than 1 is 2. Therefore, the least positive integer value of x that satisfies the inequality is 2.\nSubstitute x = 2 into the original inequality:\n  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "3(2) > 2(2) + 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": " \nThis simplifies to:\n6 > 5\nThis is true, so x = 2 is indeed a solution.\nTherefore, the least positive integer value of x for which the inequality   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "3x > 2x + 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  is true is [2]."
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                101,
+                826,
+                434
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.3 EXTENSION: SOFTWARE ENGINEERING AGENTIC REASONING"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                450,
+                648,
+                467
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Task. We extend our SRL framework to the domain of software engineering, training agents to resolve real-world programming issues. These tasks are commonly evaluated on benchmarks like SWE-Bench (Jimenez et al., 2023), which requires agents to perform complex, multi-turn interactions with large codebases and reason deeply about code functionality."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                479,
+                825,
+                537
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "However, unlike in math domain, the direct application of online RL to software engineering is impeded by significant practical challenges. These include handling long context windows, highlatency environment feedback, and slow patch verification (Wei et al., 2025; Golubev et al., 2025). Consequently, these obstacles have hindered the development of stable and scalable end-to-end RL methods, leading to a prevailing approach of collecting expert agent trajectories and distilling them into a policy via SFT (Pan et al., 2024; Yang et al., 2025)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                542,
+                826,
+                628
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Setup. We apply SRL to further fine-tune Qwen2.5-Coder-7B-Instruct (Hui et al., 2024), a model already specialized for coding tasks. We use a dataset from Yang et al. (2025), which consists of 5,000 expert agent trajectories. These trajectories were generated by claude-3-7-sonnet-20250219 (Anthropic, 2025) and subsequently verified to ensure they produce correct code patches."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                632,
+                826,
+                691
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Each trajectory is composed of multiple steps defined by the agent’s interactions with the coding environment. As the example below illustrates, a single step contains natural language reasoning followed by an executable action:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                695,
+                826,
+                739
+            ]
+        },
+        {
+            "type": "code",
+            "content": {
+                "code_caption": [],
+                "code_content": [
+                    {
+                        "type": "text",
+                        "content": "I'll help you implement the necessary changes to fix the issue with the `OriginValidator` not properly handling wildcard (*) in allowed_origins. Let's follow the steps you outlined.\n## Step 1: Find and read relevant code\nFirst, let's explore the repository structure to locate the `OriginValidator` class mentioned in the PR description. This is an extra long line added to demonstrate how the automatic line wrapping feature from the listings package works.\n<function=bash>\n<parameter=command>find /testbed -type f -name \"*.py\" | grep -v \"__pycache__\" | sort</parameter>\n</function>"
+                    }
+                ],
+                "code_language": "txt"
+            },
+            "bbox": [
+                169,
+                742,
+                825,
+                882
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In line with our SRL formulation (Section 4.2), we define the “action” as the environment-consumable command (e.g., the bash call). Following this decomposition, we process the full trajectories to create"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                895,
+                825,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "9"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "134k step-wise training instances. For validation, we hold out 30 full trajectories, from which we curate a validation set of 650 step-wise instances."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                104,
+                825,
+                133
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Evaluation. We evaluate our model’s patch generation performance by measuring its resolve rate (%) under two distinct configurations, following Wei et al. (2025): (1) Oracle file editing evaluation: The model is provided with the oracle code files to repair. This configuration isolates and measures the model’s core patch generation capability; (2) End-to-end evaluation: This setting uses the Agentlessmini agent scaffold (Wei et al., 2025) to first identify the file(s) to modify and subsequently generate the patch. It tests the model’s fault localization and code repair abilities in conjunction."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                138,
+                826,
+                224
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We compare our SRL-trained model against two crucial baselines: the original base model (Qwen2.5- Coder-Instruct) and SWE-Gym-7B (Pan et al., 2024). Since SWE-Gym-7B is an SFT-based model finetuned from the same base model, this provides a direct, fair comparison between SFT and our SRL training methodology. As shown in Table 5, SRL substantially outperforms both baselines. In the oracle setting, SRL achieves a 14.8% resolve rate, representing a 74% relative improvement over the strong SWE-Gym-7B baseline. The performance gain is consistent when evaluating in the challenging end-to-end setting, where SRL can obtain twice the performance."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                229,
+                828,
+                329
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/4d19722fe29e0036abfc01bb70d6fde6f101ada8a27ee07b6b2c7b9722ae0ab0.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 5: Performance of SRL on SWE-Bench-Verified. Results in the table are using greedy decoding."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td></td><td>Oracle File Edit</td><td>End-to-End</td></tr><tr><td>Qwen2.5-Coder-Instruct (Base)</td><td>5.8</td><td>3.2</td></tr><tr><td>SWE-Gym-7B</td><td>8.4</td><td>4.2</td></tr><tr><td>SRL (ours)</td><td>14.8</td><td>8.6</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                266,
+                359,
+                727,
+                430
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.4 DISCUSSION AND LIMITATIONS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                450,
+                434,
+                464
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Despite the strong performance of SRL, its effectiveness is subject to several inherent constraints. Pri marily, the method relies heavily on the availability of high-quality, decomposable expert trajectories, as it assumes a well-defined “action” granularity where complex reasoning can be cleanly partitioned into discrete steps. This dependency suggests that SRL may be less effective in domains where expert demonstrations are sparse or in tasks that require holistic intuition rather than a sequential chain-of-thought structure. Furthermore, the success of the self-reflective loop is fundamentally tied to the student model’s initial proficiency; the model must already possess a baseline instructionfollowing capability to generate rollout samples that are coherent enough to yield non-trivial reward signals. Without this initial competence, the learning process may suffer from excessively sparse rewards. Consequently, future research will focus on adapting SRL to domains with ambiguous action definitions, exploring techniques to alleviate the dependency on highly structured expert data, and investigating the variance in performance when applying different similarity functions to guide the learning process."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                476,
+                828,
+                659
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "6 CONCLUSION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                676,
+                321,
+                691
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In conclusion, we introduced Supervised Reinforcement Learning (SRL), a novel method designed to teach LLMs complex reasoning skills from expert demonstrations, particularly for problems that are too difficult for conventional RL or SFT approaches. By breaking down expert solutions into manageable steps and leveraging a dense sequence similarity reward, SRL provides effective, granular guidance that bridges the gap between imitation learning and reinforcement learning. Our empirical results demonstrate that SRL not only significantly outperforms baseline methods in both mathematical reasoning and software engineering tasks but also enables a powerful curriculum learning strategy when combined with RLVR. This work establishes SRL as a robust and generalizable technique for unlocking a model’s potential to learn from challenging, multi-step problems, paving the way for training more capable and versatile AI agents."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                705,
+                826,
+                848
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "7 ACKNOWLEDGMENTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                864,
+                388,
+                881
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We thank Jinwei Xing, Jinsung Yoon, and members from Google Cloud AI Research for their valuable feedback during the preparation of the paper."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                895,
+                825,
+                924
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "10"
+                    }
+                ]
+            },
+            "bbox": [
+                488,
+                948,
+                509,
+                960
+            ]
+        }
+    ]
+]

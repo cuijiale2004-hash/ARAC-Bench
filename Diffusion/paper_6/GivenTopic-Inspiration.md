@@ -1,0 +1,11 @@
+Given Topic: In the field of text-to-video diffusion generation, the initialization of latent noise significantly influences the quality, temporal consistency, and prompt alignment of synthesized videos. Existing approaches predominantly rely on externally crafted priors and iterative full diffusion sampling for refinement, incurring substantial computational costs. Furthermore, these methods overlook the model's intrinsic capacity to discriminate between favorable and unfavorable noise realizations. The core scientific issue is to develop a principled, efficient noise-selection paradigm that leverages internal model signals to identify high-quality initial conditions without modifying the underlying architecture or retraining the network.
+
+Given Inspiration:
+1. The empirical observation that identical text prompts produce markedly different video outputs depending solely on the initial noise realization, indicating the existence of inherently superior latent initializations.
+2. The limitation of existing noise-refinement strategies that impose hand-engineered external constraints rather than consulting the model's own predictive confidence.
+3. Bayesian epistemic uncertainty estimation, which posits that disagreement among multiple stochastic forward passes reveals regions where the model lacks confidence.
+4. The observation that internal alignment mechanisms between textual and visual representations in generative models encode reliable indicators of synthesis reliability.
+5. The hypothesis that consistent internal patterns under stochastic perturbation correlate with coherent, high-fidelity video generation.
+6. The principle of inference-time scaling, which advocates reallocating computational resources toward evaluating candidate initializations rather than increasing model capacity or sampling steps.
+7. Mathematical properties of information-theoretic measures that enable quantifying the divergence between aggregate and individual uncertainties across stochastic predictions.
+8. The observation that early-stage behavior in iterative generative processes is strongly indicative of final output stability and trajectory consistency.

@@ -1,0 +1,91 @@
+{
+  "overview": "DeepSearch integrates Monte Carlo Tree Search directly into RLVR training to overcome exploration bottlenecks, combining global frontier selection, entropy-based negative trajectory selection, asymmetric q-value backup, and adaptive replay-buffer training with progressive hard-sample filtering to achieve state-of-the-art mathematical reasoning accuracy while using significantly fewer GPU hours than extended training approaches.",
+  "count": 17,
+  "modules": [
+    {
+      "id": 1,
+      "name": "Data Loading and Initial Hard Subset Construction",
+      "description": "Loads the DeepMath-103K dataset, applies decontamination and formatting, and constructs the initial hard subset D_hard^(0) by evaluating the base policy's Pass1@K success rate on every problem and retaining only those below the filtering threshold."
+    },
+    {
+      "id": 2,
+      "name": "MCTS Tree Structure and Node Management",
+      "description": "Implements the search tree data structure where each node stores observation prefix, q-value, visit count, number of children, depth, and expansion status. Provides APIs for root initialization, child insertion, frontier set extraction, and terminal-node identification."
+    },
+    {
+      "id": 3,
+      "name": "Local UCT Selection for Sibling Comparison",
+      "description": "Implements the standard UCT formula for selecting among sibling candidate nodes sharing the same parent during expansion, balancing exploitation (average reward per visit) and exploration (visit-count bonus) to make principled local comparisons within subtrees."
+    },
+    {
+      "id": 4,
+      "name": "Global Frontier Selection",
+      "description": "Computes frontier priority scores for all leaf nodes across the entire search tree using a composite of quality potential (tanh of parent Q-value), uncertainty bonus (policy entropy), and depth bonus (square-root depth function), then selects the globally highest-scoring node for the next expansion round, replacing traditional root-to-leaf UCT traversal."
+    },
+    {
+      "id": 5,
+      "name": "Node Expansion with Policy Sampling",
+      "description": "Given a selected frontier node, prompts the current policy model to generate multiple candidate next-step continuations, adds them as child nodes, and tracks which newly created nodes are terminal (either correct answer reached or maximum depth hit)."
+    },
+    {
+      "id": 6,
+      "name": "Entropy-based Negative Trajectory Selection",
+      "description": "When no correct terminal node is found during an expansion round, computes the average trajectory entropy (Monte Carlo estimated token-level Shannon entropy) for each incorrect trajectory and selects the lowest-entropy one as the most confident incorrect path for backpropagation, targeting systematic reasoning errors where the model is most certain yet wrong."
+    },
+    {
+      "id": 7,
+      "name": "Heuristic Q-Value Backup with Asymmetric Update",
+      "description": "Implements the constrained q-value update rule that reinforces same-sign q-values with depth-decayed terminal rewards, resets negative-to-positive transitions (overwriting accumulated negative evidence when a node first appears on a correct path), and suppresses positive-to-negative degradation (never downgrading a node that has led to a correct solution), ensuring nodes on correct paths retain non-negative q-values."
+    },
+    {
+      "id": 8,
+      "name": "Q-Value Soft Clipping",
+      "description": "Applies hyperbolic-tangent-based soft clipping to intermediate node q-values before training, bounding them within a configurable range while preserving gradients everywhere and maintaining relative ordering, preventing q-value explosion without introducing hard discontinuities."
+    },
+    {
+      "id": 9,
+      "name": "Replay Buffer with Solution Caching",
+      "description": "Maintains a replay buffer storing verified correct trajectories for previously solved problems. Identifies candidate trajectories from MCTS rollouts that are correct but whose problems still fall below the Pass1@K threshold, adds them to the buffer, and provides lookup to retrieve cached solutions for reuse in subsequent training iterations, avoiding redundant MCTS computation."
+    },
+    {
+      "id": 10,
+      "name": "Hybrid Rollout Strategy",
+      "description": "Dispatches problems to either cached-solution retrieval supplemented with direct policy rollouts (for problems with previously cached correct solutions) or full MCTS search (for unsolved problems), dynamically allocating fewer direct rollouts as more correct trajectories are cached per problem, and filtering out garbled or infinitely repetitive incorrect samples."
+    },
+    {
+      "id": 11,
+      "name": "Tree-GRPO Training Objective",
+      "description": "Computes the clipped surrogate objective using importance ratios between current and old policies, with node-level advantages derived from soft-clipped q-values minus the mean terminal reward across the entire tree (mean-only normalization). Incorporates Clip-Higher thresholds, removes KL regularization, and applies an overlong-buffer penalty for responses exceeding the maximum token length."
+    },
+    {
+      "id": 12,
+      "name": "Adaptive Training Loop with Progressive Filtering",
+      "description": "Orchestrates iterative training rounds where after each round the current policy is re-evaluated on the hard subset via Pass1@K, problems meeting the threshold are removed, and the remaining hard subset is used for the next round. Integrates MCTS exploration, replay buffer updates, and Tree-GRPO policy updates within each iteration."
+    },
+    {
+      "id": 13,
+      "name": "Mathematical Reward Verification",
+      "description": "Extracts the final boxed answer from a generated trajectory by locating the last occurrence of the \\boxed{} marker, applies text normalization consistent with the evaluation pipeline, and compares the extracted answer against the ground truth using the mathematical scoring function to produce a binary correct/incorrect verdict."
+    },
+    {
+      "id": 14,
+      "name": "Multi-Benchmark Evaluation Pipeline",
+      "description": "Evaluates the trained model on AIME 2024, AIME 2025, AMC 2023, MATH500, Minerva, and Olympiad benchmarks using low-temperature greedy sampling, computes Pass1@1 accuracy with multiple samples, and aggregates results into average accuracy across all benchmarks."
+    },
+    {
+      "id": 15,
+      "name": "Ablation Study Framework",
+      "description": "Provides controlled experiment configurations for (a) step-by-step component addition from vanilla DeepSearch through q-value updates, fine-grained advantages, normalization variants, and frontier selection; (b) comparison of negative trajectory selection strategies (most confident, least confident, random); (c) comparison of depth bonus functions (logarithmic, linear, square-root); and (d) global frontier versus vanilla UCT selection."
+    },
+    {
+      "id": 16,
+      "name": "Computational Profiling and Efficiency Analysis",
+      "description": "Instruments per-tree MCTS runtime broken down by component (prompt construction, terminal-state checking, rank synchronization, node expansion, policy inference), tracks total GPU hours, samples processed, and wall-clock time, and compares computational cost against extended training baselines to quantify the efficiency advantage of breadth-scaling over depth-scaling."
+    },
+    {
+      "id": 17,
+      "name": "Configuration Management, Logging, and Checkpointing",
+      "description": "Manages all hyperparameters (MCTS depth, expansion width, UCT coefficient, frontier scoring weights, clipping thresholds, filtering threshold, learning rate, batch size) via structured configuration, integrates training logging and monitoring, saves model checkpoints at regular intervals, and generates result tables and training curve plots."
+    }
+  ]
+}

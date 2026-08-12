@@ -1,0 +1,91 @@
+{
+  "overview": "TIR-Judge trains LLM-based judges via end-to-end reinforcement learning with integrated Python code execution, enabling precise verification through tool-augmented reasoning trajectories across pointwise, pairwise, and listwise evaluation formats, with two training variants: distillation-initialized and zero-shot self-bootstrapped iterative RL.",
+  "count": 17,
+  "modules": [
+    {
+      "id": 1,
+      "name": "Tool-Integrated Judge Model Architecture",
+      "description": "Implements the core LLM judge model that interleaves natural language reasoning steps, code generation, and execution output in a multi-turn trajectory. Supports autoregressive generation of reasoning-code-execution sequences and final prediction extraction (score/preference) from structured output tags."
+    },
+    {
+      "id": 2,
+      "name": "Python Execution Sandbox",
+      "description": "Implements a sandboxed Python code executor that runs generated code blocks, captures execution outputs, handles runtime and syntax errors with truncated error messages (final error line only), and enforces maximum tool-call budgets per trajectory. Ensures safe execution with restricted permissions."
+    },
+    {
+      "id": 3,
+      "name": "Data Collection and Curation Pipeline",
+      "description": "Curates preference pairs from multiple real human-annotated sources (helpfulness, reasoning, coding, instruction-following, safety) and generates synthetic preference pairs from verifiable prompts by sampling responses from multiple open-source models and evaluating against ground-truth solutions or verifiable functions. Includes 8-gram decontamination against evaluation benchmarks."
+    },
+    {
+      "id": 4,
+      "name": "Multi-Format Data Preprocessing",
+      "description": "Converts curated preference data into three supervision formats: pointwise (prompt + single response → score), pairwise (prompt + two responses → preference), and listwise (prompt + multiple responses → best index). Applies quality control including filtering ambiguous preferences, verifying synthetic response correctness, and enforcing diverse negatives per listwise instance."
+    },
+    {
+      "id": 5,
+      "name": "Custom Dataset and DataLoader",
+      "description": "Implements dataset classes for loading (prompt, responses, label) tuples and multi-turn tool-integrated trajectories. Supports batching for both SFT (full trajectory sequences with masked execution outputs) and RL (prompt-only rollouts). Handles variable-length trajectories with proper padding and attention masking."
+    },
+    {
+      "id": 6,
+      "name": "Prompt Template Manager",
+      "description": "Manages structured prompt templates for all evaluation settings: pointwise scoring, pairwise preference, and listwise ranking. Each template includes tool-use instructions (code execution between python tags), task description, and output format requirements (score/preference tags). Also provides text-only templates for non-tool evaluation variants."
+    },
+    {
+      "id": 7,
+      "name": "Structured Reward Computation",
+      "description": "Computes the composite reward combining three components: (1) Correctness reward checking if judge prediction matches ground-truth preference label, (2) Format reward verifying structured output tags and a heuristic discouraging unnecessary tool calls for non-reasoning tasks, (3) Tool-specific reward penalizing code execution errors and exceeding call budgets. Full credit only when all three are satisfied, with partial credit for correct-but-malformed outputs."
+    },
+    {
+      "id": 8,
+      "name": "Supervised Fine-Tuning with Masked Execution",
+      "description": "Implements SFT training on tool-integrated trajectories with masked loss on execution output tokens to prevent memorization of interpreter results. Supports training on distillation data from teacher models and on self-generated rejection-sampled trajectories. Handles autoregressive loss over interleaved reasoning, code, and prediction tokens."
+    },
+    {
+      "id": 9,
+      "name": "DAPO Reinforcement Learning Core",
+      "description": "Implements the DAPO (improved GRPO) RL training loop: sampling G rollouts per prompt from the current policy, computing token-level advantages via group normalization, and updating with a clipped policy gradient objective that includes asymmetric clipping bounds and KL divergence penalty against a reference model. Filters prompts with all-correct or all-incorrect rollouts."
+    },
+    {
+      "id": 10,
+      "name": "Iterative RL Pipeline (TIR-Judge-Zero)",
+      "description": "Implements the self-bootstrapping iterative loop starting from a base model: (1) RL training on current policy, (2) rejection sampling multiple trajectories per prompt, (3) selecting the most efficient valid trajectory (fewest tool calls, then shortest length), (4) SFT on collected trajectories, and (5) repeating the cycle. Tracks validation accuracy for checkpoint selection across iterations."
+    },
+    {
+      "id": 11,
+      "name": "Distillation Data Generation Pipeline",
+      "description": "Generates high-quality tool-integrated trajectories from a stronger teacher model with code execution. Uses rejection sampling to retain only trajectories producing correct answers. Collects correct (prompt, responses, trajectory, prediction) tuples for SFT initialization. Handles multi-turn generation with the teacher's tool-use capability."
+    },
+    {
+      "id": 12,
+      "name": "Rejection Sampling Engine",
+      "description": "Samples multiple trajectories from a policy for each prompt, filters by correctness (matching ground-truth label), valid output format, and error-free code execution. For TIR-Judge-Zero, applies an efficiency heuristic to select one trajectory per prompt prioritizing fewest tool calls and shortest length. Supports both distillation and iterative RL data collection modes."
+    },
+    {
+      "id": 13,
+      "name": "Multi-Benchmark Evaluation Harness",
+      "description": "Evaluates TIR-Judge across seven benchmarks (PPE Correctness, IFBench, CodeJudgeBench, RewardBench, RM-Bench, JudgeBench, RewardBench2) under pointwise, pairwise, and listwise settings. Handles different evaluation protocols: partial credit for pointwise ties, single random ordering for pairwise, and best-of-k for listwise. Aggregates per-task and overall accuracy metrics."
+    },
+    {
+      "id": 14,
+      "name": "Best-of-N Inference Module",
+      "description": "Implements reward-guided best-of-N selection for downstream policy model improvement. Supports pointwise (score-then-select with majority voting on answers), pairwise (knockout tournament in O(n) comparisons), and listwise judge formats. Evaluates on math (AIME), code (BigCodeBench), and instruction-following (IFEval) benchmarks."
+    },
+    {
+      "id": 15,
+      "name": "Ablation Study Framework",
+      "description": "Supports controlled ablation experiments including: data mixture composition (IF-only, coding-only, reasoning-only, helpfulness+safety-only vs. mixed), tool-use vs. text-only comparison (disabling code execution during RL while keeping data identical), reward formulation (multiplication vs. addition of component rewards), and iterative RL stage progression analysis."
+    },
+    {
+      "id": 16,
+      "name": "Bias and Efficiency Analysis Module",
+      "description": "Analyzes position bias by evaluating pairwise accuracy under A-B and B-A response orderings, verbosity bias by splitting accuracy by whether the chosen response is longer or shorter, and inference efficiency by measuring average prompts per second against baseline models. Also tracks code execution error breakdown (syntax, runtime, format)."
+    },
+    {
+      "id": 17,
+      "name": "Configuration and Experiment Management",
+      "description": "Manages experiment configurations including training hyperparameters (learning rates, clipping bounds, KL penalty, batch sizes, rollout counts), data paths, model checkpoints, and evaluation settings. Handles checkpoint saving/loading at each training stage, logging integration, and cost tracking (GPU time breakdown and API fees for distillation)."
+    }
+  ]
+}

@@ -1,0 +1,1262 @@
+[
+    {
+        "type": "text",
+        "text": "ABSTRACT",
+        "text_level": 2,
+        "bbox": [
+            450,
+            353,
+            547,
+            369
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "The Linear Representation Hypothesis asserts that the embeddings learned by neural networks can be understood as linear combinations of features corresponding to high-level concepts. Based on this ansatz, sparse autoencoders (SAEs) have recently become a popular method for decomposing embeddings into a sparse combination of linear directions, which have been shown empirically to often correspond to human-interpretable semantics. However, recent attempts to apply SAEs to multimodal embedding spaces (such as the popular CLIP embeddings for image/text data) have found that SAEs often learn “split dictionaries,” where most of the learned sparse features are essentially unimodal, active only for data of a single modality. In this work, we study how to effectively adapt SAEs for the setting of multimodal embeddings while ensuring multimodal alignment. We first argue that the existence of a split dictionary decomposition on an aligned embedding space implies the existence of a non-split dictionary with improved modality alignment. Then, we propose a new SAE-based approach to multimodal embedding decomposition using cross-modal random masking and group-sparse regularization. We apply our method to popular embeddings for image/text (CLIP) and audio/text (CLAP) data and show that, compared to standard SAEs, our approach learns a more multimodal dictionary while reducing the number of dead neurons and improving feature semanticity. We finally demonstrate how this improvement in alignment of concepts between modalities can enable improvements in the interpretability and control of cross-modal tasks.",
+        "bbox": [
+            230,
+            383,
+            767,
+            678
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "1 INTRODUCTION",
+        "text_level": 2,
+        "bbox": [
+            174,
+            704,
+            336,
+            719
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Multimodal representation learning models like CLIP (Radford et al., 2021), SigLIP (Zhai et al., 2023), and CLAP (Elizalde et al., 2023; Wu et al., 2023) aim to learn a shared latent representation for various types of input data, such as images, text, and audio. The goal of these multimodal encoders is to learn embeddings which are in some sense (e.g., cosine similarity) “similar” to one another when the input data contains shared semantic information, regardless of the data’s modality. The ability of such models to learn expressive multimodal data representations has been extensively demonstrated by their excellent performance on cross-modal tasks like zero-shot classification (Radford et al., 2021), retrieval (Elizalde et al., 2023; Wu et al., 2023), and generation (Ramesh et al., 2022). However, despite the promising empirical performance of these models, the precise way in which they encode semantic information is not well-understood.",
+        "bbox": [
+            169,
+            734,
+            826,
+            876
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Motivated primarily by the task of interpreting the behavior of large language models, sparse autoencoders (SAEs) have recently become a popular approach for understanding how human-interpretable concepts are encoded in the embeddings of modern neural networks. Building on classical ideas from dictionary learning and sparse coding, SAEs are unsupervised models that aim to decompose neural network embeddings as sparse linear combinations of a large (overcomplete) set of dictionary vectors. It has been empirically observed in a variety of domains that these dictionary elements tend to correspond to more human-understandable concepts, allowing for improvements in interpretability, steering, and control of models through linear algebraic manipulation of embeddings (Cunningham et al., 2023; Gao et al., 2024; Pach et al., 2025). The so-called ”Linear Representation Hypothesis” proposes the existence of such a linear semantic decomposition (Elhage et al., 2022; Park et al., 2023), and this notion has been empirically supported for various concepts such as query refusal in language models (Arditi et al., 2024) and the presence of certain facial characteristics in images (Voynov & Babenko, 2020).",
+        "bbox": [
+            169,
+            882,
+            826,
+            925
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_number",
+        "text": "1",
+        "bbox": [
+            493,
+            948,
+            503,
+            959
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "chart",
+        "img_path": "images/9215d1cf05f485d8550671b19e9f3387add873f1e040426a33f34df16a9f7d72.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            184,
+            95,
+            818,
+            311
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "image",
+        "img_path": "images/139c64f72d6effe716e5da18cf9a7fa9a89e73ea7286c0e690f9a2cf7af43274.jpg",
+        "image_caption": [
+            "Figure 1: Split versus multimodal dictionaries: (Left) Standard SAEs trained on aligned embeddings from different modalities (like CLIP) tend to learn dictionary vectors (“concepts”) which activate only for input embeddings of one modality. (Right) We develop an SAE-based approach for learning dictionaries where multimodal embeddings containing the same semantic information have similar sparse dictionary decompositions."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            184,
+            97,
+            570,
+            311
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            430,
+            826,
+            571
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Recent attempts to apply sparse autoencoders to the aligned embedding space of multimodal models like CLIP have obtained mixed results. On the one hand, the neurons learned by SAEs trained on CLIP do demonstrate improved monosemanticity and often correspond to human-interpretable concepts (Yan et al., 2025; Pach et al., 2025). However, many works identify a “split-dictionary” phenomenon, where many of the sparse features are only ever active for inputs coming from a single modality (Papadimitriou et al., 2025; Costa et al., 2025). We depict this pictorially in Figure 1. In other words, SAEs learn to map embeddings which are aligned between modalities to sparse features which may be more semantic, but which have very poor modality alignment. This phenomenon limits the potential of SAEs in cross-modal tasks like retrieval or generation, where, for example, manipulation of text embeddings based on a certain “concept” should ideally be able to influence a visual or audio output.",
+        "bbox": [
+            169,
+            575,
+            826,
+            729
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "In this paper, we focus on answering the question of how to mitigate the tradeoff between monosemanticity and modality alignment in SAEs trained on multimodal embeddings. We investigate whether it is possible to learn multimodal linear concept dictionaries and we design a model which mitigates the implicit bias towards split-dictionaries observed in regular SAEs. We make the following contributions:",
+        "bbox": [
+            169,
+            734,
+            826,
+            806
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "1. New metrics for multimodal SAEs. Motivated by the image-specific score proposed in (Pach et al., 2025), we formally define a paired-modality monosemanticity score which quantifies the semanticity of a neuron with respect to any two modalities, taking a value of 0 if the neuron never co-activates for inputs of both modalities and with higher value if the co-activating inputs contain similar semantic information. Our metrics generalize existing methods for measuring semanticity at the neuron-specific level to the setting where SAE neurons are expected to co-activate for data from diverse modalities.",
+        "bbox": [
+            210,
+            825,
+            826,
+            925
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "page_number",
+        "text": "2",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "2. Argument for the existence of multimodal dictionaries. Under realistic technical assumptions, we prove that the existence of a split dictionary on an aligned embedding space implies the existence of a non-split dictionary with strictly improved modality alignment. This suggests that the poor modality alignment in SAEs is not exclusively due to limitations of the LRH, but rather is also a product of the implicit bias of SAEs trained exclusively on reconstruction loss.",
+        "bbox": [
+            207,
+            104,
+            826,
+            188
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "3. Group-sparse autoencoder architecture with improved multimodality. We propose the use of a group-sparse loss function acting on paired samples during the training of SAEs, along with a form of cross-modal random masking, which together encourage an SAE to learn multimodal dictionary vectors. We train the proposed model on image/text (CLIP) and audio/text (CLAP) data, and evaluate our approach using a variety of metrics. Our results show improvements in the number of multimodal concepts, a reduction in the number of dead neurons, improvements in zero-shot cross-modal tasks, and improved capabilities for interpreting multimodal models (compared to regular SAEs). We also note that, to our knowledge, joint embedding spaces for audio/text data have not been analyzed using SAEs in prior literature.",
+        "bbox": [
+            209,
+            191,
+            826,
+            330
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "2 RELATED WORK",
+        "text_level": 2,
+        "bbox": [
+            171,
+            349,
+            346,
+            366
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Dictionary learning and sparse coding The decomposition of a data sample $\\pmb { x } \\in \\mathbb { R } ^ { d }$ as a sparse linear combination of learned dictionary elements $\\boldsymbol { W } ^ { \\cdot } \\in \\mathbb { R } ^ { d \\times p } , p \\gg d ,$ is a well-studied problem in many applications, such as image processing (Olshausen et al., 2009), medical imaging (Mailhe´ et al., 2009), and audio processing (Plumbley et al., 2009). Several popular algorithms like the Method of Optimal Directions (MOD) (Engan et al., 1999), the K-SVD (Aharon et al., 2006), and unrolled ISTA (Gregor & LeCun, 2010) have been proposed for the joint learning of sparse codes and the dictionary. A few works have considered modifications of these algorithms with additional structural constraints on the sparse codes, typically by adding a sparsity-promoting norm penalty such as the group norm or $L _ { 2 , 1 }$ norm (Bengio et al., 2009; Li et al., 2012). Compared to these works, we also apply a group-sparsity penalty to the loss function of a sparse dictionary learning method (the SAE), but in our setting, the groups are given by pairs of data from different modalities containing the same concept. We additionally incorporate a type of per-group random masking to promote shared sparsity structure within each group, and we show that the combination of these two regularization techniques is effective in the context of multimodal embedding spaces.",
+        "bbox": [
+            169,
+            380,
+            826,
+            577
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "SAEs and neural network interpretability Sparse decompositions of neural network embeddings have recently been studied in many works in the field of neural network interpretability (Elhage et al., 2022; Cunningham et al., 2023; Rajamanoharan et al., 2024). Many of these works leverage (variants of) sparse autoencoders (SAEs), which are simple neural network-based models for sparse dictionary learning. In several of these works, the dictionary elements learned by sparse autoencoders (SAEs) trained on embeddings from language models have been empirically shown to often correspond to interpretable high-level concepts (Bussmann et al., 2024; Gao et al., 2024). Inspired by the efficacy of SAEs in language models, recent works have also proposed the use of SAEs in other domains, such as for vision models (Thasarathan et al., 2025; Fel et al., 2025) and neural data (Freeman et al., 2025).",
+        "bbox": [
+            169,
+            589,
+            826,
+            729
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Decomposition of multimodal embeddings While most recent works on SAEs have studied interpretability of language or vision models, a few recent works also have applied SAEs to modalityaligned representations, such as those from models like CLIP, SigLIP, and DeCLIP (Papadimitriou et al., 2025; Pach et al., 2025; Yan et al., 2025; Zaigrajew et al., 2025). Most of these works train SAEs to reconstruct embeddings originating from visual and text data, using the same architectures as are prevalent in the language model setting. Several works that train in this way observe that many SAE neurons activate only for inputs of one modality (Costa et al., 2025; Bhalla et al., 2024b; Papadimitriou et al., 2025; Yan et al., 2025). Previous works have addressed this by explicitly learning transformations from one modality to the other or by identifying co-activating pairs of dictionary elements (Papadimitriou et al., 2025). Unlike these approaches, we seek to identify a first-principles approach to learning a multimodal dictionary using SAEs, overcoming the bias of vanilla SAEs towards modality-split dictionary elements. The authors of (Costa et al., 2025) also cite this discrepancy and find that an SAE variant based on the classical matched-pursuit algorithm can help increase the number of multimodal concepts, but their focus is primarily on learning hierarchical concepts, rather than explicitly mitigating the split-dictionary phenomenon.",
+        "bbox": [
+            169,
+            743,
+            826,
+            926
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "page_number",
+        "text": "3",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            104,
+            825,
+            133
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3 MODALITY ALIGNMENT AND SEMANTICITY IN SAES",
+        "text_level": 2,
+        "bbox": [
+            171,
+            152,
+            648,
+            167
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "In this section, we provide an overview of the sparse autoencoder (SAE) model, formally define modality-split dictionaries, and describe a proposed metric for quantifying the monosemanticity of multimodal SAEs.",
+        "bbox": [
+            169,
+            183,
+            826,
+            224
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3.1 SPARSE AUTOENCODERS AND THE SPLIT DICTIONARY PHENOMENON",
+        "text_level": 2,
+        "bbox": [
+            171,
+            241,
+            692,
+            256
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "We consider the general setting where a multimodal encoder maps data from multiple modalities into a joint representation space $\\breve { \\mathcal { X } } \\subseteq \\mathbb { R } ^ { d }$ . Motivated by the hypothesis that neural network representations consist of linear superpositions of interpretable “concepts” (Elhage et al., 2022), dictionary learning aims to learn an overcomplete dictionary $W \\in \\mathbb { R } ^ { d \\times j }$ such that representations $\\mathbf { \\boldsymbol { x } } \\in \\mathcal { X }$ can be decomposed as x ≈ W z, for some sparse vector $z \\in \\mathbb { R } ^ { p }$",
+        "bbox": [
+            169,
+            267,
+            825,
+            339
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Sparse autoencoders (SAEs) are one popular method for learning this type of dictionary decomposition on neural network embeddings (Cunningham et al., 2023). Given an input $\\pmb { x } \\in \\dot { \\mathbb { R } } ^ { d }$ , SAEs take the following form:",
+        "bbox": [
+            169,
+            344,
+            825,
+            387
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\begin{array}{l} \\boldsymbol {z} = \\boldsymbol {\\Pi} (\\boldsymbol {W} _ {e n c} (\\boldsymbol {x} - \\boldsymbol {b} _ {0}) + \\boldsymbol {b}) \\\\ \\hat {\\boldsymbol {x}} = \\boldsymbol {W} _ {d e c} \\boldsymbol {z} + \\boldsymbol {b} _ {0}. \\end{array}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            401,
+            390,
+            594,
+            422
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Here, $b _ { 0 } \\in \\mathbb { R } ^ { d }$ is a bias applied prior to encoding/decoding, $W _ { e n c } \\in \\mathbb { R } ^ { p \\times d }$ is the encoder matrix, b is the encoder bias parameter, and $W \\in \\mathbb { R } ^ { d \\times \\overline { { p } } }$ is the decoder matrix. The projection function $\\Pi \\colon \\mathbb { R } ^ { p } \\  \\ \\mathbb { R } ^ { p }$ is chosen to promote sparsity in the latent vector z. In this paper, we focus our attention on the TopK function (Gao et al., 2024), which keeps only the K largest elements of the input and sets the remaining elements to 0. However, we note that our proposed methodology can in principle be applied to other common SAE variants. Other common choices of Π in recent literature include the ReLU (Cunningham et al., 2023), BatchTopK (Bussmann et al., 2024), and JumpReLU (Rajamanoharan et al., 2024) functions, and these variants are often trained with additional $\\ell _ { 1 }$ regularization to promote sparsity of z. In the following, we refer to the decoder matrix $W _ { d e c }$ as the dictionary matrix and its columns as the dictionary vectors, or concept vectors. We will refer to z as the SAE latent vector or sparse code, and its coordinates as neurons of the SAE. The SAE parameters are learned by optimizing the reconstruction error $\\| \\pmb { x } - \\hat { \\pmb { x } } \\| _ { 2 } ^ { 2 }$ over all training samples x in the training set D.",
+        "bbox": [
+            169,
+            429,
+            825,
+            612
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Recent attempts to train classical SAEs on multimodal embeddings from models like CLIP and SigLIP have found that the learned dictionary elements tend to correspond primarily to only one of the input modalities (Papadimitriou et al., 2025; Costa et al., 2025). In other words, many of the features in the SAE’s latent space tend to only be active for inputs corresponding to a single modality. We define this property of a dictionary formally below:",
+        "bbox": [
+            169,
+            617,
+            826,
+            689
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Definition 1 (Modality-split dictionary). Let $W \\in \\mathbb { R } ^ { d \\times p }$ with $p \\gg$ d be a dictionary matrix that admits a K-sparse decomposition of any x $\\in \\mathcal { X }$ . Then, W is said to be modality-split with respect to X if,for any two embeddings $\\pmb { x } ^ { ( 1 ) } , \\pmb { x } ^ { ( 2 ) } \\in \\mathcal { X }$ corresponding to datafrom different modalities,",
+        "bbox": [
+            169,
+            689,
+            825,
+            734
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\ns u p p (\\boldsymbol {z} ^ {(1)}) \\cap s u p p (\\boldsymbol {z} ^ {(2)}) = \\emptyset ,\n$$",
+        "text_format": "latex",
+        "bbox": [
+            397,
+            737,
+            598,
+            753
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "where $\\pmb { x } ^ { ( 1 ) } = \\pmb { W } \\pmb { z } ^ { ( 1 ) }$ and $\\pmb { x } ^ { ( 2 ) } = \\pmb { W } \\pmb { z } ^ { ( 2 ) }$ are any K-sparse decompositions of $\\mathbf { x } ^ { ( 1 ) }$ and $\\pmb { x } ^ { ( 2 ) }$ in the dictionary.",
+        "bbox": [
+            169,
+            758,
+            825,
+            789
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "An important consequence of this definition is that paired data samples of different modalities (such as an image and a textual description of the same image’s content) have sparse codes with no overlapping support, even though the original embedding space is aligned between modalities. In other words, classical SAEs trained on popular aligned multimodal embedding spaces have poor modality alignment in the $\\mathbf { S A E } ^ { * } \\mathbf { s }$ latent space. A crucial application of SAE embedding decompositions is the steering or manipulation of SAE latents for interpretability and control of downstream tasks (Bhalla et al., 2024b). In cross-modal applications, therefore, it is important for data from different modalities that contain similar semantic information to have aligned sparse codes. The remainder of the paper is dedicated to understanding when and how this can be achieved in SAE-based models.",
+        "bbox": [
+            169,
+            799,
+            826,
+            925
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "page_number",
+        "text": "4",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3.2 MEASURING SEMANTICITY ACROSS MODALITIES",
+        "text_level": 2,
+        "bbox": [
+            171,
+            104,
+            555,
+            118
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "A key reason for recent interest in SAEs is the observation that the learned dictionary elements (or equivalently, the neurons of the latent space) often seem to correspond to interpretable concepts or ideas. Before proceeding to our main results, we first define an evaluation metric which we will use to jointly evaluate the semanticity and multimodality of each coordinate of the SAE’s latent space. Our metric generalizes the main idea behind the monosemanticity score proposed in (Pach et al., 2025) to measure semanticity with respect to a pair of modalities. For each neuron and any pair of modalities $\\left( m , n \\right) \\left( \\mathbf { e . g . , } m \\right)$ image and $n = t e x t )$ , we define the multimodal monosemanticity score (MMS) with respect to $( m , n )$ as follows:",
+        "bbox": [
+            169,
+            130,
+            826,
+            242
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "1. On an unseen validation dataset, find all samples from each modality with non-zero activations for the given neuron. Store these activations as vectors $\\pmb { a } ^ { ( m ) } \\in \\mathbb { R } ^ { M }$ and ${ \\pmb a } ^ { ( n ) } \\in \\mathbb { R } ^ { N }$",
+        "bbox": [
+            210,
+            253,
+            821,
+            284
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "2. Let $\\pmb { S } \\in \\mathbb { R } ^ { M \\times N }$ be the matrix of cosine similarities of these samples under a separate multimodal encoder (i.e., a different encoder than the one used in learning the dictionary).",
+        "bbox": [
+            209,
+            287,
+            823,
+            318
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "3. Compute the co-activation matrix $\\pmb { A } \\in \\mathbb { R } ^ { M \\times N }$ , where $A _ { i j } = | { \\pmb a } _ { i } ^ { ( m ) } { \\pmb a } _ { j } ^ { ( n ) } | ( 1 - \\delta _ { m n } )$ , where $\\delta _ { m n } = 1 \\mathrm { i f } m = n .$ , else 0.",
+        "bbox": [
+            209,
+            324,
+            823,
+            354
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "4. Normalize co-activations to sum to 1: $\\begin{array} { r } { \\tilde { A } _ { i j } = \\frac { 1 } { \\sum _ { i , j } A _ { i j } } A _ { i j } } \\end{array}$",
+        "bbox": [
+            209,
+            359,
+            612,
+            380
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "5. Compute $M M S ( m , n )$ as the weighted sum of cosine similarities, with weights given by normalized co-activations:",
+        "bbox": [
+            207,
+            385,
+            823,
+            412
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\nM M S (m, n) = \\sum_ {i, j} \\tilde {A} _ {i j} S _ {i j}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            434,
+            419,
+            620,
+            452
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "The high-level intuition for this metric is that a neuron should be considered more monosemantic if it is active for inputs that are semantically similar to each other. In addition to capturing the semanticity of each SAE neuron, the case $m \\neq n$ captures the multimodality of a concept. In particular, if a dictionary is fully modality-split (cf. Definition 1), then there are no co-activating inputs and $M M S ( m , n )$ trivially equals 0. A positive $M M S ( m , n )$ scores indicates that there are test samples of different modalities that co-activate for a given neuron and that concept can be considered more multimodal. In Section 5, we will see that our proposed methodologies for multimodal SAEs increase the MMS score significantly compared to classical SAEs.",
+        "bbox": [
+            169,
+            455,
+            826,
+            569
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Comparison to metrics proposed in the literature: Our metric is most similar to the MS score in (Pach et al., 2025), but it also allows monosemanticity to be measured between two different modalities. Additionally, we normalize the co-activations to sum to 1, rather than using min-max normalization on the activations themselves. This allows us to interpret the metric more naturally as a weighted average of cosine similarities. We also note that our MMS metric measures a fundamentally different quantity than the BridgeScore in (Papadimitriou et al., 2025). The BridgeScore assigns a value to each pair of neurons/concepts (answering the question of how often neuron i and neuron j are jointly active across paired samples), while our MMS score assigns a value to a single neuron/concept (answering the question of how often a single neuron co-activates for semantically similar inputs of different modalities). Additionally, we measure semanticity by using cosine similarity as a proxy, which obviates the need for additional paired data to compute the metric.",
+        "bbox": [
+            169,
+            574,
+            826,
+            729
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "4 LEARNING MULTIMODAL CONCEPTS WITH GROUP-SPARSEAUTOENCODERS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            750,
+            689,
+            782
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "In this section, we first argue that a modality-split dictionary on an aligned embedding space can be improved to a multimodal dictionary with similar reconstruction loss and strictly better multimodal alignment.",
+        "bbox": [
+            169,
+            797,
+            825,
+            842
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "This result is detailed below in Theorem 1, and we defer the proof to Appendix A.1.",
+        "bbox": [
+            169,
+            847,
+            723,
+            863
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Theorem 1. Consider a set ofn paired unit-vector embeddings corresponding to datafrom different modalities $\\{ ( x ^ { ( i ) } , y ^ { ( i ) } ) \\} _ { i = 1 } ^ { n }$ . Suppose thefollowing conditions are met:",
+        "bbox": [
+            169,
+            867,
+            823,
+            896
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "1. Paired embeddings are aligned: There is $\\textit { a c } > 0$ such that $\\langle x ^ { ( i ) } , y ^ { ( i ) } \\rangle > c f o r a l l i \\in [ n ]$",
+        "bbox": [
+            210,
+            907,
+            821,
+            925
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "page_number",
+        "text": "5",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "2. Sparse decomposition in a split dictionary: There exists a modality-split dictionary $W \\in$ $\\bar { \\mathbb { R } ^ { d \\times p } }$ satisfying thefollowing: for all $v \\in \\{ x _ { 1 } , y _ { 1 } , \\dotsc , x _ { n } , y _ { n } \\}$ there is a K-sparse vector $z _ { v }$ with non-negative entries such that $W z _ { v } = v$",
+        "bbox": [
+            207,
+            104,
+            825,
+            147
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Then, there exists a dictionary $\\tilde { W }$ of size $p + n$ admitting a $( K + 1 )$ )-sparse decomposition of all 2n embeddings, and where sparse codes ofall pairs have strictly positive inner product.",
+        "bbox": [
+            169,
+            159,
+            823,
+            190
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Here, the first assumption follows naturally from the fact that we are considering dictionaries learned from aligned embedding spaces, where embeddings of paired samples containing similar semantic information should be positively correlated. We also note that the second condition can be relaxed in a straightforward way to the case where sparse decompositions under W hold only approximately, up to some small error $\\epsilon ,$ adding $O ( \\epsilon )$ error terms to the error of the decompositions with respect to $\\tilde { W } .$ . The theorem states that a modality-split dictionary can always be improved to a dictionary where sparse codes are more aligned between modalities. Given this result, we turn to the question of how to induce a more favorable implicit bias in SAEs training on multimodal embeddings.",
+        "bbox": [
+            169,
+            200,
+            826,
+            316
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "To this end, we propose a new training paradigm that can be applied to a training set of paired multimodal samples. We first define the group-sparse loss that we will use to learn multimodal dictionaries. The group-sparse loss corresponding to two sparse codes z and w is given by",
+        "bbox": [
+            169,
+            321,
+            825,
+            364
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathcal {L} _ {g s} (\\boldsymbol {z}, \\boldsymbol {w}) = \\left\\| \\left[ \\begin{array}{c} \\boldsymbol {z} ^ {\\top} \\\\ \\boldsymbol {w} ^ {\\top} \\end{array} \\right] \\right\\| _ {2, 1} = \\sum_ {i = 1} ^ {p} \\sqrt {z _ {i} ^ {2} + w _ {i} ^ {2}}.\n$$",
+        "text_format": "latex",
+        "bbox": [
+            348,
+            372,
+            647,
+            411
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "The use of the convex $L _ { 2 , 1 }$ norm to enforce structured sparsity in parameters has been studied extensively in the context of problems like the group LASSO (Yuan & Lin, 2006) and multi-task learning (Argyriou et al., 2008). Intuitively, this loss function encourages coordinates of z and w to bejointly sparse, i.e., have the same support. Although we focus here on the case of two modalities, we note that the overall formulation naturally extends to an arbitrary number of modalities.",
+        "bbox": [
+            169,
+            419,
+            825,
+            491
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Given paired embeddings x, $\\pmb { y } \\in \\mathbb { R } ^ { d }$ (corresponding to semantically similar data from different modalities), our model takes the form:",
+        "bbox": [
+            169,
+            496,
+            825,
+            523
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\begin{array}{l l} \\boldsymbol {z} _ {x} = \\operatorname{TopK} (\\operatorname{ReLU} (\\boldsymbol {W} _ {e n c} (\\boldsymbol {x} - \\boldsymbol {b} _ {0}) + \\boldsymbol {b})), & \\boldsymbol {z} _ {y} = \\operatorname{TopK} (\\operatorname{ReLU} (\\boldsymbol {W} _ {e n c} (\\boldsymbol {y} - \\boldsymbol {b} _ {1}) + \\boldsymbol {b})), \\\\ \\hat {\\boldsymbol {x}} = \\boldsymbol {W} _ {d e c} \\boldsymbol {z} _ {x} + \\boldsymbol {b} _ {0}, & \\hat {\\boldsymbol {y}} = \\boldsymbol {W} _ {d e c} \\boldsymbol {z} _ {y} + \\boldsymbol {b} _ {1}. \\end{array}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            205,
+            532,
+            790,
+            566
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Here, $\\scriptstyle b _ { 0 }$ and $b _ { 1 }$ are learnable pre-coding bias terms and the remaining parameters are shared across modalities. Similar to the standard SAE formulation, our approach trains an SAE to reconstruct embeddings from different data modalities, but we also add the group-sparse loss term specified above with a regularization hyperparameter $\\lambda > 0$ , to encourage $z _ { x }$ and $z _ { y }$ to have shared sparsity structure:",
+        "bbox": [
+            169,
+            574,
+            825,
+            643
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathcal {L} = \\| \\boldsymbol {x} - \\hat {\\boldsymbol {x}} \\| _ {2} ^ {2} + \\| \\boldsymbol {y} - \\hat {\\boldsymbol {y}} \\| _ {2} ^ {2} + \\lambda \\mathcal {L} _ {g s} (\\boldsymbol {z} _ {x}, \\boldsymbol {z} _ {y}).\n$$",
+        "text_format": "latex",
+        "bbox": [
+            346,
+            643,
+            647,
+            661
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Additionally, to mitigate the occurrence of dead neurons (dictionary elements which never activate for any inputs) and to further encourage multimodality of concepts, we also introduce cross-modal random masking during training. Specifically, we apply a shared random mask with probability p during the computation of $z _ { x }$ and $z _ { y }$ prior to the TopK operation. This forces the TopK operation to choose from the same subset of coordinates at each step prior to decoding. The full training approach is summarized in Figure 2.",
+        "bbox": [
+            169,
+            664,
+            826,
+            750
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "5 RESULTS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            770,
+            284,
+            786
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "To evaluate our approach, in this section we compare three main types of SAE training schemes:",
+        "bbox": [
+            171,
+            801,
+            805,
+            818
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "• SAE: Standard TopK SAE (Gao et al., 2024) trained on reconstruction loss of multimodal embeddings.",
+        "bbox": [
+            215,
+            829,
+            823,
+            858
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "• GSAE: Group-sparse autoencoder trained on both reconstruction and group-sparsity losses, but without random masking.",
+        "bbox": [
+            215,
+            861,
+            823,
+            892
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "• MGSAE: Masked, group-sparse autoencoder trained using our complete training pipeline from Figure 2.",
+        "bbox": [
+            215,
+            895,
+            825,
+            924
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "page_number",
+        "text": "6",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "image",
+        "img_path": "images/6a7c0f39b6828c6e3bd32297bc1b7ef8f643b5a8695fdca9b29e86c3a5909090.jpg",
+        "image_caption": [
+            "Figure 2: Masked group-sparse autoencoder for multimodal concept extraction: Our proposed approach is trained on paired data. Embeddings are encoded to a higher-dimensional vector, masked (with the same mask for each modality), sparsified using TopK, and decoded with a linear layer."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            176,
+            94,
+            821,
+            299
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "We train each of these variants on two different multimodal embedding spaces: (1) CLIP ViT-B/16 (Radford et al., 2021) embeddings obtained from the CC3M dataset of image/text caption pairs (Sharma et al., 2018) and (2) LAION CLAP embeddings (Wu et al., 2023) obtained from the JamendoMaxCaps dataset of music/text pairs (Roy et al., 2025). In the latter setting, we use a CLAP checkpoint specifically finetuned on music data. To our knowledge, ours is the first work to apply SAEs to the joint embedding space of music/text samples and measure semanticity of the learned dictionary. In each case we fix the sparsity level $K = 3 2$ and the dictionary size as $p \\ = \\ 1 6 d ,$ where $d = 5 1 2$ is the dimension of the original CLIP/CLAP embedding. We train for 25,000 steps in the image/text setting and 10,000 steps in the music/text setting (chosen to ensure convergence in the fraction of explained variance for both modalities). All embeddings are normalized to have unit norm prior to training. For further experimental details, see Appendix A.2. In Section 5.2, we also provide additional comparisons to the BatchTopK (Bussmann et al., 2024) and Matryoshka (Zaigrajew et al., 2025) SAE variants, which have both been applied to CLIP embeddings in previous works (Papadimitriou et al., 2025; Pach et al., 2025). While we focus on CLIP and CLAP embeddings in the main paper for clarity of exposition, we also provide additional experiments on the SIGLIP2 (Tschannen et al., 2025)and AIMv2 (Fini et al., 2024) text/image encoders in Appendix A.3 to demonstrate that our methods generalize to other popular multimodal embedding spaces.",
+        "bbox": [
+            169,
+            378,
+            828,
+            617
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "5.1 DEAD NEURONS AND MONOSEMANTICITY",
+        "text_level": 2,
+        "bbox": [
+            171,
+            633,
+            508,
+            648
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "We first evaluate our approach by considering the prevalence of dead neurons in a modalityspecific way. In other words, given an unseen validation set of paired samples, we compute how many neurons are active for at least one sample from a given modality. For the image/text case, we use 10,000 pairs from the validation set of CC3M, and for the music/text case, we use 10,000 pairs from the MusicBench",
+        "bbox": [
+            171,
+            660,
+            346,
+            910
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "chart",
+        "img_path": "images/2ef2e12e1f8001af829bec83711db15b34fcfa79fe4f3a5d8ae37997d5e0aefb.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            357,
+            676,
+            584,
+            825
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "chart",
+        "img_path": "images/fe15e41d526af2a81f1ab49592df8b373fec77086e48c9c44ab7320ae27d2bc2.jpg",
+        "content": "",
+        "chart_caption": [
+            "Figure 3: Number of neurons activating for each individual modality, both modalities, and neither modality. Left: models trained on CLIP embeddings, validation on CC3M val. set. Right: models trained on CLAP embeddings, validation on MusicBench."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            589,
+            678,
+            821,
+            825
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "dataset (Melechovsky et al., 2024). We visualize the number of dead neurons in Figure 3. We can see that, compared to the standard (TopK) SAE, the GSAE and MGSAE both have a significant increase in the number of neurons that activate for both modalities and a reduction in the number of neurons that activate for neither modality. Overall, the MGSAE consistently obtains the highest number of multimodal activations and smallest number of dead neurons.",
+        "bbox": [
+            169,
+            909,
+            826,
+            924
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "page_number",
+        "text": "7",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            104,
+            826,
+            161
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "On the same validation sets, we also compute the multimodal monosemanticity score we defined in Section 3.2 between all pairs of modalities: MMS(image, image), $M M S ( t e x t , t e x t )$ MMS(image, text) (and likewise for audio/text). We recall here that a high MMS score for a given neuron indicates that inputs which activate that neuron are similar to each other (and hence that neuron encodes a coherent concept). To compute the similarity matrix between validation samples, we use the CLIP RN-50 encoder for CC3M and Microsoft CLAP (Elizalde et al., 2023) for MusicBench. Our results, plotted in Figure 4, confirm the notion that standard SAEs have a large proportion of neurons that do not activate across different modalities (and a large number of dead neurons more generally). By contrast, we see that the GSAE and, to an even greater extent, the MGSAE, both have a much larger proportion of neurons with high monosemanticity scores relative to the baseline score achieved by the original dense CLIP/CLAP embeddings. Our results indicate that the group-sparse variants are more semantic and more multimodal than the standard SAE in these settings.",
+        "bbox": [
+            169,
+            166,
+            826,
+            349
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "chart",
+        "img_path": "images/fe9c8367246df368dd87c5a7f0f566ff8dfcb0551574bd29b770939b99b30864.jpg",
+        "content": "",
+        "chart_caption": [
+            "Figure 4: Multimodal monosemanticity (MMS) scores for each feature, arranged in descending order (higher is better). Neuron index (on the horizontal axis) is normalized due the difference in dimensionality between the ”No SAE” case $( d = 5 1 2 )$ and the SAE variants $( d = 1 6 \\cdot 5 1 2 )$ . Top row: MMS scores for models trained on CLIP embeddings for image/text data. Bottom row: MMS scores for models trained on CLAP embeddings for music/text data."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            174,
+            361,
+            808,
+            646
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "5.2 ZERO-SHOT PERFORMANCE ON CROSS-MODAL TASKS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            744,
+            586,
+            760
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Another way to evaluate the ability of SAEs to learn multimodal dictionaries is to measure zero-shot performance of sparse codes on cross-modal tasks. We note that the purpose of these evaluations is not to claim that sparse codes themselves constitute a good embedding which should be used zeroshot tasks; instead, we use these metrics as a proxy to measure how much modality alignment is preserved when extracting sparse features using SAE-based models. Indeed, for any dictionary with a small number of multimodal concepts, the sparse codes corresponding to paired embeddings from different modalities have low cosine similarity, so we expect zero-shot tasks to perform quite poorly (in the extreme case of a modality-split dictionary, the cosine similarity is always zero and zero-shot tasks are impossible). By contrast, if embeddings are decomposed into concepts which depend on semantic information in a modality-agnostic way, then we would expect zero-shot performance to be retained to a larger extent.",
+        "bbox": [
+            169,
+            771,
+            826,
+            925
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "page_number",
+        "text": "8",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "table",
+        "img_path": "images/9cdb54b70a87b60e6dc2cadf65c69b73cc63db38d2972eb1be05057f47cc5a41.jpg",
+        "table_caption": [
+            "Table 1: Performance comparison on zero-shot image/text cross-modal tasks between SAE (3 types), GSAE, and MGSAE. Original performance on the dense CLIP embeddings is provided for reference. Reported numbers are classification accuracy. Numbers with an asterisk indicate results reported from the original authors of the model."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td rowspan=\"2\">Model</td><td colspan=\"3\">ZS Image/Text Tasks</td></tr><tr><td>CIFAR-10</td><td>CIFAR-100</td><td>ImageNet</td></tr><tr><td>SAE - TopK (Gao et al., 2024)</td><td>0.657</td><td>0.418</td><td>0.303</td></tr><tr><td>BatchTopK SAE (Bussmann et al., 2024)</td><td>0.657</td><td>0.277</td><td>0.178</td></tr><tr><td>Matryoshka SAE (Zaigrajew et al., 2025)</td><td>0.587</td><td>0.166</td><td>0.185</td></tr><tr><td>GSAE (ours)</td><td>0.808</td><td>0.526</td><td>0.354</td></tr><tr><td>MGSAE (ours)</td><td>0.842</td><td>0.554</td><td>0.373</td></tr><tr><td>CLIP ViT B/16</td><td>0.916*</td><td>0.687*</td><td>0.686*</td></tr></table>",
+        "bbox": [
+            183,
+            169,
+            813,
+            299
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "table",
+        "img_path": "images/b8ce8a991bf5b5267b9f026432c6738c67f26af740ee2815d40b48bf173755f6.jpg",
+        "table_caption": [
+            "Table 2: Performance comparison on zero-shot audio/text cross-modal tasks between SAE, GSAE, and MGSAE. Original performance on the dense CLAP embeddings is provided for reference. Reported numbers are classification accuracy or mean reciprocal rank (for FMACaps). Numbers with an asterisk indicate results reported from the original authors of the model."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td rowspan=\"2\">Model</td><td colspan=\"3\">ZS Audio/Text Tasks</td></tr><tr><td>GTZAN Genres</td><td>NSynth Instruments</td><td>FMACaps retrieval</td></tr><tr><td>SAE - TopK (Gao et al., 2024)</td><td>0.376</td><td>0.265</td><td>0.023</td></tr><tr><td>GSAE (ours)</td><td>0.705</td><td>0.303</td><td>0.050</td></tr><tr><td>MGSAE (ours)</td><td>0.672</td><td>0.354</td><td>0.061</td></tr><tr><td>LAION CLAP</td><td>0.710*</td><td>0.339</td><td>0.075</td></tr></table>",
+        "bbox": [
+            230,
+            383,
+            766,
+            505
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "In Tables 1 and 2, we state results for zero-shot performance on a variety of tasks for each multimodal setting. For the models trained on the CLIP embedding space, we consider zero-shot classification on the CIFAR-10 (Krizhevsky et al., 2009), CIFAR-100 (Krizhevsky et al., 2009), and ImageNet (Deng et al., 2009) datasets. In all cases, the standard TopK SAE (together with recently proposed variants like the BatchTopK and Matryoshka SAE) has a drastic performance reduction on zero-shot tasks compared to the original CLIP embeddings, while the group-sparse variants demonstrate a marked improvement over the SAE of almost 20 percent for CIFAR-10, 15 percent for CIFAR-100, and 7 percent for ImageNet.",
+        "bbox": [
+            169,
+            534,
+            826,
+            648
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "For models trained on the CLAP embedding space, we consider zero-shot classification on the GTZAN genres (Tzanetakis & Cook, 2002) and NSynth instruments (Engel et al., 2017) datasets and zero-shot text-to-music retrieval on the FMACaps dataset (Melechovsky et al., 2024) (with performance measured as mean reciprocal rank). For these tasks, the group-sparse variants also significantly outperform standard SAEs, in some cases performing close to twice as well. Interestingly, we find that in the music/text setting, the sparse codes are actually quite competitive with (and on one task, even better than) the original dense CLAP embeddings, despite being 16 times more sparse and more semantic, as measured by the metrics in the previous section.",
+        "bbox": [
+            169,
+            652,
+            826,
+            766
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "5.3 CASE STUDY: CONCEPT NAMING AND INTERPRETING LINEAR PROBES",
+        "text_level": 2,
+        "bbox": [
+            171,
+            782,
+            710,
+            797
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "In the previous sections, we showed that group-sparse autoencoders can improve multimodal alignment and semanticity in the dictionaries learned by sparse autoencoders. Next, we show a simple application to illustrate the limitations of classical SAEs for interpretability studies in multimodal spaces and the advantages of the group-sparsity approach we propose. We consider binary classification on the CelebA dataset (Liu et al., 2015). We first train a simple linear classifier on the CLIP ViT-B/16 embeddings of the training set to predict the presence of blonde hair. Given this trained linear probe, denoted θ<sup>ˆ</sup>, a natural application of SAEs is to identify which semantic properties of a photo contribute most to it being classified as “blonde” (and to detect the presence of potential spurious features). To do this, we use the following procedure, where W is the learned dictionary matrix (with normalized columns):",
+        "bbox": [
+            169,
+            810,
+            826,
+            926
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "page_number",
+        "text": "9",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            104,
+            825,
+            133
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "1. Concept naming: We follow the approach used in multiple recent works for interpreting CLIP embeddings (Rao et al., 2024; Zaigrajew et al., 2025). In words, we use a large vocabulary corpus V of potential concept names and assign each dictionary vector the word or phrase in V with highest CLIP cosine similarity (See Appendix A.2 for more details).",
+        "bbox": [
+            210,
+            143,
+            825,
+            200
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "2. Compute $\\hat { \\pmb { \\theta } } \\mathbf { \\lessgtr }$ coefficients in the concept dictionary: The entries of $\\mathbf { \\alpha } \\mathbf { \\alpha } \\mathbf { = } \\mathbf { \\alpha } \\mathbf { W } ^ { \\top } \\hat { \\pmb { \\theta } }$ give the contribution of each concept to the prediction of the classifier. The concept names corresponding to the largest entries of α can be interpreted as the concepts with highest contribution to a positive classification (in our example, “blonde”).",
+        "bbox": [
+            207,
+            205,
+            826,
+            263
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "As shown in Figure 5, the above procedure applied with the MGSAE dictionary yields dominating concepts which are highly correlated with the true label being predicted (“blonde”) and offers a suggestion of spurious correlations with gender (“girl”, “woman”). This is consistent with known results on that gender is a spurious correlation for the blonde hair attribute in CelebA (Liu et al., 2015). The SAE trained without group-sparsity, by contrast, is much less successful at identifying which concepts are important for this task, which we attribute to the fact that the success of the concept naming step relies crucially on having a multimodal dictionary. In Appendix A.5 we provide an additional example of how multimodal dictionaries can be useful for the task of steering retrieval systems.",
+        "bbox": [
+            169,
+            273,
+            532,
+            484
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "image",
+        "img_path": "images/7a60508350902e7872b6041b268aa02b6e5c604bc63468e606e1aedefdca0a01.jpg",
+        "image_caption": [
+            "Figure 5: Leading concepts contributing to a classification of “blonde” on the CelebA dataset, extracted using a standard SAE (left) and MGSAE (right)."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            547,
+            294,
+            818,
+            404
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "6 CONCLUSION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            503,
+            321,
+            518
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "Based on the observation that standard SAEs tend to learn many unimodal dictionary elements, we propose a new method for learning sparse dictionary decompositions of multimodal embedding spaces. Our method crucially makes a connection between multimodality of the dictionary elements and group-sparsity of the sparse codes corresponding to paired data of different modalities. We encourage this group-sparse property during training both through explicit regularization (inspired by classical techniques in sparse recovery) and cross-modal random masking. We show through a variety of metrics that our results learn more semantic and aligned embeddings than standard SAEs, and we demonstrate that our method can be more effective for interpretability analysis and identifying spurious correlations, since improved modality alignment leads to more accurate concept naming. Our results promote improved interpretability and control of multimodal representation spaces and lay the groundwork for further research on improving alignment in multimodal SAEs. In particular, we note that the group-sparse loss and the masking technique we employ have straightforward extensions to settings with more than two modalities. Additionally, our proposed methodology can also be adapted to settings where large amounts of unpaired data are also available. In such settings, the group-sparse loss can be applied only for paired samples, and reconstruction loss alone can be used for the remaining data samples. While we leave a detailed investigation of this for future work, we believe that following this approach with even a small amount of paired data would provide improvements over the baseline SAE.",
+        "bbox": [
+            169,
+            534,
+            826,
+            785
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "ACKNOWLEDGMENTS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            799,
+            328,
+            813
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "Support for this project was generously provided by Dolby Laboratories. We also thank Jacob Abernethy for compute assistance.",
+        "bbox": [
+            169,
+            823,
+            825,
+            853
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "REFERENCES",
+        "text_level": 2,
+        "bbox": [
+            171,
+            872,
+            287,
+            887
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "Michal Aharon, Michael Elad, and Alfred Bruckstein. K-SVD: An algorithm for designing overcomplete dictionaries for sparse representation. IEEE Transactions on signal processing, 54(11):",
+        "bbox": [
+            171,
+            895,
+            825,
+            925
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "page_number",
+        "text": "10",
+        "bbox": [
+            490,
+            948,
+            509,
+            960
+        ],
+        "page_idx": 9
+    }
+]

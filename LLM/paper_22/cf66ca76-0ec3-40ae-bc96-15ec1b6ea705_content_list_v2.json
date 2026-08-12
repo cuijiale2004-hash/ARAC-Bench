@@ -1,0 +1,2973 @@
+[
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "ABSTRACT"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                450,
+                573,
+                547,
+                589
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Recent work shows that, beyond discrete reasoning through explicit chain-ofthought steps, which are limited by the boundaries of natural languages, large language models (LLMs) can also reason continuously in latent space, allowing richer information per step and thereby improving token efficiency. Despite this promise, latent reasoning still faces two challenges, especially in training-free settings: 1) purely latent reasoning broadens the search distribution by maintaining multiple implicit paths, which diffuses probability mass, introduces noise, and impedes convergence to a single high-confidence solution, thereby hurting accuracy; and 2) overthinking persists even without explicit text, wasting tokens and degrading efficiency. To address these issues, we introduce SWIREASONING, a training-free framework for LLM reasoning which features two key innovations: 1) SWIREASONING dynamically switches between explicit and latent reasoning, guided by block-wise confidence estimated from entropy trends in next-token distributions, to balance exploration and exploitation and promote timely convergence. 2) By limiting the maximum number of thinking-block switches, SWIREA-SONING curbs overthinking and improves token efficiency across varying problem difficulties. On widely used mathematics, STEM, coding, and general benchmarks, SWIREASONING consistently improves average accuracy by 1.8%–3.1% across reasoning LLMs of different model families and scales. Furthermore, under constrained budgets, SWIREASONING improves average token efficiency by 57%-79%, with larger gains as budgets tighten."
+                    }
+                ]
+            },
+            "bbox": [
+                228,
+                604,
+                767,
+                898
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "<sup>†</sup>Equal advising."
+                    }
+                ]
+            },
+            "bbox": [
+                200,
+                909,
+                302,
+                924
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "1"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                949,
+                503,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "1 INTRODUCTION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                173,
+                103,
+                338,
+                118
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Reasoning is one of the central capabilities of large language models (LLMs) (Yang et al., 2025; Qwen Team, 2024; Meta, 2025a;b). It allows models to tackle complex tasks such as mathematics, science, and programming (Guo et al., 2025; OpenAI, 2025b; Jaech et al., 2024; Agarwal et al., 2025; Qwen Team, 2025; Abdin et al., 2025; Abouelenin et al., 2025; Anthropic, 2025; DeepMind, 2024a;b), far beyond simple question answering."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                151,
+                826,
+                223
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "A key limitation of the dominant reasoning approach, explicit chain-of-thought (CoT) (Wolf et al., 2020; Wei et al., 2022; Yao et al., 2023a; Goyal et al., 2024; Pfau et al., 2024), lies in the reliance on discrete tokens during inference. In standard CoT decoding, the model commits to a single token at each step, sampled from the predicted distribution. While effective and ensures readability by verbalizing intermediate steps, this discrete process collapses the full probability distribution into a single trajectory, discarding uncertainty and eliminating many potentially useful reasoning paths."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                227,
+                826,
+                314
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To overcome this bottleneck, recent work has explored an alternative reasoning technique, latent reasoning (Hao et al., 2024; Zhang et al., 2025; Cheng & Van Durme, 2024; Xu et al., 2025a;b; Tan et al., 2025), where the model operates directly in a continuous hidden space instead of a discrete text space. Latent reasoning offers two key advantages over CoT: 1) higher representational bandwidth per step, since hidden vectors can encode richer information than single tokens (Zhu et al., 2025b); and 2) the ability to preserve multiple reasoning hypotheses implicitly, rather than collapsing them prematurely into one tokenized path (Li et al., 2025b; Chen et al., 2025)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                319,
+                826,
+                417
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Latent reasoning can be broadly categorized into training-required and training-free approaches. Training-required ones (Hao et al., 2024; Su et al., 2025; Liu et al., 2024; Shen et al., 2025; Tack et al., 2025) demand substantial retraining or fine-tuning (Yue et al., 2025; Li et al., 2025a; Wang et al., 2025a; Zhu et al., 2025a), making it excessively expensive to apply to large reasoning language models. In contrast, training-free approaches like Soft-Thinking (Zhang et al., 2025), which form a probability-weighted mixture of token embeddings as inputs, operate directly at inference time without incurring additional training costs. Our work focuses on the latter category, which is costeffective and resource-friendly for deployment in large-scale reasoning models."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                422,
+                826,
+                535
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Although training-free latent reasoning eliminates the need for costly retraining, operating purely in the latent space also presents significant challenges. First, the model is not explicitly trained to perform long-horizon reasoning with latent inputs. As a result of distributional mismatches, when inference relies solely on latent trajectories, the process is less controlled and can easily drift off course (Chen et al., 2025). Instead of collapsing into a single path, the model tends to spread probability mass across many implicit reasoning paths. While this preserves multiple hypotheses, it also introduces persistent noise, slows convergence, and ultimately harms reasoning accuracy (Li et al., 2025b). Second, the absence of explicit tokens does not necessarily ensure efficiency. In latent space, models may still suffer from repetitive or unnecessarily extended internal deliberations and continuation (Zhang et al., 2025), essentially overthinking. This prolongs inference and overconsumes tokens, undermining the very efficiency that latent reasoning is meant to improve."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                541,
+                826,
+                696
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To address these issues, this paper introduces SWIREASONING (abbreviated as SWIR) as a trainingfree framework for LLM reasoning that alternates between explicit and latent thinking, based on block-wise confidence inferred from entropy trends of next-token distributions, and suppresses overthinking by bounding the number of switches. More specifically, the framework first tracks a reference entropy within each thinking block to reflect block-wise confidence. Rising confidence triggers an explicit switch to consolidate progress along a single path, while sustained uncertainty triggers a latent switch to re-explore in continuous space. Second, a switch count controller caps the number of thinking block transitions and provides early-answer checkpoints, curbing unnecessary latent loops and improving token efficiency across difficulties."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                700,
+                826,
+                828
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The proposed framework also benefits from reintroducing diversity by sampling in an explicit thinking block when compared to pure latent thinking. Even though motivated differently, SWIREASON-ING resonates with the concurrent observation of Wu et al. (2025b) that introducing stochasticity benefits latent reasoning, but we achieve this via a distinct mode switch mechanism rather than injecting distributions with randomness."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                833,
+                826,
+                904
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Our contributions are summarized as follows:"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                909,
+                475,
+                924
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "2"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• We propose SWIREASONING, a training-free reasoning framework that dynamically alternates between explicit and latent thinking based on confidence signals, thereby exploiting the expressivity of latent thinking without sacrificing the stability of explicit thinking."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                104,
+                825,
+                148
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• We introduce a switch count control mechanism that caps the number of transitions, enabling early answering based on partial reasoning trajectories at switch boundaries. This effectively suppresses overthinking and improves token efficiency under limited budgets."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                155,
+                825,
+                199
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• We extensively validate the effectiveness of SWIREASONING on mathematics, STEM, coding, and general reasoning domains across multiple benchmarks, model families, and sizes, demonstrating consistent gains in both accuracy and token efficiency over training-free baselines."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                205,
+                826,
+                250
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2 RELATED WORK"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                273,
+                346,
+                289
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Explicit LLM Reasoning. Reasoning via explicit intermediate text has been extensively studied. Chain-of-thought (CoT) prompting elicits stepwise rationales that improve reasoning accuracy by decomposing problems into natural-language sub-steps (Kojima et al., 2022; Wei et al., 2022). Subsequent work increases robustness by aggregating multiple CoT trajectories through self-consistency (Wang et al., 2022). Search- and tool-augmented variants further expand the exploration space, such as Tree-of-thought that branches over partial rationales (Yao et al., 2023a) and interleaving reasoning and actions with external tools and environments (Yao et al., 2023b). Least-to-most prompting progressively solves subproblems to reduce reasoning load and mitigate error accumulation (Zhou et al., 2022). These approaches operate purely in the discrete token space and therefore commit to a single token at each step. While readable, the discretizations in explicit reasoning discard alternative hypotheses early, and restrict the information bandwidth per step (Zhu et al., 2025b)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                306,
+                826,
+                463
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Latent LLM Reasoning. Latent reasoning operates in the continuous representation space rather than discrete natural language space used by explicit reasoning. Prior work can be broadly grouped into two categories. 1) Training-required approaches modify pretraining (Tack et al., 2025; Zeng et al., 2025) or fine-tuning objectives (Tan et al., 2025; Wang et al., 2025a;b; Jiang et al., 2025; Wu et al., 2025a; Yue et al., 2025; Li et al., 2025a; Shen et al., 2025; Xu et al., 2025a) to supervise hidden-state trajectories or to endow models with latent-planning skills. 2) Training-free approaches (Zhang et al., 2025; Wu et al., 2025b) intervene only at inference time by manipulating hidden representations or probability distributions without updating model weights. Our work belongs to the training-free category but differs from prior single-mode methods. Instead of remaining purely latent, SWIREASONING dynamically switches between latent and explicit reasoning based on entropy-trend confidence, and further regulates the number of switches through a count controller to suppress overthinking and improve efficiency."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                479,
+                826,
+                648
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3 METHODOLOGY"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                173,
+                672,
+                343,
+                688
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.1 SWIREASONING OVERVIEW"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                707,
+                410,
+                720
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "As shown in Fig. 3, SWIREASONING is a training-free framework that dynamically alternates between explicit and latent reasoning. The number of switches is regulated to suppress overthinking and improve token efficiency. Sec. 3.2 presents the preliminaries of explicit and latent reasoning, Sec. 3.3 details the design of the dynamic switch, and Sec. 3.4 discusses the switch count control mechanism. Implementation details are provided in Appendix B.1."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                734,
+                825,
+                806
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.2 PRELIMINARY: EXPLICIT AND TRAINING-FREE LATENT THINKING"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                827,
+                679,
+                840
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Explicit Thinking. Let "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "V"
+                    },
+                    {
+                        "type": "text",
+                        "content": "be a vocabulary and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { \\theta } ( x _ { t } \\mid x _ { < t } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "an LLM over V with parameters θ. Given a question q, the model produces a reasoning trace "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "r _ { 1 : T } \\in V ^ { T }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "followed by a final answer "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "a _ { 1 : U } \\in V ^ { \\hat { U } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". We write the concatenated sequence as"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                854,
+                825,
+                898
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "x _ {1: (| q | + T + U)} = \\left[ q, r _ {1: T}, a _ {1: U} \\right],",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/0546375bf8fea50a694e312751267a140179375973659932b1db2484829d33a8.jpg"
+                }
+            },
+            "bbox": [
+                385,
+                907,
+                609,
+                926
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "3"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/ac23b586fc4955d05f124d79fced9dac6d00bd7169fe8551498cdba4827ff3f7.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 3: SWIREASONING framework. (a) Dynamic mode switching alternates between explicit and latent thinking based on block-wise confidence estimated from entropy trends. (b) A switch count control mechanism limits the maximum number of thinking-block transitions, suppressing overthinking before the final answer."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                176,
+                101,
+                821,
+                311
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "At inference, decoding proceeds by repeatedly choosing a token "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "x _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "from the predictive distribution "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { \\theta } ( \\cdot \\mid x _ { < t } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "according to a policy "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { t } ( \\cdot ) , e . g ."
+                    },
+                    {
+                        "type": "text",
+                        "content": ".,"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                388,
+                823,
+                417
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "x _ {t} \\sim \\pi_ {t} (\\cdot) \\text {with} \\pi_ {t} = \\left\\{ \\begin{array}{l} \\text {Greedy:} \\arg \\max _ {v \\in V} p _ {\\theta} (v \\mid x _ {<   t}), \\\\ \\text {Sampling: Top-} k / \\text {Top-} p \\text {with temperature} \\tau . \\end{array} \\right.",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/cf6105f575e13240382511da27ca5ed9d8b0684722febcead48792c356950f64.jpg"
+                }
+            },
+            "bbox": [
+                256,
+                421,
+                718,
+                460
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The reasoning phase stops when a termination condition is met, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "e . g ."
+                    },
+                    {
+                        "type": "text",
+                        "content": ", generating "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\left. I ( \\mathrm { { t h i n k } } ) \\right."
+                    },
+                    {
+                        "type": "text",
+                        "content": ", after which the answer tokens "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "a _ { 1 : U }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "are decoded in the same manner. While explicit reasoning improves reliability by externalizing intermediate steps, its hard policy "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { t } ( \\cdot )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "collapses the full distribution to a single discrete decision at each step, i.e., discards information in "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { \\theta } ( \\cdot \\mid x _ { < t } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "beyond the chosen token."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                464,
+                825,
+                521
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Training-Free Latent Thinking. It replaces the hard policy "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { t } ( \\cdot )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "by a continuous surrogate that preserves distributional information. Let "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "E \\in \\mathbb { R } ^ { | V | \\times d }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denote the token embedding matrix with rows "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "e ^ { ( v ) } \\in \\mathbb { R } ^ { d }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". At step t, the model yields logits "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\boldsymbol { \\ell } _ { t } \\in \\mathbb { R } ^ { | V | }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { t } = \\operatorname { s o f t m a x } ( \\ell _ { t } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Given the next-token distribution "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { t } : = p _ { \\theta } ( \\cdot \\mid x _ { < t } ) \\in \\Delta ^ { | V | - 1 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", it forms a soft embedding"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                534,
+                825,
+                595
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\tilde {e} _ {t} = \\sum_ {v \\in V} p _ {t} [ v ] e ^ {(v)} \\in \\mathbb {R} ^ {d},\\tag{1}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/a677ec9f59789214131feaf97e2de206f88eeadefc1a43cb89be2fc2357f6b6d.jpg"
+                }
+            },
+            "bbox": [
+                401,
+                598,
+                594,
+                630
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "and feeds "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\tilde { e } _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "back to the model as the next input representation, rather than committing to an explicit token by "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { t } ( \\cdot )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Upon the thinking phase being complete, the policy reverts to "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { t } \\bar { ( \\cdot ) }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for answer generation. The convexity of Eq. 1 ensures "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\tilde { e } _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "lies in the embedding hull of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "E ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": "retaining all firstorder uncertainty in "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { t } ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", which reduces information discards and increases robustness to local noise."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                633,
+                825,
+                690
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.3 DYNAMIC SWITCH BETWEEN EXPLICIT AND LATENT THINKING"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                705,
+                660,
+                720
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Remaining in a single mode throughout reasoning is inherently suboptimal: explicit thinking provides readability but may discard useful information beyond chosen tokens, while latent thinking preserves richer signals but can drift into noise and reduce accuracy. Our key insight is that reasoning should switch modes based on confidence. Latent reasoning enables exploration across multiple potential continuations when confidence is low, and explicit reasoning encourages convergence when confidence is high, striking a balance that supports broad exploration while maintaining accuracy."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                731,
+                825,
+                816
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Mode Switch Criterion. We refer to the reasoning content between two consecutive switches as a thinking block and estimate its confidence by entropy "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\begin{array} { r } { H _ { t } = - \\sum _ { v } p _ { t } [ v ] \\log p _ { t } [ v ] } \\end{array}"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Let "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\bar { H }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denote the reference entropy of the current block, which is initialized at the first step of the block and refreshed when a mode switch happens. We use a criterion that converts local entropy trends into decisions:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                830,
+                825,
+                886
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\text { Latent } \\to \\text { Explicit }: \\quad \\left(H _ {t} <   \\bar {H}\\right) \\text {(confidence rises)},\\tag{2}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/87aa3414cba04df44b55126165d9c82ce8955d939108d7c9bd620bd769e33b5a.jpg"
+                }
+            },
+            "bbox": [
+                318,
+                888,
+                669,
+                905
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\text { Explicit } \\to \\text { Latent }: \\quad (H _ {t} > \\bar {H}) \\quad (\\text { confidence   drops }),\\tag{3}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/b222a4c960aedc67a097c98d242f7b5943cbe15a3db226f5075a1b76a68610f8.jpg"
+                }
+            },
+            "bbox": [
+                320,
+                907,
+                674,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "4"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Switch Window Size. To avoid oscillations, we impose dwell windows upon the mode switch criterion. Formally, with mode variable "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "m _ { t } \\ \\in \\ \\{ \\mathrm { E x p l i c i t } , \\mathrm { L a t e n t } \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and dwell step counter "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\Delta t ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", we have"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                104,
+                825,
+                145
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "m _ {t + 1} = \\left\\{ \\begin{array}{l l} \\text { Explicit }, & m _ {t} = \\text { Latent } \\land (H _ {t} <   \\bar {H}) \\land (\\Delta t \\geq W _ {\\text { L } \\to \\text { E }}), \\\\ \\text { Latent }, & m _ {t} = \\text { Explicit } \\land (H _ {t} > \\bar {H}) \\land (\\Delta t \\geq W _ {\\text { E } \\to \\text { L }}), \\\\ m _ {t}, & \\text { otherwise }. \\end{array} \\right.",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/3cc492b9b0c61ba6b17d732fb63da3ed09eb0f841000d9d1a7c4296ff6c58d06.jpg"
+                }
+            },
+            "bbox": [
+                269,
+                143,
+                720,
+                193
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We reset "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\bar { H }  H _ { t } , \\Delta t  0"
+                    },
+                    {
+                        "type": "text",
+                        "content": "upon any switch, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "i . e . , m _ { t + 1 } \\neq m _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Otherwise, we update "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\Delta t \\gets \\Delta t { + } 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". In practice, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W _ { \\mathrm { L \\to E } } = 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": "while "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W _ { \\mathrm { E  I } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is positive, i.e., a Latent→Explicit switch may occur immediately when "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "H _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "dips, whereas an Explicit→Latent switch requires staying for at least "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W _ { \\mathrm { E  I } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "<sub>L</sub> steps."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                196,
+                825,
+                241
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The key intuition behind the asymmetric design is that two modes play different roles in reasoning. Latent reasoning is inherently divergent, allowing for rich exploration. However, prolonging the latent phase after confidence has recovered is counterproductive. It increases the risks of introducing spurious signals that may mislead the model. Therefore, once confidence rises, an immediate switch back to explicit reasoning is necessary to consolidate progress onto a single coherent trajectory."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                246,
+                825,
+                318
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In contrast, explicit reasoning is convergent, gradually unfolding a chain-of-thought where each token incrementally extends the current logical path. If the model were allowed to switch back to latent reasoning at the first sign of an entropy fluctuation, spurious short-term uncertainty could trigger oscillations. The dwell window "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W _ { E  L }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "ensures that explicit reasoning is given sufficient opportunity to stabilize and accumulate meaningful structure."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                323,
+                826,
+                395
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Thinking-Related Signal Mixing. To better align mode switches with the LLMs’ learned reasoning patterns, we blend the embeddings of thinking-related signal tokens, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "e . g . , < \\mathrm { t h i n k } >"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "< / \\mathrm { t h i n k } >"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", when a switch occurs. Let "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "e _ { \\langle \\mathrm { t h i n k } \\rangle }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "e _ { \\langle / \\mathrm { t h i n k } \\rangle }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denote their embeddings. At the entrance to a latent thinking block, we bias the first latent step "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\dot { t } ^ { \\star }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "toward “begin thinking” by"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                407,
+                825,
+                464
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\tilde {e} _ {t ^ {\\star}} \\leftarrow \\alpha_ {t ^ {\\star}} \\cdot \\tilde {e} _ {t ^ {\\star}} + (1 - \\alpha_ {t ^ {\\star}}) \\cdot e _ {\\langle \\text { think } \\rangle}, \\quad \\alpha_ {t ^ {\\star}} \\in [ 0, 1 ],\\tag{4}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/49fe497bdc0bf0bf4085534082a815de4e40125564f8f71b70fbaf3cd2c8c9d4.jpg"
+                }
+            },
+            "bbox": [
+                310,
+                469,
+                684,
+                484
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "and at the exit to an explicit thinking block, we bias the first explicit step t<sup>†</sup> toward “end thinking”"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                491,
+                818,
+                507
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\tilde {e} _ {t ^ {\\dagger}} \\leftarrow \\beta_ {t ^ {\\dagger}} \\cdot \\tilde {e} _ {t ^ {\\dagger}} + (1 - \\beta_ {t ^ {\\dagger}}) \\cdot e _ {\\langle \\text { think } \\rangle}, \\quad \\beta_ {t ^ {\\dagger}} \\in [ 0, 1 ],\\tag{5}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/800f6d83501b382a798fdc49ee8ea9f032043f089a49741fd9c17041df6350db.jpg"
+                }
+            },
+            "bbox": [
+                312,
+                508,
+                681,
+                526
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "which encourages the model to close the latent phase and move on to answer production. In practice, we schedule "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\begin{array} { r } { \\alpha _ { t } = \\alpha _ { 0 } + ( 1 - \\alpha _ { 0 } ) \\frac { t } { T _ { \\mathrm { m a x } } } } \\end{array}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\begin{array} { r } { \\beta _ { t } = \\beta _ { 0 } + ( 1 - \\beta _ { 0 } ) \\frac { t } { T _ { \\mathrm { m a x } } } } \\end{array}"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T _ { \\mathrm { m a x } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is a predefined maximum generation length, and apply Eq. 4 or Eq. 5 only at the steps when switches occur."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                530,
+                823,
+                574
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.4 OVERTHINKING SUPPRESSION BY SWITCH COUNT CONTROL"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                590,
+                638,
+                604
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Even with confidence-aware switching, reasoning LLMs may still overthink. Therefore, we place a bound on the total number of Latent→Explicit switches. Our key insight is that each switch naturally marks the end ofa thinking block where partial reasoning trajectories have been consolidated, which may already contain sufficient evidence for arriving at a reasonable solution. Under limited budgets, generating answers at these natural checkpoints can make use of partial reasoning trajectories, offering a chance to obtain correct predictions earlier without consuming additional tokens."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                616,
+                826,
+                700
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Counter and Triggers. Let "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "C _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "count completed Latent → Explicit switches up to step t. Given a user-specified budget "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "C _ { \\mathrm { m a x } } ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": "we define two triggers:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                714,
+                825,
+                744
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• Convergence trigger (at "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\textstyle { \\frac { 1 } { 2 } } C _ { \\operatorname* { m a x } } \\leq C _ { t } \\leq C _ { \\operatorname* { m a x } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "on Latent → Explicit transitions): force the next token to be ⟨/think⟩. The convergence trigger is to encourage rather than enforce the end of the thinking process and the start of converging to an answer based on partial reasoning trajectories."
+                    }
+                ]
+            },
+            "bbox": [
+                176,
+                753,
+                825,
+                797
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• Termination trigger (at "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "C _ { t } > C _ { \\operatorname* { m a x } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "on a subsequent Latent → Explicit transition): inject a concise answer prefix "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "s _ { \\mathrm { f i n a l } } , \\cdots \\langle / \\mathrm { t h i n k } \\rangle \\backslash \\mathrm { n } \\backslash \\mathrm { n }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "The final answer "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { i } \\mathrm { s } ^ { \\prime \\prime }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", then allow at most B additional tokens for the final answer. The termination trigger is to enforce an immediate answer generation."
+                    }
+                ]
+            },
+            "bbox": [
+                176,
+                800,
+                825,
+                843
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Triggers are implemented as short injection queues that overwrite future-generated tokens. Formally, let "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { Q } _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "be the per-sample injection queue. When a convergence or termination trigger fires, we set "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { Q } _ { t } \\gets [ \\mathrm { I D } ( \\langle / \\mathrm { t h i n k } \\rangle ) ]"
+                    },
+                    {
+                        "type": "text",
+                        "content": "or "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\big [ \\mathrm { I D } \\big ( s _ { \\mathrm { f i n a l } } \\big ) \\big ]"
+                    },
+                    {
+                        "type": "text",
+                        "content": "]. At the next step, if "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { Q } _ { t } ~ \\neq ~ \\emptyset ."
+                    },
+                    {
+                        "type": "text",
+                        "content": ", we deterministically set "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "x _ { t } \\gets"
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { Q } _ { t } . \\mathrm { p o p ( ) }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". For the termination trigger, we also start a budget counter "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "b _ { t } = B"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and decrement it each step after the termination trigger fires. Decoding will be terminated once "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "b _ { t } = 0"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                854,
+                825,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "5"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4 EXPERIMENTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                103,
+                328,
+                118
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.1 EXPERIMENTAL SETTINGS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                135,
+                401,
+                148
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Models. We evaluate SWIREASONING on four recent reasoning LLMs: DeepSeek-R1-Distill-Llama-8B (Guo et al., 2025), Qwen3-1.7B (Yang et al., 2025), Qwen3-8B (Yang et al., 2025), and Qwen3-32B (Yang et al., 2025). This selection helps us validate the effectiveness of SWIREASON-ING across different model families, model scales, and training paradigms."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                161,
+                826,
+                219
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Domains and Benchmarks. We evaluate SWIREASONING on 11 benchmarks spanning four domains: mathematical reasoning (GSM8K (Cobbe et al., 2021), Math500 (Hendrycks et al., 2021), AIME 2024 (HuggingFaceH4, 2024), AIME 2025 (Yentinglin, 2025)); STEM reasoning (GPQA Diamond (Rein et al., 2024)); coding reasoning (HumanEval (Chen et al., 2021), LeetCode-Contest (Guo et al., 2024), MBPP (Austin et al., 2021), LiveCodeBench (Jain et al., 2024)); and general reasoning (2WikiMultihopQA (Ho et al., 2020), CommonsenseQA (Talmor et al., 2019))."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                234,
+                826,
+                321
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Baselines. We compare SWIREASONING that dynamically switches between thinking modes against three baselines with a single thinking mode, including 1) explicit thinking alone: standard CoT reasoning with sampling, standard CoT reasoning with greedy decoding, and 2) training-free latent thinking alone: Soft Thinking (Zhang et al., 2025)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                335,
+                826,
+                395
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Metrics. We use the Pass@1 metric to evaluate reasoning accuracy, and token efficiency E to assess the level of reasoning efficiency. Let "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { A c c } _ { m } ( \\ell ) \\in [ \\bar { 0 , } 1 ]"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denote the accuracy of method m when using ℓ generated tokens. Its plain token efficiency is the accuracy gained per token,"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                410,
+                825,
+                454
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "P E _ {m} (\\ell) = \\frac {\\mathrm{Acc} _ {m} (\\ell)}{\\ell}.",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/51fcf94b872767d886d9d7362f775498093a88af7bba4fe99f114592188e6fac.jpg"
+                }
+            },
+            "bbox": [
+                418,
+                460,
+                578,
+                493
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To express efficiency in units relative to the standard CoT, we normalize it by the CoT’s plain token efficiency when the highest accuracy is achieved. Specifically, if CoT achieves its highest accuracy "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\operatorname { A c c } _ { \\mathrm { { C o T } } } ^ { \\star }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "using "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\ell _ { \\mathrm { C o T } } ^ { \\star }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "tokens, denote "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\begin{array} { r } { P E _ { \\mathrm { C o T } } ^ { \\star } = \\frac { \\operatorname { A c c } _ { \\mathrm { C o T } } ^ { \\star } } { \\ell _ { \\mathrm { C o T } } ^ { \\star } } } \\end{array}"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". The token efficiency of m is defined as"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                500,
+                825,
+                549
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathrm{E} _ {m} (\\ell) = \\frac {P E _ {m} (\\ell)}{P E _ {\\mathrm{CoT}} ^ {\\star}} = \\frac {\\mathrm{Acc} _ {m} (\\ell) / \\ell}{\\mathrm{Acc} _ {\\mathrm{CoT}} ^ {\\star} / \\ell_ {\\mathrm{CoT}} ^ {\\star}}.",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/fa623f08be91e839dc761def04b00e3363c77199171e39c86746e34e63007bd2.jpg"
+                }
+            },
+            "bbox": [
+                361,
+                559,
+                633,
+                594
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "And the average efficiency gain of method m over CoT is"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                608,
+                553,
+                625
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathbb {E} [ \\Delta \\mathrm{E} _ {\\mathrm{m}} ] = \\frac {\\int (\\mathrm{E} _ {\\mathrm{m}} (\\ell) - \\mathrm{E} _ {\\mathrm{CoT}} (\\ell)) d \\ell}{\\int \\mathrm{E} _ {\\mathrm{CoT}} (\\ell) d \\ell}.",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/c4dff1fda65c8c5c4f78866a29edebb3056be6c7fb25156905a73316b5bf442d.jpg"
+                }
+            },
+            "bbox": [
+                370,
+                632,
+                624,
+                667
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.2 REASONING ACCURACY UNDER UNLIMITED TOKEN BUDGETS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                695,
+                648,
+                710
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We first evaluate SWIREASONING in the setting where token budgets are set large enough to ensure that each method is allowed to conduct sufficient thinking (refer to Appendix B.2 for detailed settings). Fig. 1 and Tab. 1 report the highest attainable accuracies across mathematics (GSM8K, MATH500, AIME24, AIME25) and STEM (GPQA Diamond) benchmarks under this setting. Across different model families of varying sizes, SWIREASONING consistently achieves higher Pass@1 accuracy than CoT with sampling, CoT with greedy decoding, and Soft Thinking."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                722,
+                826,
+                808
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Our observation is that improvements are most pronounced on the more challenging benchmarks. For instance, on AIME24/AIME25, which require deep deductive reasoning and are widely regarded as more difficult, our method yields absolute gains of 3.34%/2.50% on Qwen3-8B, and 5.00%/5.00% on Qwen3-1.7B. These margins substantially exceed those observed on GSM8K or MATH500 with lower difficulty, suggesting that the proposed switching mechanism is particularly beneficial when problems involve long reasoning chains or higher uncertainty from the LLM’s perspective. Overall, the accuracy results under unlimited token budgets highlight the strength of SWIREASONING in better addressing reasoning tasks compared to single-mode approaches."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                813,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "6"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/6d85de3eddeec5b2eee4adb10f6a457e683c112a16063b3811a1bafdae958e13.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 1: Comparison of SWIREASONING and CoT with sampling, CoT with greedy decoding, and Soft Thinking on mathematics and STEM benchmarks. SWIREASONING improves accuracy by +2.17% on average."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\">Method</td><td>GSM8K</td><td>MATH500</td><td>GPQADiamond</td><td>AIME2024</td><td>AIME2025</td><td colspan=\"2\">Average</td></tr><tr><td colspan=\"7\">Qwen3-8B (Yang et al., 2025)</td></tr><tr><td>CoT</td><td>95.60</td><td>96.00</td><td>59.60</td><td>75.83</td><td>67.50</td><td>78.91</td><td>+0.00</td></tr><tr><td>CoT (Greedy)</td><td>95.68</td><td>96.40</td><td>56.57</td><td>70.00</td><td>60.00</td><td>75.73</td><td>-3.18</td></tr><tr><td>Soft Thinking</td><td>95.38</td><td>96.00</td><td>59.60</td><td>67.92</td><td>68.33</td><td>77.45</td><td>-1.46</td></tr><tr><td>SwiR (Ours)</td><td>96.06</td><td>+0.46</td><td>+2.40</td><td>61.11</td><td>+1.51</td><td>79.17</td><td>+3.34</td></tr><tr><td colspan=\"8\">Qwen3-1.7B (Yang et al., 2025)</td></tr><tr><td>CoT</td><td>90.44</td><td>92.00</td><td>39.39</td><td>45.83</td><td>33.33</td><td>60.20</td><td>+0.00</td></tr><tr><td>CoT (Greedy)</td><td>89.61</td><td>91.00</td><td>31.82</td><td>40.00</td><td>33.33</td><td>57.15</td><td>-3.05</td></tr><tr><td>Soft Thinking</td><td>90.30</td><td>90.60</td><td>34.34</td><td>38.75</td><td>36.67</td><td>58.13</td><td>-2.07</td></tr><tr><td>SwiR (Ours)</td><td>90.83</td><td>+0.39</td><td>+1.00</td><td>41.41</td><td>+2.02</td><td>50.83</td><td>+5.00</td></tr><tr><td colspan=\"8\">DeepSeek-R1-Distill-Llama-8B (Guo et al., 2025)</td></tr><tr><td>CoT</td><td>89.46</td><td>91.40</td><td>46.46</td><td>43.75</td><td>26.25</td><td>59.46</td><td>+0.00</td></tr><tr><td>CoT (Greedy)</td><td>85.82</td><td>84.80</td><td>31.81</td><td>30.00</td><td>30.00</td><td>52.49</td><td>-6.97</td></tr><tr><td>Soft Thinking</td><td>85.90</td><td>83.80</td><td>33.33</td><td>34.17</td><td>20.42</td><td>51.52</td><td>-7.94</td></tr><tr><td>SwiR (Ours)</td><td>90.07</td><td>+0.61</td><td>+0.60</td><td>47.98</td><td>+1.52</td><td>45.00</td><td>+1.25</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                174,
+                138,
+                821,
+                398
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.3 TOKEN EFFICIENCY UNDER LIMITED TOKEN BUDGETS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                426,
+                596,
+                441
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Across models and benchmarks, SWIREASONING consistently attains improved Pareto frontiers. As shown in Fig. 2, the peak efficiency gains range between 4.6× and 6.8× over CoT depending on the model size. These improvements are not confined to a single budget: the area-under-curve (AUC) advantage persists across a broad range of small to moderate budgets."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                452,
+                825,
+                510
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "One observation from Fig. 4 is that the relatively large average efficiency gains occur on GSM8K, MATH500, and GPQA Diamond across three models (up to 213% AUC improvements in the perbenchmark panels). These tasks contain many instances with lower difficulty, which benefit most from our overthinking suppression design to obtain the correct answer with partial reasoning trajectories. In contrast, on AIME24/25, the efficiency gaps are smaller, while the accuracy gains with unlimited budgets are larger. This asymmetry is expected: the harder the problem is, the more difficult it is to predict a correct answer with unfinished reasoning trajectories. Overall, token efficiency results under limited budgets substantiate the advantage of SWIREASONING in gaining accuracy more efficiently as budgets tighten compared to baseline methods."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                515,
+                826,
+                643
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.4 EVALUATION WITH PASS@K ACCURACY"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                659,
+                500,
+                674
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In addition to Pass@1 accuracy, we also measure Pass@k accuracy, where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "k \\in [ 1 , 6 4 ]"
+                    },
+                    {
+                        "type": "text",
+                        "content": "on Qwen3- 8B. Fig. 5 shows that SWIREASONING reaches its maximal accuracy with significantly smaller k than baselines. Define k<sup>⋆</sup> as the smallest k achieving the method’s peak. On AIME24, we observe k<sup>⋆</sup> = 13 for SWIREASONING versus 46 for CoT (about 72% fewer samples), and on AIME25, k<sup>⋆</sup> = 16 versus 22 (about 27% fewer samples). In addition to the faster growth of the curve than CoT, SWIREASONING also exhibits 1) a steeper initial slope at small k (higher ”per-sample yield”), and 2) a higher eventual ceiling than Soft Thinking and greedy CoT, indicating better correctness and diversity simultaneously. Overall, Pass@k accuracy results indicate that SWIREASONING is particularly attractive for budgeted evaluation settings where k cannot be large."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                684,
+                826,
+                811
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.5 ABLATION STUDIES"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                827,
+                357,
+                843
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Switch Window Size. SWIREASONING uses dwell windows (Sec. 3.3) to enforce the model stays in a thinking block for at least W steps before switching to the other thinking mode. We conduct ablation studies on Qwen3-1.7B with a representative setting consisting of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W _ { \\mathrm { E  L } } ~ \\in"
+                    },
+                    {
+                        "type": "text",
+                        "content": "{64, 128, 256, 512, 1024} and report Pass@1 accuracy on five benchmarks. Results in Tab. 3 demonstrate that an intermediate window size of 512 consistently produces the best results."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                854,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "7"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/7c123b03c8d2e51c51f979d514399bbe9d9d7fc4b26e8f9cc6b5ab39b7e58480.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                171,
+                102,
+                398,
+                202
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/dabffc9db47a4a5e56cd4e68fdf6105582dc3f4e3d4ee691985e34d27daa2cf6.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                393,
+                104,
+                611,
+                200
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/4f4e64e98735a2a6cddc02cba1f36bebc0ee9593f0d66cabfe19ee5e67ed5fea.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                604,
+                104,
+                821,
+                203
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/c52c5ca80f29c58bc259ba700727ffc92c2f1e6b3d66411c0eafa3c4ea0d8608.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                171,
+                202,
+                408,
+                292
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/07839cd231c070564437d5685c04df639b127328d724691196b01b8dfcddacd0.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                398,
+                202,
+                620,
+                292
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/de2513c65a3e8e1e8c68cb8a09948e0fc9a1d9d97c78b463ffa22ebe41ef584c.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                617,
+                203,
+                821,
+                292
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/72dd44eeef3f781d7e310c8a8bf0a2b7b688a20c2c00ec3857bd37b08d8de98e.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                171,
+                291,
+                397,
+                392
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/1323e619e987949b67351ab5b5c8f7d75732d4cb99a3d14040ab80979761e6bf.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                393,
+                292,
+                617,
+                386
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/51e18a6117fe77cba9fda021fdc089be15993c214aa198dbb7787f20dc2ff8f8.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                611,
+                292,
+                821,
+                392
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/5884530b2ccbb2c7e36f9768a64c0ead3386d49cb7469ec6ce6ed36c50e28462.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                171,
+                386,
+                395,
+                482
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/5722afc0c92e749d971db978a108dda4f9603e73542049d3015f34da74df8b0b.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                393,
+                383,
+                619,
+                479
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/bf777937fa097d61bc5e0ba7c49786cc14ca8602fcfa5090930f63ce85e16b0d.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                611,
+                385,
+                825,
+                479
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/fe0ab46f5abc38626d251298c8864df0cdee0bf34a9781d03f0b65f23ff1d574.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                169,
+                481,
+                410,
+                579
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/0d2d15e3b7608540c4aa929b57f15b7a1b652e459c42fede069b847a8e864e38.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                403,
+                477,
+                611,
+                575
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/02f0d1fb27c40379368d124ddd838a08334611f53396eb4c8bf5c78e77edcf8d.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                607,
+                476,
+                823,
+                575
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/19339b98030d2af045c555658688ad4c6984362ea905d8e4bafcf9c5ff9776e6.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 4: Token efficiency comparisons. SWIREASONING achieves the highest token efficiency throughout all token budgets in 13 out of 15 evaluations, with an efficiency improvement of +84% over CoT on average."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                200,
+                614,
+                493,
+                753
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/498e1ebdfd08585a4f0ef7fecc187119f2e95324c2796062a6c9e546b95bbe73.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 5: Pass@k accuracy "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( k ^ { \\mathord { \\sim } } \\in [ 1 , 6 4 ] )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "evaluation with Qwen3-8B on AIME 2024 and 2025 benchmarks. SWIREASONING achieves maximum reasoning accuracies +50% earlier compared to CoT on average."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                493,
+                618,
+                792,
+                755
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "When window sizes are too small, LLMs may jump back to latent mode prematurely, before explicit reasoning has consolidated a coherent trajectory. This increases exposure to noisy signals and harms final accuracy, especially on difficult tasks such as AIME24 and AIME25. When window sizes are too large, LLMs become sluggish to reenter latent exploration as confidence declines. A promising improvement direction is to make W adaptive to the model’s real-time density of effective reasoning."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                796,
+                826,
+                868
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Thinking-Related Signal Mixing. SWIREASONING uses "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\alpha _ { 0 } , \\beta _ { 0 } \\in [ 0 , 1 ]"
+                    },
+                    {
+                        "type": "text",
+                        "content": "as the initial ratios for mixing thinking-related signals at switching instants (Sec. 3.3). We sweep α and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\beta _ { 0 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "independently and report Pass@1 accuracies in Tab. 2."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                881,
+                826,
+                924
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "8"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/9802c6e6936852567a37c4a2e276485b7a0562f1ebf8ae2206c72980a95ff75f.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 2: Ablations on "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\alpha _ { 0 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\beta _ { 0 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for signal mixing. Greener indicates better performance within each column."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td> $\\alpha_0$ </td><td>GSM8K</td><td>MATH 500</td><td>GPQA Diamond</td><td>AIME 2024</td><td>AIME 2025</td><td>Average</td><td> $\\beta_0$ </td><td>GSM8K</td><td>MATH 500</td><td>GPQA Diamond</td><td>AIME 2024</td><td>AIME 2025</td><td>Average</td></tr><tr><td>0.0</td><td>89.23%</td><td>89.80%</td><td>35.86%</td><td>46.67%</td><td>35.00%</td><td>59.31%</td><td>0.0</td><td>81.50%</td><td>67.20%</td><td>28.79%</td><td>8.33%</td><td>9.17%</td><td>39.00%</td></tr><tr><td>0.1</td><td>89.84%</td><td>91.00%</td><td>36.36%</td><td>46.25%</td><td>36.25%</td><td>59.94%</td><td>0.1</td><td>81.88%</td><td>70.20%</td><td>31.82%</td><td>11.67%</td><td>8.75%</td><td>40.86%</td></tr><tr><td>0.2</td><td>90.37%</td><td>91.60%</td><td>34.85%</td><td>46.25%</td><td>37.50%</td><td>60.11%</td><td>0.2</td><td>82.11%</td><td>70.60%</td><td>28.28%</td><td>14.17%</td><td>9.17%</td><td>40.87%</td></tr><tr><td>0.3</td><td>90.45%</td><td>91.60%</td><td>38.38%</td><td>47.08%</td><td>38.33%</td><td>61.17%</td><td>0.3</td><td>90.67%</td><td>92.00%</td><td>37.37%</td><td>45.42%</td><td>37.92%</td><td>60.68%</td></tr><tr><td>0.4</td><td>89.61%</td><td>92.80%</td><td>40.91%</td><td>48.33%</td><td>32.50%</td><td>60.83%</td><td>0.4</td><td>90.98%</td><td>91.40%</td><td>37.88%</td><td>47.92%</td><td>36.67%</td><td>60.97%</td></tr><tr><td>0.5</td><td>90.45%</td><td>93.00%</td><td>34.34%</td><td>50.83%</td><td>36.25%</td><td>60.97%</td><td>0.5</td><td>90.37%</td><td>91.20%</td><td>42.42%</td><td>47.92%</td><td>35.83%</td><td>61.55%</td></tr><tr><td>0.6</td><td>90.83%</td><td>92.00%</td><td>39.39%</td><td>44.58%</td><td>37.92%</td><td>60.94%</td><td>0.6</td><td>90.59%</td><td>90.40%</td><td>42.42%</td><td>42.50%</td><td>36.67%</td><td>60.52%</td></tr><tr><td>0.7</td><td>90.06%</td><td>91.60%</td><td>37.37%</td><td>45.00%</td><td>37.08%</td><td>60.22%</td><td>0.7 √</td><td>90.83%</td><td>93.00%</td><td>41.41%</td><td>50.83%</td><td>38.33%</td><td>62.88%</td></tr><tr><td>0.8</td><td>90.60%</td><td>92.00%</td><td>37.37%</td><td>48.33%</td><td>35.42%</td><td>60.74%</td><td>0.8</td><td>89.99%</td><td>92.20%</td><td>39.39%</td><td>49.17%</td><td>35.83%</td><td>61.32%</td></tr><tr><td>0.9</td><td>90.37%</td><td>90.80%</td><td>39.39%</td><td>50.42%</td><td>35.83%</td><td>61.36%</td><td>0.9</td><td>90.22%</td><td>92.20%</td><td>40.91%</td><td>48.75%</td><td>32.50%</td><td>60.52%</td></tr><tr><td>1.0 √</td><td>90.14%</td><td>90.60%</td><td>41.41%</td><td>49.17%</td><td>37.92%</td><td>61.85%</td><td>1.0</td><td>90.44%</td><td>91.00%</td><td>33.33%</td><td>46.67%</td><td>38.75%</td><td>60.04%</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                176,
+                127,
+                820,
+                270
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "For the exit bias "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\beta _ { 0 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", a very small "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\beta _ { 0 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "implies excessive interference with when to conclude the thinking process and severely degrades accuracy "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( e . g ."
+                    },
+                    {
+                        "type": "text",
+                        "content": ", AIME24 drops to 8.33% at "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\beta _ { 0 } { = } 0 . 0 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Performance rises sharply and peaks near "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\beta _ { 0 } { = } 0 . 7 "
+                    },
+                    {
+                        "type": "text",
+                        "content": ", which achieves the best average 62.88% and is either the best or the second-best on most datasets. A promising improvement direction is to make "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\beta _ { 0 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "difficultyaware, so that it will be automatically adjusted based on problem difficulty."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                301,
+                825,
+                375
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The situation for the entrance bias "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\alpha _ { 0 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is different. We observe a broad performance plateau for "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\alpha _ { 0 } \\in [ 0 . 4 , 0 . 9 ]"
+                    },
+                    {
+                        "type": "text",
+                        "content": "], with the highest average at "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\alpha _ { 0 } { = } 1 . 0 \\left( 6 1 . 8 5 \\% \\right)"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", however, only marginally higher than other values like "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\alpha _ { 0 } { = } 0 . 9 \\ ( 6 1 . 3 6 \\% )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Task-wise, problems with different levels of difficulty tend to have various preferences over "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\alpha _ { 0 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". We expose "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\alpha _ { 0 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to users for adjustment based on task difficulty. The more detailed hyperparameters we adopted for the experiments are provided in Appendix B.3."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                378,
+                826,
+                450
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Maximum Switch Count. We suppress overthinking by bounding the number of mode switches with a budget "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "C _ { \\mathrm { m a x } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "(Sec. 3.4), and reducing "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "C _ { \\mathrm { m a x } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "leads to earlier convergence. In Fig. 2 and Fig. 4, moving rightward on the x–axis corresponds to smaller token budgets, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "i . e ."
+                    },
+                    {
+                        "type": "text",
+                        "content": ", smaller "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "C _ { \\mathrm { m a x } } ."
+                    },
+                    {
+                        "type": "text",
+                        "content": "We collect data points in these figures by incrementing the value of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "C _ { \\mathrm { m a x } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "from 1 until further increases in "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "C _ { \\mathrm { m a x } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "no longer alter generation results in most cases, i.e., maximum accuracy is reached at saturation. Detailed data is provided in Appendix C.8."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                469,
+                486,
+                638
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/89b2beae0132af0ce6f368d529cef12babd2f7d2be36242b8105ce958d8c54b1.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 3: Ablation on switch window size. Greener indicates better performance within each column."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Window Size</td><td>GSM8K</td><td>MATH 500</td><td>GPQA Diamond</td><td>AIME 2024</td><td>AIME 2025</td><td>Average</td></tr><tr><td>64</td><td>89.69%</td><td>92.60%</td><td>40.91%</td><td>47.92%</td><td>34.17%</td><td>61.06%</td></tr><tr><td>128</td><td>90.45%</td><td>91.00%</td><td>38.89%</td><td>48.33%</td><td>36.25%</td><td>60.98%</td></tr><tr><td>256</td><td>89.76%</td><td>90.80%</td><td>39.90%</td><td>49.58%</td><td>36.25%</td><td>61.26%</td></tr><tr><td>512 √</td><td>90.83%</td><td>93.00%</td><td>41.41%</td><td>50.83%</td><td>38.33%</td><td>62.88%</td></tr><tr><td>1024</td><td>90.83%</td><td>91.20%</td><td>40.40%</td><td>49.58%</td><td>36.67%</td><td>61.74%</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                498,
+                523,
+                821,
+                608
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "As analyzed in Sec. 4.3, decreasing "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "C _ { \\mathrm { m a x } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "yields a significant improvement in token efficiency, which confirms the intended behavior of the switch count control design: it curbs prolonged latent exploration and commits to an answer path early, thereby mitigating overthinking. With switch count control, a small number of confidence-aware blocks usually suffices for easy-to-moderate problems, while difficult instances benefit more from allowing a few more switches before the final answer."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                643,
+                825,
+                714
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "More ablation studies are provided in Appendix "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { C } . 5 \\mathrm { - } \\mathrm { C } . 7"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                719,
+                550,
+                734
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.6 EXPERIMENTAL RESULTS ON LARGER MODELS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                756,
+                547,
+                771
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/4b4b4ee41f8550d869bf62498988925ef598b2413ead51398d180e023ff650ef.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 4: Comparison of SWIREASONING and CoT with sampling, CoT with greedy decoding, and Soft Thinking on Qwen3-32B. SWIREASONING improves accuracy by +1.92% on average."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Method</td><td>GSM8K</td><td>MATH500</td><td>GPQADiamond</td><td>AIME2024</td><td>AIME2025</td><td colspan=\"2\">Average</td></tr><tr><td>CoT</td><td>95.83</td><td>97.40</td><td>66.16</td><td>80.42</td><td>72.08</td><td>82.38</td><td>+0.00</td></tr><tr><td>CoT (Greedy)</td><td>95.91</td><td>97.20</td><td>69.70</td><td>80.00</td><td>73.33</td><td>83.23</td><td>+0.85</td></tr><tr><td>Soft Thinking</td><td>95.75</td><td>97.40</td><td>67.17</td><td>74.58</td><td>66.25</td><td>80.23</td><td>-2.15</td></tr><tr><td>SwiR (Ours)</td><td>96.21</td><td>+0.38</td><td>98.40</td><td>+1.00</td><td>70.20</td><td>+4.04</td><td>82.92</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                181,
+                830,
+                815,
+                919
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "9"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In addition to the 1.7B and 8B settings, we evaluate SWIREASONING on the 32B scale using Qwen3- 32B. We report pass@1 accuracy on GSM8K, MATH500, GPQA Diamond, AIME 2024, and AIME 2025. Baseline hyperparameters follow the recommendations from their original papers, and all methods use the same configuration as in the main paper. Table 4 shows that under no token budget constraint, SWIREASONING improves accuracy by +1.92% on average over standard CoT. The gains are most notable on more difficult benchmarks such as GPQA Diamond (+4.04%). These results indicate that SWIREASONING scales to larger models and achieves consistent accuracy gains."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                104,
+                826,
+                203
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.7 EXPERIMENTAL RESULTS ON BROADER DOMAINS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                217,
+                566,
+                233
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/3e176361b80cbb640a0359e4f352e51e67c54613549c220121048e8a45a767a0.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 5: Comparison of SWIREASONING and baselines on coding, multi-hop QA, and commonsense reasoning tasks. SWIREASONING improves accuracy by +2.70% on average."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\">Method</td><td rowspan=\"2\">HumanEval</td><td colspan=\"3\">LeetCode-Contest</td><td rowspan=\"2\">MBPP</td></tr><tr><td>Easy-level</td><td>Medium-level</td><td>Hard-level</td></tr><tr><td>CoT</td><td>92.68</td><td>57.78</td><td>68.13</td><td>43.18</td><td>94.16</td></tr><tr><td>CoT (Greedy)</td><td>93.90</td><td>64.44</td><td>58.24</td><td>47.73</td><td>91.44</td></tr><tr><td>Soft Thinking</td><td>92.07</td><td>55.56</td><td>61.54</td><td>38.64</td><td>94.16</td></tr><tr><td>SwiR (Ours)</td><td>95.73</td><td>+3.05</td><td>64.44</td><td>+6.66</td><td>69.23 +1.10 61.36 +18.18 95.33 +1.17</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                205,
+                277,
+                790,
+                375
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/6fd32cca412143245aa18f404ac2b465b77f8b3115edb177dccc257cb38c58be.jpg"
+                },
+                "table_caption": [],
+                "table_footnote": [],
+                "html": "<table><tr><td>Method</td><td>LiveCode-Bench</td><td>2WikiMul-tihopQA</td><td>Common-senseQA</td><td colspan=\"2\">Average</td></tr><tr><td>CoT</td><td>62.01</td><td>79.00</td><td>83.95</td><td>78.54</td><td>+0.00</td></tr><tr><td>CoT (Greedy)</td><td>50.18</td><td>79.50</td><td>83.95</td><td>76.03</td><td>-2.51</td></tr><tr><td>Soft Thinking</td><td>56.99</td><td>79.00</td><td>83.70</td><td>76.73</td><td>-1.81</td></tr><tr><td>SwiR (Ours)</td><td>63.44</td><td>+1.43</td><td>81.50</td><td>+2.50</td><td>85.34</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                271,
+                383,
+                725,
+                474
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In addition to math and STEM domains, we further evaluate SWIREASONING on coding, multihop QA, and commonsense reasoning. We use Qwen3-8B and report pass@1 accuracy on HumanEval (Chen et al., 2021), LeetCode-Contest (Guo et al., 2024), MBPP (Austin et al., 2021), and LiveCodeBench (Jain et al., 2024) for coding, 2WikiMultihopQA (Ho et al., 2020) set from LongBench (Bai et al., 2024) for multi-hop QA, and CommonsenseQA (Talmor et al., 2019) for commonsense reasoning. As shown in Tab. 5, under no token budget constraint, SWIREASONING improves accuracy by +2.70% on average over standard CoT (the reported average is the simple mean of accuracy over the full LeetCode-Contest and accuracies over five other benchmarks)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                491,
+                826,
+                604
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "On coding tasks, the largest gains (+18.18%) are observed on the hard-level subset, indicating that SWIREASONING is most helpful for problems that require stronger reasoning capabilities. On multihop QA tasks, which require retrieving and connecting multiple disparate facts, SWIREASONING outperforms CoT by +2.50%. This suggests that the exploration capability of latent reasoning is effective in navigating complex reasoning paths. On commonsense reasoning tasks, SWIREASON-ING surpasses CoT by +1.39%. This demonstrates the robustness of SWIREASONING in general knowledge scenarios. Overall, these results confirm that SWIREASONING generalizes to broader domains with consistent accuracy gains."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                609,
+                826,
+                723
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5 CONCLUSION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                739,
+                321,
+                756
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "This paper presents SWIREASONING, a training-free inference framework that integrates explicit chain-of-thought thinking with latent thinking through an entropy trends–based controller. The framework is conceptually straightforward but empirically effective: when block-wise uncertainty decreases, we collapse to a single explicit path to consolidate progress. When uncertainty rises and has persisted for a minimal dwell window, we expand into latent space to explore more alternatives. Complementing this mode switch, a switch count controller caps the number of transitions, thereby curbing overthinking while preserving prediction quality. Together, these two mechanisms yield consistently improved Pareto frontiers for reasoning LLMs, effectively enhancing both maximum accuracy under unlimited budgets and token efficiency under limited budgets. Looking ahead, integrating SWIREASONING with reinforcement learning–based training may unlock even stronger reasoning capabilities."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                771,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "10"
+                    }
+                ]
+            },
+            "bbox": [
+                490,
+                948,
+                509,
+                960
+            ]
+        }
+    ]
+]

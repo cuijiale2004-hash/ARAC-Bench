@@ -1,0 +1,86 @@
+{
+  "overview": "This paper proposes AT-GRPO, an agent- and turn-wise grouped reinforcement learning algorithm for on-policy training of multi-agent LLM systems, along with a dedicated MAS training system that supports both role-sharing and role-specialized policies across diverse agentic domains (game, planning, coding, math).",
+  "count": 16,
+  "modules": [
+    {
+      "id": 1,
+      "name": "MAS Markov Game Formalization",
+      "description": "Implements the N-agent Markov game model M=(S,{Ai},T,{ri},T,H) including state space, per-agent action spaces, transition function with intra-turn micro-transitions, reward functions, turn horizon, and optimization step horizon. Supports observation generation oi(st,ht) per agent and role-specific prompt template application Pi(·)."
+    },
+    {
+      "id": 2,
+      "name": "Domain-Specific MAS Workflow Definitions",
+      "description": "Implements the four MAS workflow types: (1) Game/Planning with Tool-User and Executor collaboration, (2) Code with Coder-Tester iterative refinement loop, (3) Math with Reasoner-Tool-User dual-role debate, (4) Sudoku/Plan-Path with Tool-Agent and Plan-Agent. Each workflow defines agent roles, interaction patterns (sequential vs parallel), turn termination conditions, and alignment checks."
+    },
+    {
+      "id": 3,
+      "name": "Reward Design Module",
+      "description": "Implements the mixed-reward credit assignment rt,i = α*rteam + rloc_i for each task domain. Includes team rewards (sparse/dense success signals, pass rates, distance-improving shaping) and per-agent local rewards with masked convex combinations of verifiable sub-scores. Covers all six domains: Math, Code, Sudoku, Plan-Path, Sokoban, and the outcome-only sparse reward variant for ablation."
+    },
+    {
+      "id": 4,
+      "name": "Tree-Structured Sampling",
+      "description": "Implements the K-branch sampling strategy where at each turn t and for each agent i, K candidate actions are sampled from the current policy. The candidate with the highest reward is greedily selected for environment transition. Maintains balanced positive/negative sample mix and handles branching state management across the tree of trajectories."
+    },
+    {
+      "id": 5,
+      "name": "Agent- and Turn-wise Grouping",
+      "description": "Implements the grouping mechanism using unique hash-based group keys g=hash(e,i,t) per environment instance e, agent i, and turn t. Ensures all K candidates within a group share identical prompts (same role context and interaction history), enabling valid GRPO advantage comparisons. Manages group-wise advantage computation and data storage."
+    },
+    {
+      "id": 6,
+      "name": "GRPO Advantage Estimation",
+      "description": "Implements the group-relative advantage calculation Ag(a(c)t) = (R(a(c)t) - mean({R})) / Fnorm({R}) for candidate actions within each agent-turn group. Handles the normalization and mean-centering of rewards, ensuring proper variance reduction for stable policy gradient updates."
+    },
+    {
+      "id": 7,
+      "name": "AT-GRPO Algorithm Core",
+      "description": "Implements the complete AT-GRPO training loop (Algorithm 1) orchestrating: Phase 1 (on-policy rollout with K-branch sampling, group key assignment, advantage computation, greedy action selection, and per-agent dataset accumulation) and Phase 2 (per-model policy update using clipped PPO-style objective with group-relative advantages). Manages the full step-epoch-control flow."
+    },
+    {
+      "id": 8,
+      "name": "Role-Sharing vs Role-Specialized Policy Optimization",
+      "description": "Implements the two optimization regimes: (1) Role-sharing (M=1) where all agents share a single policy θ1 and training batch B1=∪Di is used for joint update, and (2) Role-specialized (M=N) where each agent i has distinct policy θ(i) updated independently on Bi=Di with role mapping σ. Supports configurable role-to-model assignment and independent vs pooled data batching."
+    },
+    {
+      "id": 9,
+      "name": "LLM Resource Pool Management",
+      "description": "Implements GPU-pinned resource pools for each policy model, each containing a RolloutWorker (inference with vLLM-style continuous batching) and an UpdateWorker (optimization). Handles model parameter serving, refresh synchronization between workers, and concurrent serving of multiple LLM policies across separate GPU groups."
+    },
+    {
+      "id": 10,
+      "name": "Environment Worker Pool & Router",
+      "description": "Implements the CPU-based EnvWorker fleet where each worker manages a sandboxed environment instance (seeding, wall-clock timeouts, I/O quotas, deterministic tool harnesses). Implements the Router that dispatches collected experience trajectories to the corresponding UpdateWorker based on policy assignment σ(i), maintaining clean on-policy data flow."
+    },
+    {
+      "id": 11,
+      "name": "Training Loop Controller",
+      "description": "Implements the outer training loop managing: step/epoch iteration, environment resampling, parallel environment instance execution, the interplay between rollout phase (all policies interact collectively per MAS workflow) and update phase (per-model optimization), gradient accumulation, mixed-precision training, and checkpoint persistence across training steps."
+    },
+    {
+      "id": 12,
+      "name": "Evaluation Metrics Suite",
+      "description": "Implements all evaluation metrics used in the paper: Accuracy (%) for Game (Sudoku, Sokoban), Plan-Path, and Math (AIME24/25, OlympiadBench); Pass@1 (%) for Code (LiveCodeBench, APPS, CodeContests). Includes relative gain computation over baselines, standardized reward tracking, and average-turns-to-alignment measurement."
+    },
+    {
+      "id": 13,
+      "name": "Benchmark Task Configurations",
+      "description": "Implements all five benchmark task environments: 4×4 Sudoku and 6×6 Sokoban (with SYMBENCH symbolic checkers), 10×10 Plan-Path grid, Code generation (APPS/CodeContests training splits with golden unit test scoring), and Math reasoning (Polaris-Dataset-53K training with MATH-VERIFIER numeric comparison). Handles train/validation split generation with seed-based separation."
+    },
+    {
+      "id": 14,
+      "name": "Ablation Study Framework",
+      "description": "Implements the ablation study configurations including: (1) SA vs SA+GRPO vs MAS vs MAS+GRPO vs MAS+AT-GRPO (shared) vs MAS+AT-GRPO (per-role) comparisons, (2) Single-agent training evaluated in MAS, (3) Swapped-policies test for role specialization verification, (4) Dense vs outcome-only reward ablation, (5) Multi-turn single-agent vs multi-agent comparison, (6) Scalability analysis with varying agent counts (N Reasoners, M Tool-Users, 1 Judge)."
+    },
+    {
+      "id": 15,
+      "name": "Scalability & Efficiency Analysis",
+      "description": "Implements computational complexity analysis and empirical latency profiling: inference latency modeling for sequential (O(N·T)) and parallel (bounded by Bmax) MAS patterns, training complexity analysis (sample size ratio NT), wall-clock time breakdowns for rollout vs update phases, and the relationship between agent count and performance/latency trade-offs."
+    },
+    {
+      "id": 16,
+      "name": "Experiment Configuration & Logging Infrastructure",
+      "description": "Implements configuration management for all hyperparameters (sampling factor K, turn horizon T, reward-mixing α, optimizer settings, learning rates), training logging (per-step rewards, loss curves, learning curves), result aggregation tables (Table 1/2/3 format with gains over baselines), visualization of standardized reward evolution and alignment turn reduction, and comparison report generation against MARL baselines (MAPoRL, MARFT, CURE)."
+    }
+  ]
+}

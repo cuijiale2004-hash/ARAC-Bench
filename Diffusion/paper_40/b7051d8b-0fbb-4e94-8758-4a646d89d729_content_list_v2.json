@@ -1,0 +1,2168 @@
+[
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "ABSTRACT"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                450,
+                277,
+                547,
+                294
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Speech tokenizers are foundational to speech language models, yet existing approaches face two major challenges: (1) balancing trade-offs between encoding semantics for understanding and acoustics for reconstruction, and (2) achieving low bit rates and low token rates. We propose Speech Diffusion Tokenizer (SiTok), a diffusion autoencoder that jointly learns semantic-rich representations through supervised learning and enables high-fidelity audio reconstruction with diffusion. We scale SiTok to 1.6B parameters and train it on 2 million hours of speech. Experiments show that SiTok outperforms strong baselines on understanding, reconstruction and generation tasks, at an extremely low token rate of 12.5 Hz and a bit-rate of 200 bits-per-second."
+                    }
+                ]
+            },
+            "bbox": [
+                230,
+                309,
+                767,
+                449
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "1 INTRODUCTION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                174,
+                474,
+                336,
+                489
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Speech tokenizers (Parker et al., 2024; Guo et al., 2025; Mousavi et al., 2025) define the interface between continuous speech signals and discrete speech language models (Borsos et al., 2023; Nguyen et al., 2025; Defossez et al., 2024; Grattafiori et al., 2024; Zeng et al., 2024b;a; Fang et al.,´ 2024; Wang et al., 2024; Huang et al., 2025; Ding et al., 2025; Xu et al., 2025), directly shaping how speech is perceived, modeled, and generated. As speech language models continue to scale and unify understanding and generation, the quality and structure of their discrete speech representations become a critical bottleneck."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                505,
+                826,
+                603
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "An effective speech tokenizer is generally expected to balance three competing objectives: (1) extreme compression for scalable language modeling, (2) high-fidelity reconstruction for natural speech generation, and (3) semantic-rich representations for downstream speech understanding. However, existing speech tokenizers struggle to satisfy these objectives jointly, particularly in the low token-rate regime, where each discrete token is required to encode substantial information."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                609,
+                826,
+                681
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Most prior approaches address this tension through heuristic compromises rather than principled solutions. (1) To mitigate reconstruction degradation at low bitrates, many methods rely on residual vector quantization (RVQ) (Zeghidour et al., 2021; Defossez et al., 2022; Kumar et al., 2023) or´ increased frame rates (Xin et al., 2024; Ji et al., 2024; Ju et al., 2024; Ye et al., 2025b; Wang et al., 2025a), which directly inflate token budgets and undermine efficiency for language modeling. (2) Conversely, tokenizers optimized primarily for acoustic fidelity often neglect linguistic structure, resulting in representations that are poorly suited for speech understanding. (3) Some approaches rely on multi-stage training pipelines (Guo et al., 2024; Anastassiou et al., 2024; Du et al., 2024a; Zeng et al., 2024a; Zhang et al., 2025c; Wang et al., 2025c), where representation learning is decoupled from waveform reconstruction, requiring a separate second-stage token-to-waveform mapping and thus preventing end-to-end joint optimization."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                686,
+                826,
+                840
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this work, we aim to explore a speech tokenizer paradigm that simultaneously achieves extreme compression, high-quality reconstruction, and effective representations for speech language modeling. Crucially, we observe that under traditional acoustic reconstruction objectives, simply scaling training data or model size yields diminishing returns at low token rates. This limitation suggests a structural bottleneck imposed by vector quantization: when trained solely with deterministic reconstruction losses, aggressive compression forces the discrete latent space to collapse uncertainty, often prioritizing low-level signal details over linguistically meaningful structure. As a result, such tokenizers yield suboptimal semantic representations for downstream speech understanding tasks such as automatic speech recognition (ASR) (Zhang et al., 2023; Defossez et al., 2024). To over-´ come this bottleneck, a speech tokenizer requires a generative framework that can explicitly model the uncertainty induced by aggressive quantization, rather than enforcing a deterministic inverse mapping. Diffusion models (Ho et al., 2020; Song et al., 2021; Lipman et al., 2023) offer a natural solution, as they learn to reverse a stochastic corruption process and have demonstrated strong generative capability and scalability across many domains (Rombach et al., 2022; Liu et al., 2023; Shen et al., 2024; Le et al., 2023; Polyak et al., 2024). Some prior works (Anastassiou et al., 2024; Guo et al., 2024; Du et al., 2024a;b; Zhang et al., 2025c;b) have explored diffusion-based speech tokenization, but typically adopt a two-stage design: first quantizing speech self-supervised representations (Baevski et al., 2020; Chung et al., 2021; Hsu et al., 2021; Chen et al., 2022; Chiu et al., 2022), and then training a separate diffusion model for waveform or mel-spectrogram synthesis. Such decoupled training prevents the quantizer from being optimized for reconstruction fidelity and forces the diffusion decoder to adapt to suboptimal discrete codes. In contrast, we jointly optimize quantization and reconstruction within a diffusion autoencoder (Rey et al., 2019; Preechakul et al., 2022), ensuring that discrete codes are both highly compressive and explicitly aligned with the generative distribution of speech."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                847,
+                826,
+                904
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "<sup>∗</sup>Work done during an internship at Meta. Email: yuanchengwang@link.cuhk.edu.cn"
+                    }
+                ]
+            },
+            "bbox": [
+                189,
+                910,
+                754,
+                924
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "1"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                503,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                826,
+                383
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Beyond reconstruction, we introduce semantic regularization to explicitly shape the discrete latent space. Speech tokenizers trained solely with reconstruction losses tend to emphasize acoustic fidelity while lacking alignment with linguistic information, which is detrimental for speech language modeling in both understanding and generation tasks. Prior works (Zhang et al., 2023; Defossez´ et al., 2024; Li et al., 2025a; Della Libera et al., 2025) attempt to alleviate this issue through semantic distillation, aligning latent representations with self-supervised speech features via MSE or cosine similarity losses. However, such indirect alignment does not explicitly enforce linguistic consistency. In this work, we directly impose semantic supervision on the quantized latent space by introducing an auxiliary Connectionist Temporal Classification (CTC) decoder and optimizing it with a CTC loss (Graves et al., 2006), encouraging discrete tokens to preserve semantic-rich and linguistically meaningful structure. We provide a more comprehensive review of related work on low-bitrate speech tokenizers and diffusion-based speech tokenization in the Appendix B."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                388,
+                826,
+                556
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Since diffusion models require iterative sampling during inference, decoding efficiency becomes a key challenge. We further investigate shortcut fine-tuning (Frans et al., 2024) and additional acceleration techniques that substantially reduce the number of diffusion steps (e.g., 2 or 4) while maintaining high reconstruction quality."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                561,
+                826,
+                619
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In summary, we propose the Speech Diffusion Tokenizer (SiTok), scaling it to 1.6B parameters and training it on 2 million hours of speech data. SiTok achieves strong performance under an extreme compression setting of 12.5 Hz token rate and 0.2 kbps. We comprehensively evaluate SiTok on both speech reconstruction and diverse understanding tasks, including emotion recognition, keyword spotting, speaker verification, and automatic speech recognition. In addition, we demonstrate that the learned discrete representations can be effectively used for speech generation, enabling highquality synthesis under the same low token-rate setting. Extensive ablation studies on codebook size, codebook dimension, and residual vector quantization (RVQ) further provide insights into the design of scalable diffusion-based speech tokenizers. Reconstruction and speech generation samples are shown in https://sitok-demo.github.io/."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                625,
+                826,
+                765
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2 METHOD"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                785,
+                284,
+                801
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this section, we introduce SiTok. We first present the speech tokenization architecture based on a diffusion autoencoder. We then describe our key design, semantic regularization. Finally, we explain how decoding can be accelerated through shortcut fine-tuning, along with additional techniques that further improve reconstruction quality. Figure 1 provides an overview of our model."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                818,
+                566,
+                917
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/14946edb64d47156752272f4bc9b030b8fb0b9e89caeb03244a160a3bd4821f7.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 1: Overview of SiTok."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                576,
+                819,
+                821,
+                893
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "2"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2.1 OVERVIEW"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                104,
+                294,
+                118
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Speech tokenizers are generally based on autoencoders: the raw speech representation is first mapped into latent features by an encoder, then a quantizer encodes the latent features into a sequence of discrete tokens, and finally a decoder reconstructs the raw speech representation from these discrete tokens. Some speech tokenizers directly use raw waveform signals as modeling targets and rely on adversarial training to improve perceptual quality. However, we argue that this paradigm is unfavorable for scaling because: (1) directly processing the waveform sequence is inefficient due to its excessive length, which necessitates substantial up- and down-sampling and often forces prior work to cut waveforms into only a few seconds; and (2) adversarial training requires complicated loss designs and additional discriminator optimization, which tends to be unstable."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                130,
+                826,
+                257
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this work, we propose a novel framework: (1) we utilize mel-spectrograms as both the input and the reconstruction target, leveraging a vocoder to directly synthesize the corresponding waveform; and (2) we replace adversarial training with a diffusion autoencoder, which facilitates more stable and scalable training. We posit that this diffusion-based framework can achieve superior compression and reconstruction. By learning to reverse the diffusion process, the model is trained to effectively capture the underlying data distribution, enabling a more robust recovery of the original signal from its quantized representation. Formally, given an input mel-spectrogram x, the training process is as follows:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                262,
+                826,
+                375
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "1. Downsampling: The temporal resolution of x is reduced for computational efficiency. In this work, we set the default frame rate to 12.5 Hz."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                380,
+                825,
+                409
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "2. Encoding: The encoder "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\mathcal { E } } _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "maps the downsampled spectrogram x to a sequence of latent features:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                409,
+                823,
+                438
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\boldsymbol {z} = \\mathcal {E} _ {\\theta} (\\boldsymbol {x}).",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/6f0f12f2283fa97dc4d0a19a6f3d44aaf1aaae5c70655ea582280d4ee44c33f9.jpg"
+                }
+            },
+            "bbox": [
+                467,
+                438,
+                547,
+                452
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "3. Quantization: Each feature vector in the latent sequence z is mapped to its closest entry in a discrete codebook "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pmb { { E } } = \\{ e _ { 1 } , e _ { 2 } , \\ldots , e _ { K } \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "}, producing a sequence of discrete indices "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { \\pmb { q } } ."
+                    },
+                    {
+                        "type": "text",
+                        "content": "This vector quantization step can be denoted as:"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                455,
+                825,
+                500
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\boldsymbol {q} = \\operatorname{VQ} (\\boldsymbol {z}; \\boldsymbol {E}).",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/5a7a8f9ad7bda526aae778405794e5a14bbb788c5b80bc396539ccfcc9f1e140.jpg"
+                }
+            },
+            "bbox": [
+                452,
+                503,
+                562,
+                518
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "4. Diffusion Modeling: The decoder "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { D } _ { \\phi }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is trained to reconstruct x conditioned on the quantized representation. The discrete indices "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pmb q"
+                    },
+                    {
+                        "type": "text",
+                        "content": "are first mapped back to their corresponding codebook embeddings "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "z _ { q } ."
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Using a flow-matching objective, the decoder "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { D } _ { \\phi }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "learns to predict a velocity field that transforms a noisy sample back to the original data. The process is defined as:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                523,
+                825,
+                580
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\boldsymbol {x} _ {t} = t \\boldsymbol {x} + (1 - t) \\epsilon , \\quad \\text { where } \\epsilon \\sim \\mathcal {N} (\\boldsymbol {0}, \\boldsymbol {I}) \\text { and } t \\sim U (0, 1).",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/977fd203c3c450b7cbaec6bda737625cbf2006fac5def98cd487f44388d60073.jpg"
+                }
+            },
+            "bbox": [
+                305,
+                584,
+                707,
+                599
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The decoder’s predicted velocity "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "v _ { \\phi }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is optimized to match the true velocity "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( { \\pmb x } - { \\pmb \\epsilon } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ":"
+                    }
+                ]
+            },
+            "bbox": [
+                191,
+                604,
+                743,
+                619
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "v _ {\\phi} (\\pmb {x} _ {t}, t, \\pmb {z} _ {q}) = \\mathcal {D} _ {\\phi} (\\pmb {x} _ {t}, t, \\pmb {z} _ {q}) \\to \\pmb {x} - \\epsilon .",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/ac3fc254acde179bfc5f04314b375fa9229979120b470aecf65eeb3b04d88272.jpg"
+                }
+            },
+            "bbox": [
+                375,
+                623,
+                640,
+                638
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2.2 SEMANTIC REGULARIZATION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                654,
+                421,
+                669
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In our preliminary study, we found that relying solely on reconstruction, whether based on a diffusion loss or a regression loss, results in poor intelligibility (much higher WER) and degraded performance on downstream understanding tasks. Motivated by prior works, we introduce an auxiliary loss to directly supervise the latent space after vector quantization. Unlike approaches that employ representation alignment (Yu et al., 2025) or semantic distillation (Zhang et al., 2023; Defossez et al., 2024) to match the latent representations with features from self-supervised mod-´ els, we directly predict the textual content through an additional lightweight decoder "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { D } _ { \\phi _ { \\mathrm { c t c } } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "trained with a CTC loss. Some previous works like Beichuan-Audio tokenizer (Li et al., 2025b) and XY-Tokenizer (Gong et al., 2025) also incorporate ASR-based supervision to enrich semantic representations, but they still rely on an additional ASR model as a semantic encoder to extract latent features. In contrast, SiTok learns representations directly from raw speech."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                680,
+                826,
+                834
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The total loss "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { L } _ { \\mathrm { t o t a l } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "combines three components: the diffusion reconstruction loss "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( \\mathcal { L } _ { \\mathrm { r e c } } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", the semantic CTC loss "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( \\mathcal { L } _ { \\mathrm { c t c } } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and the vector quantization loss "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( \\mathcal { L } _ { \\mathrm { v q } } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Given the ground-truth text transcript y, the objective is:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                839,
+                823,
+                882
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {L} _ {\\text {total}} = \\underbrace {\\mathbb {E} _ {t , \\boldsymbol {x} , \\epsilon} \\left[ \\| \\mathcal {D} _ {\\phi} (\\boldsymbol {x} _ {t} , t , \\boldsymbol {z} _ {q}) - (\\boldsymbol {x} - \\epsilon) \\| \\right]} _ {\\text {Reconstruction Loss}} + \\lambda_ {\\text {ctc}} \\underbrace {\\text {CTC} (\\mathcal {D} _ {\\phi_ {\\text {ctc}}} (\\boldsymbol {z} _ {q}) , \\boldsymbol {y})} _ {\\text {CTC Loss}} + \\underbrace {\\mathcal {L} _ {\\text {vq}}} _ {\\text {VQ Loss}}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/1b8967ec26376a73e7162d99fdda2a31359a2e9fe2dc4cd7d9fb9ef1160da465.jpg"
+                }
+            },
+            "bbox": [
+                243,
+                885,
+                751,
+                921
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "3"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "z _ { q }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the sequence of quantized embeddings, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { D } _ { \\phi _ { \\mathrm { c u } } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the auxiliary CTC decoder, and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\lambda _ { \\mathrm { c t c } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is a balancing hyperparameter. We find that "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\lambda _ { \\mathrm { c t c } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is crucial for performance."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                104,
+                826,
+                133
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2.3 EFFICIENT DECODING"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                148,
+                370,
+                164
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Traditional diffusion models often require multiple inference steps, which can make decoding computationally inefficient. To address this, we explore two strategies to significantly accelerate diffusion decoding: Shortcut Fine-tuning and Light-weight Diffusion Head."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                174,
+                825,
+                219
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Shortcut Fine-tuning We explore efficient few-step decoding with fine-tuning the decoder using the shortcut model objective proposed by Frans et al. (2024). During the fine-tuning stage, we freeze the encoder and VQ modules. The fine-tuning process then updates only the decoder weights. The key idea behind shortcut models is to train a network that is conditioned not only on the time step t but also on a desired step size d. This allows the model to learn a direct mapping from a noisy input to a significantly denoised output in a single forward pass, effectively “jumping” over many intermediate steps of a standard iterative diffusion process."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                224,
+                826,
+                323
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The fine-tuning employs a combined loss function that jointly optimizes a flow-matching objective and a self-consistency objective. The total loss is formulated as:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                328,
+                825,
+                357
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {L} _ {\\mathrm{S}} = \\mathbb {E} _ {\\boldsymbol {x} _ {0}, \\boldsymbol {x} _ {1}, t, d} \\Big [ \\underbrace {\\| \\boldsymbol {s} _ {\\phi} (\\boldsymbol {x} _ {t} , t , 0) - (\\boldsymbol {x} _ {1} - \\boldsymbol {x} _ {0}) \\| _ {2} ^ {2}} _ {\\text {Flow - Matching Loss}} + \\underbrace {\\| \\boldsymbol {s} _ {\\phi} (\\boldsymbol {x} _ {t} , t , 2 d) - \\boldsymbol {s} _ {\\text {target}} \\| _ {2} ^ {2}} _ {\\text {Self - Consistency Loss}} \\Big ]",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/953c06994b94823c0f896cd30e68f3dd88bbb2c3a0777ee25a2125cef7000751.jpg"
+                }
+            },
+            "bbox": [
+                248,
+                363,
+                745,
+                402
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\pmb s } _ { \\phi }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the shortcut model (our decoder) being trained. The target for the self-consistency loss, s<sub>target</sub>, is generated by the model itself using two consecutive smaller steps, with gradients detached:"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                409,
+                823,
+                439
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\boldsymbol {s} _ {\\text { target }} = \\operatorname{stopgrad} \\left(\\frac {1}{2} \\boldsymbol {s} _ {\\phi} (\\boldsymbol {x} _ {t}, t, d) + \\frac {1}{2} \\boldsymbol {s} _ {\\phi} (\\boldsymbol {x} _ {t + d}, t + d, d)\\right)",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/4f5a43e57a865221681735fb9fb349786d0b3847ea144a5da417ce6518875b16.jpg"
+                }
+            },
+            "bbox": [
+                305,
+                443,
+                687,
+                476
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\begin{array} { r } { \\pmb { x } _ { t + d } = \\pmb { x } _ { t } + \\pmb { s } _ { \\phi } ( \\pmb { x } _ { t } , t , d ) d . } \\end{array}"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                483,
+                383,
+                498
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The first term grounds the model’s behavior for infinitesimal step sizes (d = 0), ensuring it matches the true data velocity. The second term enforces that a single large step of size 2d yields the same result as two sequential steps of size d. This self-consistency training enables the decoder to accurately perform large, discrete jumps along the denoising trajectory, significantly reducing inference steps while maintaining high reconstruction quality."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                503,
+                825,
+                575
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Light-weight Diffusion Head We also explore a light-weight diffusion head that reduces the cost of iterative denoising by splitting the decoder into a main body (run once) and a small head reused across diffusion steps. This design lowers per-step computation; see Appendix C.1 for details."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                580,
+                826,
+                625
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2.4 RECONSTRUCTION REFINEMENT"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                638,
+                444,
+                654
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To further enhance the quality of the reconstruction speech, we employ two distinct refinement strategies. The first is a decoder finetuning, where the encoder and VQ modules are frozen, and only the decoder is trained further. This step specializes the decoder for high-fidelity synthesis from the fixed discrete representations. The second is the introduction of token classifier-free guidance (Token CFG). To enable this, we train the decoder to be conditionally dependent on the discrete tokens by randomly dropping all input tokens with a 10% probability, which forces the decoder to also learn an unconditional generation objective. During inference, this allows us to steer the decoding process by combining predictions from both conditional (with tokens) and unconditional (with dropped tokens) passes, leading to a more robust and accurate reconstruction. The efficacy of both optional refinement techniques is empirically validated in our results (Table 1)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                665,
+                826,
+                806
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3 EXPERIMENTS AND RESULTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                824,
+                450,
+                840
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.1 IMPLEMENTATION DETAILS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                856,
+                408,
+                871
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Data and Preprocessing We use 2 million of in-house speech data to train our models. The dataset covers multiple languages, with English accounting for the vast majority. We do not apply additional preprocessing to the speech data, such as splitting into shorter segments; instead, we train directly on the original utterance lengths paired with their transcripts. We use 50 Hz, 128-bin melspectrograms as both the input and reconstruction targets of our tokenizer, while first stacking every four consecutive frames to reduce the frame rate to 12.5 Hz for more efficient training. For waveform synthesis, we employ a Vocos-based (Siuzdak, 2024) vocoder to convert the mel spectrograms back to audio waveforms at 24K Hz."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                882,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "4"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                826,
+                174
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Model Our model is constructed using standard Llama-style Transformer blocks (Touvron et al., 2023; Grattafiori et al., 2024). The encoder and the auxiliary CTC decoder are composed of causal Llama decoder layers, with 16 and 4 layers, respectively. Unless otherwise specified, we set the hidden size to 1536, the intermediate size to 4096, and the number of attention heads to 16. For the VQ module, we adopt a default configuration of 32 dimensions with a codebook of 65,536 entries, updated using an exponential moving average (EMA) (van den Oord et al., 2017). The diffusion decoder is implemented by modifying the causal Llama decoder layers into a non-causal form with 16 layers. We incorporate the diffusion step embedding by replacing RMSNorm (Zhang & Sennrich, 2019) with an Adaptive RMSNorm variant. Additional architectural details are provided in Appendix A, while ablation studies on the codebook dimension, codebook size, and overall model size are presented in Section 3.4."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                180,
+                826,
+                335
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Training We train all models for a single epoch, corresponding to approximately 450K steps. For optimization, we adopt the AdamW (Loshchilov & Hutter, 2019) optimizer with "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\beta _ { 1 } ~ = ~ 0 . 9"
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\beta _ { 2 } = 0 . 9 9 9"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", a weight decay of 0.01, and a learning rate of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "8 \\times 1 0 ^ { - 5 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "with a warmup of 32K steps."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                339,
+                823,
+                383
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.2 EVALUATION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                402,
+                308,
+                417
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We evaluate our tokenizers from the perspectives of compression, reconstruction, and speech understanding. We also evaluate SiTok on speech generation via zero-shot TTS, with results reported in Appendix C.2."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                430,
+                825,
+                473
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Compression We assess the efficiency of the tokenizer in terms of token rate (TPS: tokens per second), frame rate (FPS: frames per second), and bitrate (BR). These metrics directly reflect the trade-off between compression and representational capacity."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                479,
+                826,
+                523
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Reconstruction To evaluate speech reconstruction quality, we measure intelligibility, speaker similarity, and speech quality. Intelligibility is assessed using word error rate (WER), computed with whisper-large-v3 (Radford et al., 2023). Speaker similarity (SIM) is computed as the cosine similarity between WavLM-TDNN embeddings of the prompt and the generated speech (Chen et al., 2022). Speech quality is evaluated using the official UTMOS checkpoint (Saeki et al., 2022). We report these results on the SeedTTS test-en (Anastassiou et al., 2024) evaluation set."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                527,
+                826,
+                613
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Understanding We evaluate the learned representations on three speech understanding tasks: emotion recognition (ER), speaker verification (SV), and keyword spotting (KS), following the setup of the DASB benchmark (Mousavi et al., 2024). Additionally, following Yang et al. (2025), we train an LLM-based ASR (LLM ASR) model with a 1B-parameter LLM backbone, which takes the discrete speech tokens generated by the speech tokenizer as input and autoregressively predicts the corresponding text. We also report ASR results (CTC ASR) using the direct CTC decoder of our tokenizers. The ASR evaluation is conducted on the LibriSpeech test-clean (Panayotov et al., 2015)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                619,
+                826,
+                718
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Evaluation Baselines We also compare our approach with a range of open-source speech tokenizers, see more details about the baselines in the following sections."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                723,
+                825,
+                753
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.3 RESULTS AND COMPARISON"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                771,
+                413,
+                786
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this section, we present a comprehensive evaluation of our proposed speech tokenizer. We first report the main resultsfor speech reconstruction in Section 3.3.1, where we compare against a wide range of existing tokenizers under different compression settings. We then evaluate downstream performance in Section 3.3.2, covering diverse understanding tasks. Beyond these comparisons, we further analyze the effectiveness of semantic regularization in Section 3.3.3, the impact of scaling model size in Section 3.3.4, and efficient decoding strategies in Section 3.3.5 that improve inference speed without sacrificing quality. Finally, we conduct an extensive ablation study 3.4 to isolate the contributions of different components, including loss design, codebook configurations, and frame rate choices, providing insights into the design principles of scalable speech tokenizers."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                799,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "5"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.3.1 MAIN RESULTS FOR RECONSTRUCTION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                104,
+                504,
+                119
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/8d6283b49e44d0e3a2e13bc92f9086ac0ef0fee1ba89e188678e945fa07469d1.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 1: Main reconstruction results. “Decoder Finetuning” indicates that the encoder and VQ are frozen while the decoder is further trained for several steps. “Token CFG” denotes the use of classifier-free guidance, more details are shown in Section 3.4. “CN” means codebook number."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Model</td><td>FPS/TPS</td><td>CN</td><td>BR (kbps)</td><td>WER (↓)</td><td>SIM (↑)</td><td>UTMOS (↑)</td></tr><tr><td>Ground Truth</td><td>-</td><td>-</td><td>-</td><td>2.14</td><td>0.730</td><td>3.53</td></tr><tr><td>SpeechTokenizer (Zhang et al., 2023)</td><td>50/100</td><td>2</td><td>1.00</td><td>7.98</td><td>0.468</td><td>2.47</td></tr><tr><td>BigCodec (Xin et al., 2024)</td><td>80/80</td><td>1</td><td>1.04</td><td>3.25</td><td>0.615</td><td>3.59</td></tr><tr><td>DualCodec (Li et al., 2025a)</td><td>12.5/75</td><td>6</td><td>0.925</td><td>2.63</td><td>0.624</td><td>3.78</td></tr><tr><td>WavTokenizer (Ji et al., 2024)</td><td>75/75</td><td>1</td><td>0.90</td><td>6.65</td><td>0.483</td><td>3.36</td></tr><tr><td>Mimi (Défossez et al., 2024)</td><td>12.5/75</td><td>6</td><td>0.825</td><td>4.51</td><td>0.527</td><td>3.09</td></tr><tr><td>X-codec 2 (Ye et al., 2025b)</td><td>50/50</td><td>1</td><td>0.80</td><td>2.63</td><td>0.620</td><td>3.68</td></tr><tr><td>SemantiCodec (Liu et al., 2024)</td><td>25/50</td><td>2</td><td>0.675</td><td>5.11</td><td>0.488</td><td>2.83</td></tr><tr><td>BiCodec (Wang et al., 2025a)</td><td>50/50</td><td>1</td><td>0.65</td><td>3.05</td><td>0.612</td><td>3.68</td></tr><tr><td>Vevo Tokenizer (Zhang et al., 2025c)</td><td>50/50</td><td>1</td><td>0.65</td><td>3.04</td><td>0.534</td><td>3.50</td></tr><tr><td>StableCodec (Parker et al., 2024)</td><td>25/25</td><td>1</td><td>0.40</td><td>11.1</td><td>0.410</td><td>3.87</td></tr><tr><td>FireRedTTS Tokenizer (Guo et al., 2024)</td><td>25/25</td><td>1</td><td>0.35</td><td>3.35</td><td>0.597</td><td>3.40</td></tr><tr><td>CosyVoice Tokenizer (Du et al., 2024a)</td><td>25/25</td><td>1</td><td>0.30</td><td>5.63</td><td>0.465</td><td>3.65</td></tr><tr><td>SiTok (CN = 1)</td><td>12.5/12.5</td><td>1</td><td>0.20</td><td>4.06</td><td>0.641</td><td>3.44</td></tr><tr><td>+ Decoder Finetuning</td><td>12.5/12.5</td><td>1</td><td>0.20</td><td>3.79</td><td>0.682</td><td>3.48</td></tr><tr><td>+ Token CFG</td><td>12.5/12.5</td><td>1</td><td>0.20</td><td>3.34</td><td>0.635</td><td>3.60</td></tr><tr><td>SiTok (CN = 2)</td><td>12.5/25</td><td>2</td><td>0.35</td><td>3.17</td><td>0.658</td><td>3.44</td></tr><tr><td>SiTok (CN = 4)</td><td>12.5/50</td><td>4</td><td>0.70</td><td>2.80</td><td>0.660</td><td>3.46</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                173,
+                188,
+                823,
+                434
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Table 1 presents a detailed comparison of our speech tokenizers against other baseline models on the reconstruction task. Our model demonstrates exceptional performance under a highly challenging setting. At its base configuration (single codebook), our tokenizer operates at an extremely low bitrate of 0.2 kbps and a token rate of only 12.5 Hz, which is significantly lower than all competing methods. Despite this extreme compression, it achieves highly competitive results. We also demonstrate that the model’s performance can be significantly enhanced with simple yet effective strategies. Decoder finetuning boosts speaker similarity to a remarkable 0.682. Applying token classifier free guidance reduces WER to 3.34. In addition, increasing the number of codebooks via RVQ yields consistent improvements in both WER and similarity."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                454,
+                826,
+                582
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.3.2 DOWNSTREAM UNDERSTANDING"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                597,
+                462,
+                612
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Understanding Tasks Table 2 shows that our tokenizer significantly outperforms all baselines on several speech understanding tasks. In particular, we achieve substantial improvements on LLMbased ASR (WER 4.95), and consistently surpass all baselines on ER, SV, and KS. LLM-based ASR results for baseline models are adopted from Yang et al. (2025). “CN” means codebook number and “CS” means codebook size."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                621,
+                826,
+                693
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/2ee35cae06c8e3d7498fee468e14097091c54c410f6ee2ea62cfc1b92ef86e15.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 2: Main results for understanding tasks."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Model</td><td>FPS/TPS</td><td>CN/CS</td><td>BR (kbps)</td><td>CTC ASR (↓)</td><td>ASR (↓)</td><td>ER (↑)</td><td>SV (↓)</td><td>KS (↑)</td></tr><tr><td>DAC Rombach et al. (2022)</td><td>50/150</td><td>3/1024</td><td>1.5</td><td>-</td><td>58.4</td><td>48.9</td><td>17.8</td><td>68.8</td></tr><tr><td>EnCodec Défossez et al. (2022)</td><td>50/150</td><td>3/1024</td><td>1.5</td><td>-</td><td>77.2</td><td>47.4</td><td>15.5</td><td>79.3</td></tr><tr><td>Mimi Défossez et al. (2024)</td><td>12.5/100</td><td>8/2048</td><td>1.1</td><td>-</td><td>23.1</td><td>54.3</td><td>19.7</td><td>92.2</td></tr><tr><td>WavTokenizer Ji et al. (2024)</td><td>40/40</td><td>1/4096</td><td>0.48</td><td>-</td><td>45.6</td><td>51.1</td><td>19.4</td><td>65.3</td></tr><tr><td>StableCodec Parker et al. (2024)</td><td>25/25</td><td>1/46656</td><td>0.40</td><td>-</td><td>28.0</td><td>-</td><td>-</td><td>-</td></tr><tr><td>GLM4-Voice Zeng et al. (2024a)</td><td>12.5/12.5</td><td>1/16384</td><td>0.20</td><td>-</td><td>16.3</td><td>-</td><td>-</td><td>-</td></tr><tr><td>SiTok (CN = 1)</td><td>12.5/12.5</td><td>1/65536</td><td>0.20</td><td>9.50</td><td>4.95</td><td>63.5</td><td>13.8</td><td>96.9</td></tr><tr><td>SiTok (CN = 4)</td><td>12.5/50</td><td>4/16384</td><td>0.70</td><td>8.30</td><td>4.49</td><td>64.4</td><td>8.59</td><td>97.7</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                173,
+                729,
+                823,
+                840
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.3.3 EFFECTIVENESS OF SEMANTIC REGULARIZATION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                869,
+                575,
+                885
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Table 3 demonstrates the impact of semantic regularization on both reconstruction and understanding tasks, which is key to enhancing reconstruction quality and learning meaningful representations for downstream understanding. Without regularization, the model shows severely degraded intelligibility (WER rising from 4.06 to 33.0) and poor downstream performance. In contrast, applying CTC-based regularization substantially reduces WER, improves similarity and speech quality, and boosts all understanding tasks. This highlights that CTC supervision anchors the quantized latent space to linguistic meaning, ensuring tokens are both acoustically faithful and semantically informative, especially for low-rate tokenizers."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                895,
+                825,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "6"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                826,
+                189
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/88eea5b42b3d7b41273ad0d35efe9714ff980c3620ab41874f78fbc1fdc60c95.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 3: Effectiveness of semantic regularization on reconstruction and understanding."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\">CTC Reg.</td><td rowspan=\"2\">FPS/TPS</td><td colspan=\"3\">Reconstruction</td><td colspan=\"5\">Understanding</td></tr><tr><td>WER (↓)</td><td>SIM (↑)</td><td>UTMOS (↑)</td><td>CTC ASR (↓)</td><td>ASR (↓)</td><td>ER (↑)</td><td>SV (↓)</td><td>KS (↑)</td></tr><tr><td rowspan=\"3\">Yes</td><td>12.5/12.5</td><td>4.06</td><td>0.641</td><td>3.44</td><td>9.50</td><td>4.95</td><td>63.5</td><td>13.8</td><td>96.9</td></tr><tr><td>12.5/25</td><td>3.17</td><td>0.658</td><td>3.44</td><td>8.64</td><td>4.72</td><td>61.7</td><td>11.1</td><td>97.8</td></tr><tr><td>12.5/50</td><td>2.80</td><td>0.660</td><td>3.46</td><td>8.30</td><td>4.49</td><td>64.4</td><td>8.59</td><td>97.7</td></tr><tr><td rowspan=\"3\">No</td><td>12.5/12.5</td><td>33.0</td><td>0.495</td><td>2.68</td><td>-</td><td>29.4</td><td>57.9</td><td>18.9</td><td>86.1</td></tr><tr><td>12.5/25</td><td>10.1</td><td>0.598</td><td>2.99</td><td>-</td><td>9.53</td><td>55.3</td><td>15.5</td><td>92.7</td></tr><tr><td>12.5/50</td><td>5.17</td><td>0.611</td><td>2.84</td><td>-</td><td>7.27</td><td>60.4</td><td>13.5</td><td>92.8</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                174,
+                226,
+                823,
+                334
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Observation: Applying semantic regularization to the quantized latent space is crucial for both reconstruction and representation learning, particularly when operating at low token rates."
+                    }
+                ]
+            },
+            "bbox": [
+                184,
+                359,
+                810,
+                390
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.3.4 EFFECTIVENESS OF MODEL SCALING"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                412,
+                491,
+                428
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Our model scaling experiments from the 0.63B “S” model to the 1.61B “XL” model reveal a clear trade-off between reconstruction fidelity and downstream task performance, as shown in Table 4. While larger models consistently yield better reconstruction quality, with the XL model achieving the best WER, SIM and UTMOS, performance on understanding tasks peaks with the 1.12B “L” model, which delivers superior results in ASR. The fact that the largest model does not uniformly outperform its smaller counterparts, and even shows degradation in tasks like SV, suggests that excessive model capacity may prioritize fine-grained acoustic details over the abstract, discriminative features crucial for understanding. Therefore, we identify the “L” model as the optimal configuration, providing the most effective balance between high-quality synthesis and robust generalization. Further exploration of architectural designs is left for future work."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                436,
+                826,
+                578
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/9a4832849b48918349413c87d4712940a3206b47659fcb2f823de77fbef83f0a.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 4: Results for model size scaling. We vary the number of encoder and decoder layers while keeping the CTC layers fixed to evaluate the impact on both reconstruction and understanding tasks."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\">Size</td><td rowspan=\"2\">Enc.</td><td rowspan=\"2\">Dec.</td><td rowspan=\"2\">Params (B)</td><td colspan=\"3\">Reconstruction</td><td colspan=\"5\">Understanding</td></tr><tr><td>WER (↓)</td><td>SIM (↑)</td><td>UTMOS (↑)</td><td>CTC ASR (↓)</td><td>ASR (↓)</td><td>ER (↑)</td><td>SV (↓)</td><td>KS (↑)</td></tr><tr><td>S</td><td>8</td><td>8</td><td>0.63</td><td>4.18</td><td>0.608</td><td>3.43</td><td>11.2</td><td>5.24</td><td>60.8</td><td>13.7</td><td>96.9</td></tr><tr><td>B</td><td>12</td><td>12</td><td>0.88</td><td>4.01</td><td>0.634</td><td>3.46</td><td>9.78</td><td>5.19</td><td>62.5</td><td>13.8</td><td>96.9</td></tr><tr><td>L</td><td>16</td><td>16</td><td>1.12</td><td>4.06</td><td>0.641</td><td>3.44</td><td>9.50</td><td>4.95</td><td>63.5</td><td>13.8</td><td>96.9</td></tr><tr><td>XL</td><td>24</td><td>24</td><td>1.61</td><td>3.84</td><td>0.649</td><td>3.51</td><td>9.62</td><td>5.07</td><td>63.5</td><td>14.7</td><td>97.3</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                174,
+                628,
+                821,
+                705
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.3.5 EFFICIENT DECODING"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                728,
+                385,
+                743
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Shortcut Fine-Tuning Table 2 shows that directly reducing the number of inference steps leads to a clear degradation in intelligibility and audio quality. In contrast, shortcut fine-tuning substantially alleviates this issue, achieving much lower WER and higher speaker similarity even with very small numbers of diffusion steps. Moreover, this improvement also translates into a significant reduction in real-time factor (RTF): the model runs at 0.041, 0.024, and 0.013 RTF for 16, 8, and 4 diffusion steps, respectively. These results demonstrate that shortcut fine-tuning effectively adapts the model to faster sampling schedules while preserving reconstruction fidelity and enabling highly efficient inference."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                752,
+                826,
+                864
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Observation: Shortcut fine-tuning enables efficient low-step inference, retaining high intelligibility and similarity while substantially accelerating decoding."
+                    }
+                ]
+            },
+            "bbox": [
+                215,
+                880,
+                782,
+                911
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "7"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/7272e7d18d4c35745c0d88ba2240645b9133dcda451903ae1cb74855544a7f30.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 2: Impact of shortcut fine-tuning on different inference steps. We report WER, SIM, and UTMOS. Shortcut fine-tuning achieves consistently better intelligibility and similarity, especially at small step numbers."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                174,
+                106,
+                821,
+                261
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Light-Weight Diffusion Head We also explore using light-weight diffusion heads to accelerate diffusion inference. We provide the results in Appendix C.1."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                342,
+                825,
+                372
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.3.6 SITOK FOR SPEECH GENERATION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                386,
+                465,
+                401
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Beyond speech understanding, an important use case of a speech tokenizer is to serve as the modeling target for speech generation. To this end, we further evaluate SiTok on the zero-shot text-tospeech (TTS) task, assessing whether the learned discrete representations can effectively support high-quality speech synthesis. Experimental results show that SiTok is not only effective as a representation for speech understanding, but also enables high-quality and efficient speech generation. In particular, the extremely low token rate of SiTok significantly reduces the sequence length required for generation, leading to faster inference while maintaining strong perceptual quality. These results suggest that SiTok provides a unified representation that is well suited for both speech understanding and speech generation. Detailed experimental results for zero-shot TTS are reported in Appendix C.2."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                410,
+                826,
+                551
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.4 ABLATION STUDY"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                566,
+                344,
+                580
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To better understand the contributions of different design choices in our tokenizer, we conduct a series of ablation studies, the results are shown in Table 5. We systematically examine training objectives, regularization strategies, refinement mechanisms, codebook configurations, and frame rates. These analyses not only validate the effectiveness of our proposed components but also provide insights into the trade-offs between efficiency, reconstruction quality, and downstream performance."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                592,
+                826,
+                665
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Diffusion vs. Regression We investigate the choice of the reconstruction objective by comparing our proposed diffusion-based objective (D) against a conventional regression-based objective (R), such as an L1 loss on the mel-spectrogram. As shown in Table 5, our baseline model trained with the diffusion loss significantly outperforms the regression-based counterpart across all key metrics. Specifically, the diffusion model achieves a substantially lower WER (4.06 vs. 4.66), higher speaker similarity (0.641 vs. 0.587), and better downstream ASR performance (4.95 vs. 6.06). To further explore if a diffusion decoder could salvage a regression-trained model, we conducted an experiment where only the decoder was fine-tuned with the diffusion objective on top of a regression-pretrained model (R + D). Therefore, by design, the understanding metrics for (R) and (R + D) are identical, while reconstruction metrics (WER/SIM/UTMOS) change. While this modestly improved speaker similarity, it failed to match the performance of the end-to-end diffusion model and even worsened the WER to 5.73. This indicates that the representations learned under the diffusion objective are inherently superior for both high-fidelity reconstruction and downstream task transferability."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                669,
+                826,
+                852
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Observation: Adopting a diffusion-based objective is critical for learning high-quality representations, significantly outperforming a standard regression objective in both reconstruction fidelity and downstream task performance."
+                    }
+                ]
+            },
+            "bbox": [
+                212,
+                867,
+                784,
+                911
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "8"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/b6a3e9a809d980575bc757b0110cdc46c0dc19f3a46203aafa04a60f937f3bac.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 5: Ablation study."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\"></td><td rowspan=\"2\">Loss</td><td rowspan=\"2\">CTC W.</td><td rowspan=\"2\">CS</td><td rowspan=\"2\">CN</td><td rowspan=\"2\">CD</td><td rowspan=\"2\">Tok. CFG</td><td rowspan=\"2\">FPS</td><td colspan=\"3\">Reconstruction</td><td colspan=\"5\">Understanding</td></tr><tr><td>WER (↓)</td><td>SIM (↑)</td><td>UTMOS (↑)</td><td>CTC ASR (↓)</td><td>ASR (↓)</td><td>ER (↑)</td><td>SV (↓)</td><td>KS (↑)</td></tr><tr><td></td><td>D</td><td>0.1</td><td> $2^{16}$ </td><td>1</td><td>32</td><td>X</td><td>12.5</td><td>4.06</td><td>0.641</td><td>3.44</td><td>9.50</td><td>4.95</td><td>63.5</td><td>13.8</td><td>96.9</td></tr><tr><td rowspan=\"2\">Loss</td><td>R</td><td>0.1</td><td> $2^{16}$ </td><td>1</td><td>32</td><td>X</td><td>12.5</td><td>4.66</td><td>0.587</td><td>3.28</td><td>12.2</td><td>6.06</td><td>63.3</td><td>13.6</td><td>95.2</td></tr><tr><td>R + D</td><td>0.1</td><td> $2^{16}$ </td><td>1</td><td>32</td><td>X</td><td>12.5</td><td>5.73</td><td>0.634</td><td>3.35</td><td>12.2</td><td>6.06</td><td>63.3</td><td>13.6</td><td>95.2</td></tr><tr><td rowspan=\"4\">CTC W.</td><td>D</td><td>0</td><td> $2^{16}$ </td><td>1</td><td>32</td><td>X</td><td>12.5</td><td>33.0</td><td>0.495</td><td>2.68</td><td>-</td><td>29.4</td><td>57.9</td><td>18.9</td><td>86.1</td></tr><tr><td>D</td><td>0.02</td><td> $2^{16}$ </td><td>1</td><td>32</td><td>X</td><td>12.5</td><td>5.05</td><td>0.607</td><td>3.44</td><td>12.2</td><td>7.41</td><td>58.3</td><td>13.5</td><td>97.2</td></tr><tr><td>D</td><td>0.5</td><td> $2^{16}$ </td><td>1</td><td>32</td><td>X</td><td>12.5</td><td>8.81</td><td>0.614</td><td>3.20</td><td>11.0</td><td>7.87</td><td>64.2</td><td>16.6</td><td>91.2</td></tr><tr><td>D</td><td>1</td><td> $2^{16}$ </td><td>1</td><td>32</td><td>X</td><td>12.5</td><td>10.1</td><td>0.585</td><td>3.38</td><td>10.5</td><td>8.90</td><td>62.1</td><td>13.9</td><td>96.8</td></tr><tr><td rowspan=\"4\">CS</td><td>D</td><td>0.1</td><td> $2^{13}$ </td><td>1</td><td>32</td><td>X</td><td>12.5</td><td>5.48</td><td>0.640</td><td>3.39</td><td>11.7</td><td>5.72</td><td>55.7</td><td>16.3</td><td>95.7</td></tr><tr><td>D</td><td>0.1</td><td> $2^{14}$ </td><td>1</td><td>32</td><td>X</td><td>12.5</td><td>4.30</td><td>0.641</td><td>3.33</td><td>11.5</td><td>5.40</td><td>58.7</td><td>16.0</td><td>96.4</td></tr><tr><td>D</td><td>0.1</td><td> $2^{15}$ </td><td>1</td><td>32</td><td>X</td><td>12.5</td><td>4.26</td><td>0.648</td><td>3.43</td><td>10.5</td><td>5.33</td><td>61.2</td><td>15.0</td><td>96.4</td></tr><tr><td>D</td><td>0.1</td><td> $2^{17}$ </td><td>1</td><td>32</td><td>X</td><td>12.5</td><td>3.94</td><td>0.651</td><td>3.39</td><td>10.6</td><td>5.09</td><td>60.6</td><td>13.7</td><td>97.3</td></tr><tr><td rowspan=\"3\">CN</td><td>D</td><td>0.1</td><td> $2^{14}$ </td><td>2</td><td>32</td><td>X</td><td>12.5</td><td>3.17</td><td>0.658</td><td>3.44</td><td>8.64</td><td>4.72</td><td>61.7</td><td>11.1</td><td>97.8</td></tr><tr><td>D</td><td>0.1</td><td> $2^{14}$ </td><td>4</td><td>32</td><td>X</td><td>12.5</td><td>2.80</td><td>0.660</td><td>3.46</td><td>8.30</td><td>4.49</td><td>64.4</td><td>8.59</td><td>97.7</td></tr><tr><td>D</td><td>0.1</td><td> $2^{14}$ </td><td>8</td><td>32</td><td>X</td><td>12.5</td><td>2.50</td><td>0.645</td><td>3.30</td><td>8.42</td><td>4.68</td><td>60.0</td><td>7.53</td><td>98.2</td></tr><tr><td rowspan=\"3\">CD</td><td>D</td><td>0.1</td><td> $2^{14}$ </td><td>1</td><td>64</td><td>X</td><td>12.5</td><td>4.08</td><td>0.642</td><td>3.46</td><td>9.58</td><td>5.27</td><td>61.7</td><td>14.4</td><td>97.3</td></tr><tr><td>D</td><td>0.1</td><td> $2^{14}$ </td><td>1</td><td>128</td><td>X</td><td>12.5</td><td>3.85</td><td>0.642</td><td>3.36</td><td>9.14</td><td>4.59</td><td>59.7</td><td>14.3</td><td>97.3</td></tr><tr><td>D</td><td>0.1</td><td> $2^{14}$ </td><td>1</td><td>256</td><td>X</td><td>12.5</td><td>5.04</td><td>0.641</td><td>3.30</td><td>10.9</td><td>5.54</td><td>64.1</td><td>16.5</td><td>95.9</td></tr><tr><td rowspan=\"2\">Tok. CFG</td><td>D</td><td>0.1</td><td> $2^{16}$ </td><td>1</td><td>32</td><td>√</td><td>12.5</td><td>3.34</td><td>0.635</td><td>3.60</td><td>9.54</td><td>4.89</td><td>62.4</td><td>14.0</td><td>96.8</td></tr><tr><td>D</td><td>0.1</td><td> $2^{14}$ </td><td>4</td><td>32</td><td>√</td><td>12.5</td><td>2.56</td><td>0.645</td><td>3.58</td><td>8.34</td><td>4.67</td><td>61.7</td><td>9.11</td><td>98.2</td></tr><tr><td rowspan=\"2\">FPS</td><td>D</td><td>0.1</td><td> $2^{16}$ </td><td>1</td><td>32</td><td>X</td><td>6.25</td><td>23.0</td><td>0.428</td><td>3.10</td><td>15.8</td><td>12.7</td><td>52.6</td><td>20.7</td><td>88.5</td></tr><tr><td>D</td><td>0.1</td><td> $2^{16}$ </td><td>1</td><td>32</td><td>X</td><td>25</td><td>3.05</td><td>0.688</td><td>3.72</td><td>9.19</td><td>4.45</td><td>63.5</td><td>7.28</td><td>97.8</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                204,
+                126,
+                792,
+                474
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "CTC Loss Weight We analyze the impact of the CTC loss weight, which serves as a semantic regularizer. The results clearly demonstrate that this regularization is indispensable. Setting the weight to 0 leads to a catastrophic performance collapse, with the WER soaring to 33.0 and the downstream ASR error rate to 29.4, confirming that the model fails to learn any meaningful representations without textual supervision. Conversely, an excessively high weight (e.g., 0.5 or 1.0) also degrades performance across both reconstruction and understanding tasks, likely by forcing the model to discard too much acoustic detail in favor of semantic content. Our experiments identify a weight of 0.1 as providing the optimal balance between enforcing semantic consistency and preserving high-fidelity audio reconstruction."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                513,
+                825,
+                641
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Observation: The CTC loss weight is a critical hyperparameter; too low a value fails to enforce semantic consistency, while too high a value impairs reconstruction fidelity."
+                    }
+                ]
+            },
+            "bbox": [
+                207,
+                665,
+                787,
+                696
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Reconstruction Refinement As shown in our main reconstruction results (Table 1), both decoder finetuning and token classifier-free guidance (CFG) serve as powerful techniques to enhance reconstruction quality. Decoder finetuning, a training-time strategy, specializes the synthesis module on the fixed representations, leading to significant improvements in both intelligibility and particularly speaker similarity. Separately, applying token CFG at inference time provides a complementary approach to boost fidelity. Our ablation study demonstrates that CFG consistently and substantially reduces WER, achieving a low of 2.56 in our CD = 4 configuration, while also improving perceptual quality (UTMOS). These findings indicate that both training-time adaptation and inference-time guidance are highly effective strategies for refining the final output."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                720,
+                826,
+                849
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Codebook Size We investigate the effect of the codebook size (CS), which controls the vocabulary of discrete tokens. We find enlarging the codebook from "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "2 ^ { 1 3 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "2 ^ { 1 7 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "consistently improves reconstruction quality, evidenced by a steady decrease in WER from 5.48 to 3.94. Downstream task performance, particularly ASR, also benefits and reaches an optimum at a codebook size of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "2 ^ { 1 6 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "suggesting this size offers the best balance between representational power and generalization."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                854,
+                825,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "9"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Codebook Number We also evaluate increasing the number of codebooks (CN) using RVQ, which directly increases the bitrate. We find that scaling CN from 1 to 8 yields substantial and consistent improvements across most metrics. The reconstruction WER drops dramatically from 4.30 to 2.50, while downstream performance on tasks like ASR and SV is also significantly boosted. This demonstrates an effective trade-off between compression and fidelity within our framework."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                104,
+                825,
+                175
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Observation: The vector quantizer’s design offers a flexible trade-off between quality and complexity. Increasing the number of codebooks provides a direct path to higher fidelity and better downstream performance at the cost of bitrate."
+                    }
+                ]
+            },
+            "bbox": [
+                192,
+                189,
+                803,
+                234
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Frame Rate vs. Performance Trade-off We also investigate two alternative frame-rate settings: 6.25 Hz and 25 Hz. We find that reducing the frame rate to 6.25 Hz significantly degrades both reconstruction and downstream task performance, while increasing it to 25 Hz improves performance but doubles the frame rate. Therefore, we adopt 12.5 Hz as the default setting to balance efficiency and performance."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                250,
+                825,
+                321
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4 CONCLUSION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                339,
+                321,
+                354
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this work, we propose SiTok, a diffusion autoencoder–based speech tokenizer that enables endto-end joint modeling of reconstruction and quantization for improved acoustic fidelity. We further introduce semantic regularization to learn effective, semantically rich representations for speech understanding, and explore shortcut fine-tuning techniques to significantly accelerate diffusion decoding. Extensive experiments demonstrate that SiTok achieves strong performance on both speech reconstruction and diverse speech understanding tasks. In addition, we conduct extensive ablation studies, providing insights into the key design choices."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                371,
+                826,
+                470
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "10"
+                    }
+                ]
+            },
+            "bbox": [
+                490,
+                946,
+                509,
+                960
+            ]
+        }
+    ]
+]

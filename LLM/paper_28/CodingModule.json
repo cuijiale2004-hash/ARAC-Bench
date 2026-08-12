@@ -1,0 +1,86 @@
+{
+  "overview": "MergePRAG extends Parametric RAG to multi-hop settings by converting sequentially retrieved passages into key-value memory parameters via a hypernetwork and incrementally merging them into a critical FFN layer using Gram-Schmidt orthogonalization, enabling conflict-free knowledge accumulation across iterative retrieval and reasoning hops.",
+  "count": 16,
+  "modules": [
+    {
+      "id": 1,
+      "name": "Configuration Management",
+      "description": "Handles experiment configuration parsing from YAML/JSON files, supports configuration inheritance for different model backbones (LLaMA3.1-8B, Qwen2.5-7B), retriever types (E5, BM25, Contriever), dataset-specific settings (HotpotQA, 2WikiMhQA, MuSiQue, MQuAKE), critical layer indices, and hypernetwork hyperparameters (num_kv, latent dimensions, learning rates)."
+    },
+    {
+      "id": 2,
+      "name": "Data Preprocessing and Loading",
+      "description": "Preprocesses multi-hop QA datasets (HotpotQA, 2WikiMhQA, MuSiQue) and multi-hop editing datasets (MQuAKE-CF, MQuAKE-T), handling format conversion from source formats into unified sub-question/passage/answer triples, constructing training datasets for both the hypernetwork and sub-question generator, and implementing custom Dataset/DataLoader classes with appropriate batch collation for passage-level and sub-question-level samples."
+    },
+    {
+      "id": 3,
+      "name": "Sub-question Dataset Construction",
+      "description": "Implements the GPT-4.1 based sub-question decomposition pipeline for constructing the sub-question generator training dataset Dsq, including the prompt template with in-context demonstrations that enforce one-fact-per-step decomposition, output format parsing for sub-question/sub-answer chains with EOS termination, and dataset validation to ensure generated chains are coherent and answer-derivable from provided facts."
+    },
+    {
+      "id": 4,
+      "name": "Hypernetwork Architecture",
+      "description": "Implements the sequence-to-memory hypernetwork Hϕ that maps a tokenized passage to its key-value memory representation, comprising three stages: (1) attentive pooling over token embeddings from the base LLM's embedding layer using a learnable query vector to produce a sentence-level passage embedding, (2) a two-layer MLP with ReLU activations and LayerNorm to produce a latent representation, and (3) two independent linear projection heads that map the latent representation into flattened key and value matrices (K_p, V_p) of dimension k×d_model."
+    },
+    {
+      "id": 5,
+      "name": "Memory Attention and FFN Expert Injection",
+      "description": "Implements the passage-specific FFN expert module that integrates key-value memory into the base LLM's FFN at the critical layer, using a memory attention mechanism where the base FFN output serves as the query and the passage-specific memory (K_p, V_p) serves as keys and values via scaled dot-product attention; the expert output is added residually to the original FFN output, enabling non-destructive knowledge injection."
+    },
+    {
+      "id": 6,
+      "name": "Critical Layer Scanner",
+      "description": "Implements the layer-wise scanning procedure to identify the optimal critical layer l* for passage vector injection, by training a layer-specific hypernetwork for each layer, measuring perplexity reduction on a validation subset after injecting passage vectors, and selecting the layer with maximum perplexity reduction; supports visualization of perplexity trends across layers for different model architectures and datasets."
+    },
+    {
+      "id": 7,
+      "name": "Orthogonal Continual Merging",
+      "description": "Implements the Gram-Schmidt based orthogonal merging mechanism for both sequence-level merging (Mergeseq) across hops and inner merging (Mergeinner) for multiple passages within a hop, computing the projection matrix onto the subspace spanned by previously accumulated parameters and adding only the orthogonal residual of the new parameter matrix to prevent overwriting existing knowledge; also includes alternative merging strategies (arithmetic mean, additive, concat, TIES) for ablation comparison."
+    },
+    {
+      "id": 8,
+      "name": "Sub-question Generator Training and Inference",
+      "description": "Implements the sub-question generator Msq based on a smaller LLM, with supervised fine-tuning on the constructed Dsq dataset using autoregressive cross-entropy loss; at inference time, the generator takes the original question and accumulated reasoning context as input and iteratively produces sub-questions until the EOS token is generated, enabling progressive query decomposition for multi-hop reasoning."
+    },
+    {
+      "id": 9,
+      "name": "Hypernetwork Training Pipeline",
+      "description": "Implements the training loop for the hypernetwork Hϕ using sub-question-level training data DH with cross-entropy loss that maximizes the probability of generating the correct answer under the passage-injected model, while keeping the base LLM parameters frozen; supports gradient accumulation, mixed-precision training, learning rate scheduling with warmup, and checkpoint management."
+    },
+    {
+      "id": 10,
+      "name": "Multi-hop Inference Engine",
+      "description": "Implements the full MergePRAG and MergePRAG+ inference pipelines: at each timestep, generates a sub-question via Msq, retrieves passages, parameterizes them via Hϕ with inner merging, merges the result with accumulated experts via orthogonal continual merging, injects the merged expert into the critical layer of the base LLM, and generates the sub-answer; MergePRAG+ additionally conditions on in-context passages during sub-answer generation; after all sub-questions are processed, generates the final answer using the fully passage-injected model."
+    },
+    {
+      "id": 11,
+      "name": "Evaluation Metrics",
+      "description": "Implements Exact Match (EM) for strict string-level agreement between predictions and gold answers, and token-level F1 score for partial correctness measurement; includes normalization utilities for answer comparison (lowercasing, punctuation removal, article stripping) consistent with standard multi-hop QA evaluation protocols."
+    },
+    {
+      "id": 12,
+      "name": "Baseline Implementations",
+      "description": "Implements baseline inference pipelines including: standard RAG with variable passage counts, RAG-CoT with one-shot chain-of-thought prompting, MultihopRAG (iterative sub-question decomposition without parameterization), and prompt templates for each baseline; also provides integration points for external baseline results from IRCoT, FLARE, MeLLo, R3-RAG, DeepRAG, Search-o1, Search-R1, Auto-RAG, Adaptive-RAG, PRAG, and DyPRAG."
+    },
+    {
+      "id": 13,
+      "name": "Ablation Study Framework",
+      "description": "Implements controlled variable experiments covering: (1) comparison of merging methods (orthogonal vs. arithmetic mean vs. additive vs. concat vs. TIES) for both Mergeinner and Mergeseq, (2) effect of number of retrieved passages per hop (|SP| = 1 to 12), (3) effect of number of key-value vectors (k = 1, 2, 4, 8, 16), (4) MergePRAG vs. MergePRAG+ comparison, (5) MergePRAG vs. fine-tuning variants (with/without passages), with automated configuration generation for each ablation setting."
+    },
+    {
+      "id": 14,
+      "name": "Multi-hop Knowledge Editing Module",
+      "description": "Implements evaluation on the MQuAKE benchmark for multi-hop knowledge editing (both MQuAKE-CF for counterfactual edits and MQuAKE-T for temporal updates), adapting the MergePRAG pipeline to inject edited knowledge via the hypernetwork and evaluating whether the model can correctly propagate edits through multi-hop reasoning chains."
+    },
+    {
+      "id": 15,
+      "name": "Efficiency Analysis",
+      "description": "Implements computational efficiency profiling that measures: passage-specific memory generation time via Hϕ, sub-question generation time, sub-answer generation time, and total inference latency; compares MergePRAG against RAG and RAG-CoT baselines to demonstrate the favorable trade-off between efficiency and accuracy; supports GPU memory usage tracking."
+    },
+    {
+      "id": 16,
+      "name": "Experiment Runner and Reporting",
+      "description": "Orchestrates end-to-end experiment execution across all model-dataset-retriever configurations, manages distributed experiment runs, aggregates results into standardized tables, generates LaTeX-formatted result tables matching the paper's Table 1 format, produces layer-wise perplexity plots for critical layer analysis, and supports case study visualization showing sub-question decomposition chains and error propagation analysis."
+    }
+  ]
+}

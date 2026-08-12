@@ -1,0 +1,9 @@
+Given Topic: The research lies at the intersection of large language model agents and reinforcement learning for multi-step interactive decision-making. Current methods are predominantly constrained by their reliance on exploiting pretrained knowledge, resulting in inadequate systematic exploration and failure to discover novel states required for task completion. While non-parametric memory modules offer a remedy by reusing past experiences, their effectiveness plateaus under fixed parameters and they fail to confer inherent generalization when memory is absent. The central challenge is to construct a unified learning framework that simultaneously leverages external memory to bootstrap exploration and consolidates the acquired knowledge into parametric policies, thereby enhancing both exploratory breadth and intrinsic adaptability.
+
+Given Inspiration:
+1. Scalar reward signals in episodic reinforcement learning lack inter-trajectory continuity, preventing agents from systematically reflecting upon and revising past failure modes.
+2. External memory can function as an exploratory scaffold when populated with self-generated reflective guidance distilled from prior interaction histories.
+3. The benefits of memory-augmented reasoning should be progressively internalized into parametric policies rather than permanently outsourcing them to non-parametric retrieval.
+4. Trajectories produced under exploratory guidance can serve as implicit teacher demonstrations for selective behavioral distillation into a memory-independent policy.
+5. Hybrid optimization combining on-policy stability with off-policy replay requires careful management of distributional shifts between augmented and non-augmented action distributions.
+6. Intrinsic novelty-seeking rewards can counteract premature convergence and sustain policy entropy in sparse-reward interactive environments.

@@ -1,0 +1,64 @@
+**Principle 1: Theoretical Grounding of Guidance Signal Hierarchy via Tweedie's Formula and Fisher Information Density in Diffusion Editing**
+
+**Definition:**  
+Research in training-free diffusion model editing increasingly relies on empirical heuristics for manipulating guidance signals or attention maps, but principled theoretical foundations that explain why these manipulations work remain scarce. This principle demands that works proposing novel guidance-based editing mechanisms provide rigorous theoretical justification linking their empirical observations to established statistical or information-theoretic frameworks. Specifically, for methods that decompose or modulate guidance signals, the theoretical analysis must connect the magnitude or structure of guidance vectors to properties of the underlying data distribution, such as posterior variance, Fisher information density, or score function gradients. The theory should yield testable predictions—such as which image regions will exhibit strong versus weak guidance under specific conditions—rather than merely providing post-hoc rationalizations for empirical phenomena. Furthermore, the validity of any approximations (e.g., Gaussian posterior assumptions) must be acknowledged and their impact on practical applicability discussed. Ultimately, strong theoretical grounding transforms an editing technique from an opaque trick into an interpretable tool, enabling reviewers to assess whether the method's successes and failures are principled or accidental.
+
+**Core Evaluation Criteria:**
+- **Rigor of Theoretical Derivation:** Does the work correctly apply Tweedie's formula, score-matching theory, or equivalent frameworks to derive the relationship between guidance magnitude and semantic scale? Are the mathematical steps sound and assumptions explicitly stated?
+- **Empirical Validation of Theoretical Predictions:** Does the temporal evolution of guidance magnitudes during denoising match the theoretically predicted behavior (e.g., high-magnitude object signals early, persistent low-magnitude background signals)?
+- **Actionability of Theoretical Insights:** Does the theory lead to concrete, operational design choices (e.g., z-score normalization to compensate for Fisher information imbalance), or does it remain purely descriptive?
+- **Distinction from Post-Hoc Rationalization:** Does the theoretical framework predict novel phenomena that were not obvious from empirical observation alone, or does it merely relabel existing empirical patterns?
+
+---
+
+**Principle 2: Causal Disentanglement Validation Between Object-Structure and Background-Style Semantic Layers**
+
+**Definition:**  
+A central challenge in text-guided image editing is achieving true disentanglement—modifying target attributes or regions while strictly preserving non-target content. This principle evaluates whether a proposed method can causally demonstrate that its editing mechanism operates on semantically distinct layers (e.g., object structure versus background style) rather than merely correlating spatial locations with edit effects. The evaluation requires evidence that editing one semantic layer leaves the other intact, such as through controlled experiments where object identity is changed without background alteration, or background context is swapped without object deformation. Mere spatial masking is insufficient; the mechanism must show that the guidance signal itself contains hierarchically organized semantic information that can be selectively amplified or suppressed. The presence of mixed intermediate layers should be acknowledged as a limitation, and the method should ideally target the extreme tails of the semantic distribution where signals are purest. Without such causal disentanglement validation, editing methods risk conflating correlation with controllability, producing seemingly successful results that actually stem from uncontrolled global drift rather than precise local manipulation.
+
+**Core Evaluation Criteria:**
+- **Causal Independence of Semantic Layers:** Can the method cleanly edit only high-magnitude (object) signals while preserving the background, and vice versa, as demonstrated through controlled isolation experiments?
+- **Purity of Layer Separation:** Does the method avoid operating on intermediate magnitude regions that contain mixed semantics, which typically produce artifacts and semantic leakage?
+- **Prevention of Semantic Leakage:** During object edits, does the background remain structurally and stylistically unchanged? During background edits, does the object retain its original identity, pose, and texture?
+- **Selective Amplification Capability:** Can the method apply radically different guidance scales (e.g., γ=20–40 for backgrounds versus conventional scales for objects) without cross-layer contamination?
+
+---
+
+**Principle 3: Cross-Model Generalization and Hyperparameter Robustness in Training-Free Plug-and-Play Editing Frameworks**
+
+**Definition:**  
+Training-free editing methods are prized for their plug-and-play nature, but this advantage is undermined if they require extensive per-image tuning or fail to generalize across model architectures, sampling configurations, or visual domains. This principle demands comprehensive robustness analyses that verify a method's stability across diverse operational conditions without retraining or architectural modification. Key dimensions include cross-model generalization (e.g., Stable Diffusion variants, FLUX, or other foundation models with distinct noise schedules and architectures), robustness to different inversion techniques (DDIM, DPM-Solver, or exact inversion methods), and insensitivity to hyperparameters such as probe intervals, guidance scales, and threshold values. Additionally, the method must be validated on non-object-centric scenes—such as landscapes, textures, and abstract gradients—where the assumed object-background dichotomy breaks down, to confirm that the underlying principle adapts to local information density rather than hardcoded semantic categories. Hyperparameter choices must be justified through ablation studies or theoretical arguments rather than presented as arbitrary defaults. A method that only works under narrow, carefully tuned conditions provides limited practical value regardless of its peak performance in ideal settings.
+
+**Core Evaluation Criteria:**
+- **Cross-Architecture Generalization:** Is the method validated on multiple foundation models (e.g., SD v1.5, SD v3, FLUX.1) with distinct architectures, noise schedules, and latent spaces?
+- **Hyperparameter Sensitivity and Justification:** Are critical hyperparameters (probe intervals, z-score thresholds, guidance scales) selected based on quantitative ablation studies rather than ad hoc choices? Is the sensitivity to these parameters explicitly analyzed?
+- **Robustness to Sampling Conditions:** Does the semantic scale hypothesis hold across different inversion methods (DDIM vs. DPM-Solver) and prompt variations, confirming solver-consistency and prompt-adaptivity?
+- **Generalization Beyond Object-Centric Scenes:** Is the method tested on object-scarce domains (landscapes, textures, abstract gradients) to verify that the principle operates on local information density rather than object detectors?
+- **Stability Under Extreme Guidance Scaling:** Can the method tolerate large amplification factors (e.g., γ up to 200) for low-information regions without introducing artifacts or destabilizing high-information regions?
+
+---
+
+**Principle 4: Fundamental Mechanistic Distinction Between Guidance Modulation and Spatial Latent Masking Strategies**
+
+**Definition:**  
+The field of diffusion-based image editing contains a fundamental methodological bifurcation between approaches that filter or mask latent representations spatially (e.g., DiffEdit) and those that modulate guidance signals in the gradient domain. This principle requires that works proposing gradient-based or guidance-modulation methods explicitly articulate their mechanistic differences from spatial masking approaches, both theoretically and empirically. The theoretical distinction must address why spatial masking fails in specific scenarios—such as background editing where guidance signals are weak but semantically meaningful—whereas modulation can amplify these signals without discarding them. Empirically, the work must provide direct comparisons demonstrating that modulation avoids the hard-boundary artifacts, semantic leakage, and incomplete edits characteristic of latent filtering, particularly in challenging cases like background replacement or style transfer. The plug-and-play integration capability with existing editors (PnP, LEDITS++, P2P) should be demonstrated to show that guidance modulation is compatible with diverse pipelines, unlike masking strategies that may conflict with other spatial constraints. Without this clear differentiation, novel contributions risk being perceived as incremental variations of existing masking techniques rather than fundamentally new mechanisms.
+
+**Core Evaluation Criteria:**
+- **Theoretical Articulation of Mechanistic Differences:** Does the work clearly explain why spatial masking/filtering discards valid semantic signals (due to information imbalance), whereas guidance modulation preserves and rebalances them?
+- **Empirical Comparison with Masking Baselines:** Is there a direct, fair comparison with state-of-the-art masking methods (e.g., DiffEdit) on identical editing tasks, especially background edits where masking theoretically fails?
+- **Artifact Analysis in Boundary Regions:** Do qualitative results show that modulation produces natural, artifact-free transitions compared to the hard boundaries, seams, or incomplete edits introduced by latent masking?
+- **Plug-and-Play Compatibility:** Can the method integrate seamlessly with diverse existing editors (attention-control, feature-injection, inversion-based) without modifying their internal architectures or conflicting with their spatial constraints?
+
+---
+
+**Principle 5: Preservation-Editability Trade-off Quantification Using Disentanglement-Aware Metrics and Layered Ablations**
+
+**Definition:**  
+In disentangled image editing, standard global metrics like CLIP score often fail to capture the nuanced trade-off between successfully editing the target region and preserving the identity of non-target regions. This principle demands that works explicitly quantify the preservation-editability trade-off using disentanglement-aware metrics that separately measure object fidelity and background preservation, such as combinations of DINOv2 similarity and SSIM. The experimental design must include comprehensive ablation studies examining key design choices—including guidance scale regimes for different semantic layers, the necessity of optional components like static masks, and the impact of negative prompts on different editing modes. Furthermore, the work must honestly report failure modes and limitations, such as when intermediate semantic layers cause artifacts or when extremely uniform scenes lack sufficient information density for layer separation. The analysis should demonstrate that metric improvements correspond to visible qualitative gains in disentanglement rather than merely global text alignment. Without such rigorous, layer-specific evaluation, claims of "precise" or "disentangled" editing remain unsubstantiated marketing rather than scientific contributions.
+
+**Core Evaluation Criteria:**
+- **Appropriateness of Disentanglement Metrics:** Does the work use metrics that separately evaluate object preservation (e.g., DINOv2) and background preservation (e.g., SSIM), rather than relying solely on global text-alignment scores like CLIP that bias toward full-image modification?
+- **Comprehensive Ablation of Design Choices:** Are all key components systematically ablated, including dynamic versus static modulation, guidance scales for outer/inner intervals, negative prompt strategies, and probe window selection?
+- **Explicit Trade-off Analysis:** Does the work acknowledge and quantify the inherent tension between editability (CLIP) and preservation (DINO/SSIM), rather than pretending both can be maximized simultaneously without compromise?
+- **Failure Mode and Limitation Reporting:** Are failure cases honestly disclosed (e.g., semantic leakage in complex foliage, geometric hallucinations, breakdown in uniform scenes) and analyzed to understand their root causes?
+- **Qualitative-Quantitative Consistency:** Do the reported metric improvements align with visible qualitative improvements in disentanglement, or do high scores correspond to undesirable global drift?

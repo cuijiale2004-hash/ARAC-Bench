@@ -1,0 +1,1346 @@
+[
+    {
+        "type": "text",
+        "text": "ABSTRACT",
+        "text_level": 2,
+        "bbox": [
+            450,
+            263,
+            547,
+            280
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "We investigate the role of learning rate scheduling in the large-scale pre-training of large language models, focusing on its influence on downstream performance after supervised fine-tuning (SFT). Decay-based learning rate schedulers are widely used to minimize pre-training loss. However, despite their widespread use, how these schedulers affect performance after SFT remains underexplored. In this paper, we examine Warmup-Stable-Only (WSO), which maintains a constant learning rate after warmup without any decay. Through experiments with 1B and 8B parameter models, we show that WSO consistently outperforms decay-based schedulers in terms of performance after SFT, even though decay-based schedulers may exhibit better performance after pre-training. The result also holds across different regimes with mid-training and over-training. Loss landscape analysis further reveals that decay-based schedulers lead models into sharper minima, whereas WSO preserves flatter minima that support adaptability. These findings indicate that applying LR decay to improve pre-training metrics may compromise downstream adaptability. Our work also provides practical guidance for training and model release strategies, highlighting that pre-training models with WSO enhances their adaptability for downstream tasks.",
+        "bbox": [
+            230,
+            297,
+            767,
+            536
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "1 INTRODUCTION",
+        "text_level": 2,
+        "bbox": [
+            174,
+            570,
+            338,
+            585
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Learning rate (LR) scheduling is arguably one of the most critical yet operationally challenging aspects of large language model (LLM) pre-training. Although Cosine decay has been conventionally employed in numerous models (Brown et al., 2020; Le et al., 2022; Touvron et al., 2023a), it has proven inflexible in recent training paradigms such as continual pre-training, as it requires heuristic tuning of the LR from the decayed value (Hagele et al., 2024; Ibrahim et al., 2024). To address¨ this inflexibility, recent studies have introduced Warmup-Stable-Decay (WSD), which keeps the LR constant through most of pre-training and decays it only briefly at the end (Hu et al., 2024; Liu et al., 2024a; Wen et al., 2025).",
+        "bbox": [
+            169,
+            604,
+            826,
+            715
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "These previous studies, regardless of the details of the design choices, decayed the LRs to optimize the performance of pre-trained models. However, the more critical factor for real applications is the performance after post-training, such as supervised fine-tuning (SFT). Drawing on the findings of Sun & Dredze (2025) and Springer et al. (2025), which show that a strong pre-training model does not necessarily imply superior performance after SFT, it is questionable to schedule LRs to the decayed value based on pre-training performance.",
+        "bbox": [
+            169,
+            722,
+            826,
+            806
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "In this study, we provide a comprehensive empirical investigation of LR schedulers during pretraining in terms of performance after SFT. In particular, we examine an underestimated scheduling, Warmup-Stable-Only (WSO), which removes the decay phase from WSD and maintains constant LR to the end. We show that WSO consistently achieves superior performance after SFT compared to decay-based schedulers, through experiments on 1B and 8B models (Figure 1). Furthermore, we demonstrate that WSO is also effective under modern training paradigms, including mid-training (OLMo et al., 2024; Meta, 2024c) and over-training (Sardana et al., 2024; Gadre et al., 2025).",
+        "bbox": [
+            169,
+            813,
+            826,
+            924
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_number",
+        "text": "1",
+        "bbox": [
+            493,
+            948,
+            503,
+            959
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "chart",
+        "img_path": "images/39a54a004bd63eb0eb8791a3b82b31a6625033db763b082a653399f922ae1e42.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            174,
+            103,
+            442,
+            199
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "chart",
+        "img_path": "images/9cc1b4dc56bc50309b4f0082ba43a49fa006388ca58d4af756b410382d13f777.jpg",
+        "content": "",
+        "chart_caption": [
+            "Figure 1: Learning rate schedulers used in pre-training and their impact on performance after supervised fine-tuning (SFT). Warmup-Stable-Only (WSO), which removes the decay phase, achieves the highest performance after SFT."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            452,
+            104,
+            818,
+            198
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "To understand why WSO yields superior SFT performance, we draw on insights from the transfer learning literature (Ju et al., 2022; Liu et al., 2023), which suggest that models in flatter regions of the loss landscape tend to exhibit better adaptability. Through an analysis of sharpness values, we show that models trained with WSO reside in flatter regions than those trained with other decay-based LR schedulers, and are therefore more adaptable to post-training tasks.",
+        "bbox": [
+            169,
+            285,
+            826,
+            357
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Our contributions are as follows: (1) We provide the systematic demonstration that WSO consistently outperforms decay-based schedulers on downstream tasks after SFT, with comprehensive evidence across 1B and 8B models and diverse evaluation benchmarks. (2) We show that WSO similarly benefits mid-training and over-training scenarios, achieving superior SFT performance compared to conventional decay-based schedulers. (3) We reveal through loss landscape analysis that WSO preserves flatter minima than decay-based schedulers, explaining why models trained with WSO achieve better performance after SFT.",
+        "bbox": [
+            169,
+            362,
+            826,
+            460
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "2 PRELIMINARIES",
+        "text_level": 2,
+        "bbox": [
+            171,
+            481,
+            341,
+            498
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Recent LLMs are typically built with a staged training scheme. The most common and fundamental training pipeline consists of two stages, namely pre-training and post-training. In this section, we describe these training stages and review the LR schedulers commonly employed during pre-training.",
+        "bbox": [
+            169,
+            513,
+            826,
+            559
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Pre-training. Pre-training forms the foundation of LLM development, where models learn general language understanding from massive text corpora by minimizing the next-token prediction loss. Recently, pre-training has sometimes consisted of multiple stages: standard pre-training and midtraining (OLMo et al., 2024). We describe mid-training in detail later (Section 2.2), and conduct experiments with both the standard pre-training and the multi-stage setup.",
+        "bbox": [
+            169,
+            574,
+            826,
+            646
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Post-training. Post-training adapts pre-trained models to target tasks, enabling them to follow human instructions and avoid generating harmful outputs. Post-training includes techniques such as supervised fine-tuning (SFT), preference tuning (e.g., DPO (Rafailov et al., 2023)), and RL-based alignment (Ouyang et al., 2022). While post-training could be a multi-stage process with many design choices still under active exploration, SFT is relatively standardized and serves a core stage. In this paper, we focus on SFT as the canonical post-training stage and evaluate the performance after SFT<sup>1</sup>.",
+        "bbox": [
+            169,
+            661,
+            826,
+            758
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "2.1 TASK DEFINITION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            777,
+            343,
+            792
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Practically, LLM developers evaluate models at multiple stages, selecting the best-performing one as the starting point for the subsequent stage. We define Task<sub>s</sub>(M) as a function that, for a given LLM M, returns the performance on a set of pre-defined tasks used to assess the target stage s, where $s \\in \\{ \\mathrm { p r e } , \\mathrm { p o s t } \\}$ denotes the training stage, with pre indicating pre-training and post indicating posttraining, respectively. We write $\\bar { M _ { 2 } } [ M _ { 1 } ]$ to denote the model $M _ { 2 }$ trained with some configuration and initialization with $M _ { 1 }$ , where $M _ { \\mathrm { r a n d } }$ indicates a model whose weights are randomly initialized. Moreover, we introduce $\\mathcal { M } _ { \\mathrm { p r e } }$ and $\\mathcal { M } _ { \\mathrm { p o s t } }$ to represent the sets of models obtained through pre-training and post-training, respectively, with various hyperparameter configurations. A typical training pipeline for building LLMs can therefore be expressed as follows:",
+        "bbox": [
+            169,
+            804,
+            826,
+            848
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "page_footnote",
+        "text": "<sup>1</sup>The computational cost of pre-training is typically much larger than that of other stages, so identifying a better pre-training configuration has a substantial impact on the efficiency of LLM construction. In this study, we focus on evaluating LR schedulers during large-scale pre-training and characterize the potential of non-decay schedulers based on the performance after SFT. An exploration of complex combinations of LR scheduling spanning multiple post-training stages is left to future work.",
+        "bbox": [
+            169,
+            859,
+            826,
+            925
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "page_number",
+        "text": "2",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            103,
+            825,
+            189
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\begin{array}{r l} & {\\widehat {M} _ {\\mathrm{pre}} = \\underset {M _ {\\mathrm{pre}} \\in \\mathcal {M} _ {\\mathrm{pre}}} {\\arg \\max} \\left\\{\\mathtt {T a s k} _ {\\mathrm{pre}} (M _ {\\mathrm{pre}} [ M _ {\\mathrm{rand}} ]) \\right\\},} \\\\ & {\\widehat {M} _ {\\mathrm{post}} = \\underset {M _ {\\mathrm{post}} \\in \\mathcal {M} _ {\\mathrm{post}}} {\\arg \\max} \\left\\{\\mathtt {T a s k} _ {\\mathrm{post}} (M _ {\\mathrm{post}} [ \\widehat {M} _ {\\mathrm{pre}} [ M _ {\\mathrm{rand}} ] ]) \\right\\}.} \\end{array}\\tag{1}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            303,
+            199,
+            692,
+            260
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "This formulation may lead to a suboptimal solution in terms of the performance of the final model, namely, $\\widehat { M } _ { \\mathrm { p o s t } }$ , since selecting the best-performing models at intermediate stages does not guarantee achieving the best performance in the end. Therefore, conceptually, we would like to consider the following search problem to obtain a better final model for this training pipeline:",
+        "bbox": [
+            169,
+            271,
+            825,
+            332
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\widehat {M} _ {\\mathrm{post}} = \\underset {(M _ {\\mathrm{pre}}, M _ {\\mathrm{post}}) \\in (\\mathcal {M} _ {\\mathrm{pre}}, \\mathcal {M} _ {\\mathrm{post}})} {\\arg \\max} \\left\\{\\mathsf {T a s k} _ {\\mathrm{post}} (M _ {\\mathrm{post}} [ M _ {\\mathrm{pre}} [ M _ {\\mathrm{rand}} ] ]) \\right\\}.\\tag{2}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            259,
+            340,
+            736,
+            371
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "The primary objective of this paper is to empirically examine the search problem by evaluating several LR schedulers during the large-scale training stages that precede post-training.",
+        "bbox": [
+            169,
+            378,
+            825,
+            410
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "2.2 FURTHER CONSIDERATIONS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            429,
+            410,
+            444
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Mid-training. Mid-training has emerged as a critical intermediate stage in modern language model development, occupying a computational middle ground between large-scale pre-training and task-specific post-training (Meta, 2024c; OLMo et al., 2024). This stage serves multiple strategic objectives, including domain expansion and long-context extension. For example, OLMo 2 (OLMo et al., 2024) demonstrates performance gains through mid-training on curated high-quality data, establishing this stage as an essential component of the modern training pipeline. After introducing mid-training, we can rewrite equation 2 as follows:",
+        "bbox": [
+            169,
+            455,
+            826,
+            555
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\widehat {M} _ {\\text {post}} = \\underset {(M _ {\\text {pre}}, M _ {\\text {mid}}, M _ {\\text {post}}) \\in (\\mathcal {M} _ {\\text {pre}}, \\mathcal {M} _ {\\text {mid}}, \\mathcal {M} _ {\\text {post}})} {\\arg \\max} \\left\\{\\texttt {T a s k} _ {\\text {post}} (M _ {\\text {post}} [ M _ {\\text {mid}} [ M _ {\\text {pre}} [ M _ {\\text {rand}} ] ]) \\right\\}.\\tag{3}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            189,
+            564,
+            784,
+            595
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Over-training. Modern LLMs are often trained on trillions of tokens, far beyond the Chinchilla compute-optimal regime of roughly 20 tokens per parameter (Hoffmann et al., 2022). This practice trades substantially more training compute for improved inference efficiency at deployment. Recent production systems use hundreds to thousands of tokens per parameter (Sardana et al., 2024). While full-scale experiments are costly, Section 5 presents results under such a configuration, showing the generality of our main findings.",
+        "bbox": [
+            169,
+            611,
+            825,
+            698
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "2.3 CURRENT LR SCHEDULING PRACTICES",
+        "text_level": 2,
+        "bbox": [
+            171,
+            715,
+            491,
+            731
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "In current LLM training practice, pre-training uses decay-based LR schedulers with Cosine, Linear, or WSD that reduce LR to 0–10% of maximum (Touvron et al., 2023a; Hu et al., 2024; Bergsma et al., 2025). Additionally, in mid-training, it is common practice to further decay the LR from the final value reached at the end of the preceding pre-training phase (Meta, ${ 2 0 2 4 \\mathrm { c } } ;$ OLMo et al., 2024). These schedulers are chosen to minimize loss at each respective stage, effectively optimizing $\\mathrm { T a s k } _ { \\mathrm { p r e } } ( M _ { \\mathrm { p r e } } )$ independently. However, the primary objective should be to maximize $\\mathtt { T a s k } _ { \\mathrm { p o s t } } ( M _ { \\mathrm { p o s t } } ) \\bar { }$ , the performance after the complete pipeline. Thus, optimizing for Ta $\\mathbf { \\tilde { s } } \\mathbf { k } _ { \\mathrm { p r e } } ( M _ { \\mathrm { p r e } } )$ may be suboptimal. For instance, recent findings from Springer et al. (2025) and Sun $\\stackrel { \\cdot } { \\& }$ Dredze (2025) reveal that the better performance after pre-training does not guarantee performance after SFT. These raise a fundamental question: Is LR decay, which is chosen based on pre-training performance, still the best choice when the model will undergo supervised fine-tuning? Our work investigates this question by systematically varying LR schedulers in $\\mathcal { M } _ { \\mathrm { p r e } }$ and $\\mathcal { M } _ { \\mathrm { m i d } }$ to understand their impact on the final objective, i.e., $\\bar { \\mathrm { T a s k } } _ { \\mathrm { p o s t } } \\bar { ( } M _ { \\mathrm { p o s t } } )$",
+        "bbox": [
+            168,
+            743,
+            826,
+            926
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "page_number",
+        "text": "3",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "2.4 FORMALIZATION OF LEARNING RATE SCHEDULERS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            104,
+            575,
+            118
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "We denote the LR at training step t as $\\eta ^ { \\mathrm { S c h e d u l e r } } ( t , \\alpha _ { \\mathrm { p r e } } )$ , where Scheduler specifies the LR scheduler and $\\alpha _ { \\mathrm { p r e } }$ controls the minimum LR factor in pre-training. For example, the WSD scheduler is defined as:",
+        "bbox": [
+            169,
+            131,
+            825,
+            174
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\eta^ {\\mathrm{WSD}} (t, \\alpha_ {\\mathrm{pre}}) = \\left\\{ \\begin{array}{l l} \\eta_ {\\max} \\cdot \\frac {t}{T _ {\\text { warmup}}} & t \\leq T _ {\\text { warmup }} \\\\ \\eta_ {\\max} & T _ {\\text { warmup }} <   t \\leq T _ {\\text { stable }} \\\\ \\eta_ {\\max} \\cdot \\left((1 - \\alpha_ {\\mathrm{pre}}) \\cdot \\frac {T _ {\\mathrm{pre}} - t}{T _ {\\mathrm{pre}} - T _ {\\text { stable }}} + \\alpha_ {\\mathrm{pre}}\\right) & T _ {\\text { stable }} <   t \\leq T _ {\\text { pre }} \\end{array} \\right.\\tag{4}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            233,
+            183,
+            759,
+            242
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "where $\\eta _ { \\mathrm { m a x } }$ is the maximum $\\mathrm { L R } , T _ { \\mathrm { p r e } }$ denotes the total number of pre-training steps, $T _ { \\mathrm { w a r m u p } }$ is the number of warmup steps, and $T _ { \\mathrm { s t a b l e } }$ is the step at which the decay phase begins.",
+        "bbox": [
+            171,
+            253,
+            825,
+            282
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "To investigate the effectiveness of the LR scheduler without decay, we consider a simple variant of WSD, which we call Warmup-Stable-Only (WSO). In this variant, the decay phase is omitted, which corresponds to setting $\\alpha _ { \\mathrm { p r e } } = 1 . 0$",
+        "bbox": [
+            169,
+            287,
+            826,
+            332
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\eta^ {\\mathtt {W S O}} (t, \\alpha_ {\\mathrm{pre}}) = \\left\\{ \\begin{array}{l l} \\eta_ {\\max} \\cdot \\frac {t}{T _ {\\mathrm{warmup}}} & t \\leq T _ {\\mathrm{warmup}} \\\\ \\eta_ {\\max} & T _ {\\mathrm{warmup}} <   t \\leq T _ {\\mathrm{pre}} \\end{array} \\right.\\tag{5}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            323,
+            344,
+            669,
+            383
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "In our experiments, we investigate four LR schedulers: Scheduler ∈ {WSO, WSD, Cosine, Linear}. The detailed formulations for Cosine $\\eta ^ { \\mathrm { C o s i n e } } ( t , \\alpha _ { \\mathrm { p r e } } )$ and Linear $\\eta ^ { \\mathrm { L i n e a r } } ( t , \\alpha _ { \\mathrm { p r e } } )$ are provided in Appendix B.",
+        "bbox": [
+            169,
+            393,
+            825,
+            439
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "LR Scheduling in Mid-training. We parameterize mid-training schedulers with $\\alpha _ { \\mathrm { m i d } }$ (Figure 2), where $\\alpha _ { \\mathrm { m i d } } = 0 . 0$ applies Linear decay to zero while $\\alpha _ { \\mathrm { m i d } } =$ 1.0 maintains the LR constant throughout mid-training. When combined with $\\alpha _ { \\mathrm { p r e } } ~ = ~ 1 . 0$ , the configuration of $\\alpha _ { \\mathrm { p r e } } ~ = ~ 1 . 0$ and $\\alpha _ { \\mathrm { m i d } } ~ = ~ 1 . 0$ extends WSO across both pre-training and mid-training stages. The detailed formulation for mid-training LR schedulers is provided in Appendix B.",
+        "bbox": [
+            169,
+            455,
+            550,
+            583
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "chart",
+        "img_path": "images/1ec1ea0ea34b21bee51de4f72cdee550697f4245a615c171b1fe060b62bbeca1.jpg",
+        "content": "",
+        "chart_caption": [
+            "Figure 2: Mid-training LR schedulers with different $\\alpha _ { \\mathrm { p r e } }$ and $\\alpha _ { \\mathrm { m i d } }$ values."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            563,
+            458,
+            815,
+            564
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3 EXPERIMENT 1: TWO-STAGE (PRE- AND POST-TRAINING) SETTING",
+        "text_level": 2,
+        "bbox": [
+            171,
+            606,
+            542,
+            641
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "We investigate whether decaying LRs during pre-training truly benefit downstream SFT performance.",
+        "bbox": [
+            169,
+            657,
+            823,
+            686
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3.1 EXPERIMENTAL SETUP",
+        "text_level": 2,
+        "bbox": [
+            171,
+            707,
+            377,
+            722
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Model Architectures. We conduct experiments on two model scales following the Llama 3 architecture family: 1B and 8B parameter models (same architecture as Llama-3.2-1B (Meta, 2024b) and Llama-3.1-8B (Meta, 2024a), respectively). Full details are provided in Appendix A.",
+        "bbox": [
+            169,
+            734,
+            825,
+            779
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Pre-training Configuration. Models are pre-trained on FineWeb-Edu (Penedo et al., 2024) with a maximum LR $\\eta _ { \\mathrm { m a x } } = 3 \\times 1 0 ^ { - 4 }$ . We investigate three LR schedulers as formalized in Section $2 . 4 .$ experimenting with WSO (Equation 2.4), WSD (Equation 2.4), Cosine, and Linear schedulers (detailed in Appendix B). For each scheduler, we vary the minimum LR factor $\\alpha _ { \\mathrm { p r e } } \\in \\{ 0 . 0 , 0 . 1 , 1 . 0 \\}$ following our notation $\\eta ^ { \\mathrm { S c h e d u l e r } } ( t , \\alpha _ { \\mathrm { p r e } } )$ . Setting $\\alpha _ { \\mathrm { p r e } } = 0 . 0$ corresponds to decay to zero. Recent work by Bergsma et al. (2025) shows that this achieves better pre-training performance. Setting $\\alpha _ { \\mathrm { p r e } } = 0 .$ 1 corresponds to decay to 10% of maximum, a choice commonly used in practice by Chinchilla (Hoffmann et al., 2022), Llama 3 (Meta, 2024c) and OLMo 2 (OLMo et al., 2024). Finally, setting $\\alpha _ { \\mathrm { p r e } } = 1 . 0$ corresponds to WSO. Further hyperparameter details are provided in Appendix C.",
+        "bbox": [
+            169,
+            797,
+            826,
+            926
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "page_number",
+        "text": "4",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "table",
+        "img_path": "images/88ffc7234564b7477b9ebd4d47794193ae2611e62f38191832f1c7ca99980fdb.jpg",
+        "table_caption": [
+            "Table 1: Relative performance across pre-training (PT) and supervised fine-tuning (SFT). For each model size and each metric, values are differences (∆) from the best-performing decay-based scheduler for that metric. Note that WSO could perform poorly after PT but best after SFT. Bold indicates the best performance."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Model</td><td>Scheduler</td><td> $\\alpha_{pre}$ </td><td>PT Valid Loss ↓ Δ</td><td>PT Task Avg Δ</td><td>SFT Task Avg Δ</td></tr><tr><td rowspan=\"7\">1B</td><td>Warmup-Stable-Only (WSO)</td><td>1.0</td><td>+0.071</td><td>-1.7</td><td>+0.3</td></tr><tr><td rowspan=\"2\">WSD</td><td>0.1</td><td>+0.004</td><td>-1.5</td><td>+0.0</td></tr><tr><td>0.0</td><td>+0.000</td><td>-1.2</td><td>-1.0</td></tr><tr><td rowspan=\"2\">Linear</td><td>0.1</td><td>+0.021</td><td>-2.0</td><td>-0.7</td></tr><tr><td>0.0</td><td>+0.016</td><td>+0.0</td><td>-0.9</td></tr><tr><td rowspan=\"2\">Cosine</td><td>0.1</td><td>+0.019</td><td>-0.1</td><td>-0.7</td></tr><tr><td>0.0</td><td>+0.016</td><td>-2.5</td><td>-0.7</td></tr><tr><td rowspan=\"7\">8B</td><td>Warmup-Stable-Only (WSO)</td><td>1.0</td><td>+0.127</td><td>-0.8</td><td>+1.1</td></tr><tr><td rowspan=\"2\">WSD</td><td>0.1</td><td>+0.019</td><td>-0.2</td><td>-0.8</td></tr><tr><td>0.0</td><td>+0.014</td><td>+0.0</td><td>-0.3</td></tr><tr><td rowspan=\"2\">Linear</td><td>0.1</td><td>+0.013</td><td>-1.9</td><td>-0.6</td></tr><tr><td>0.0</td><td>+0.000</td><td>-1.8</td><td>+0.0</td></tr><tr><td rowspan=\"2\">Cosine</td><td>0.1</td><td>+0.009</td><td>-2.2</td><td>-0.3</td></tr><tr><td>0.0</td><td>+0.008</td><td>-2.3</td><td>-0.1</td></tr></table>",
+        "bbox": [
+            248,
+            169,
+            743,
+            424
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "SFT Configuration. We perform SFT using the Tulu-3 SFT mixture<sup>2</sup>. We conduct a comprehensive LR sweep ranging from $5 \\times 1 0 ^ { - 7 } \\mathrm { ~ t o ~ } 1 \\times 1 0 ^ { - 3 }$ to identify the best hyperparameters for each pre-trained model<sup>3</sup>.",
+        "bbox": [
+            169,
+            450,
+            825,
+            496
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Evaluation. We evaluate models at two stages: after pre-training and after SFT. For pre-trained models, we assess zero-shot performance on standard benchmarks, including question answering (ARC-Easy, ARC-Challenge (Clark et al., 2018), OpenBookQA (Mihaylov et al., 2018), BoolQ (Clark et al., 2019)) and commonsense reasoning (HellaSwag (Zellers et al., 2019), PIQA (Bisk et al., 2020), WinoGrande (Sakaguchi et al., 2021)), along with validation loss.",
+        "bbox": [
+            169,
+            508,
+            825,
+            580
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "For fine-tuned models, we follow the setup of OLMo (Groeneveld et al., 2024) and evaluate along three key dimensions: instruction-following capability (AlpacaEval (Li et al., 2023)), multi-task language understanding (MMLU (Hendrycks et al., 2021)), and truthfulness (TruthfulQA (Lin et al., 2022)).",
+        "bbox": [
+            169,
+            585,
+            826,
+            643
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "To highlight how LR decay affects both pre-training and SFT differently, we present results as relative performance metrics normalized against the best decay-based scheduler for each stage. For pre-training, we report both validation loss and the average accuracy across all zero-shot benchmarks (PT Task Avg). For fine-tuning, we report the average across AlpacaEval, TruthfulQA, and MMLU (SFT Task Avg)<sup>4</sup>.",
+        "bbox": [
+            169,
+            648,
+            826,
+            720
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "3.2 RESULTS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            734,
+            281,
+            751
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Table 1 shows an inversion in model performance across training stages<sup>5</sup>. For pre-training performance, decay-based schedulers achieve the best performance with $\\alpha _ { \\mathrm { p r e } } = 0$ Specifically, Linear and WSD with $\\alpha _ { \\mathrm { p r e } } = 0$ achieve the best PT Task Avg scores for the 1B and 8B models, respectively. This result is consistent with existing findings (Bergsma et al., 2025). In contrast, after SFT, WSO achieves the best performance for both model sizes, even though it underperforms decay-based schedulers in pre-training metrics. These results demonstrate that while decay-based schedulers may yield superior performance in terms of pre-training metrics, WSO is more effective in the overall training pipeline, including SFT.",
+        "bbox": [
+            169,
+            762,
+            826,
+            849
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "page_footnote",
+        "text": "<sup>2</sup>https://huggingface.co/datasets/allenai/tulu-3-sft-olmo-2-mixture/ tree/main",
+        "bbox": [
+            171,
+            854,
+            787,
+            882
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "page_footnote",
+        "text": "<sup>3</sup>Full details about SFT are provided in Appendix D.",
+        "bbox": [
+            191,
+            882,
+            508,
+            897
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "page_footnote",
+        "text": "<sup>4</sup>Detailed evaluation settings are provided in Appendix E.",
+        "bbox": [
+            191,
+            895,
+            537,
+            911
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "page_footnote",
+        "text": "<sup>5</sup>Detailed per-task evaluation results for all models are provided in Appendix F.",
+        "bbox": [
+            191,
+            909,
+            665,
+            924
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "page_number",
+        "text": "5",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "table",
+        "img_path": "images/10f4786d1a17ac1210ea4bc595e03b9a8705575d04f6dc5e294bb54b55102bef.jpg",
+        "table_caption": [
+            "Table 2: Relative performance across mid-training (MT) and SFT stages. Values are differences from the best decay-based schedule. WSO throughout both stages yields the best SFT performance."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Model</td><td>(Pre-training) Scheduler</td><td> $\\alpha_{pre}$ </td><td> $\\alpha_{mid}$ </td><td>MT Valid Loss  $\\downarrow \\Delta$ </td><td>MT Task Avg  $\\Delta$ </td><td>SFT Task Avg  $\\Delta$ </td></tr><tr><td rowspan=\"8\">1B</td><td>Warmup-Stable-Only (WSO)</td><td>1.0</td><td>1.0</td><td>+0.062</td><td>-0.1</td><td>+0.8</td></tr><tr><td rowspan=\"3\">WSD</td><td>1.0</td><td>0.0</td><td>+0.000</td><td>+0.0</td><td>+0.0</td></tr><tr><td>0.1</td><td>1.0</td><td>+0.038</td><td>-1.5</td><td>-0.5</td></tr><tr><td>0.1</td><td>0.0</td><td>+0.047</td><td>-1.7</td><td>-1.3</td></tr><tr><td rowspan=\"2\">Linear</td><td>0.1</td><td>1.0</td><td>+0.053</td><td>-2.1</td><td>-2.5</td></tr><tr><td>0.1</td><td>0.0</td><td>+0.058</td><td>-3.3</td><td>-3.8</td></tr><tr><td rowspan=\"2\">Cosine</td><td>0.1</td><td>1.0</td><td>+0.053</td><td>-2.4</td><td>-2.9</td></tr><tr><td>0.1</td><td>0.0</td><td>+0.059</td><td>-3.1</td><td>-3.7</td></tr><tr><td rowspan=\"8\">8B</td><td>Warmup-Stable-Only (WSO)</td><td>1.0</td><td>1.0</td><td>+0.102</td><td>-2.1</td><td>+1.1</td></tr><tr><td rowspan=\"3\">WSD</td><td>1.0</td><td>0.0</td><td>+0.000</td><td>+0.0</td><td>-1.4</td></tr><tr><td>0.1</td><td>1.0</td><td>+0.057</td><td>-5.0</td><td>+0.0</td></tr><tr><td>0.1</td><td>0.0</td><td>+0.081</td><td>-5.6</td><td>-1.1</td></tr><tr><td rowspan=\"2\">Linear</td><td>0.1</td><td>1.0</td><td>+0.067</td><td>-8.3</td><td>-2.2</td></tr><tr><td>0.1</td><td>0.0</td><td>+0.082</td><td>-9.0</td><td>-3.7</td></tr><tr><td rowspan=\"2\">Cosine</td><td>0.1</td><td>1.0</td><td>+0.068</td><td>-8.0</td><td>-3.5</td></tr><tr><td>0.1</td><td>0.0</td><td>+0.084</td><td>-10.1</td><td>-4.1</td></tr></table>",
+        "bbox": [
+            222,
+            140,
+            769,
+            422
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            449,
+            825,
+            479
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "4 EXPERIMENT 2: THREE-STAGE (PRE-, MID-, AND POST-TRAINING) SETTING",
+        "text_level": 2,
+        "bbox": [
+            171,
+            497,
+            767,
+            531
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Recent LLM developments (OLMo et al., 2024; Meta, 2024c) add a mid-training stage between pre-training and post-training, which makes LR scheduling across stages more complex due to the various combinations of pre-training and mid-training LR schedulers. We investigate whether using WSO in both pre-training and mid-training stages yields better performance after SFT than decaybased schedulers.",
+        "bbox": [
+            169,
+            546,
+            826,
+            618
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "4.1 EXPERIMENTAL SETUP",
+        "text_level": 2,
+        "bbox": [
+            171,
+            633,
+            377,
+            648
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "To investigate the effect of LR scheduling during mid-training, we conduct experiments following a three-stage training pipeline: pre-training, mid-training, and post-training. We systematically vary the LR schedulers in both pre-training and mid-training stages to understand their individual and combined effects on downstream performance. To ensure comparability with recent mid-training work, our setup largely follows OLMo 2 (OLMo et al., 2024), a representative study of mid-training.",
+        "bbox": [
+            169,
+            659,
+            826,
+            732
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Pre-training Stage. We pre-train 1B and 8B models using the same architecture and configuration as described in Section 3. We adopt pre-training dataset olmo-mix-1124 (OLMo et al., 2024) used in OLMo 2. Following standard practice in modern LLM development (Meta, 2024c; OLMo et al., 2024), we employ four LR schedulers with different minimum LR factors, including WSD, Cosine, and Linear schedulers with $\\alpha _ { \\mathrm { p r e } } = 0 . 1$ , and additionally WSO.",
+        "bbox": [
+            169,
+            744,
+            826,
+            816
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Mid-training Stage and Learning Rate Schedules. Following OLMo 2 (OLMo et al., 2024), we conduct mid-training on the dolmino-mix-1124 dataset. We investigate the two mid-training strategies shown in Figure 2, with $\\alpha _ { \\mathrm { m i d } } = 0 . 0$ applying further Linear decay following common practice (Meta, 2024c; OLMo et al., 2024), and $\\alpha _ { \\mathrm { m i d } } = 1 . 0$ maintaining a constant LR throughout mid-training<sup>6</sup>.",
+        "bbox": [
+            169,
+            829,
+            826,
+            901
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "page_footnote",
+        "text": "<sup>6</sup>Further training configurations of mid-training are provided in Appendix G.",
+        "bbox": [
+            191,
+            909,
+            648,
+            925
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "page_number",
+        "text": "6",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "table",
+        "img_path": "images/469f5c85fbae31721dd42ca0d65cd68d84eea3532bf42218b8ff8011f2225a59.jpg",
+        "table_caption": [
+            "Table 3: Relative performance after over-training (2T tokens). Values are differences (∆) from the best-performing decay-based scheduler for each metric. Similar to Section 3, WSO achieves the best SFT performance."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Model</td><td>Scheduler</td><td> $\\alpha_{pre}$ </td><td>PT Valid Loss ↓ Δ</td><td>PT Task Avg Δ</td><td>SFT Task Avg Δ</td></tr><tr><td rowspan=\"7\">1B</td><td>Warmup-Stable-Only (WSO)</td><td>1.0</td><td>+0.048</td><td>-1.5</td><td>+0.7</td></tr><tr><td rowspan=\"2\">WSD</td><td>0.1</td><td>+0.004</td><td>+0.0</td><td>+0.0</td></tr><tr><td>0.0</td><td>+0.000</td><td>+0.0</td><td>-0.3</td></tr><tr><td rowspan=\"2\">Linear</td><td>0.1</td><td>+0.021</td><td>-0.9</td><td>-0.5</td></tr><tr><td>0.0</td><td>+0.017</td><td>-0.4</td><td>-0.6</td></tr><tr><td rowspan=\"2\">Cosine</td><td>0.1</td><td>+0.017</td><td>+0.0</td><td>-0.4</td></tr><tr><td>0.0</td><td>+0.017</td><td>-1.3</td><td>-0.3</td></tr></table>",
+        "bbox": [
+            248,
+            155,
+            743,
+            299
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "table",
+        "img_path": "images/1f077a862601b30e380e2a16ee5cce6b71bee72413c500d1423e9eb85911bd89.jpg",
+        "table_caption": [
+            "Table 4: Relative performance after over-training with mid-training (2T + 500B tokens). Values are differences $( \\Delta )$ from the best-performing decay-based scheduler for each metric. Similar to Section 4, WSO yields the best SFT performance."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Model</td><td>(Pre-training) Scheduler</td><td> $\\alpha_{pre}$ </td><td> $\\alpha_{mid}$ </td><td>MT Valid Loss ↓ Δ</td><td>MT Task Avg Δ</td><td>SFT Task Avg Δ</td></tr><tr><td rowspan=\"8\">1B</td><td>Warmup-Stable-Only (WSO)</td><td>1.0</td><td>1.0</td><td>+0.055</td><td>-0.3</td><td>+1.4</td></tr><tr><td rowspan=\"3\">WSD</td><td>1.0</td><td>0.0</td><td>+0.000</td><td>-1.6</td><td>-0.5</td></tr><tr><td>0.1</td><td>1.0</td><td>+0.033</td><td>+0.0</td><td>-1.0</td></tr><tr><td>0.1</td><td>0.0</td><td>+0.038</td><td>-1.7</td><td>-1.2</td></tr><tr><td rowspan=\"2\">Linear</td><td>0.1</td><td>1.0</td><td>+0.068</td><td>-2.2</td><td>+0.0</td></tr><tr><td>0.1</td><td>0.0</td><td>+0.051</td><td>-2.8</td><td>-0.6</td></tr><tr><td rowspan=\"2\">Cosine</td><td>0.1</td><td>1.0</td><td>+0.046</td><td>-1.8</td><td>-0.7</td></tr><tr><td>0.1</td><td>0.0</td><td>+0.054</td><td>-2.3</td><td>-1.2</td></tr></table>",
+        "bbox": [
+            223,
+            369,
+            769,
+            525
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "SFT and Evaluation. For SFT, we follow the configuration described in Section 3. For midtrained models (before SFT), we evaluate on standard benchmarks to assess the impact of midtraining LR schedulers, following the evaluation suite used in OLMo 2 (OLMo et al., 2024). We select benchmarks that comprehensively assess model capabilities, including reasoning tasks (ARC-Challenge (Clark et al., 2018), HellaSwag (Zellers et al., 2019), WinoGrande (Sakaguchi et al., 2021)), reading comprehension (DROP (Dua et al., 2019)), and mathematical reasoning (GSM8K (Cobbe et al., 2021)). Following SFT, we assess models using an expanded evaluation suite including AlpacaEval (Li et al., 2023) for instruction following, TruthfulQA (Lin et al., 2022) for factual accuracy, GSM8K (Cobbe et al., 2021) for mathematical reasoning, DROP (Dua et al., 2019) for reading comprehension, AGI Eval (Zhong et al., 2024) for general intelligence capabilities, BigBench-Hard (Suzgun et al., 2023) for challenging reasoning tasks, and MMLU for multitask understanding<sup>7</sup>. Similar to Section 3, we present results as relative improvements compared to the best decay-based scheduler.",
+        "bbox": [
+            169,
+            554,
+            826,
+            738
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "4.2 RESULTS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            756,
+            281,
+            771
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Table 2 shows an inversion similar to our pre-training findings<sup>8</sup>. For mid-training performance, the decay-based scheduler with $\\alpha _ { \\mathrm { p r e } } = 1 . 0$ and $\\alpha _ { \\mathrm { m i d } } = 0 . 0$ achieve the best performance. However, SFT performance again shows the opposite trend. WSO achieves the best downstream task performance after SFT, even though it underperforms the best decay-based schedulers in mid-training metrics. Additionally, we find that introducing decay at any stage reduces SFT performance. Notably, for models pre-trained with decay $( \\alpha _ { \\mathrm { p r e } } = 0 . 1 )$ , avoiding decay during mid-training $( \\alpha _ { \\mathrm { m i d } } = 1 . 0 )$ improves both mid-training metrics and SFT performance compared to applying decay.",
+        "bbox": [
+            169,
+            782,
+            826,
+            883
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "page_footnote",
+        "text": "<sup>7</sup>The detailed evaluation settings for these benchmarks are described in Appendix E.",
+        "bbox": [
+            191,
+            895,
+            692,
+            910
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "page_footnote",
+        "text": "<sup>8</sup>Detailed per-task evaluation results for all models are provided in Appendix F.",
+        "bbox": [
+            191,
+            909,
+            666,
+            924
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "page_number",
+        "text": "7",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "chart",
+        "img_path": "images/b24e2dee4a6214e9b4e9b8fcb862d5cbef51d1e5236c201c8471ce6da7df7494.jpg",
+        "content": "",
+        "chart_caption": [
+            "Figure 3: Sharpness $\\left( \\boldsymbol { \\theta } _ { t } \\right)$ during pre-training of the 1B model. Vertical line at step $T _ { \\mathrm { s t a b l e } }$ indicating where WSD decays LR. Decay-based schedulers $( \\alpha _ { \\mathrm { p r e } } = 0 \\mathrm { o r } \\alpha _ { \\mathrm { p r e } } = 0 . 1 )$ lead to sharper minima, while WSO $( \\alpha _ { \\mathrm { p r e } } = 1 . 0 )$ maintains flatter landscapes."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            176,
+            102,
+            820,
+            256
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "These results extend our findings to multi-stage training pipelines, where decay at any stage consistently harms SFT performance. WSO, which maintains constant learning rates throughout both pre-training and mid-training, shows the best performance across the overall training pipeline, including mid-training and SFT.",
+        "bbox": [
+            169,
+            344,
+            825,
+            401
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "5 EXPERIMENT 3: THREE-STAGE SETTING IN THE OVER-TRAINING",
+        "text_level": 2,
+        "bbox": [
+            171,
+            421,
+            750,
+            438
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "To further probe generality, we evaluate a third regime with a substantially larger training budget. This over-training setting serves as a test of whether the benefits of WSO persist when training on trillions of tokens.",
+        "bbox": [
+            169,
+            453,
+            825,
+            496
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "5.1 EXPERIMENTAL SETUP",
+        "text_level": 2,
+        "bbox": [
+            171,
+            513,
+            377,
+            529
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Pre- and Mid-training. We pre-train 1B models on 2T tokens, which is approximately 100× the Chinchilla-optimal amount of data for this model size, to evaluate whether WSO maintains its advantages at this data scale. We use the same datasets as in Sections 3 and 4 for pre-training and mid-training, respectively. We investigate the same set of LR schedulers as in Section 3. We additionally conduct mid-training experiments using 500B tokens, following the same experimental setup as in Section 4.",
+        "bbox": [
+            169,
+            540,
+            825,
+            625
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Evaluation. We evaluate all LR schedulers using the same methodology as in Sections 3 and 4, measuring performance both after pre-training (or mid-training) and after SFT. Detailed configurations are provided in Appendices C and D.",
+        "bbox": [
+            169,
+            638,
+            825,
+            684
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "5.2 RESULTS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            700,
+            281,
+            715
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Tables 3 and 4 confirm that the inversion observed in Sections 3 and 4 persists even in the overtraining regime using 2T tokens. Across all investigated schedulers, WSO $( \\alpha _ { \\mathrm { p r e } } ~ = ~ 1 . 0 )$ consistently yields worse intermediate metrics but superior SFT performance compared to decay-based schedulers. Similar to our earlier findings, decay-based schedulers achieve better pre-training and mid-training metrics, yet WSO outperforms them after SFT. This pattern holds both for single-stage over-training (Table 3) and when combined with mid-training (Table 4), demonstrating that the benefits of WSO are robust across different data scales and training configurations.",
+        "bbox": [
+            169,
+            726,
+            826,
+            825
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "6 UNDERSTANDING ADAPTABILITY THROUGH LOSS LANDSCAPE GEOMETRY",
+        "text_level": 2,
+        "bbox": [
+            171,
+            845,
+            735,
+            878
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "To understand why models trained with WSO achieve superior SFT performance, we analyze the loss landscape geometry throughout pre-training phase. As suggested in the transfer learning literature (Ju et al., 2022; Liu et al., 2023), we focus on sharpness as a key geometric property that characterizes the curvature of the loss landscape around converged parameters.",
+        "bbox": [
+            169,
+            895,
+            825,
+            925
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "page_number",
+        "text": "8",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            104,
+            825,
+            133
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "The relation between lower sharpness and better SFT performance stems from how models respond to parameter updates during fine-tuning. When the parameters of the model lie in a flatter region of the loss landscape, which corresponds to lower sharpness, the model demonstrates superior adaptability to downstream tasks (Foret et al., 2021; Li et al., 2025). The intuition is that the performance of the model remains stable during the parameter updates of SFT. A model in a flat landscape experiences less fluctuation in its loss value when its parameters are updated, which translates to more stable performance. This characteristic is believed to confer higher adaptability, as the model can incorporate new data without compromising its pre-trained capabilities (Andriushchenko et al., 2023).",
+        "bbox": [
+            169,
+            138,
+            826,
+            253
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "There are several ways to quantify sharpness, such as the largest eigenvalue of the Hessian (capturing the most curved direction) or the trace of the Hessian (capturing the average curvature) (Dinh et al., 2017; Kaur et al., 2023). Following established practice in optimization and generalization studies (Ju et al., 2022; Liu et al., 2023), we adopt the trace as our sharpness measure, since it provides a scalar summary of curvature across all parameter dimensions.",
+        "bbox": [
+            169,
+            257,
+            826,
+            329
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Definition 6.1 (Sharpness). Let $\\mathcal { L } ( \\theta _ { t } ; \\mathcal { D } )$ denote the loss function evaluated on dataset D with model parameters $\\theta _ { t } \\in \\mathbb { R } ^ { d } .$ . At training step t, the sharpness of the loss landscape at parameters $\\theta _ { t }$ is defined as the trace of the Hessian matrix:",
+        "bbox": [
+            169,
+            334,
+            825,
+            378
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\operatorname{Sharpness} \\left(\\theta_ {t}\\right) = \\operatorname{Tr} \\left(\\mathbf {H} _ {\\mathcal {L}} \\left(\\theta_ {t}\\right)\\right) = \\sum_ {i = 1} ^ {d} \\frac {\\partial^ {2} \\mathcal {L} \\left(\\theta_ {t} ; \\mathcal {D}\\right)}{\\partial \\theta_ {i} ^ {2}}\\tag{6}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            334,
+            390,
+            660,
+            431
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "where $\\mathbf { H } _ { \\mathcal { L } } ( \\theta _ { t } ) \\in \\mathbb { R } ^ { d \\times d }$ is the Hessian matrix of the loss with respect to the parameters at $\\theta _ { t }$ .",
+        "bbox": [
+            171,
+            446,
+            774,
+            463
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Since computing the full Hessian trace is computationally prohibitive for billion-parameter models, we employ Hutchinson’s unbiased estimator (Hutchinson, 1989; Liu et al., 2024b). This method requires only Hessian-vector products, which can be efficiently computed through automatic differentiation. Details of our sampling procedure and computational details are provided in Appendix H.",
+        "bbox": [
+            169,
+            476,
+            825,
+            534
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "We measure sharpness throughout pre-training on validation sets from both the pre-training dataset and the SFT dataset. Figure 3 shows the sharpness for the 1B model from Section 3. We illustrate a vertical line at step $T _ { \\mathrm { s t a b l e } }$ to indicate the point at which WSD decays LR. The figure reveals distinct patterns across schedulers. Specifically, Cosine and Linear schedulers exhibit steadily increasing sharpness as the LR decays, while WSD shows a rise during its decay phase. In contrast, WSO maintains lower sharpness. Across both datasets, models with decaying LRs converge to regions with about 2–3× higher sharpness compared to WSO models. Flatter regions obtained by WSO allow more flexible parameter adaptation during SFT, enabling better downstream performance.",
+        "bbox": [
+            169,
+            539,
+            826,
+            652
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Correlation between sharpness and downstream adaptability. To provide empirical evidence linking the loss landscape to downstream adaptability, we analyze the correlation between the sharpness of pre-trained models and their subsequent SFT performance. Figure 4 presents the SFT performance plotted against the sharpness measured on the pretraining validation set for the 1B model across all investigated learning rate schedulers. The analysis reveals a negative correlation (Pearson $r = - 0 . 7 0 9 )$ between the sharpness of the minima and the model’s performance after SFT. The WSO scheduler $( \\alpha _ { \\mathrm { p r e } } = 1 . 0 )$ resides in the low-sharpness, high-performance region, while",
+        "bbox": [
+            169,
+            674,
+            486,
+            883
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "chart",
+        "img_path": "images/bfc3e62eb1c7d76fb0e6af91946ec939e99aae7cc013dbed1bd8c01c852fbb6f.jpg",
+        "content": "",
+        "chart_caption": [
+            "Figure 4: Pre-training sharpness negatively correlates with downstream SFT performance."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            496,
+            669,
+            823,
+            834
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "decay-based schedulers converge to sharper minima with lower SFT scores. While the sample size is limited, this pattern is consistent with our hypothesis that preserving flatter minima during pretraining enhances the model’s adaptability.",
+        "bbox": [
+            169,
+            882,
+            825,
+            925
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "page_number",
+        "text": "9",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "7 RELATED WORK",
+        "text_level": 2,
+        "bbox": [
+            171,
+            102,
+            346,
+            118
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "Learning Rate Scheduling in LLM Training. LR decay has been considered effective for LLM pre-training, with Cosine decay remaining the de facto standard (Kaplan et al., 2020; Hoffmann et al., 2022; Touvron et al., 2023b). Recent large-scale studies advocate for even more aggressive decay, showing that Linear decay to zero achieves lower pre-training loss in compute-optimal settings (Bergsma et al., 2025). Warmup-Stable-Decay (WSD) delays decay until the final phase of training (Hu et al., 2024), while theoretical analysis suggests that decay may confine models to narrow loss valleys (Wen et al., 2025). Some methods attempt to avoid the decay phase through checkpoint averaging (Sanyal et al., 2024) or model merging (Tian et al., 2025). Jin et al. (2023) investigated learning rate tuning strategies within individual training phases, but did not examine how pre-training LR choices propagate through to post-training performance. While these studies have advanced our understanding of LR scheduling within a single training phase, they share a common limitation: evaluation is restricted to the phase in which the schedule is applied, without considering the downstream consequences for subsequent training stages such as SFT.",
+        "bbox": [
+            169,
+            133,
+            826,
+            316
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "Relationship to Continual Pre-training and Fine-tuning Studies. Recent work on continual pre-training (CPT) has explored LR scheduling for domain adaptation. Wang et al. (2025) showed that models with higher loss potential achieve lower CPT validation loss and advocated for releasing high loss potential versions to facilitate downstream tasks. Wang et al. (2024) proposed a path-switching paradigm for LR scheduling in model version updates, though their experimental setup still applies LR decay before performing SFT. Tissue et al. (2024) introduced a scaling law describing loss dynamics in relation to learning rate annealing; however, they explicitly note that post-training scenarios involving distribution shift are out of scope. These CPT studies focus on settings where the objective function remains language modeling, leaving the impact on SFT unexplored. Meanwhile, a growing body of work has examined the gap between pre-training quality and downstream performance more broadly. Sun & Dredze (2025) showed that stronger pre-training performance does not necessarily translate to superior fine-tuning outcomes, and Springer et al. (2025) demonstrated that over-trained models become harder to fine-tune. These findings collectively motivate our investigation, as LR schedulers chosen to optimize potentially unreliable pre-training metrics may not be optimal for the overall training pipeline. Our work identifies LR decay as a specific factor that improves pre-training metrics at the cost of downstream adaptability.",
+        "bbox": [
+            169,
+            329,
+            826,
+            554
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "Adaptability and Loss Landscape Geometry. Early work showed that parameters in flatter loss regions generalize better than those in sharp minima (Keskar et al., 2017), motivating sharpnessaware minimization (Foret et al., 2021) and stochastic weight averaging (Izmailov et al., 2018). Recent theoretical advances explain WSD through a river valley loss landscape perspective (Wen et al., 2025), where the stable phase explores along the valley floor while the decay phase converges toward the center. Concurrent work confirmed that sharpness increase during decay is universal across architectures (Belloni et al., 2025). Flat-minima optimizers work well under distribution shift (Kaddour et al., 2022), a property that extends to the pre-training/fine-tuning paradigm, where the fine-tuning data distribution differs substantially from pre-training (Ju et al., 2022; Liu et al., 2023). While prior work focused on understanding sharpness dynamics during pre-training (Belloni et al., 2025; Wen et al., 2025), we demonstrate how these dynamics concretely impact SFT performance, showing that WSO preserves flatness and enhances downstream adaptability.",
+        "bbox": [
+            169,
+            566,
+            826,
+            736
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "8 CONCLUSION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            753,
+            321,
+            768
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "In this study, we investigated the effectiveness of LR schedulers, which have been widely reported as effective for pre-training, in practical scenarios with a focus on post-training performance. In particular, we examine Warmup-Stable-Only (WSO), which removes the decay phase from WSD. Experimental results show that WSO consistently outperforms decay-based schedulers in downstream tasks after SFT across standard pre-training, mid-training, and over-training regimes. Loss landscape analysis further reveals that WSO preserves flatter minima, explaining its superior adaptability. WSO is simple to apply and yields improved post-training performance, making it a promising alternative for constructing more portable models. We also recommend releasing LLMs trained with WSO so that practitioners can benefit from their adaptability.",
+        "bbox": [
+            169,
+            785,
+            826,
+            912
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "page_number",
+        "text": "10",
+        "bbox": [
+            490,
+            948,
+            509,
+            960
+        ],
+        "page_idx": 9
+    }
+]

@@ -1,0 +1,86 @@
+{
+  "overview": "TRINITY is a lightweight LLM coordination framework that uses a compact SLM (0.6B) with a tiny head (~10K parameters) to orchestrate diverse LLMs via a tri-role (Thinker/Worker/Verifier) multi-turn protocol, trained efficiently with the separable CMA-ES evolutionary strategy under strict evaluation budgets.",
+  "count": 16,
+  "modules": [
+    {
+      "id": 1,
+      "name": "Configuration Management",
+      "description": "Centralized YAML/JSON-based configuration system managing the entire experimental pipeline: model pool definitions, training hyperparameters (population size, step-size, replication counts), evaluation budgets, benchmark splits, head architecture variants, and role prompt templates. Supports hierarchical inheritance for ablation and comparison experiments."
+    },
+    {
+      "id": 2,
+      "name": "LLM Pool Interface",
+      "description": "Unified API layer for invoking heterogeneous LLMs (open-source and closed-source API models) with standardized input/output handling. Manages model-specific tokenization, generation parameters (max tokens, temperature), API rate limiting, retry logic, and output post-processing to ensure consistent behavior across diverse providers within the pool."
+    },
+    {
+      "id": 3,
+      "name": "Coordinator SLM Backbone with Singular Value Fine-Tuning",
+      "description": "Implements the coordinator's pre-trained SLM backbone with selective singular value fine-tuning. Performs SVD on targeted weight matrices of chosen layers, freezes orthogonal matrices, and only learns diagonal singular value scales. Handles forward propagation to produce hidden states and manages which layers are adapted, keeping total trainable backbone parameters minimal."
+    },
+    {
+      "id": 4,
+      "name": "Lightweight Head Architecture Suite",
+      "description": "Implements the family of head architectures that map SLM hidden states to coordination decisions: (1) Linear head with direct affine projection to LLM-selection and role-selection logits; (2) Low-rank head with bottleneck and nonlinearity; (3) Sparse head with learnable Gumbel-soft top-k dimension gating; (4) Block-diagonal head variants (2-block and 10-block) enforcing per-logit independence with argmax conversion. Each head outputs two logit sets for agent and role selection."
+    },
+    {
+      "id": 5,
+      "name": "Hidden State Representation Extraction",
+      "description": "Extracts contextual representations from the coordinator SLM at the penultimate output token position. Handles both input-only hidden states (from the query) and post-generation hidden states (from the full transcript). Provides hooks for alternative extraction positions (e.g., last token) to support ablation studies on representation quality and its impact on coordination."
+    },
+    {
+      "id": 6,
+      "name": "Tri-Role Coordination Protocol",
+      "description": "Implements the multi-turn coordination protocol defining three role contracts: Thinker (strategize—returns high-level plans, decompositions, or critiques), Worker (execute—produces concrete solution steps), and Verifier (evaluate—outputs ACCEPT/REVISE judgment with optional diagnosis). Manages transcript accumulation across turns and implements the termination condition (Verifier ACCEPT or budget exhaustion)."
+    },
+    {
+      "id": 7,
+      "name": "Role-Specific Message Processing",
+      "description": "Constructs role-specific prompts injected before querying the selected LLM. Given the accumulated transcript, prepares brief prompts that encode the role contract (Thinker/Worker/Verifier instructions), the original query, and prior turn outputs. Performs light post-processing on LLM responses (e.g., extracting judgment and diagnosis from Verifier output) before appending to the transcript."
+    },
+    {
+      "id": 8,
+      "name": "sep-CMA-ES Optimizer",
+      "description": "Implements the separable Covariance Matrix Adaptation Evolution Strategy with diagonal covariance for black-box optimization of the coordinator head. Manages the iterative cycle: sample a population of perturbed parameter vectors from a diagonal Gaussian, evaluate each candidate to obtain fitness scores (averaged over replication trials), rank candidates, and recombine via fitness-weighted averaging to form the next parent. Maintains and adapts the step-size and diagonal scaling (variance) across iterations."
+    },
+    {
+      "id": 9,
+      "name": "Evolutionary Training Loop",
+      "description": "Orchestrates the full training workflow using sep-CMA-ES: initializes the coordinator parameters, runs the iterative evolutionary cycle with population sampling and fitness evaluation, enforces the atomic evaluation budget (counting Bernoulli calls from terminal binary rewards), manages replication for noise reduction in fitness estimates, and handles early stopping and checkpoint selection based on validation performance across training tasks."
+    },
+    {
+      "id": 10,
+      "name": "Baseline Method Implementations",
+      "description": "Implements comparison baselines: Random agent selection per turn, Mixture-of-Agents (MoA) with proposer-aggregator scaffold, RouterDC (query-based dual-contrastive routing), Smoothie (label-free routing with dependent/independent strategies), MasRouter (learned routing with cost regularization), single-agent self-reflection over multiple turns, and majority voting. Each baseline uses the same LLM pool and token budgets for fair comparison."
+    },
+    {
+      "id": 11,
+      "name": "Benchmark Evaluation Pipeline",
+      "description": "Handles evaluation across in-distribution benchmarks (MATH500, MMLU, RLPR, LiveCodeBench) and held-out zero-shot transfer benchmarks (AIME, BigCodeBench, MT-Bench, GPQA-D). Manages official train/test splits, standardized answer extraction and matching logic per benchmark, and computes pass@1 / accuracy metrics. For LiveCodeBench specifically, handles V1/V6 release separation and code execution-based evaluation."
+    },
+    {
+      "id": 12,
+      "name": "Alternative Training Algorithm Implementations",
+      "description": "Implements REINFORCE (policy gradient with binary terminal rewards and per-parameter gradient estimation), Supervised Fine-Tuning (SFT with oracle labels from per-question-best majority voting), and Random Search with fitness averaging (uniform sampling within calibrated range, multiple trials per candidate). Ensures equivalent evaluation budgets across all training algorithms for fair comparison."
+    },
+    {
+      "id": 13,
+      "name": "Ablation Study Framework",
+      "description": "Systematic framework for controlled ablation experiments: removing singular value fine-tuning from SLM layers, removing individual roles (Thinker only, then entire tri-role selection), switching from penultimate to last token for hidden state extraction, removing agent selection while keeping role selection, and comparing head architecture variants. Reports performance deltas across all in-distribution benchmarks."
+    },
+    {
+      "id": 14,
+      "name": "Representation Space Analysis",
+      "description": "Analyzes the separability and structure of hidden states and head logits: linear SVM and RBF SVM classification accuracy for task-type and agent-selection labels, dimensionality reduction visualizations (PCA, LDA with Fisher ratios, t-SNE, UMAP), separability index computation (between-class / total variance), and controlled synthetic experiments varying separability to measure its effect on head classification accuracy."
+    },
+    {
+      "id": 15,
+      "name": "Dataset–Agent Subset Selection",
+      "description": "Implements the joint optimization over dataset and agent subsets to maximize relative error reduction (RER) over the best single-agent baseline. Performs top-5% performance frontier filtering, exhaustive enumeration of candidate subsets within budget, and complementarity-based tie-breaking. Produces the curated training dataset and agent pool configuration used for coordinator training."
+    },
+    {
+      "id": 16,
+      "name": "Experiment Logging, Monitoring, and Reporting",
+      "description": "Manages comprehensive experiment tracking: training curves (fitness over iterations, agent/role selection distribution evolution), evaluation results per benchmark, token usage accounting, and comparison tables. Generates standardized outputs including LaTeX tables for paper-ready results, visualization plots (agent distribution evolution, performance vs. turns, t-SNE/PCA scatter plots), and aggregated JSON result files for cross-experiment analysis."
+    }
+  ]
+}

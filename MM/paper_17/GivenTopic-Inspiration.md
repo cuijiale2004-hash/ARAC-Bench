@@ -1,0 +1,11 @@
+Given Topic:
+The field of automatic prompt optimization for multimodal large language models. While existing prompt optimization methods effectively automate textual prompt engineering for language models, they remain restricted to the textual modality. This constraint underutilizes the inherent multimodal processing capabilities of modern foundation models that can interpret images, videos, and molecular structures. Consequently, current approaches fail to exploit non-textual contextual signals that are frequently more concise and informative than language descriptions alone. The core problem is how to extend prompt optimization into the multimodal domain, wherein the combinatorial expansion of the search space introduces fundamental challenges in maintaining cross-modal semantic consistency and efficiently identifying high-quality prompt candidates amid solution sparsity.
+
+Given Inspiration:
+1. The fundamental paradigm mismatch in applying text-only prompt optimization frameworks to inherently multimodal foundation models, leaving rich non-textual input channels underutilized.
+2. The complementary information density between textual and non-textual modalities, wherein visual or structural signals often convey discriminative semantics more directly than linguistic descriptions.
+3. The critical requirement for cross-modal semantic alignment, as independently optimized modalities risk generating contradictory or redundant contextual signals.
+4. The general optimization principle that search trajectories in sequential prompt refinement exhibit inheritable quality characteristics, suggesting that lineage-aware exploration can improve sample efficiency.
+5. The mathematical intuition that leveraging inductive biases from previously evaluated solutions can mitigate cold-start inefficiencies when assessing newly generated candidates in sparse combinatorial spaces.
+6. The engineering necessity of deploying heterogeneous exploration strategies—encompassing de novo creation, localized refinement, and compositional synthesis—to effectively navigate vast multimodal design spaces.
+7. The conceptual insight that a unified supervisory signal can simultaneously guide coherent refinement across textual and non-textual modalities.

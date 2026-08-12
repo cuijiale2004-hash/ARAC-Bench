@@ -1,0 +1,8 @@
+Given Topic: Multimodal benchmark evaluation for vision-language reasoning models. Current benchmarks suffer from pervasive shortcut questions that are solvable using only a single modality, which leads to unreliable model rankings and imposes unnecessary computational burdens. Existing psychometric methods treat reasoning ability as a unidimensional latent trait, lacking the granularity to distinguish between unimodal exploitation and genuine cross-modal integration. The core challenge is to develop an evaluation framework that can disentangle modality-specific and cross-modal reasoning components in both models and assessment items, thereby enabling compact yet reliable benchmarks that accurately reflect multimodal reasoning competence.
+
+Given Inspiration:
+1. Existing multimodal benchmarks are frequently contaminated by shortcut items answerable from a single modality, inflating evaluation costs and undermining ranking validity.
+2. Psychometric latent-variable models provide principled tools for estimating subject ability and item difficulty from response patterns, yet traditionally assume a single unified trait dimension.
+3. In multimodal settings, a subject's propensity to answer correctly and an item's demand for competence inherently depend on which modalities are presented or withheld.
+4. Adaptive testing paradigms demonstrate that a small, maximally informative subset of items can precisely estimate subject ability without exhaustive evaluation.
+5. There is a critical need to differentiate whether a correct response arises from independent unimodal reasoning or from true integration across modalities.

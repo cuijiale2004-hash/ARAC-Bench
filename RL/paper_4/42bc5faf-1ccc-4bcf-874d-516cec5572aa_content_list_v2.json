@@ -1,0 +1,3640 @@
+[
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "ABSTRACT"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                450,
+                226,
+                547,
+                243
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We propose Q-learning with Adjoint Matching (QAM), a novel TD-based reinforcement learning (RL) algorithm that tackles a long-standing challenge in continuousaction RL: efficient optimization of an expressive diffusion or flow-matching policy with respect to a parameterized Q-function. Effective optimization requires exploit ing the first-order information of the critic, but it is challenging to do so for flow or diffusion policies because direct gradient-based optimization via backpropagation through their multi-step denoising process is numerically unstable. Existing methods work around this either by only using the value and discarding the gradi ent information, or by relying on approximations that sacrifice policy expressivity or bias the learned policy. QAM sidesteps both of these challenges by leveraging adjoint matching, a recently proposed technique in generative modeling, which transforms the critic’s action gradient to form a step-wise objective function that is free from unstable backpropagation, while providing an unbiased, expressive policy at the optimum. Combined with temporal-difference backup for critic learning, QAM consistently outperforms prior approaches on hard, sparse reward tasks in both offline and offline-to-online RL. Code: github.com/ColinQiyangLi/qam"
+                    }
+                ]
+            },
+            "bbox": [
+                228,
+                252,
+                769,
+                477
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "1 INTRODUCTION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                173,
+                502,
+                338,
+                518
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/9fbdd53932684bf567931901b22106082fe2137c6bc14efccd0367fc9430fdfd.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                171,
+                539,
+                547,
+                729
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/0847f0814de10cf7c485561a9074f119a71041300b7e56438f77bc1c86d07bee.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 1: QAM: Q-learning with Adjoint Matching. Left: QAM uses adjoint matching (Domingo-Enrich et al., 2025) that leverages the critic’s action gradient directly to fine-tune a flow policy towards the optimal behavior-constrained policy: "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\boldsymbol { \\theta } } \\big ( \\cdot \\mid s \\big ) \\^ { - } \\propto \\pi _ { \\boldsymbol { \\beta } } \\big ( \\cdot \\mid s \\big ) e ^ { \\dot { Q ( s , \\cdot ) } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Right: Aggregated score for offline RL on 50 OGBench (Park et al., 2025a) tasks."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                553,
+                537,
+                820,
+                728
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "A long-standing tension in continuous-action reinforcement learning (RL) especially in the offline/offline-to-online setting, is between policy expressivity and optimization tractability with respect to a critic "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( i . e . , Q ( s , a ) )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Simple policies, such as single-step Gaussian policies, are easy to train, since they can directly leverage the critic’s action gradient "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( i . e . , \\nabla _ { a } Q ( s , a ) )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "via the reparameter ization trick (Haarnoja et al., 2018). This optimization tractability, however, often comes at the cost of expressivity. Some of the most expressive policy classes today, such as flow or diffusion policies, generate actions through a multi-step denoising process. While this allows them to represent complex, multi-modal action distributions, leveraging the action gradient requires backpropagation through the entire denoising process, which often leads to instability (Park et al., 2025c). Prior work has therefore resorted to either (1) discarding the critic’s action gradient entirely and only using its value (Ren et al., 2025; Zhang et al., 2025; McAllister et al., 2025), or (2) distilling expressive, multi-step flow policies into one-step noise-conditioned approximations (Park et al., 2025c). The former sacrifices learning efficiency and often under-performs methods that use the critic’s action gradient (Park et al., 2024; 2025c), while the latter compromises expressivity. This raises a question: can we somehow keep the full expressivity of flow policies while incorporating the critic’s action gradient directly into the denoising process without backpropagation instability?"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                825,
+                828,
+                925
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "1"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                503,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                826,
+                231
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "One might be tempted to directly apply the critic’s action gradient to intermediate noisy actions within the denoising process, as in diffusion classifier guidance (with the critic function being the classifier) (Dhariwal & Nichol, 2021). Intuitively, this blends two generative process together: one that generates a behavior action distribution, and another that hill-climbs the critic to maximize action value. While this approach bypasses the backpropagation instability and retains full policy expressivity, it relies on the assumption that the critic’s gradient at a noisy action is a good proxy for its gradient at the corresponding denoised action. In practice, this assumption often breaks down: when the offline dataset has limited action coverage, the critic is well-trained only on a narrow distribution of noiseless actions, rendering its gradients unreliable for intermediate noisy actions that are out of distribution."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                236,
+                826,
+                376
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We propose Q-learning with Adjoint Matching (QAM), a new RL algorithm that applies adjoint matching (Domingo-Enrich et al., 2025), a recently developed technique in generative modeling, to policy optimization. QAM leverages the critic’s action gradient for training flow policies to maximize returns subject to a prior constraint (e.g., behavior constraint) (Figure 1). In general, such a constrained optimization problem on a flow model can be formulated as a stochastic optimal control (SOC) objective, which can be solved by using the continuous adjoint method (Pontryagin et al., 1962). However, this standard formulation has the same loss landscape as directly backpropagating through the SOC objective, causing instability. Instead, we leverage a modified objective from Domingo-Enrich et al. (2025) that admits the same optimal solution, but does not suffer from the instability challenge. At a high level, the critic’s gradient at noiseless actions is directly transformed by a flow model constructed from the prior, independent from the possibly ill-conditioned flow model that is being optimized, to construct unbiased gradient estimates for optimizing the state-conditioned velocity field at intermediate denoising steps. This allows the flow policy’s velocity field to align directly with the optimal state-conditioned velocity field implied by the critic and the prior, without direct and potentially unstable backpropagation, while preserving the full expressivity of multi-step flow models. By combining this policy extraction procedure with a standard temporal-difference (TD) backup for critic learning, QAM enables the flow policy to efficiently converge to the optimal policy subject to the prior constraint. In contrast, approximation methods that rely on the critic’s gradients at noisy intermediate actions lack such convergence guarantees."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                382,
+                826,
+                648
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Our main contribution is a new TD-based RL algorithm that leverages adjoint matching to perform policy extraction effectively on a critic. Unlikely prior Q-learning methods with flow-matching that rely on approximations or throwing away the action gradient of the critic altogether, our algorithm directly uses the gradient to form an objective that at convergence recovers the optimal behaviorregularized policy. We conduct a comprehensive empirical study comparing policy extraction methods for flow/diffusion policies, including recent approaches and novel baselines, and show that QAM consistently achieves strong performance across both offline RL and offline-to-online RL benchmarks."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                652,
+                826,
+                752
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2 RELATED WORK"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                763,
+                346,
+                779
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "RL with diffusion and flow policies. Diffusion and flow policies have been explored in both policy gradient methods (Ren et al., 2025) and actor-critic methods (Fang et al., 2025b; Kang et al., 2023; Chen et al., 2024c;a; Lu et al., 2023b; Ding et al., 2024b; Wang et al., 2023; He et al., 2023; Ding & Jin, 2024; Ada et al., 2024; Zhang et al., 2024; Hansen-Estruch et al., 2023). The key challenge of leveraging diffusion/flow policies in TD-based RL methods is to optimize these policies against the critic function "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( i . e . , Q ( s , \\bar { a } ) ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": "). Prior work can be largely put into three categories based on how the value function is used:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                791,
+                826,
+                888
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "(1) Post-processing approaches refine the action distribution from a base diffusion/flow policy with rejection sampling based on the critic value (Hansen-Estruch et al., 2023; Mark et al., 2025; Li et al.,"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                895,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "2"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "2025; Dong et al., 2025), or using additional gradient steps to hill climb the critic (Mark et al., 2025) "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( i . e . , a _ { t } \\gets a _ { t } + \\nabla _ { a } Q ( s , a ) )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". These approaches often reliably improve the quality of extracted policy but at the expense of additional computation during evaluation or even training (i.e., rejection sampling for value backup target (Li et al., 2025; Dong et al., 2025)). Alternatively, one may train a residual policy that modifies a base behavior policy in either the noise space (Singh et al., 2021; Wagenmaker et al., 2025) or in the action space directly (Yuan et al., 2025; Ankile et al., 2025a;b; Dong et al., 2025)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                104,
+                826,
+                189
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "(2) Backprop-based approaches perform direct backpropagation through both the critic and the policy (Wang et al., 2023; He et al., 2023; Ding & Jin, 2023; Zhang et al., 2024; Park et al., 2025c; Espinosa-Dice et al., 2025; Chen et al., 2025). While this is the most-straightforward implementationwise, it requires backpropagation through the diffusion/flow policy’s denoising process which has been observed to be unstable (Park et al., 2025c), or instead learns a distilled policy (Ding & Jin, 2023; Chen et al., 2024b; Park et al., 2025c; Espinosa-Dice et al., 2025; Chen et al., 2025), at the expense of policy expressivity."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                194,
+                826,
+                294
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "(3) Intermediatefine-tuning approaches, which our method also belongs to, mitigate the need of the stability/expressivity trade-off in backprop-based approaches by leveraging the critic to construct an objective that provides direct step-wise supervision to the intermediate denoising process (Psenka et al., 2024a; Fang et al., 2025b; Ding et al., 2024a; Li et al., 2024b; Frans et al., 2025; Zhang et al., 2025; Ma et al., 2025; Koirala & Fleming, 2025). While these approaches remove the need for backpropagation through the denoising process completely, the challenge lies in carefully crafting the step-wise objective that does not introduce additional biases and learning instability. Compared to prior methods that either rely on approximations (Lu et al., 2023a; Fang et al., 2025b) that do not provide theoretical guarantees (see more discussions in Section C) or directly throwing away the critic’s action gradient (and use its value instead) (Ding et al., 2024a; Zhang et al., 2025; Ma et al., 2025; Koirala & Fleming, 2025), we leverage adjoint matching (Domingo-Enrich et al., 2025) which allows us to use the critic’s action gradient directly to construct an direct step-wise objective for our flow policy that recovers the optimal prior regularized policy at the optimum of the objective."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                299,
+                826,
+                481
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Offline-to-online reinforcement learning methods focus on leveraging offline RL to first pre-train on an offline dataset, and then use the pretrained policy and value function(s) as initialization to accelerate online RL (Xie et al., 2021; Song et al., 2023; Lee et al., 2022; Agarwal et al., 2022; Zhang et al., 2023; Zheng et al., 2023; Ball et al., 2023; Nakamoto et al., 2024; Li et al., 2024a; Wilcoxson et al., 2025; Zhou et al., 2025). While it is possible to skip the offline pre-training phase altogether and use online RL methods directly by treating the offline dataset as additional off-policy data that is pre-loaded into the replay buffer (Lee et al., 2022; Song et al., 2023; Ball et al., 2023), these methods often under-perform the methods that leverage explicit offline pre-training, especially on more challenging tasks (Nakamoto et al., 2024; Park et al., 2025c). Our method also operates in this regime where we first perform offline RL pre-training and then perform online fine-tuning from the offline pre-trained initialization. In addition, we follow a common design in prior work where the same offline RL objective is used for both offline pre-training and online fine-tuning (Kostrikov et al., 2022; Fujimoto & Gu, 2021; Tarasov et al., 2023; Park et al., 2025c). While we focus on evaluating our method in the offline-to-online RL setting, the idea of using adjoint matching to train an expressive flow policy can be applied to other settings such as online RL."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                486,
+                826,
+                696
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "For additional related work on diffusion and flow-matching with guidance, see Section C."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                700,
+                759,
+                717
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3 PRELIMINARIES"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                173,
+                732,
+                341,
+                748
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Reinforcement learning and problem setup. We consider a Markov Decision Process (MDP), "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { M } = ( S , A , P , \\gamma , R , \\mu )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "s"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the state space, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { A } = \\mathbb { R } ^ { A } ( A \\in \\mathbb { Z } ^ { + } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the action space, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "P : \\mathcal { S } \\times \\mathcal { A }  \\Delta _ { \\mathcal { S } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the transition function, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\gamma \\in [ 0 , 1 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the discount factor, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "R : { \\mathcal { S } } \\times \\mathbb { R } ^ { A } \\to"
+                    },
+                    {
+                        "type": "text",
+                        "content": "R is the reward function, and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu \\in \\Delta _ { \\mathcal { A } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the initial state distribution. We have access to a dataset D consisting of a set of transitions "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "D = \\{ ( s _ { i } , a _ { i } , s _ { i } ^ { \\prime } , r _ { i } ) \\} _ { i = 1 } ^ { | D | }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "s ^ { \\prime } \\sim P ( \\cdot \\mid s , a )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "r = R ( s , a )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Our first goal (offline RL) is to learn a policy "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta } : { \\mathcal { S } }  \\Delta _ { \\mathcal { A } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "from D that maximizes its expected discounted return,"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                758,
+                826,
+                848
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "U _ {\\pi} = \\mathbb {E} _ {s _ {0} \\sim \\mu , s _ {k + 1} \\sim P (\\cdot | s _ {k}, a _ {k}), a _ {k} \\sim \\pi (\\cdot | s _ {k})} \\left[ \\sum_ {k = 0} ^ {\\infty} \\gamma^ {k} R (s _ {k}, a _ {k}) \\right].\\tag{1}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/5bc9859c1460d36a3a40bf258dcd2dcea8cde5b113c1addcddf9aebea1d57214.jpg"
+                }
+            },
+            "bbox": [
+                300,
+                851,
+                694,
+                892
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The second goal (offline-to-online "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "R L )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is to fine-tune the offline pre-trained policy "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "by continuously interacting with the MDP through trajectory episodes with a task/environment dependent maximum episode length of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "H \\ ( i . e ."
+                    },
+                    {
+                        "type": "text",
+                        "content": ", the maximum number of time steps before the agent is reset to "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". The central challenge of offline-to-online RL is to maximally leverage the behavior prior in "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "D"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to learn as sample-efficiently (high return with few environment interactions) as possible online."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                895,
+                825,
+                924
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "3"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                825,
+                147
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Flow-matching generative model. A flow model uses a time-variant velocity field "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "v : \\mathbb { R } ^ { d } \\times [ 0 , 1 ] \\to"
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbb { R } ^ { d }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to estimate the marginal distribution of a denoising process from noise, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { \\bar { \\boldsymbol { X } } } _ { 0 } = \\mathcal { N } ( 0 , I _ { d } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", to data, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "X _ { 1 } = D"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", at each intermediate time "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "t \\in [ 0 , 1 ]"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                152,
+                825,
+                196
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "X _ {t} = (1 - t) X _ {0} + t X _ {1}.\\tag{2}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/ef85a7bca29246969c0699df1f4ec8cff68c677e7f334ecfed4f0565aa9c9d13.jpg"
+                }
+            },
+            "bbox": [
+                413,
+                203,
+                581,
+                219
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In particular, the flow model approximates the intermediate "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "X _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "via an ordinary differential equation (ODE) starting from the noise: "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "X _ { 0 } = \\mathcal { N }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ":"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                226,
+                825,
+                257
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathrm{d} \\hat {X} _ {t} = f (\\hat {X} _ {t}, t) \\mathrm{d} t.\\tag{3}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/75e14aca7791a94c021e76ca3f96295b79062ed650c5df3be9a11454a72c4c11.jpg"
+                }
+            },
+            "bbox": [
+                433,
+                263,
+                563,
+                282
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Flow models are typically trained with aflow matching objective (Liu et al., 2023):"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                289,
+                718,
+                304
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "L _ {\\mathrm{FM}} (\\theta) = \\mathbb {E} _ {t \\sim \\mathcal {U} [ 0, 1 ], x _ {0} \\sim \\mathcal {N}, x _ {1} \\sim D} \\left[ \\| f _ {\\theta} ((1 - t) x _ {0} + t x _ {1}, t) - x _ {1} + x _ {0} \\| _ {2} ^ {2} \\right],\\tag{4}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/82e281c9b382f9082d2fa10cfd282ac87dc6591b86aaf853d62dc3fac8f1ea75.jpg"
+                }
+            },
+            "bbox": [
+                254,
+                311,
+                741,
+                329
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where any optimal velocity field, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "v _ { \\theta ^ { \\star } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", results in "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat { X } _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "where its marginal distribution "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { f } ( x _ { t } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "exactly recovers the marginal distribution of the original denoising process "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "X _ { t } , p _ { D } ( x _ { t } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", for each "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "t \\in"
+                    },
+                    {
+                        "type": "text",
+                        "content": "[0, 1] (Lipman et al., 2024). Furthermore, one may use the Fokker-Planck equations to construct a family of stochastic differential equations (SDE) that admits the same marginals as well:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                339,
+                825,
+                397
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathrm{d} \\hat {X} _ {t} = \\left(f (\\hat {X} _ {t}, t) + \\frac {\\sigma_ {t} ^ {2} t}{2 (1 - t)} \\left(f (\\hat {X} _ {t}, t) + X _ {t} / t\\right)\\right) \\mathrm{d} t + \\sigma_ {t} \\mathrm{d} B _ {t}\\tag{5}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/248d62f726e1f7fccf8718fb1511ffa5961a9b3e2ffc46fb9b16d1a2742c1cbe.jpg"
+                }
+            },
+            "bbox": [
+                285,
+                404,
+                710,
+                436
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "with "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "B _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "being a Brownian motion and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\sigma _ { t } > 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": "being any noise schedule."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                444,
+                645,
+                460
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Adjoint matching is a technique developed by Domingo-Enrich et al. (2025) with the goal of modifying a base flow-matching generative model "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "f _ { \\beta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "such that the resulting flow model "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "f _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "generates the following tilt distribution:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                465,
+                825,
+                508
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "p _ {\\theta} (X _ {1}) \\propto p _ {\\beta} (X _ {1}) e ^ {Q (X _ {1})}\\tag{6}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/49ba3bd1c3993c1c43a0a8f8e461e38d7014e4e29ab63273b51f664d64f10921.jpg"
+                }
+            },
+            "bbox": [
+                410,
+                516,
+                584,
+                534
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the tilt distribution induced by "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "f _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { \\beta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the base distribution induced by "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "f _ { \\beta } ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "Q : \\mathbb { R } ^ { d }  \\mathbb { R } \\mathrm { ~ i ~ }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "s any value function that up-weights or down-weights the probability of each example in the domain "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbb { R } ^ { d } ."
+                    },
+                    {
+                        "type": "text",
+                        "content": "Domingo-Enrich et al. (2025) uses a marginal-preserving SDE with a ‘memoryless’ noise schedule "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( i . e . , X _ { 0 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "X _ { 1 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "are independent), "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\sigma _ { t } = \\sqrt { 2 ( 1 - t ) / t } \\colon"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                541,
+                826,
+                603
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathrm{d} X _ {t} = (2 f (X _ {t}, t) - X _ {t} / t) \\mathrm{d} t + \\sqrt {2 (1 - t) / t} \\mathrm{d} B _ {t},\\tag{7}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/e58e88f7285b78ed824827f66e80f1f142681439468d27324f1866fbde654ed7.jpg"
+                }
+            },
+            "bbox": [
+                326,
+                612,
+                666,
+                628
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where the minimizer of the following stochastic optimal control equation (with "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "X _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "sampling from the joint distribution defined by the SDE in Equation (7)),"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                636,
+                825,
+                667
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "L (\\theta) = \\mathbb {E} _ {\\boldsymbol {X} = \\{X _ {t} \\} _ {t}} \\left[ \\int_ {0} ^ {1} \\left(\\frac {2}{\\sigma_ {t} ^ {2}} \\| f _ {\\theta} (X _ {t}, t) - f _ {\\beta} (X _ {t}, t) \\| _ {2} ^ {2}\\right) \\mathrm{d} t - Q (X _ {1}) \\right]\\tag{8}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/a8b02fdfdec9d9546019b88fc2c8daf280f705ebb60bfc7bc12637140b23228b.jpg"
+                }
+            },
+            "bbox": [
+                263,
+                674,
+                730,
+                709
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "gives the correct marginal tilt distribution for "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "X _ { 1 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "(Domingo-Enrich et al., 2024):"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                714,
+                702,
+                731
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "p (X _ {1}) \\propto p _ {\\beta} (X _ {1}) e ^ {Q (X _ {1})}.\\tag{9}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/40f636612238c7d6a62ff6c25bdab40509b63d8dbbb09b87024c3ab1380c2502.jpg"
+                }
+            },
+            "bbox": [
+                411,
+                738,
+                583,
+                756
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Let the adjoint state be the gradient of the tilt function applied at the denoised "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "X _ { 1 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ":"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                763,
+                712,
+                779
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "g (\\boldsymbol {X}, t) = \\nabla_ {X _ {t}} \\left[ \\int_ {t} ^ {1} \\left(\\frac {2}{\\sigma_ {t ^ {\\prime}} ^ {2}} \\| f _ {\\theta} (X _ {t ^ {\\prime}}, t ^ {\\prime}) - f _ {\\beta} (X _ {t ^ {\\prime}}, t ^ {\\prime}) \\| _ {2} ^ {2}\\right) \\mathrm{d} t ^ {\\prime} - Q (X _ {1}) \\right],\\tag{10}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/7e59569f0a12342863ae02926bb180c044ba8eb92907a51c55fc9a0a51243a9d.jpg"
+                }
+            },
+            "bbox": [
+                256,
+                787,
+                738,
+                821
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "X = \\{ X _ { t } \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "<sub>t</sub> is the random variable that represents the SDE trajectory, and g satisfies"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                828,
+                772,
+                844
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\frac {\\mathrm{d} g (\\boldsymbol {X} , t)}{\\mathrm{d} t} = - \\nabla_ {X _ {t}} \\left[ 2 f _ {\\theta} (X _ {t}, t) - X _ {t} / t \\right] g (\\boldsymbol {X}, t) - \\frac {2}{\\sigma_ {t} ^ {2}} \\nabla_ {X _ {t}} \\| f _ {\\theta} (X _ {t}, t) - f _ {\\beta} (X _ {t}, t) \\| _ {2} ^ {2},\\tag{11}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/43f673325c2ddb2be2686b052b463daf7da2180a035505b3b6f4dad5fe5d4304.jpg"
+                }
+            },
+            "bbox": [
+                204,
+                851,
+                767,
+                885
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "4"
+                    }
+                ]
+            },
+            "bbox": [
+                491,
+                948,
+                504,
+                959
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "t 0 t 1"
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                910,
+                258,
+                922
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "Xt ="
+                    }
+                ]
+            },
+            "bbox": [
+                785,
+                897,
+                823,
+                909
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "t  t"
+                    }
+                ]
+            },
+            "bbox": [
+                558,
+                910,
+                674,
+                922
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "σ<sub>t</sub> = p2(1 − t)/t."
+                    }
+                ]
+            },
+            "bbox": [
+                704,
+                909,
+                818,
+                924
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "<sup>1</sup>The adjoint-matching paper (Domingo-Enrich et al., 2025) uses a more general framework with X<sub>t</sub> = β X + α X . For simplicity, we assume the special case where α = t, β = 1 − t, and"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                895,
+                823,
+                925
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "with the boundary condition "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "g ( X , t = 1 ) = - \\nabla _ { X _ { 1 } } Q ( X _ { 1 } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". We can compute the adjoint states by stepping through the reverse ODE (which can be efficiently computed with the vector-Jacobian product (VJP) in most modern deep learning frameworks). Then, it can be shown that the stochastic optimal control loss in Equation (8) is equivalent to the ‘basic’ adjoint matching objective below:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                104,
+                825,
+                161
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "L _ {\\mathrm{BAM}} (\\theta) = \\mathbb {E} _ {\\boldsymbol {X}} \\left[ \\int_ {0} ^ {1} \\| 2 (f _ {\\theta} (X _ {t}, t) - f _ {\\beta} (X _ {t}, t)) / \\sigma_ {t} + \\sigma_ {t} g (\\boldsymbol {X}, t) \\| _ {2} ^ {2} \\mathrm{d} t \\right].\\tag{12}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/d20eb1fa4f37cb19fe74deeaea510692b3a5e33ae4961e06e756414db1b9b31d.jpg"
+                }
+            },
+            "bbox": [
+                256,
+                167,
+                736,
+                204
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The optimal "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "f _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "coincides with the optimal solution in the original SOC equation (Equation (8)), which gives the correct marginal distribution of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "X _ { 1 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "as a result. However, the objective is equivalent to the objective used in the continuous adjoint method (Pontryagin et al., 1962) with its gradient equal to that of backpropagation through the denoising process. Instead, Domingo-Enrich et al. (2025) derive the ‘lean’ adjoint state where all the terms in the adjoint state that are zero at the optimum are removed from the original adjoint state. The ‘lean’ adjoint state satisfies the following ODE:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                217,
+                826,
+                303
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathrm{d} \\tilde {g} (\\boldsymbol {X}, t) = - \\nabla_ {X _ {t}} \\left[ 2 f _ {\\beta} (X _ {t}, t) - X _ {t} / t \\right] \\tilde {g} (\\boldsymbol {X}, t) \\mathrm{d} t,\\tag{13}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/0cafa8f10584866f970f7ec66abe04b84c91dd81078a293675775a6b911794de.jpg"
+                }
+            },
+            "bbox": [
+                328,
+                309,
+                666,
+                325
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "with the same boundary condition "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\tilde { g } ( X , 1 ) = - \\nabla _ { X _ { 1 } } Q ( X _ { 1 } )"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                334,
+                570,
+                349
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Note that computing the ‘lean’ adjoint state only requires the base flow model "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "f _ { \\beta } ( X _ { t } , t )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and no longer needs to use "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\bar { f } _ { \\theta } ( X _ { t } , t )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "as needed in either the basic adjoint matching objective (Equation (12)) or naive backpropagation through the denoising process. The resulting adjoint matching objective is"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                354,
+                825,
+                398
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "L _ {\\mathrm{AM}} (\\theta) = \\mathbb {E} _ {\\boldsymbol {X}} \\left[ \\int_ {0} ^ {1} \\| 2 (f _ {\\theta} (X _ {t}, t) - f _ {\\beta} (X _ {t}, t)) / \\sigma_ {t} + \\sigma_ {t} \\tilde {g} (\\boldsymbol {X}, t) \\| _ {2} ^ {2} \\mathrm{d} t \\right],\\tag{14}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/1d03a19582127869a262b0d36c211d44cca82756814bde9bc3b8a27df84f1dd1.jpg"
+                }
+            },
+            "bbox": [
+                263,
+                405,
+                733,
+                441
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where again X is sampled from the marginal preserving SDE in Equation (7). Because the terms omitted in the ‘lean’ adjoint state are zero at the optimum, and thus do not change the optimal solution for "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "f _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Thus, the optimal solution for the adjoint matching gives the correct tilt distribution."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                448,
+                825,
+                492
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4 Q-LEARNING WITH ADJOINT MATCHING (QAM)"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                511,
+                614,
+                527
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this section, we describe in detail how our method leverages adjoint matching to directly align the flow policy to prior regularized optimal policy without suffering from backpropagation instability."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                544,
+                823,
+                574
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To start with, we first define the optimal policy that we want to learn as the solution of the best policy under the standard KL behavior constraint:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                579,
+                825,
+                608
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\arg \\max _ {\\pi} \\mathbb {E} _ {a \\sim \\pi (\\cdot | s)} [ Q (s, a) ] \\quad \\text { s.t. } \\quad D _ {\\mathrm{KL}} (\\pi \\parallel \\pi_ {\\beta}) \\leq \\epsilon (s).\\tag{15}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/4b12d566825985a81c983ecf4f7777f44febece1cf780862baa51ed567ecbbde.jpg"
+                }
+            },
+            "bbox": [
+                303,
+                616,
+                689,
+                633
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "or equivalently, for an appropriate "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\tau ( s )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", Nair et al. (2020) show that"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                641,
+                620,
+                657
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\pi^ {\\star} (a \\mid s) \\propto \\pi_ {\\beta} (a \\mid s) e ^ {\\tau (s) Q _ {\\phi} (s, a)}\\tag{16}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/91395d3369335ae9e2cdd695385e311ce7a5e6103cbe05b5a9919579c63af357.jpg"
+                }
+            },
+            "bbox": [
+                383,
+                665,
+                609,
+                683
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\tau : S  \\mathbb { R } ^ { + }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the inverse temperature coefficient that controls the strength of the behavior constraint at each state."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                691,
+                823,
+                720
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We approximate the behavior policy using a flow-matching behavior policy, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "f _ { \\beta } : \\mathcal { S } \\times \\mathbb { R } ^ { A } \\times [ 0 , 1 ] "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbb { R } ^ { A }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "that is optimized with the standard flow-matching objective:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                727,
+                823,
+                758
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "L _ {\\mathrm{FM}} (\\beta) = \\mathbb {E} _ {(s, a) \\sim D, t \\sim [ 0, 1 ], z \\sim \\mathcal {N}} \\left[ \\| f _ {\\beta} (s, (1 - t) z + t a, t) - a + z \\| _ {2} ^ {2} \\right]\\tag{17}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/232425900ac2e375d5f34ee084d338453a2d557819f74f7c879a23dc81b9defd.jpg"
+                }
+            },
+            "bbox": [
+                267,
+                765,
+                728,
+                784
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We then parameterize our approximation of the optimal policy as another flow model "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "f _ { \\theta } : { \\mathcal { S } } \\times \\mathbb { R } ^ { A } \\times"
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "[ 0 , 1 ] \\to { \\overline { { \\mathbb { R } } } } ^ { A }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and solve the following SOC equation:"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                799,
+                823,
+                829
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "L (\\theta) = \\mathbb {E} _ {s \\sim D, a _ {t}} \\left[ \\int_ {0} ^ {1} \\frac {2}{\\sigma_ {t} ^ {2}} \\| f _ {\\theta} (s, a _ {t}, t) - f _ {\\beta} (s, a _ {t}, t) \\| _ {2} ^ {2} - \\tau (s) Q _ {\\phi} (s, a _ {1}) \\mathrm{d} t \\right],\\tag{18}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/dc3fe744d38d804e4502134094d0d5669618ad309d4543849a9af65440566ff5.jpg"
+                }
+            },
+            "bbox": [
+                246,
+                838,
+                748,
+                873
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "a _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is defined by the following ‘memory-less’ SDE "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( e . g . , a _ { 0 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is independent from "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "a _ { 1 } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ":"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                878,
+                767,
+                893
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathrm{d} a _ {t} = (2 f _ {\\theta} (s, a _ {t}, t) - a _ {t} / t) \\mathrm{d} t + \\sqrt {2 (1 - t) / t} \\mathrm{d} B _ {t}.\\tag{19}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/6da5356d8a86613903f9c9b88c8a70c8dd0c6aff2e16ab16c61af832cf85870c.jpg"
+                }
+            },
+            "bbox": [
+                326,
+                904,
+                668,
+                921
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "5"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Similar to the derivation by Domingo-Enrich et al. (2025), the memory-less property allows us to directly conclude that the SOC equation has the optimum at"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                104,
+                825,
+                133
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\pi_ {\\theta} (\\cdot \\mid s) \\propto \\pi_ {\\beta} (\\cdot \\mid s) e ^ {\\tau (s) Q _ {\\phi} (s, a)}\\tag{20}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/838dedd103d688fa6d4191726e611ed6a243b2ad48e9edb762f7b5f84438dccb.jpg"
+                }
+            },
+            "bbox": [
+                390,
+                138,
+                606,
+                157
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\boldsymbol { \\theta } } ( \\cdot \\mid s )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\beta } ( \\cdot \\mid s )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "are the corresponding action distributions defined by "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "f _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "f _ { \\beta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                164,
+                781,
+                180
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "However, directly solving the SOC equation involves backpropagation through time that introduces additional instability. To circumvent this issue, we use the adjoint matching objective proposed by Domingo-Enrich et al. (2025) (Equation (14)) to construct a similar objective for policy optimization in our case:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                185,
+                825,
+                242
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "L _ {\\mathrm{AM}} (\\theta) = \\mathbb {E} _ {s \\sim D, \\{a _ {t} \\} _ {t}} \\left[ \\int_ {0} ^ {1} \\| 2 (f _ {\\theta} (s, a _ {t}, t) - f _ {\\beta} (s, a _ {t}, t)) / \\sigma_ {t} + \\sigma_ {t} \\tilde {g} _ {t} \\| _ {2} ^ {2} \\mathrm{d} t \\right]\\tag{21}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/668d55ef6da1e2933d894256135085437d23cee9ac6f37f290df84df1c466110.jpg"
+                }
+            },
+            "bbox": [
+                250,
+                246,
+                743,
+                280
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\tilde { g } _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the ‘lean’ adjoint state defined by a reverse ODE constructed from "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\textstyle { a _ { t } } ^ { \\prime } \\mathbf { s } \\colon"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                286,
+                720,
+                301
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathrm{d} \\tilde {g} _ {t} = - \\nabla_ {a _ {t}} \\left[ 2 f _ {\\beta} (s, a _ {t}, t) - a _ {t} / t \\right] \\tilde {g} _ {t} \\mathrm{d} t.\\tag{22}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/a73481d3a3f4f5c820d65f84db76e12c3fed5d10d10da3c00894addc206b9bf2.jpg"
+                }
+            },
+            "bbox": [
+                364,
+                308,
+                630,
+                324
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Unlike the original SOC objective (Equation (18)) from which calculating the gradient requires backpropagating through an SDE, which suffers from stability challenges, the adjoint matching objective is constructed without backpropagation. Instead, it uses the behavior velocity field "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "f _ { \\beta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to calculate the ‘lean’ adjoint states "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{ \\tilde { g } _ { t } \\} _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "through a series of VJPs for every SDE trajectory "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{ a _ { t } \\} _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "which are then used to form a squared loss in the adjoint matching objective. Mathematically, backpropagation can also be interpreted as calculating the adjoint states through a series of VJPs, with the key distinction that the VJPs are computed under the flow model that is being optimized "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( i . e ."
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "f _ { \\theta } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". This is an important distinction because for direct backpropagation, any ill-conditioned action gradient in "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "f _ { \\theta } \\ ( i . e . , \\nabla _ { a } f _ { \\theta } ( s , a , t ) )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "would compound over the entire denoising process, contributing to the "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "^ { \\circ } \\mathrm { i l l } ."
+                    },
+                    {
+                        "type": "text",
+                        "content": "-condition-ness’ of the overall gradient to the parameter "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\theta ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": "which can in turn destabilize the whole optimization process. In contrast, in adjoint matching, the action gradient of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "f _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "has no contribution to the overall gradient to "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\theta ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": "which allows the optimization to be much more stable."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                330,
+                826,
+                500
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Finally, we combine the policy optimization with the standard TD-learning objective:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                503,
+                733,
+                520
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "L (\\phi) = \\mathbb {E} _ {s, a, s ^ {\\prime}, r \\sim D} \\left[ (Q (s, a) - r - \\gamma Q _ {\\bar {\\phi}} (s ^ {\\prime}, a ^ {\\prime}) \\right], \\quad a ^ {\\prime} \\gets \\mathrm{ODE} (f _ {\\theta} (s ^ {\\prime}, \\cdot , \\cdot), a _ {0} ^ {\\prime} \\sim \\mathcal {N})\\tag{23}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/e874708fed06de17d5d258bb874964bfb53a4a098461bfd4259fe9417ea06467.jpg"
+                }
+            },
+            "bbox": [
+                200,
+                525,
+                769,
+                544
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\begin{array} { r } { \\mathrm { O D E } ( f _ { \\theta } ( s ^ { \\prime } , \\cdot , \\cdot ) , a _ { 0 } ^ { \\prime } ) : = \\int _ { 0 } ^ { 1 } f _ { \\theta } ( s ^ { \\prime } , a _ { t } ^ { \\prime } , t ) \\mathrm { d } \\iota } \\end{array}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "t (sampling an action sample from the velocity field "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "f _ { \\boldsymbol { \\theta } } ( s ^ { \\prime } , \\cdot , \\cdot ) )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and ϕ<sup>¯</sup> is the exponential moving average of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\phi"
+                    },
+                    {
+                        "type": "text",
+                        "content": "with a time-constant of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\lambda = 0 . 0 0 5 ( i . e ."
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\bar { \\phi } _ { i + 1 }  ( 1 - \\lambda ) \\bar { \\phi } _ { i } + \\lambda \\phi _ { i }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for each training step i)."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                551,
+                825,
+                599
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Practical considerations. In practice, following Domingo-Enrich et al. (2025), we solve both the SDE and the reverse ODE with discrete approximation and a fixed step size of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "h = 1 / T"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the number of discretization steps. In particular, with "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "a _ { 0 } \\sim \\mathcal { N }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "z _ { t } \\sim \\mathcal { N } , \\forall t \\in \\{ 0 , h , \\cdot \\cdot \\cdot ( T - 1 ) h \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "the forward SDE process is approximated by"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                604,
+                825,
+                662
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "a _ {t + h} \\leftarrow a _ {t} + h \\cdot (2 f _ {\\theta} (s, a _ {t}, t) - a _ {t} / t) + \\sqrt {2 h (1 - t) / t} z _ {t}.\\tag{24}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/a0945697b5224096dad0e1f1da6e887121d928ec02cfdc85fb915065be0af963.jpg"
+                }
+            },
+            "bbox": [
+                300,
+                670,
+                692,
+                688
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We set the boundary condition as "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\tilde { g } _ { 1 } = - \\tau \\nabla _ { a _ { 1 } } Q _ { \\phi } ( s , a _ { 1 } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", where we use a state-independent inverse temperature coefficient τ to modulate the influence of the prior "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\beta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and we additionally clip the magnitude of the parameter gradient element-wise by 1 for numerical stability. The backward adjoint state calculation process is then approximated by"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                694,
+                825,
+                751
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\tilde {g} _ {t - h} \\leftarrow \\tilde {g} _ {t} + h \\cdot \\mathrm{VJP} (\\nabla_ {a _ {t}} (2 f _ {\\beta} (s, a _ {t}, t) - a _ {t} / t), \\tilde {g} _ {t}),\\tag{25}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/1276d5d81d5b42004f1d5ee2c157f5d921fd4256053844af550f9a2fdf86608b.jpg"
+                }
+            },
+            "bbox": [
+                320,
+                757,
+                674,
+                773
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "with "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { V J P } ( \\nabla _ { \\pmb { y } } b ( \\pmb { y } ) , \\pmb { x } ) = [ \\nabla _ { \\pmb { y } } b ( \\pmb { y } ) ]"
+                    },
+                    {
+                        "type": "text",
+                        "content": "x being the vector-Jacobian product and it can be practically implemented by carrying the ‘gradient’ x with backpropagation through "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "f ."
+                    },
+                    {
+                        "type": "text",
+                        "content": "For the critic, we use an ensemble of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "K = 1 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": "critic functions "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\phi ^ { 1 } , \\cdots , \\phi ^ { \\dot { K } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and use the pessimistic target value backup following Fang et al. (2025a) (originally inspired by Ghasemipour et al. (2022)). The loss function for each "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\phi ^ { j } , j \\in \\{ 1 , 2 , \\cdots , K \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                779,
+                825,
+                851
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "L (\\phi^ {j}) = \\left(Q _ {\\phi^ {j}} (s, a) - r - \\gamma \\left[ \\bar {Q} _ {\\mathrm{mean}} (s ^ {\\prime}, a ^ {\\prime}) - \\rho \\bar {Q} _ {\\mathrm{std}} (s ^ {\\prime}, a ^ {\\prime}) \\right]\\right) ^ {2},\\tag{26}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/c92ddf9eb605a2737443b931069a9e964b323122ef82d16de17038a10c4bf6ae.jpg"
+                }
+            },
+            "bbox": [
+                284,
+                858,
+                710,
+                878
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\begin{array} { r } { \\bar { Q } _ { \\operatorname* { m e a n } } ( s ^ { \\prime } , a ^ { \\prime } ) : = \\frac { 1 } { K } \\sum _ { k } Q _ { \\bar { \\phi } ^ { k } } ( s ^ { \\prime } , a ^ { \\prime } ) , \\bar { Q } _ { \\operatorname { s t d } } ( s ^ { \\prime } , a ^ { \\prime } ) = \\frac { 1 } { K } \\sqrt { \\sum _ { k } ( Q _ { \\bar { \\phi } ^ { k } } ( s ^ { \\prime } , a ^ { \\prime } ) - \\bar { Q } _ { \\operatorname* { m e a n } } ( s ^ { \\prime } , a ^ { \\prime } ) ) ^ { 2 } } , } \\end{array}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "a ^ { \\prime }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the action sampled from the fine-tuned flow model: "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "f _ { \\theta } ( s , \\cdot , \\cdot )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". For all our experiments, we do not use a separate training process for "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "f _ { \\beta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and instead training it at the same time as "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "f _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "Q _ { \\phi }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", following Park et al. (2025c); Li et al. (2025). For all our loss functions, the transition tuple "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( s , a , s ^ { \\prime } , r )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is drawn from D uniformly. During offline training, D is the offline data. During online fine-tuning, D is combination of the offline and online replay buffer data without any re-weighting. A pseudocode of our algorithm is available in Algorithm 1 in the Appendix."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                888,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "6"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                826,
+                175
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Theoretical guarantees. As our algorithm builds off from Domingo-Enrich et al. (2025), we can directly extend their theoretical results to our setting (see in Section G)—as long as the loss function "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "L _ { \\mathrm { A M } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is optimized to convergence "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( i . e ."
+                    },
+                    {
+                        "type": "text",
+                        "content": ", with "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\partial L / \\partial f _ { \\theta } = 0 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", the learned policy coincides with the optimal behavior-constrained policy "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( i . e . , \\pi ^ { \\star } ( a \\mid s ) \\propto \\pi _ { \\beta } ( a \\mid s ) \\exp ( \\tau Q ( s , a ) )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "in Equation (16))."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                180,
+                825,
+                238
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Expanding the constraint set beyond the KL behavior constraint. While our method, QAM, is guaranteed to converge to the optimal behavior-constrained policy "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( i . e . , \\propto \\pi _ { \\beta } \\exp ( Q ) )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", it can struggle to represent any policy that has a support mismatch with the behavior policy. For tasks where the optimal actions have extremely low probability under the behavior distribution, our algorithm may have trouble to represent an optimal policy for these tasks. In practice, we often find it to be beneficial to relax the behavior constraint in QAM to allow actions that are ‘close’ (in the action space) to the behavior actions. This amounts to optimizing the policy under the following constraint:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                243,
+                825,
+                342
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\arg \\max _ {\\pi , \\tilde {\\pi}} \\mathbb {E} _ {a \\sim \\pi (\\cdot | s)} [ Q (s, a) ] \\quad \\text {s.t.} \\quad D _ {\\mathrm{KL}} (\\tilde {\\pi} \\| \\pi_ {\\beta}) \\leq \\epsilon (s), W _ {q} (\\pi , \\tilde {\\pi}) \\leq \\sigma_ {a},\\tag{27}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/ca77a5a7c4f8637a05cf111c8ae213a236fc33f139156c952c887ee087efb354.jpg"
+                }
+            },
+            "bbox": [
+                243,
+                345,
+                751,
+                362
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "q { \\mathrm { - } } \\mathsf { W }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "asserstein distance between "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi , { \\tilde { \\pi } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "under some metric d : "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": ": \\mathcal { A } \\times \\mathcal { A } \\mapsto \\mathbb { R } _ { 0 } ^ { + }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\sigma _ { a }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "some constant that controls the strength of the constraint:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                367,
+                813,
+                397
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "W _ {q} (\\pi (\\cdot \\mid s), \\tilde {\\pi} (\\cdot \\mid s)) := \\inf _ {c \\in \\mathcal {C} (\\pi , \\tilde {\\pi})} \\left[ \\mathbb {E} _ {a, \\tilde {a} \\sim c (a, \\tilde {a} | s)} [ d (a, \\tilde {a}) ^ {q} ] ^ {1 / q} \\right],\\tag{28}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/92c5a8dc796e1c8a0cbd467c9a9039e0de442794385bd65f567f2595c4ee11ce.jpg"
+                }
+            },
+            "bbox": [
+                289,
+                401,
+                707,
+                428
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { C } ( \\pi , \\tilde { \\pi } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the set of all couplings between π and π˜. With such design, π not only respects KL behavior constraint, but can also represent actions that are ‘close’ (in the geometry of the action space) to the behavior policy. While directly optimizing this objective is intractable, we approximate it by using the solution from QAM "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( i . e . , \\pi _ { \\theta } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to approximate the optimal "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\tilde { \\pi } } ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", allowing us to transpose the problem into a behavior-constrained policy optimization problem with "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "being the base policy:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                434,
+                825,
+                503
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\pi^ {\\star} \\approx \\pi_ {\\omega} = \\arg \\max _ {\\pi} \\mathbb {E} _ {a \\sim \\pi (\\cdot | s)} [ Q (s, a) ] \\quad \\text { s.t. } \\quad W _ {q} (\\pi (a \\mid s), \\pi_ {\\theta} (a \\mid s)) \\leq \\sigma_ {a}.\\tag{29}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/d9154afc86a615ead6c3ebbf6716e5a69623dfef03eb685f9b24bd41864948a0.jpg"
+                }
+            },
+            "bbox": [
+                228,
+                507,
+                748,
+                523
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In practice, we explore two practical variants for optimizing π with different choices of q and d and approximations."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                527,
+                825,
+                556
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Thefirst variant, QAM-FQL: For our first variant, we use "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "q = 2"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "d ( a , \\tilde { a } ) = \\lVert a - \\tilde { a } \\rVert _ { 2 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", which allows us to directly use a prior flow RL method, FQL (Park et al., 2025c). In particular, we learn a 1- step noise-conditioned policy, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\omega }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "(as represented by "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mu _ { \\omega } ( s , z ) : \\mathcal { S } \\times \\mathbb { R } ^ { A } \\mapsto \\mathbb { R } ^ { A } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and optimize the following objective (with α being a tunable BC coefficient),"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                561,
+                826,
+                619
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "L _ {\\mathrm{QAM-FQL}} (\\omega) = \\mathbb {E} _ {z \\sim \\mathcal {N}} \\left[ - Q _ {\\phi} (s, \\mu_ {\\omega} (s, z)) + \\alpha \\| \\mu_ {\\omega} (s, z) - \\mathrm{ODE} (f _ {\\theta} (s, \\cdot , \\cdot), z) \\| _ {2} ^ {2} \\right].\\tag{30}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/94e394351a76b9d89a951baf2b75c755702af927926fd199bb34793a6f54d032.jpg"
+                }
+            },
+            "bbox": [
+                228,
+                621,
+                764,
+                638
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "As a direct application of the theoretical result in Park et al. (2025c), the second term in the equation above is an upper-bound on squared Wasserstein distance "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "W _ { 2 } ^ { 2 } ( \\pi _ { \\omega } , \\pi _ { \\theta } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "between the 1-step noiseconditioned policy "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\omega }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and the optimal behavior-constrained policy obtained via "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { Q A M } , \\pi _ { \\theta } ."
+                    },
+                    {
+                        "type": "text",
+                        "content": ". This is exactly the desired constraint "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( i . e . , W _ { 2 } ^ { 2 } ( \\pi _ { \\omega } , \\pi _ { \\theta } ) \\leq \\epsilon _ { W } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". We then use this 1-step policy "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\omega }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "both to interact with the environment and to compute value targets "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( i . e . , \\bar { Q } ( s ^ { \\prime } , a ^ { \\prime } = \\bar { \\mu } ( s , \\bar { z } \\sim { \\mathcal N } ) ) )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "Intuitively, the 1-step policy is optimized to remain close to the QAM-fine-tuned flow policy while also maximizing the action value under the current critic. We call this first variant of our method QAM-FQL."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                642,
+                826,
+                741
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The second variant, QAM-EDIT: Our second variant uses "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "q = 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "d ( a , \\tilde { a } ) = \\| a - \\tilde { a } \\| _ { \\infty }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". To implement this, we learn an edit policy "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\omega } ( \\Delta _ { a } \\mid s , a )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "that predicts an action edit "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\Delta _ { a }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to modify the action output from "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "by at most "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\sigma _ { a }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "in the "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "L _ { \\infty }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "distance "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( i . e . , \\| \\Delta _ { a } \\| _ { \\infty } \\leq \\sigma _ { a } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". This ensures that the Wasserstein distance constraint "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( i . e . , W _ { 1 } ( \\pi _ { \\omega } , \\pi _ { \\theta } ) \\leq \\sigma _ { a } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is enforced by construction. In practice, we train an edit policy (Dong et al., "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "2 0 2 5 ) , \\pi _ { \\omega } ( \\cdot \\mid s , \\tilde { a } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", where it first predicts a Gaussian distribution, then squashed by a tanh function to between −1 and 1, and finally rescaled to be between "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "- \\sigma _ { a }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\sigma _ { a }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "as the action edit. To avoid the degenerate case where the edit policy always outputs the boundary action edits "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( i . e . , - \\sigma _ { a } \\mathrm { o r } \\sigma _ { a } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", we also include the standard entropy term from Haarnoja et al. (2018) with the automatic entropy tuning trick such that the policy’s entropy is close to a constant value of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { H } ( \\pi _ { \\omega } ) = \\mathcal { H } _ { \\mathrm { t a r g e t } } = - A / 2"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                746,
+                826,
+                886
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\begin{array}{r} L _ {\\mathsf {Q A M - E D I T}} (\\omega) = \\mathbb {E} _ {\\Delta_ {a} \\sim \\pi_ {\\omega} (\\cdot | s, a)} \\left[ - Q _ {\\phi} (s, \\Delta_ {a} + a) + \\eta \\log \\pi_ {\\omega} (\\Delta_ {a} \\mid s, a) \\right], \\\\ L (\\eta) = \\eta \\left[ \\mathbb {E} _ {\\Delta_ {a} \\sim \\pi_ {\\omega} (\\cdot | s, a)} [ \\log \\pi_ {\\omega} (\\Delta_ {a} \\mid s, a) ] - \\mathcal {H} _ {\\mathrm{target}} \\right], \\end{array}\\tag{31}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/2a1ba84b01f9d7ab7c8f56e555a7beb0dc0ad0a7234f78e9e1397c2a04ef0ca2.jpg"
+                }
+            },
+            "bbox": [
+                258,
+                890,
+                738,
+                928
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "7"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "a \\sim \\pi _ { \\theta } ( \\cdot \\mid s )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for both losses and again "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\Delta _ { a }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is restricted to be "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\| \\Delta _ { a } \\| _ { \\infty } \\leq \\sigma _ { a }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Similarly to our first variant, we use "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\omega }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "both to interact with the environment and to compute value targets. A potential side benefit of the entropy term is that it can also encourage action diversity that can be helpful for online exploration and fine-tuning. As we will show in our experiments, this QAM variant not only excels in offline RL but also fine-tunes effectively online."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                103,
+                826,
+                175
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5 EXPERIMENTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                189,
+                328,
+                204
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We conduct experiments to evaluate the effectiveness of our method on a range of long-horizon, sparse-reward domains and compare it against a set of representative baselines."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                217,
+                826,
+                248
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Domains and datasets. We consider 10 domains (5 tasks each) from OGBench (Park et al., 2025a): scene, puzzle-3x3 (p33), puzzle-4x4 (p44), cube-double (c2), cube-triple (c3), cube-quadruple (c4), humanoidmaze-medium (hm), humanoidmaze-large (hl), antmaze-large (al), and antmaze-giant (ag). For antmaze-* and humanoidmaze-*, we use the default navigate datasets. For scene, puzzle-*, and cube-*, we use the default play datasets except for c4 and p44 where we use the larger 100M-size dataset from Park et al. (2025b), and use the sparse reward definition for {p33, p44, scene}, following Li et al. (2025). In addition, for all {cube-*, scene-*, p33-*, p44-*} domains, we follow Li et al. (2025) to learn action chunking policies with an action chunking size of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "h = 5 ."
+                    },
+                    {
+                        "type": "text",
+                        "content": "Action chunking policies output high-dimensional actions that exhibits a much more complex behavior distribution, where the policy extraction becomes critical. Since our approach primarily focuses on the policy extraction aspect, these domains make an ideal testbed us to compare our method to prior work. See Section D for more details on these domains."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                253,
+                826,
+                421
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Comparisons. We carefully select 13 representative, strong baselines that can be roughly categorized into the following 5 categories— (1) Gaussian: ReBRAC (Tarasov et al., 2023), (2) Backprop: FBRAC (Park et al., 2025c) (backprop through the flow policy’s denoising step directly), FQL (backprop through a 1-step distilled policy) (Park et al., 2025c); (3) Advantage-weighted: FAWAC (Park et al., 2025c) (advantage weighted actor critic, AWAC (Nair et al., 2020), with flow policy); (4) Guid ance with the critic’s action gradient: DAC (Fang et al., 2025b), QSM (Psenka et al., 2024a), and CGQL/CGQL-MSE/CGQL-Linex (three variants of classifier guidance-based methods inspired by Dhariwal & Nichol (2021)); (5) Post-processing-based: DSRL (Wagenmaker et al., 2025), FEdit (flow + Gaussian edit policy from Dong et al. (2025)), and IFQL (flow counterpart of IDQL (Hansen Estruch et al., 2023)). For offline-to-online evaluations we additionally compare with RLPD (Ball et al., 2023). Finally, we compare with BAM, a direct ablation from our method QAM where we use the ‘basic’ adjoint matching (and hence the abbreviation BAM) objective in Equation (12) instead of the adjoint matching objective in Equation (14), and keep the rest of the implementation exactly the same. We categorize it as a “backprop” method because its gradient is equivalent to that of backpropagating through the memory-less SDE as we discuss above in Section 3."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                426,
+                828,
+                637
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Among them, RLPD does not employ any behavior constraint, so we directly train from scratch online. To make the comparison fair, we use "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "K = 1 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": "critic networks, pessimistic value backup with "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\rho = 0 . 5"
+                    },
+                    {
+                        "type": "text",
+                        "content": "(except on humanoidmaze-large where we find "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\rho = 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to work better), no best-of-N sampling (i.e., N = 1) for both our methods and our baselines except for IFQL where best-of-N is used for policy extraction. See Section E for detailed description and implementation detail for each of the baselines. We also include the domain-specific hyperparameters for each baseline in Section F."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                642,
+                826,
+                728
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "6 RESULTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                741,
+                284,
+                757
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this section, we present our experimental results to answer the following three questions:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                770,
+                772,
+                785
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "(Q1) How effective is our method for offline RL?"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                791,
+                514,
+                806
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Table 1 reports the offline RL performance across 10 different domains (50 tasks in total). QAM outperforms all prior methods with an aggregated score of 44. In particular, among all the baselines, FAWAC also converges to the optimal behavior-constrained distribution (Equation (16) but does not leverage the action gradient of the critic, resulting in a much worse aggregated score of 8; BAM also leverages the SOC objective but optimizes it with backpropagation through the SDE chain (without using the ‘lean’ adjoint), leading to a worse aggregated score of 35. It is worth noting that FBRAC also leverages backpropagation through time (BPTT) similar to BAM, but performs much worse than BAM. The main distinction between BAM and FBRAC is that BAM leverages the SOC formulation which enjoys the guarantee that the policy at the optimum recovers the optimal behavior-constrained policy, whereas FBRAC has not been found to enjoy such guarantee. This suggests that carefully designing the loss function where its optimum coincides with the optimal behavior-constrained policy can be influential to the algorithm’s performance. Furthermore, BAM ends up performing similarly to FQL, which addresses the BPTT instability issue by leveraging a 1-step distilled policy. This suggests that BPTT might not be as disadvantageous as previously reported in Park et al. (2025c) in the best case, but can be sensitive to implementation details. In addition, we find QSM, one of the earliest methods proposed in the literature of diffusion/flow-matching and RL can perform very well when augmented with a behavior cloning term. <sup>2</sup> We also find that a Gaussian baseline, ReBRAC, while worse on manipulation tasks, often outperforms other flow/diffusion-based methods on locomotion tasks. This makes ReBRAC the fifth-best method in terms of aggregated score, falling short compared to QSM and all three QAM variants. At last but not least, combining QAM with FQL and FEdit (QAM-F and QAM-E respectively) can push the performance even further, achieving an aggregated score of 45 and 46 respectively."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                811,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "8"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/4ce41fe7e2f66987defa23e9f164374e641408224a4b2de01c4f711092b73684.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 1: Offline RL performance at 1M training steps (50 tasks, 12 seeds). Our method (QAM) and two of its variants, QAM-FQL (QAM-F) and QAM-EDIT (QAM-E) outperform all prior baselines. We use CGQL-M, CGQL-L, QAM-F, QAM-E as the abbreviations for CGQL-MSE, CGQL-Linex, QAM-FQL, and QAM-EDIT respectively. For results on individual tasks, see Table 2 in Section B."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td colspan=\"2\"></td><td>al5 tasks</td><td>ag5 tasks</td><td>hm5 tasks</td><td>hl5 tasks</td><td>scene5 tasks</td><td>p335 tasks</td><td>p445 tasks</td><td>c25 tasks</td><td>c35 tasks</td><td>c45 tasks</td><td>all50 tasks</td></tr><tr><td>GAUSSIAN</td><td>ReBRAC</td><td>[94,95]94</td><td>[53,60]57</td><td>[65,74]69</td><td>[15,19]17</td><td>[61,69]65</td><td>[73,84]79</td><td>[0,0]0</td><td>[8,10]9</td><td>[0,1]1</td><td>[6,13]9</td><td>[39,41]40</td></tr><tr><td rowspan=\"3\">BACKPROP</td><td>FBRAC</td><td>[1,4]2</td><td>[0,0]0</td><td>[37,41]39</td><td>[0,0]0</td><td>[43,57]50</td><td>[0,1]0</td><td>[12,19]15</td><td>[0,0]0</td><td>[0,1]0</td><td>[0,0]0</td><td>[10,12]11</td></tr><tr><td>BAM</td><td>[62,85]84</td><td>[0,2]1</td><td>[58,62]60</td><td>[4,8]5</td><td>[97,99]98</td><td>[48,64]56</td><td>[0,0]0</td><td>[44,50]47</td><td>[2,5]3</td><td>[0,0]0</td><td>[34,36]35</td></tr><tr><td>FQL</td><td>[72,79]76</td><td>[0,0]0</td><td>[63,73]68</td><td>[7,11]9</td><td>[77,86]78</td><td>[60,79]70</td><td>[3,7]5</td><td>[43,49]46</td><td>[2,4]3</td><td>[1,5]2</td><td>[34,37]36</td></tr><tr><td>ADV. WEIGHTED</td><td>FAWAC</td><td>[15,19]17</td><td>[0,0]0</td><td>[22,26]24</td><td>[0,0]0</td><td>[25,41]38</td><td>[2,3]3</td><td>[0,0]0</td><td>[2,2]2</td><td>[0,0]0</td><td>[0,0]0</td><td>[8,9]8</td></tr><tr><td rowspan=\"5\">GUIDANCE</td><td>CGQL</td><td>[73,86]76</td><td>[0,2]0</td><td>[17,62]60</td><td>[4,5]5</td><td>[26,46]38</td><td>[40,55]48</td><td>[14,33]24</td><td>[26,41]38</td><td>[7,9]8</td><td>[0,0]0</td><td>[20,31]30</td></tr><tr><td>CGQL-M</td><td>[69,73]71</td><td>[1,8]4</td><td>[40,43]42</td><td>[3,8]6</td><td>[72,79]74</td><td>[100,100]100</td><td>[0,0]0</td><td>[29,43]41</td><td>[7,9]8</td><td>[0,1]1</td><td>[34,35]35</td></tr><tr><td>CGQL-L</td><td>[62,67]65</td><td>[1,4]3</td><td>[17,66]62</td><td>[5,8]6</td><td>[85,91]88</td><td>[83,99]90</td><td>[0,0]0</td><td>[43,47]45</td><td>[7,9]8</td><td>[0,1]0</td><td>[36,38]37</td></tr><tr><td>DAC</td><td>[86,90]88</td><td>[11,20]16</td><td>[61,85]83</td><td>[0,0]0</td><td>[65,79]68</td><td>[62,75]68</td><td>[0,0]0</td><td>[33,36]35</td><td>[2,6]5</td><td>[1,5]3</td><td>[35,38]36</td></tr><tr><td>QSM</td><td>[69,92]90</td><td>[19,20]24</td><td>[79,84]82</td><td>[2,7]6</td><td>[77,86]78</td><td>[52,63]57</td><td>[0,0]0</td><td>[31,34]33</td><td>[2,6]6</td><td>[16,19]19</td><td>[36,40]39</td></tr><tr><td rowspan=\"3\">POST-PROCESSING</td><td>DSRL</td><td>[56,66]61</td><td>[1,4]3</td><td>[48,58]53</td><td>[2,5]3</td><td>[99,100]99</td><td>[82,92]87</td><td>[0,0]0</td><td>[72,76]74</td><td>[1,2]1</td><td>[2,3]2</td><td>[38,39]38</td></tr><tr><td>FEdit</td><td>[54,62]58</td><td>[1,3]2</td><td>[30,23]22</td><td>[2,3]3</td><td>[60,65]62</td><td>[96,100]99</td><td>[30,37]34</td><td>[37,43]40</td><td>[2,3]2</td><td>[2,7]5</td><td>[32,33]33</td></tr><tr><td>IFQL</td><td>[32,39]36</td><td>[0,2]1</td><td>[65,87]86</td><td>[21,27]24</td><td>[83,85]84</td><td>[100,100]100</td><td>[0,0]0</td><td>[10,12]11</td><td>[0,0]0</td><td>[1,3]2</td><td>[34,35]34</td></tr><tr><td rowspan=\"3\">ADJOINT MATCHING</td><td>QAM</td><td>[78,84]81</td><td>[14,22]18</td><td>[64,69]67</td><td>[9,14]11</td><td>[96,99]97</td><td>[99,100]100</td><td>[0,0]0</td><td>[62,66]64</td><td>[3,4]3</td><td>[2,4]3</td><td>[44,45]44</td></tr><tr><td>QAM-F</td><td>[81,84]83</td><td>[8,16]12</td><td>[62,69]65</td><td>[9,14]12</td><td>[92,97]95</td><td>[99,100]99</td><td>[5,8]6</td><td>[63,67]65</td><td>[2,3]3</td><td>[11,17]14</td><td>[45,46]45</td></tr><tr><td>QAM-E</td><td>[80,86]83</td><td>[0,3]1</td><td>[54,63]59</td><td>[1,3]2</td><td>[96,99]97</td><td>[100,100]100</td><td>[25,43]39</td><td>[63,66]65</td><td>[4,6]5</td><td>[4,9]6</td><td>[45,47]46</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                174,
+                99,
+                821,
+                416
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                505,
+                826,
+                700
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "(Q2) How effective is our method for offline-to-online fine-tuning?"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                705,
+                633,
+                722
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Next, we take the best performing variant of QAM, QAM-EDIT, and evaluate its ability to online finetune from its offline RL initialization. Figure 2 shows the sample efficiency curve (with x-axis being the number of environment steps). Our method outperforms all prior methods on cube-triple and is the most robust method across the board. For example, compared to ours, QSM fine-tunes better on ag but struggles on all other tasks except on c2 where it performs similar to our method. FQL fine-tunes slightly better on ag but much slower on both p44 and c3."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                727,
+                828,
+                813
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "(Q3) How sensitive is our method to hyperparameters? We also conduct sensitivity analyses for various components of our best performing variant, QAM-EDIT, including gradient clipping, number of flow steps (T), critic ensemble size (K) and the temperature coefficient (τ). As we show in Figure 3, all of these components contribute to our method’s effectiveness. Among them, the temperature parameter (τ ) has the biggest impact on performance and need to be tuned. For the other components, we find enabling gradient clipping and having a large critic ensemble size (K = 10) also help. Lastly, we find that setting the number of flow steps to T = 10 works well enough and increasing it further does not improve performance."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                818,
+                828,
+                862
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "<sup>2</sup>The original QSM implementation does not have a behavior cloning term. It only aligns the action gradient of the critic to the diffusion denoising process. This makes the vanilla QSM very hard to learn anything during the offline pre-training phase. To adapt it to our offline-to-onlilne setting and make the comparison fair, we augment the original QSM loss with the standard DDPM loss on as the behavior cloning loss. See more details in Section E."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                871,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "9"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/468b3146053a502287bb9a5560fdfe8ee011682438b7f41113d5a677dc257833.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Online Environment Steps (×10<sup>4</sup>)"
+                    },
+                    {
+                        "type": "text",
+                        "content": "Figure 2: QAM online fine-tunes more effectively than prior methods (50 tasks, 12 seeds). We use the QAM-EDIT (QAM-E) variant for QAM and the CGQL-Linex variant for CGQL (CGQL-L) because they work well for online fine-tuning. For full results, see Figure 5 in the Appendix."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                176,
+                103,
+                820,
+                227
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/e384dfc59a4a37c0bb0ccf0e30d2b0631d352472136dcf712e0ced685a2735e8.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                176,
+                327,
+                346,
+                431
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/6078519c94140b626cb2088394954f657bd1761db7c519ddb4e7a8cbfd55788b.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                349,
+                327,
+                504,
+                431
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/c496658ecb7de777cbd71e45798d37b8ef9a70b41fbbe4a51332121a8170e131.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Online Environment Steps (×10<sup>4</sup>)"
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                508,
+                327,
+                661,
+                431
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/4b540f8e297d0455b492ba39bc0c297d681df14b1204a96ca4d772664bd8c80a.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 3: Sensitivity analysis of QAM-EDIT on the representative task from each domain (12 seeds). For all locomotions tasks, we use task1. For all manipulation tasks, we use task2. We report the aggregated performance across these 10 representative tasks. Gradient Clipping: whether to use gradient clipping in our optimizer; Flow Steps (T): this parameter indicates the number of numerical integration steps that we use for the flow model. Critic Ensemble Size (K): number of critic network in the ensemble; Temperature (τ): the parameter that modulates the influence of the prior. We rerun our method with 0.1×, 0.3×, 3×, and 10× the best τ from tuning. Full results in Figure 6."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                666,
+                327,
+                821,
+                431
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                595,
+                826,
+                666
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "7 DISCUSSION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                173,
+                691,
+                313,
+                708
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We present Q-learning with Adjoint Matching (QAM), a new TD-based RL method that effectively leverages the critic’s action gradient to extract an optimal prior-constrained policy while circumventing common limitations of prior approaches (e.g., approximations that do not guarantee to converge to the desired optimal solution, learning instability, or reduced expressivity from distillation). Our empirical results suggest that QAM is an effective policy extraction method in both the offline RL setting and the offline-to-online RL setting, performing on par or better than prior methods. There are still practical challenges associated with QAM. While QAM’s effectiveness can be largely attributed to how well it is able to leverage the critic’s action gradient, this can be a double-edge sword—for cases where the critic function is ill-conditioned, it could lead to optimization stability issue. Gradient clipping (as done in our method) can alleviate this issue, but a more principled method that combines both value and gradient information could further improve robustness and performance. Another possible extension is to apply QAM in real-world robotic settings with action chunking policies. Our initial success (especially in the manipulation domains where we also leverage action chunking policies) may suggest that our method might work more effectively in complex real-world scenarios."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                729,
+                828,
+                926
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "10"
+                    }
+                ]
+            },
+            "bbox": [
+                488,
+                948,
+                509,
+                960
+            ]
+        }
+    ]
+]

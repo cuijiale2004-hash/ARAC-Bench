@@ -1,0 +1,223 @@
+## ABSTRACT
+
+Graph Neural Networks (GNNs) have demonstrated remarkable success in various domains such as social networks, molecular chemistry, and more. A crucial component of GNNs is the pooling procedure, in which the node features calculated by the model are combined to form an informative final descriptor to be used for the downstream task. However, previous graph pooling schemes rely on the last GNN layer features as an input to the pooling or classifier layers, potentially under-utilizing important activations of previous layers produced during the forward pass of the model, which we regard as historical graph activations. This gap is particularly pronounced in cases where a node’s representation can shift significantly over the course of many graph neural layers, and worsened by graph-specific challenges such as over-smoothing in deep architectures. To bridge this gap, we introduce HISTOGRAPH, a novel two-stage attention-based final aggregation layer that first applies a unified layer-wise attention over intermediate activations, followed by node-wise attention. By modeling the evolution of node representations across layers, our HISTOGRAPH leverages both the activation history of nodes and the graph structure to refine features used for final prediction. Empirical results on multiple graph classification benchmarks demonstrate that HISTOGRAPH offers strong performance that consistently improves traditional techniques, with particularly strong robustness in deep GNNs. Our code is at https://github.com/YanivDorGalron/HISTOGRAPH.
+
+## 1 INTRODUCTION
+
+Graph Neural Networks (GNNs) have achieved strong results on graph-structured tasks, including molecular property prediction and recommendation (Ma et al., 2019; Gilmer et al., 2017; Hamilton et al., 2017). Recent advances span expressive layers (Maron et al., 2019; Morris et al., 2023; Frasca et al., 2022; Zhang et al., 2023a;b; Puny et al., 2023), positional and structural encodings (Dwivedi et al., 2023; Rampášek et al., 2022; Eliasof et al., 2023a; Belkin & Niyogi, 2003; Maskey et al., 2022; Lim et al., 2023; Huang et al., 2024), and pooling (Ying et al., 2018; Lee et al., 2019; Bianchi et al., 2020; Wang et al., 2020; Vinyals et al., 2015; Zhang et al., 2018; Gao & Ji, 2019; Ranjan et al., 2020; Yuan & Ji, 2020). However, pooling layers still underuse intermediate activations produced during message passing, limiting their ability to capture long-range dependencies and hierarchical patterns (Alon & Yahav, 2020; Li et al., 2019; Xu et al., 2019).
+
+In GNNs, layers capture multiple scales: early layers model local neighborhoods and motifs, while deeper layers encode global patterns (communities, long-range dependencies, topological roles) (Xu et al., 2019), mirroring CNNs where shallow layers detect edges/textures and deeper layers capture object semantics (Zeiler & Fergus, 2014). Greater depth can overwrite early information (Li et al., 2018; Eliasof et al., 2022) and cause over-smoothing, making node representations indistinguishable (Cai & Wang, 2020; Nt & Maehara, 2019; Rusch et al., 2023). We address this by leveraging historical graph activations, the representations from all layers, to integrate multi-scale features at readout (Xu et al., 2018).
+
+![](images/54e04e5c7fabc0139ec862dfb1ed0253e0b5cceb11c6c5a1b87b05e3c0b960a6.jpg)  
+Figure 1: Overview of HISTOGRAPH. (1) Given input node features $\mathbf { X } _ { 0 }$ and adjacency A, a backbone GNN produces historical graph activations $\mathbf { X } _ { 1 } , . . , \mathbf { X } _ { L - 1 }$ . (2) The Layer-wise attention module uses the final-layer embedding as a query to attend over all historical states while averaging across nodes, yielding per-node aggregated embeddings H. (3) A Node-wise self-attention module refines H by modeling interactions across nodes, producing Z, then averaged if graph embeddings G is wanted.
+
+Several works have explored the importance of deeper representations, residual connections, and expressive aggregation mechanisms to overcome such limitations (Xu et al., 2018; Li et al., 2021; Bresson & Laurent, 2017). Close to our approach are specialized methods like state space (Ceni et al., 2025) and autoregressive moving average (Eliasof et al., 2025) models on graphs, that consider a sequence of node features obtained by initialization techniques. Yet, these efforts often focus on improving stability during training, without explicitly modeling the internal trajectory of node features across layers. That is, we argue that a GNN’s computation path and the sequence of node features through layers can be a valuable signal. By reflecting on this trajectory, models can better understand which transformations were beneficial and refine their final predictions accordingly.
+
+In this work, we propose HISTOGRAPH, a self-reflective architectural paradigm that enables GNNs to reason about their historical graph activations. HISTOGRAPH introduces a two-stage self-attention mechanism that disentangles and models two critical axes of GNN behavior: the evolution of node embeddings through layers, and their spatial interactions across the graph. The layer-wise module treats each node’s layer representations as a sequence and learns to attend to the most informative representation, while the node-wise module aggregates global context to form richer, context-aware outputs. HISTOGRAPH design enables learning representations without modifying the underlying GNN architecture, leveraging the rich information encoded in intermediate representations to enhance many graph related predictions (graph classification, node classification and link prediction).
+
+We apply HISTOGRAPH in two complementary modes: (1) end-to-end joint training with the backbone, and (2) post-processing as a lightweight head on a frozen pretrained GNN. The end-to-end variant enriches intermediate representations, while the post-processing variant trains only the head, yielding substantial gains with minimal overhead. HISTOGRAPH consistently outperforms strong GNN and pooling baselines on TU and OGB benchmarks (Morris et al., 2020; Hu et al., 2020), demonstrating that computational history is a powerful, general inductive bias. Figure 1 overviews HISTOGRAPH.
+
+Main contributions. (1) We introduce a self-reflective architectural paradigm for GNNs that leverages the full trajectory of node embeddings across layers; (2) We propose HISTOGRAPH, a two-stage self-attention mechanism that disentangles the layer-wise node embeddings evolution and spatial aggregation of node features; (3) We empirically validate HISTOGRAPH on graph-level classification, node classification and link prediction tasks, demonstrating consistent improvements over state-ofthe-art baselines; and, (4) We show that HISTOGRAPH can be employed as a post-processing tool to further enhance performance of models trained with standard graph pooling layers.
+
+## 2 RELATED WORKS
+
+Graph Neural Networks. GNNs propagate and aggregate messages along edges to produce node embeddings that capture local structure and features (Scarselli et al., 2008; Gilmer et al., 2017). GNN architectures are typically divided into two families: spectral GNNs, defining convolutions with the graph Laplacian (e.g., ChebNet (Defferrard et al., 2016), GCN (Kipf & Welling, 2016)), and spatial GNNs, aggregating neighborhoods directly (e.g., GraphSAGE (Hamilton et al., 2017), GAT (Velickoviˇ c et al., 2017)).´ Greater GNN depth expands receptive fields but introduces over-smoothing (Cai & Wang, 2020; Nt & Maehara, 2019; Rusch et al., 2023; Li et al., 2018) and over-
+
+Table 1: Comparison of pooling methods based on intermediate representation usage, structural considerations, and layer-node modeling.
+
+<table><tr><td>Method</td><td>Int. Repr.</td><td>Struct.</td><td>Layer-Node Model.</td></tr><tr><td>JKNet (Xu et al., 2018)</td><td>Yes</td><td>No</td><td>No</td></tr><tr><td>Set2Set (Vinyals et al., 2015)</td><td>No</td><td>Yes</td><td>No</td></tr><tr><td>SAGPool (Lee et al., 2019)</td><td>No</td><td>Yes</td><td>No</td></tr><tr><td>DiffPool (Ying et al., 2018)</td><td>No</td><td>Yes</td><td>No</td></tr><tr><td>SSRead (Lee et al., 2021)</td><td>No</td><td>Yes</td><td>No</td></tr><tr><td>DKEPool (Chen et al., 2023)</td><td>No</td><td>Yes</td><td>No</td></tr><tr><td>SOPool (Wang &amp; Ji, 2023)</td><td>No</td><td>Yes</td><td>No</td></tr><tr><td>GMT (Baek et al., 2021)</td><td>No</td><td>Yes</td><td>No</td></tr><tr><td>Mean/Max/Sum Pool</td><td>No</td><td>No</td><td>No</td></tr><tr><td>HISTOGRAPH (Ours)</td><td>Yes</td><td>Yes</td><td>Yes</td></tr></table>
+
+squashing (Alon & Yahav, 2020). Mitigations include residual and skip connections (Chen et al., 2020; Xu et al., 2018), graph rewiring (Topping et al., 2021), and global context via positional encodings or attention (Graphormer (Ying et al., 2021), GraphGPS (Rampášek et al., 2022)). Several models preserve multi-hop information for robustness and expressivity. HISTOGRAPH maintains node-embedding histories across propagation and fuses them at readout. Unlike per-layer mixing, this yields a consolidated multi-scale summary, mitigating intermediate feature degradation and retaining local and long-range information.
+
+Pooling in Graph Learning. Graph-level tasks (e.g., molecular property prediction, graph classification) require a fixed-size summary of node embeddings. Early GNNs used permutation-invariant readouts such as sum, mean, and max (Gilmer et al., 2017; Zaheer et al., 2017), as in GIN (Xu et al., 2019). Richer structure motivated learned pooling: SortPool sorts embeddings and selects top-k (Zhang et al., 2018); DiffPool learns soft clusters for hierarchical coarsening (Ying et al., 2018); SAGPool scores nodes and retains a subset (Lee et al., 2019). Set2Set uses LSTM attention for iterative readout (Vinyals et al., 2015), while GMT uses multi-head attention for pairwise interactions (Baek et al., 2021). SOPool adds covariance-style statistics (Wang & Ji, 2023). Concurrently, Wang et al. (2024) propose leveraging global interactive patterns for cross-graph interpretability, which targets a complementary goal to our per-graph readout. A recent survey (Liu et al., 2022) reviews flat and hierarchical techniques on TU and OGB benchmarks. Hierarchical approaches (e.g., Graph U-Net (Gao & Ji, 2019)) capture multi-scale structure but add complexity and risk information loss. In contrast, HISTOGRAPH directly pools historical activations: layer-wise attention fuses multi-depth features, node-wise attention models spatial dependencies, and normalization stabilizes contributions. This preserves information across propagation depths without clustering or node dropping. Table 1 summarizes design choices and shows HISTOGRAPH is the only method combining intermediate representations with structural information.
+
+Residual Connections. Residuals are pivotal for deep GNNs and multi-scale features. Jumping Knowledge flexibly combines layers (Xu et al., 2019), APPNP uses personalized PageRank to preserve long-range signals (Gasteiger et al., 2018), and GCNII adds initial residuals and identity mappings for stability (Chen et al., 2020). In pooling, Graph U-Net links encoder–decoder via skips (Gao & Ji, 2019), and DiffPool’s cluster assignments act as soft residuals preserving early-layer information (Ying et al., 2018). Other methods show that learnable residual connections can mitigate oversmoothing (Eliasof et al., 2023b), and allow a dynamical system perspective on graphs (Eliasof et al., 2024). Differently, our HISTOGRAPH departs by introducing historical pooling: at readout, it accumulates node histories across layers, creating a global shortcut at aggregation that revisits and integrates multi-hop features into the final representation unlike prior models that apply residuals only within node updates or via hierarchical coarsening.
+
+## 3 LEARNING FROM HISTORICAL GRAPH ACTIVATIONS
+
+We introduce HISTOGRAPH, a learnable pooling operator that improves graph representation learning across downstream tasks by integrating layer evolution and spatial interactions in an end-to-end differentiable framework. Unlike pooling that operates on the last GNN layer, HISTOGRAPH treats hidden representations as a sequence of historical activations. It computes node embeddings by querying each node’s history with its final-layer representation, then applies spatial self-attention to produce a fixed-size graph representation. Details appear in Appendix B and Algorithm 1; Figure 1 overviews HISTOGRAPH, and Table 1 compares to other methods.
+
+Notations. Let $\mathbf { F } \in \mathbb { R } ^ { N \times D _ { \mathrm { i n } } }$ denote the raw input node features, where N is the number of nodes in the batch and $D _ { \mathrm { i n } }$ is the input feature dimensionality. The initial representation is given by $\mathbf { X } ^ { ( 0 ) } = \mathrm { E m b } _ { \mathrm { i n } } ( \mathbf { F } )$ , where $\operatorname { E m b } _ { \mathrm { i n } }$ is a linear layer projecting input features to the GNN hidden dimension. For each subsequent layer $l = 1 , \ldots , L - 1$ , the representations are computed recursively as $\mathbf { X } ^ { ( l ) } = \mathbf { G } \mathbf { N } \mathbf { N } ^ { ( l ) } ( \mathbf { X } ^ { ( l - 1 ) } )$ , where $\mathrm { G N N } ^ { ( l ) }$ denotes the l-th GNN layer.
+
+We denote by $\mathbf { X } = [ \mathbf { X } ^ { ( 0 ) } , \mathbf { X } ^ { ( 1 ) } , \ldots , \mathbf { X } ^ { ( L - 1 ) } ] \in \mathbb { R } ^ { N \times L \times D }$ the historical graph activations, i.e., the stacked node embeddings across all L layers. Each node thus has L historical embeddings corresponding to different depths of message passing. When GNN layers produce activations with varying dimensionalities $D _ { 0 } , D _ { 1 } , \ldots , D _ { L - 1 }$ , we apply per-layer linear projections $W ^ { ( l ) } : \mathbb { R } ^ { D _ { l } } $ $\mathbb { R } ^ { D }$ to map each layer’s output to a common hidden dimension D before stacking into X.
+
+Input Projection and Per-Layer Positional Encoding. We project the historical activations to a common hidden dimension D using a linear transformation:
+
+$$
+\mathbf {X} ^ {\prime} = \operatorname{Emb} _ {\text { hist }} (\mathbf {X}) \in \mathbb {R} ^ {N \times L \times D}.\tag{1}
+$$
+
+To encode layer ordering, we add fixed sinusoidal positional encodings as in Vaswani et al. (2017):
+
+$$
+P _ {l, 2 k} = \sin \left(\frac {l}{1 0 0 0 0 ^ {2 k / D}}\right), \quad P _ {l, 2 k + 1} = \cos \left(\frac {l}{1 0 0 0 0 ^ {2 k / D}}\right),\tag{2}
+$$
+
+for $0 \le l < L , 0 \le k < D / 2$ , resulting in $\mathbf { P } \in \mathbb { R } ^ { L \times D }$ . The positional encoding is broadcast across the node dimension and added element-wise to obtain layer-aware features: $\widetilde { \mathbf { X } } _ { v , l } = \mathbf { X } _ { v , l } ^ { \prime } + \mathbf { P } _ { l }$ , for each node v and layer l, yielding $\widetilde { \mathbf { X } } \in \mathbb { R } ^ { N \times L \times D }$
+
+Layer-wise Attention and Node-wise Attention. We view each node through its sequence of historical activations and use attention to learn which activations are most relevant. We use only the last-layer embedding as the query to attend over all historical states:
+
+$$
+\mathbf {Q} = \widetilde {\mathbf {X}} _ {L - 1} W ^ {Q} \in \mathbb {R} ^ {N \times 1 \times D}, \quad \mathbf {K} = \widetilde {\mathbf {X}} W ^ {K} \in \mathbb {R} ^ {N \times L \times D}, \quad \mathbf {V} = \widetilde {\mathbf {X}} \in \mathbb {R} ^ {N \times L \times D}.\tag{3}
+$$
+
+We apply scaled dot-product attention and average across nodes, obtaining a layer weighting scheme:
+
+$$
+\mathbf {c} = \text { Average } \left(\frac {\mathbf {Q K} ^ {\top}}{\sqrt {D}}\right) \in \mathbb {R} ^ {1 \times L}.\tag{4}
+$$
+
+Rather than softmax, which enforces non-negative weights and suppresses negative differences, we apply a normalization that permits signed contributions $\begin{array} { r } { \alpha _ { l } = \frac { { \bar { c } } _ { l } } { \sum _ { l ^ { \prime } = 0 } ^ { L - 1 } c _ { l ^ { \prime } } } } \end{array}$ . This allows the model to express additive or subtractive relationships between layers, akin to finite-difference approximations in dynamical systems. The cross-layer pooled node embeddings are computed as:
+
+$$
+\mathbf {H} = \sum_ {l = 0} ^ {L - 1} \alpha_ {l} \cdot \widetilde {\mathbf {X}} _ {l} = \sum_ {l = 0} ^ {L - 1} \frac {c _ {l}}{\sum_ {l ^ {\prime} = 0} ^ {L - 1} c _ {l ^ {\prime}}} \cdot \widetilde {\mathbf {X}} _ {l} \in \mathbb {R} ^ {N \times D}.\tag{5}
+$$
+
+Graph-level Representation. We first aggregate each node’s history weighted by relevance to the final state, with a residual recency bias from the final-layer query, into H. To obtain a graph-level representation, we apply multi-head self-attention across nodes exactly once at the readout stage—not at every GNN depth—omitting spatial positional encodings to preserve permutation invariance:
+
+$$
+\mathbf {Z} = \operatorname{MHSA} (\mathbf {H}, \mathbf {H}, \mathbf {H}) \in \mathbb {R} ^ {N \times D},\tag{6}
+$$
+
+optionally followed by residual connections and LayerNorm. Averaging over nodes yields $\mathbf { G } =$ Average $( \mathbf { Z } ) \in \mathbb { R } ^ { D }$ , which then feeds the final prediction head (typically an MLP). Crucially, because node-wise self-attention is applied only once at the final readout—rather than at every messagepassing layer—it does not contribute to over-smoothing during the GNN forward pass and incurs only a single $O ( N ^ { 2 } D )$ cost. Early message-passing layers capture local interactions, whereas deeper layers encode global ones (Gasteiger et al., 2019; Chien et al., 2020). By attending across layers and nodes, HISTOGRAPH fuses local and global cues, retaining multi-scale structure and validating our motivation.
+
+Computational Complexity. Layer-wise attention costs $O ( L D )$ per node; spatial attention over N nodes costs $O ( N ^ { 2 } D )$ . Thus the per-graph complexity is
+
+$$
+O (N L D + N ^ {2} D) = O (N (L + N) D),\tag{7}
+$$
+
+with memory $O ( L + N ^ { 2 } )$ from attention maps. A naïve joint node–layer attention costs $O ( L ^ { 2 } N ^ { 2 } D )$ which is prohibitive. Our two-stage scheme—first across layers $( { \dot { O } } ( L D )$ per node), then across nodes $( \bar { O ( N ^ { 2 } D ) } )$ )—avoids this. Since $L \ll N$ in practice, the dominant cost is $O ( N ^ { 2 } D )$ , matching a single graph-transformer layer. A standard graph transformer that stacks L such layers incurs $O ( L \bar { N } ^ { 2 } \bar { D } )$ (Yun et al., 2019); HISTOGRAPH reduces the depth coefficient from $L$ to 1, because layer-wise attention operates per node in $O ( L D )$ and the $O ( \bar { N } ^ { 2 } D )$ spatial attention is applied only once at readout. This decomposition keeps historical activations tractable despite the quadratic node term. Empirically, HISTOGRAPH adds only a slight runtime over a standard GNN forward pass (Figure 4) while delivering significant gains across multiple benchmarks, as seen in Tables 2, 3 and 17.
+
+Frozen Backbone Efficiency. With a pretrained, frozen message-passing backbone, we train only the HISTOGRAPH head. We cache the $N \times L \times D$ activations per graph in one forward pass and skip gradients through the backbone, removing $O ( L ( E D + N { \dot { D } } ^ { 2 } ) )$ ) work (where E is the number of edges). The backward pass applies only to the head, $O ( N ( L + N ) D )$ ), substantially reducing memory and training time. This is especially useful in low-resource or few-shot regimes, and when fine-tuning large datasets where repeated backpropagation through L GNN layers is prohibitive.
+
+Scalability Considerations. The current design is best suited for small-to-medium-sized graphs; we discuss scaling strategies for larger graphs in Appendix G.
+
+## 4 PROPERTIES OF HISTOGRAPH
+
+In this section, we discuss the properties of our HISTOGRAPH, which motivate its architectural design choices. While the general idea of attention over a sequence of representations is not unique to HISTOGRAPH, the specific combination with GNN historical activations yields properties that do not arise in standard attention-based pooling. In particular, these properties show how (i) layer-wise attention mitigates over-smoothing and acts as a dynamic trajectory filter, (ii) the signed normalization (rather than softmax) enables the architecture to approximate low/high pass filters over the layer trajectory, and (iii) node-wise attention at readout is beneficial in our HISTOGRAPH.
+
+HISTOGRAPH can mitigate Over-smoothing. One key property of HISTOGRAPH is its ability to mitigate the over-smoothing problem in a simple way. As node embeddings tend to become indistinguishable after a certain depth $l _ { o s } , \mathrm { i . e . , } | \mathbf { x } _ { v } ^ { ( l _ { 1 } ) } - \mathbf { x } _ { u } ^ { ( l _ { 2 } ) } | = 0$ for all node pairs $u , v$ and layers $l _ { 1 } , l _ { 2 } \geq \bar { l } _ { o s }$ , HISTOGRAPH aggregates representations across layers using a weighted combination:
+
+![](images/2121a5db230839bbdedbeb3872fdf0a26f22bbf1697afd65d7436b6c96954d11.jpg)
+
+![](images/8b158022e10be34686ac1fc1bde03fa2056873a362abfa5650ab89e744737ab4.jpg)  
+Figure 2: Visualizations on the IMDB-B dataset with 64-layer HISTOGRAPH. (left) Attention patterns across layers under different training regimes. (right) Embedding evolution throughout training, measured by the normed difference between final and intermediate representations.
+
+$$
+\mathbf {h} _ {\mathbf {u}} = \sum_ {l = 0} ^ {L - 1} \alpha_ {l} \mathbf {x} _ {\mathbf {u}} ^ {(l)}, \quad \text { with } \quad \sum_ {l} \alpha_ {l} = 1.\tag{8}
+$$
+
+Attention weights $\alpha _ { l }$ that place nonzero mass on early layers let the final embedding $\mathbf { h } _ { u }$ retain discriminative early representations, countering over-smoothing so node embeddings remain distinguishable $( | h _ { u } - h _ { v } | \ne \bar { 0 ) }$ . This mechanism underlies HISTOGRAPH’s robustness in deep GNNs, corroborated by the depth ablation in Table 17, Fig. 2 (which shows substantial early-layer attention and nonzero differences between historical activations), and the feature distance diagnostics in Table 12 (which confirms that HISTOGRAPH increases embedding diversity across all layers compared to a standard GCN). We formalize HISTOGRAPH’s mitigation of over-smoothing in Proposition 1; the proof appears in Appendix E.
+
+Proposition 1 (Mitigating Over-smoothing with HISTOGRAPH). Let $\mathbf { x } _ { v } ^ { ( l ) } \in \mathbb { R } ^ { D }$ denote the embedding ofnode v at layer l ofa GNN. Suppose the GNN exhibits over-smoothing, $i . e . ,$ , there exists some layer $L _ { 0 }$ sufficiently large such that for all layers $l _ { 1 } , l _ { 2 } > L _ { 0 }$ and all nodes $u , v ,$
+
+$$
+\left\| \mathbf {x} _ {u} ^ {(l _ {1})} - \mathbf {x} _ {v} ^ {(l _ {2})} \right\|\rightarrow 0.\tag{9}
+$$
+
+Let HISTOGRAPH compute the final node embedding as
+
+$$
+h _ {v} = \sum_ {l = 0} ^ {L - 1} \alpha_ {l} \mathbf {x} _ {v} ^ {(l)},\tag{10}
+$$
+
+where $\alpha _ { l }$ are learned attention weights. Then, for distinct nodes u and $v ,$ there exists at least one layer $l ^ { \prime } \leq L _ { 0 }$ with $\alpha _ { l ^ { \prime } } \neq 0$ such that
+
+$$
+\left\| h _ {u} - h _ {v} \right\| > 0.\tag{11}
+$$
+
+That is, HISTOGRAPH retains informationfrom early layers and mitigates over-smoothing.
+
+Interpretability of Learned Attention Weights. Figure 2 shows that HISTOGRAPH learns nontrivial layer weightings: substantial weight is placed on early (pre-over-smoothing) layers and the final layer, forming a task-adapted profile that balances local and global information. A detailed analysis appears in Appendix H.
+
+HISTOGRAPH’s Layer-wise Attention is an Adaptive Trajectory Filter. We interpret HISTO-GRAPH’s layer-wise attention as an Adaptive Trajectory Filter, which dynamically aggregates a node’s embeddings across layers based on learned weights. Let $\{ \mathbf { x } ^ { ( l ) } \} _ { l = 0 } ^ { L - 1 } \subset \mathbb { R } ^ { D }$ denote a node’s embeddings at each layer. We define the aggregated embedding as:
+
+$$
+\mathbf {h} = \sum_ {l = 0} ^ {L - 1} \alpha_ {l} \mathbf {x} ^ {(l)}, \quad \text { with } \quad \sum_ {l} \alpha_ {l} = 1.\tag{12}
+$$
+
+![](images/d865e3a61572a2eff41a5dd03281e57e281a43895ae945d3ca0092900660e52f.jpg)  
+Figure 3: Graph and signal transformations: (a) input node features; (b) prediction target, the nodefeature gradient; (c) GCN output trained to approximate (b) from (a); (d) HISTOGRAPH output. The gap between GCN and HISTOGRAPH underscores the importance of adaptive trajectory filtering. Node colors: red, blue, and green denote values −1, 0, 1.
+
+where $\alpha _ { l }$ are learnable attention weights. In general, any weighted combination over a sequence can be viewed as a filter. However, two design choices make HISTOGRAPH’s filtering distinct from standard attention mechanisms. First, the signed normalization (division by sum rather than softmax) permits negative weights, enabling the model to express subtractive relationships between layers—analogous to a finite impulse response (FIR) filter with signed coefficients. This allows the aggregation to implement: (i) a low-pass filter when $\begin{array} { r } { \alpha _ { l } = \frac { 1 } { L } } \end{array}$ (uniform average); (ii) a high-pass filter when $\alpha _ { l } = \delta _ { l , L - 1 } - \delta _ { l , L - 2 }$ (first difference); and (iii) a general FIR filter when $\alpha _ { l }$ are learned. Standard softmax-based attention, by contrast, is restricted to non-negative convex combinations and cannot realize subtractive (high-pass) filtering. Second, HISTOGRAPH applies this filtering specifically to the GNN’s computational trajectory—a sequence of representations that progressively encode larger neighborhoods—rather than to an arbitrary set of features. This means the filter directly controls the balance between local (shallow-layer) and global (deep-layer) information at readout, a property that is specific to the GNN setting.
+
+Figure 3 illustrates a case where GCN fails at high-pass filtering, whereas HISTOGRAPH succeeds. The barbell graph—a symmetric clique joined by a single edge—creates a sharp gradient discontinuity, highlighting how the adaptive filtering of HISTOGRAPH preserves such signals, unlike standard GCNs. Appendix D further analyzes the usefulness of node-wise attention in HISTOGRAPH.
+
+## 5 EXPERIMENTS
+
+In this section, we conduct an extensive set of experiments to demonstrate the effectiveness of HISTOGRAPH as a graph pooling function. Our experiments seek to address the following questions:
+
+(Q1) Does HISTOGRAPH consistently improve GNN performance over existing pooling functions across diverse domains?
+
+(Q2) Can HISTOGRAPH be applied as a post-processing step to enhance the performance of pretrained GNNs?
+
+(Q3) What is the impact of each component of HISTOGRAPH on performance?
+
+Baselines. We compare HISTOGRAPH against diverse baselines spanning graph representation and pooling. Message-passing GNNs: GCN and GIN with mean or sum aggregation (Kipf & Welling, 2016; Xu et al., 2019). Set-level pooling: Set2Set (Vinyals et al., 2015). Node-dropping pooling: SortPool (Zhang et al., 2018), SAGPool (Lee et al., 2019), TopKPool (Gao & Ji, 2019), ASAP (Ran jan et al., 2020). Clustering-based pooling: DiffPool (Ying et al., 2018), MinCutPool (Bianchi et al., 2020), HaarPool (Wang et al., 2020), StructPool (Yuan & Ji, 2020). EdgePool (Diehl, 2019) merges nodes along high-scoring edges. Attention-based global pooling: GMT (Baek et al., 2021). Additional models: SOPool (Wang & Ji, 2023), HAP (Liu et al., 2021), PAS (Wei et al., 2021), GMN (Ahmadi, 2020), DKEPool (Chen et al., 2023), JKNet (Xu et al., 2018). On TUdatasets, we also include five kernel baselines: GK (Shervashidze et al., 2009), RW (Vishwanathan et al., 2010), WL subtree (Shervashidze et al., 2011), DGK (Yanardag & Vishwanathan, 2015), and AWE (Ivanov & Burnaev, 2018). An overview of baseline characteristics versus HISTOGRAPH appears in Table 1.
+
+Benchmarks. We use the OGB benchmark (Hu et al., 2020) and the widely used TUDatasets (Morris et al., 2020); dataset statistics appear in Tables 7 and 8 in Appendix A. For OGB, we follow Baek et al.
+
+Table 2: Comparison of graph-classification accuracy (%) ↑ on TU datasets with HISTOGRAPH and existing benchmark methods. All methods use a 5-layer GIN backbone. Only top-three methods (plus JKNet) are shown and marked First, Second, Third. Additional results and methods appear in Table 9 in Appendix F.
+
+<table><tr><td>Method ↓ / Dataset →</td><td>IMDB-B</td><td>IMDB-M</td><td>MUTAG</td><td>PTC</td><td>PROTEINS</td><td>RDT-B</td><td>NCI1</td></tr><tr><td>SOPool (Wang &amp; Ji, 2023)</td><td>78.5±2.8</td><td>54.6±3.6</td><td>95.3±4.4</td><td>75.0±4.3</td><td>80.1±2.7</td><td>91.7±2.7</td><td>84.5±1.3</td></tr><tr><td>GMT (Baek et al., 2021)</td><td>79.5±2.5</td><td>55.0±2.8</td><td>95.8±3.2</td><td>74.5±4.1</td><td>80.3±4.3</td><td>93.9±1.9</td><td>84.1±2.1</td></tr><tr><td>HAP (Liu et al., 2021)</td><td>79.1±2.8</td><td>55.3±2.6</td><td>95.2±2.8</td><td>75.2±3.6</td><td>79.9±4.3</td><td>92.2±2.5</td><td>81.3±1.8</td></tr><tr><td>PAS (Wei et al., 2021)</td><td>77.3±4.1</td><td>53.7±3.1</td><td>94.3±5.5</td><td>71.4±3.9</td><td>78.5±2.5</td><td>93.7±1.3</td><td>82.8±2.2</td></tr><tr><td>HaarPool (Wang et al., 2020)</td><td>79.3±3.4</td><td>53.8±3.0</td><td>90.0±3.6</td><td>73.1±5.0</td><td>80.4±1.8</td><td>93.6±1.1</td><td>78.6±0.5</td></tr><tr><td>GMN (Ahmadi, 2020)</td><td>76.6±4.5</td><td>54.2±2.7</td><td>95.7±4.0</td><td>76.3±4.3</td><td>79.5±3.5</td><td>93.5±0.7</td><td>82.4±1.9</td></tr><tr><td>DKEPool (Chen et al., 2023)</td><td>80.9±2.3</td><td>56.3±2.0</td><td>97.3±3.6</td><td>79.6±4.0</td><td>81.2±3.8</td><td>95.0±1.0</td><td>85.4±2.3</td></tr><tr><td>JKNet (Xu et al., 2018)</td><td>78.5±2.0</td><td>54.5±2.0</td><td>93.0±3.5</td><td>72.5±2.0</td><td>78.0±1.5</td><td>91.5±2.0</td><td>82.0±1.5</td></tr><tr><td>HISTOGRAPH (Ours)</td><td>87.2±1.7</td><td>61.9±5.5</td><td>97.9±3.5</td><td>79.1±4.8</td><td>97.8±0.4</td><td>93.4±0.9</td><td>85.9±1.8</td></tr></table>
+
+Table 3: Comparison of graph classification ROC-AUC (%) ↑ on different datasets between HIS-TOGRAPH and existing baselines on OGB datasets. All methods use a 3-layer GCN backbone for fair comparison. Only the top three methods are included and marked by First, Second, and Third. Additional methods are presented in Table 10 in Appendix F.
+
+<sup>†</sup> symbolizes non-learnable methods.
+
+<table><tr><td>Method ↓ / Dataset →</td><td>MOLHIV</td><td>MOLBBBP</td><td>MOLTOX21</td><td>TOXCAST</td></tr><tr><td>GCN† (Kipf &amp; Welling, 2016)</td><td>76.18±1.26</td><td>65.67±1.86</td><td>75.04±0.80</td><td>60.63±0.51</td></tr><tr><td>GIN† (Xu et al., 2019)</td><td>75.84±1.35</td><td>66.78±1.77</td><td>73.27±0.84</td><td>60.83±0.46</td></tr><tr><td>MinCutPool (Bianchi et al., 2020)</td><td>75.37±2.05</td><td>65.97±1.13</td><td>75.11±0.69</td><td>62.48±1.33</td></tr><tr><td>GMT (Baek et al., 2021)</td><td>77.56±1.25</td><td>68.31±1.62</td><td>77.30±0.59</td><td>65.44±0.58</td></tr><tr><td>HAP (Liu et al., 2021)</td><td>75.71±1.33</td><td>66.01±1.43</td><td>-</td><td>-</td></tr><tr><td>PAS (Wei et al., 2021)</td><td>77.68±1.28</td><td>66.97±1.21</td><td>-</td><td>-</td></tr><tr><td>DKEPool (Chen et al., 2023)</td><td>78.65±1.19</td><td>69.73±1.51</td><td>-</td><td>-</td></tr><tr><td>HISTOGRAPH (Ours)</td><td>77.81±0.89</td><td>72.02±1.46</td><td>77.49±0.70</td><td>66.35±0.80</td></tr></table>
+
+(2021); Chen et al. (2023) with 3 GCN layers; for TUDatasets, we adopt Wang & Ji (2023); Chen et al. (2023); Gao & Ji (2019); Gao et al. (2021), typically using 5 GIN layers. For deeper variants, we keep the backbone and vary the number of layers. Hyperparameters are in Appendix C.1. Additionally, we benchmark HISTOGRAPH on several node-classification datasets spanning heterophilic and homophilic graphs (Table 11) and across varying GNN depths (Table 4). Further results appear in Appendix F: feature-distance across layers for GCN and GCN with HISTOGRAPH (Table 12), comparison to the GraphGPS baseline (Table 14), and link prediction (Table 13).
+
+## 5.1 END-TO-END ACTIVATION AGGREGATION WITH HISTOGRAPH
+
+We evaluate end-to-end activation aggregation with HISTOGRAPH on graph-level benchmarks and node classification. We first report results on TUDatasets (Table 2), followed by OGB molecular property prediction (Table 3), and finally depth-scaled node classification (Table 4).
+
+TUDatasets. On seven datasets (Morris et al., 2020) (IMDB-B, IMDB-M, MUTAG, PTC, PROTEINS, RDT-B, NCI1), HISTOGRAPH attains state-of-the-art performance on 5 of 7: IMDB-B 87.2%, IMDB-M 61.9%, MUTAG 97.9%, PROTEINS 97.8%, NCI1 85.9%. It is marginally behind on PTC at 79.1% versus 79.6% for DKEPool. Relative to the second-best method, gains are substantial on PROTEINS (+16.6%), IMDB-B (+6.3%), and IMDB-M (+5.6%). Although DKEPool slightly leads on PTC and RDT-B, the overall trend favors HISTOGRAPH across diverse graph classification benchmarks.
+
+The large gain on PROTEINS (+16.6%) is driven by all three HISTOGRAPH components: the ablation in Table 6 shows that removing any one of signed normalization, layer-wise, or node-wise attention substantially degrades performance, and Table 16 confirms that uniform averaging and randomized attention fall far short. We provide a detailed discussion in Appendix I.
+
+Table 4: Node classification accuracy (%) on benchmark datasets with varying GNN depth.
+
+<table><tr><td>Dataset</td><td>Method</td><td>2</td><td>4</td><td>8</td><td>16</td><td>32</td><td>64</td></tr><tr><td rowspan="2">Cora</td><td>GCN</td><td>81.1</td><td>80.4</td><td>69.5</td><td>64.9</td><td>60.3</td><td>28.7</td></tr><tr><td>GCN + HISTOGRAPH</td><td>81.3</td><td>82.9</td><td>80.7</td><td>83.1</td><td>80.6</td><td>77.5</td></tr><tr><td rowspan="2">Citeseer</td><td>GCN</td><td>70.8</td><td>67.6</td><td>30.2</td><td>18.3</td><td>25.0</td><td>20.0</td></tr><tr><td>GCN + HISTOGRAPH</td><td>70.9</td><td>69.5</td><td>69.9</td><td>69.3</td><td>67.2</td><td>63.4</td></tr><tr><td rowspan="2">Pubmed</td><td>GCN</td><td>79.0</td><td>76.5</td><td>61.2</td><td>40.9</td><td>22.4</td><td>35.3</td></tr><tr><td>GCN + HISTOGRAPH</td><td>78.9</td><td>78.2</td><td>78.6</td><td>80.4</td><td>80.0</td><td>79.3</td></tr></table>
+
+OGB molecular property prediction. On four OGB datasets (Hu et al., 2020) (MOLHIV, MOLTOX21, TOXCAST, MOLBBBP), HISTOGRAPH achieves the top ROC-AUC on 3 of 4: MOLBBBP 72.02%, MOLTOX21 77.49%, TOXCAST 66.35%. Margins over the second-best are +2.29% on MOLBBBP versus DKEPool, +0.91% on TOXCAST versus GMT, and +0.19% on MOLTOX21 versus GMT. On MOLHIV, DKEPool leads with 78.65%, while HISTOGRAPH is competitive at 77.81%, ranking in the top three, indicating strong generalization across molecular property prediction.
+
+Node classification. Table 4 shows that HISTOGRAPH mitigates oversmoothing: standard GCN accuracy degrades with depth, whereas HISTO-GRAPH maintains stable, competitive performance up to 64 layers. This improves feature propagation while preserving discriminative power, particularly on heterophilic graphs. Additional node-classification results for heterophilic and homophilic datasets appear in Table 11 in Appendix F.
+
+## 5.2 POST-PROCESSING OF TRAINED GNNS WITH HISTOGRAPH
+
+We evaluate HISTOGRAPH as a lightweight post-processing strategy on four TU graph-classification datasets: IMDB-B, IMDB-M, PROTEINS, and PTC. For each dataset, we train GINs with 5, 16, 32, and 64 layers using standard architectures and mean pooling. After convergence, we save per-fold checkpoints and apply HISTOGRAPH in three modes: (i) auxiliary head on a frozen backbone (HISTOGRAPH(FT)), (ii) full joint fine-tuning (HISTOGRAPH(Full FT)), and (iii) end-to-end training from scratch for comparison. Complete depth-wise results appear in Table 17 in Appendix F.
+
+Table 5: Graph classification accuracy (%) ↑ summary. More results are reported in Table 17.
+
+<table><tr><td>Dataset</td><td>Method</td><td>Acc.</td></tr><tr><td rowspan="4">IMDB-M</td><td>MeanPool</td><td>54.7</td></tr><tr><td>FT</td><td>67.3</td></tr><tr><td>Full FT</td><td>62.7</td></tr><tr><td>End-to-End</td><td>61.9</td></tr><tr><td rowspan="4">IMDB-B</td><td>MeanPool</td><td>76.0</td></tr><tr><td>FT</td><td>94.0</td></tr><tr><td>Full FT</td><td>94.0</td></tr><tr><td>End-to-End</td><td>87.2</td></tr><tr><td rowspan="4">PROTEINS</td><td>MeanPool</td><td>75.9</td></tr><tr><td>FT</td><td>97.3</td></tr><tr><td>Full FT</td><td>97.3</td></tr><tr><td>End-to-End</td><td>97.8</td></tr><tr><td rowspan="4">PTC</td><td>MeanPool</td><td>77.1</td></tr><tr><td>FT</td><td>85.7</td></tr><tr><td>Full FT</td><td>97.1</td></tr><tr><td>End-to-End</td><td>88.6</td></tr></table>
+
+Table 5 summarizes the graph-classification accuracy (%) across GIN depths for each dataset and method. HISTOGRAPH used as a frozen auxiliary head (FT) consistently improves performance vs. MeanPool, often matching or surpassing full fine-tuning (Full FT) and end-to-end training. For example, on IMDB-M, FT raises accuracy from 54.7% (MeanPool) to 67.3%; on IMDB-, both FT and Full FT reach 94.0%, far above the baseline (76.0%) and end-to-end (87.2%). On PROTEINS, all HISTOGRAPH variants achieve near-optimal performance, demonstrating effectiveness across datasets of varying size and characteristics. On PTC, Full FT attains the best score (97.1%), showing joint fine-tuning can further enhance results. Overall, HISTOGRAPH offers a flexible, effective post-processing strategy that consistently boosts GNN performance.
+
+Runtime Analysis. We measure average training and inference time per epoch for GCN backbones with 3 and 32 layers on MOLHIV and TOXCAST, comparing MeanPool, End-to-End, and FT. As shown in Fig. 4, End-to-End is costlier than MeanPool during training (e.g., 60.34s vs. 41.27s for 32 layers on MOLHIV) yet remains scalable. FT, which fine-tunes only the head on a pretrained MeanPool model, cuts overhead: training time is slightly higher for 3 layers but significantly lower for 32 layers on both datasets. At inference time, HISTOGRAPH adds negligible overhead over MeanPool since no backward pass is required and the forward cost of the HISTOGRAPH head $( O ( N L D + N ^ { 2 } D ) ) ,$ ) is small relative to the GNN backbone on the molecular-scale graphs evaluated (see Table 18 in Appendix J for detailed inference times). While achieving results comparable to End-to-End (Table 17), FT offers an efficient way to boost existing models. Finally, HISTOGRAPH is significantly faster than GMT (Baek et al., 2021) in almost all cases, with larger speedups for deeper networks.
+
+![](images/80ff0c72bd171a7ab226e99d8f22c7408be812eb7db3cb6ebebec55b244f4398.jpg)  
+(a) MOLHIV
+
+![](images/b0aba80488bcdeca2e749f89dbbcd722d4aa3a50ba106fc500cdb613e329aca1.jpg)  
+(b) TOXCAST  
+Figure 4: Average training time per epoch (in log scale) for GCN backbones with 3 and 32 layers, evaluated on the MOLHIV and TOXCAST datasets. Each configuration is compared across four postprocessing methods: GMT(Baek et al., 2021), MeanPool, HISTOGRAPH, and HISTOGRAPH-FT.
+
+## 5.3 ABLATION STUDY
+
+Setup. We assess component contributions on the TUDatasets PROTEINS dataset by removing or modifying parts and measuring classification accuracy (Table 6). We test three variants: (i) removing divisionby-sum normalization, (ii) disabling layer-wise attention that models inter-layer dependencies, and (iii) disabling node-wise attention that captures crossnode dependencies.
+
+Results and discussion. On PROTEINS, HISTO-GRAPH attains 97.80% accuracy with a 0.40 standard deviation. Every ablation reduces accuracy; remov-
+
+Table 6: Ablation on the PROTEINS dataset. Each row shows the performance of a HISTO-GRAPH variant with a component removed.
+
+<table><tr><td>Variant</td><td>Acc. (%)</td><td>Std.</td></tr><tr><td>DKEPool</td><td>81.20</td><td>3.80</td></tr><tr><td>w/o Division by Sum</td><td>74.45</td><td>6.28</td></tr><tr><td>w/o Layer-wise Attention</td><td>78.61</td><td>4.82</td></tr><tr><td>w/o Node-wise Attention</td><td>80.78</td><td>7.71</td></tr><tr><td>HISTOGRAPH (Ours)</td><td>97.80</td><td>0.40</td></tr></table>
+
+ing division-by-sum normalization performs worst at $7 4 . 4 5 \% \pm 6 . 2 8$ , indicating each component is necessary. Removing layer-wise normalization allows attention weights to grow unbounded, destabilizing training and overshadowing early discriminative layers. Our signed normalization balances layer contributions and enables additive and subtractive filtering (Section 4), preserving discriminative information and stability. Against alternative aggregation strategies (mean aggregation and randomized attention), HISTOGRAPH consistently outperforms them by a significant margin (Table 16, Appendix F). Overall, normalization, layer-wise attention, and node-wise attention are critical for capturing complex dependencies and realizing the full performance of HISTOGRAPH.
+
+## 6 CONCLUSION
+
+We introduced HISTOGRAPH, a two-stage attention-based pooling layer that learns from historical activations to produce stronger graph-level representations. The design is simple and principled: layer wise attention captures the evolution of each node’s trajectory across depths, node-wise self-attention models spatial interactions at readout, and signed layer-wise normalization balances contributions across layers to preserve discriminative signals and stabilize training. This combination mitigates over-smoothing and supports deeper GNNs while keeping computation and memory overhead modest. Across TU and OGB graph-level benchmarks, node-classification settings, and link prediction (OGBL-COLLAB), HISTOGRAPH consistently improves over strong pooling baselines and matches or surpasses leading methods on multiple datasets. Moreover, used as a lightweight post-processing head on frozen backbones, HISTOGRAPH delivers additional gains without retraining the encoder. The current design is best suited for small-to-medium-sized graphs; extending HISTOGRAPH to very large graphs via sparse attention or hierarchical coarsening is a promising direction for future work. Taken together, the results establish intermediate activations as a valuable signal for readout and position HISTOGRAPH as a practical, general drop-in pooling layer for modern GNNs.

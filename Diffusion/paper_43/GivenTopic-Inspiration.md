@@ -1,0 +1,12 @@
+Given Topic: In the field of accelerating inference for diffusion-based generative models with transformer architectures, the iterative denoising process imposes prohibitive computational costs due to numerous forward passes. Existing acceleration strategies rely on feature caching, where intermediate representations from expensive modules are stored and reused across timesteps. However, direct reuse of stale features introduces accumulating discrepancies that degrade output fidelity, while forecasting-based methods predicated on smooth temporal evolution suffer from substantial prediction errors when feature changes exhibit irregular magnitudes. This raises the core challenge of accurately approximating intermediate features during skipped computation steps despite non-uniform temporal dynamics, and of adaptively determining when exact recomputation becomes necessary to prevent error propagation.
+
+Given Inspiration:
+1. Intermediate feature changes manifest irregular magnitudes across denoising timesteps, undermining the validity of smooth temporal extrapolation assumptions.
+2. Input and output features within the same computational block exhibit strongly correlated variation patterns, indicating an exploitable input-output relationship.
+3. The ratio between output and input feature change magnitudes remains remarkably stable across adjacent timesteps, suggesting a consistent local scaling property.
+4. Feature transformations can be locally approximated as linear mappings between consecutive timesteps owing to small incremental updates.
+5. The directional consistency of feature change vectors persists over short temporal intervals, supporting reliable trend forecasting.
+6. Input feature prediction errors correlate closely with output prediction errors, enabling lightweight proxy-based assessment of approximation reliability.
+7. Error accumulation progresses heterogeneously throughout denoising, with coarse structure formation exhibiting greater stability than fine-detail refinement.
+8. Distinct generative phases exhibit differing feature dynamics, implying that fixed-interval computation schedules are inherently suboptimal.
+9. Approximation errors in early layers propagate and amplify through subsequent modules, necessitating preemptive detection of unreliable predictions.

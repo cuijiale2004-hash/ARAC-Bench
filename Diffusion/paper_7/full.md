@@ -1,0 +1,322 @@
+## ABSTRACT
+
+Recent diffusion models demonstrate remarkable sample efficiency and fast optimization, contradicting standard estimation bounds that suffer from the curse of dimensionality $n ^ { - 1 / \breve { D } }$ with the data dimension D. Since images are usually a union of low-dimensional manifolds, current works model the data as a union of linear subspaces with Gaussian latent and achieve a $1 / \sqrt { n }$ bound. Though this modeling reflects the multi-manifold property, the Gaussian latent can not capture the multi-modal property of the latent manifold. To bridge this gap, we propose the mixture subspace of low-rank mixture of Gaussian (MoLR-MoG) modeling, which models the target data as a union of K linear subspaces, and each subspace admits a mixture of Gaussian latent $( n _ { k }$ modals with dimension $d _ { k } )$ . With this modeling, the corresponding score function naturally has a mixture of expert (MoE) structure, captures the multi-modal information, and contains nonlinear property. Empirically, our MoE-latent MoG network significantly outperforms MoLRG Gaussian baselines and matches MoE-latent U-Net performance with 10× fewer parameters, validating its practical suitability. Theoretically, we provide provable convergence guarantees for the optimization process and establish an estimation error bound of $R ^ { 4 } { \sqrt { \textstyle \sum _ { k = 1 } ^ { K } n _ { k } } } { \sqrt { \textstyle \sum _ { k = 1 } ^ { K } n _ { k } d _ { k } } } / { \sqrt { n } } ,$ successfully escaping the dimensionality curse. Collectively, with MoLR-MoG modeling, this work explains why diffusion models only require a small training sample and enjoy a fast optimization process. Furthermore, we also show the potential of MoE structure for diffusion models from the manifold perspective.
+
+## 1 INTRODUCTION
+
+Recently, diffusion models have achieved impressive performance in many areas, such as 2D, 3D, and video generation (Rombach et al., 2022; Ho et al., 2022; Chen et al., 2023a; Ma et al., 2024b; Liu et al., 2024; Tan et al., 2024; 2025; Ma et al., 2024a; Feng et al., 2025; Yan et al., 2025). Due to the score matching technique, diffusion models enjoy a more stable training process and can achieve great performance with a small training dataset.
+
+Despite empirical successes, theoretical guarantees for score estimation in diffusion models often suffer from the curse of dimensionality. Standard bounds for architectures like deep ReLU networks and diffusion transformers yield a minimax rate of $n ^ { - s ^ { \prime } / D } \left( s ^ { \prime } \right.$ is the smoothness parameter of the score function ) (Oko et al., 2023; Hu et al., 2024b;a; Fu et al., 2024), which fails to explain their sample efficiency on high-dimensional data. To bridge this gap, recent works exploit specific structural assumptions about target distributions. One line of research adopts multi-modal modeling, such as Mixture of Gaussians (MoG), to better capture real-world data and improve estimation bounds (Shah et al., 2023; Cui et al., 2023; Chen et al., 2024b; Zhang et al., 2025). Another approach assumes data resides on a low-dimensional linear subspace $( x = A z$ with bounded $z \in \mathbb { R } ^ { d } )$ , successfully reducing the estimation error to $n ^ { - 2 / d }$ and eliminating the dependence on the ambient dimension D (Chen et al., 2023b; Yuan et al., 2023; Guo et al., 2024). However, as shown in Brown et al. (2023) and Kamkari et al. (2024), though the image dataset admits low dimension, it is a union of manifolds instead of one manifold. Inspired by this observation, Wang et al. (2024) model the image data as a union of linear subspaces, assume each subspace admits a low-dimensional Gaussian (mixture of low-rank Gaussians (MoLRG)), and achieve a $1 / \sqrt { n }$ estimation error. Though the union of the linear subspace is closer to the real-world image dataset, the latent Gaussian assumption is far away from the low-dimensional multi-modal manifold (Brown et al., 2023). Hence, the following two natural questions remain open:
+
+Can we propose a modeling that reflects the multi-manifold multi-modal property of real-world data?
+
+Can we escape the curse ofdimensionality and enjoy afast convergence rate based on this modeling?
+
+In this work, for the first time, we propose and analyze the mixture of low-rank mixture of Gaussian (MoLR-MoG) distribution, which is more realistic than MoLRG since it captures the multi-modal property of real-world distribution and has a nonlinear score function. Based on this modeling, we first induce a MoE-latent nonlinear score function and conduct experiments to show that MoLR-MoG modeling is closer to the real-world data. After that, we simultaneously analyze the estimation and optimization error of diffusion models and explain why diffusion models achieve great performance.
+
+## 1.1 OUR CONTRIBUTION
+
+MoLR-MoG Modeling and MoE Structure Nonlinear Score. We propose the MoLR-MoG modeling for the target data, which captures the multi low-dimensional manifold and multi-modal property of real-world data and naturally introduces the MoE-latent MoG score. Through the realworld experiments, we show that with this score, diffusion models can generate images that is comparable with the deep neural network MoE-latent Unet and only has 10× smaller parameters. On the contrary, the MoE-latent Gaussian score induced by previous MoLRG modeling can only generate blurry images, which indicates MoLR-MoG is a suitable modeling for the real-world data.
+
+Take Advantage of MoLR-MoG to Escape the Curse of Dimensionality. For the estimation error, we show that by taking advantage of the union of a low-dimensional linear subspace and the latent MoG property, diffusion models escape the curse of dimensionality. More specifically, we achieve the $R ^ { 4 } \sqrt { \Sigma _ { k = 1 } ^ { K } n _ { k } } \sqrt { \Sigma _ { k = 1 } ^ { K } n _ { k } d _ { k } } / \sqrt { n _ { k } }$ estimation error, where R is the diameter of the target data, $d _ { k }$ is the latent dimension and $n _ { k }$ is the number of the modal in the k-the subspace. This result clearly shows the dependence on the number of linear subspaces, modal, and the latent dimensions $R , d _ { k }$
+
+Strongly Convex Property and Convergence Guarantee. After directly analyzing the estimation error, we study how to optimize the highly non-convex score-matching objective function. Facing nonlinear latent MoG scores, we use the gradient descent (GD) algorithm to optimize the objective function. To obtain the convergence guarantee, we take advantage of the closed form of nonlinear MoG score and show that the landscape around the ground truth parameter is strongly convex. Then, with a great initialization area, we prove the convergence guarantee when considering MoLR-MoG.
+
+## 2 RELATED WORK
+
+Estimation Error Analysis for Diffusion Models. As shown in Section 1, a series of works Oko et al. (2023) study the general target data with a deep NN and achieve the minimax $n ^ { - s ^ { \prime } / D }$ result. Then, some works analyze the general target data with a 2-layer wide NN and achieve $n ^ { - 2 / 5 }$ estimation error with exp (n) NN size (Li et al., 2023; Han et al., 2024). For the multi-modal modeling, some works study MoG data and improve the estimation error (Shah et al., 2023; Cui et al., 2023; Chen et al., 2024b). Except for the MoG modeling, Cole and Lu (2024) assume data is close to Gaussian and then prove the model escapes the curse of dimensionality. Mei and Wu (2023) analyze Ising models and prove that the term corresponds to n is $1 / \sqrt { n }$ . For the low-dimensional modeling, some works assume the target data admits a linear subspace (Chen et al., 2023b; Yuan et al., 2023). Chen et al. (2023b) assume data admit a linear subspace $x = A z$ with $z \in \mathbb { R } ^ { d }$ and achieve a $n ^ { - 2 / d }$ . As the image is a union of low-dimensional manifolds, Wang et al. (2024) models the target data as a union of linear subspaces with Gaussian latent and achieve $1 / \sqrt { n }$ estimation error for each subspace.
+
+Optimization Analysis for Diffusion Models. Since the score is highly nonlinear (except for Gaussian), only a few works analyze the optimization process, and most of them focus on the external dimensional space (Bruno et al., 2023; Cui and Zdeborová, 2023; Shah et al., 2023; Chen et al., 2024b; Li et al., 2023; Han et al., 2024). Since the score function of MoG has a nonlinear closed-form, a series of works design algorithms for diffusion models to learn the MoG (Bruno et al., 2023; Cui and Zdeborová, 2023; Shah et al., 2023; Chen et al., 2024b). For the general target data, Li et al. (2023) and Han et al. (2024) adopt a wide 2-layer ReLU NN to simplify the problem to a convex optimization. However, as discussed above, their NN has exp (n) size. For the latent space, Yang et al. (2024a) assume target data adopts a linear subspace with Gaussian latent and provide the closed-form minimizer. Wang et al. (2024) analyze the optimization process of each linear subspace separately, which is also reduced to the optimization for the Gaussian.
+
+## 3 PRELIMINARIES
+
+First, we introduce the basic knowledge and notation of diffusion models. Let $p _ { 0 }$ be the data distribution. Given $\boldsymbol { x } _ { 0 } \sim p _ { 0 } \in \mathbb { R } ^ { D }$ , the forward process is defined by:
+
+$$
+\mathrm{d} x _ {t} = f (t) x _ {t} \mathrm{d} t + g (t) \mathrm{d} B _ {t},
+$$
+
+where $\{ B _ { t } \} _ { t \in [ 0 , T ] }$ is a D-dimensional Brownian motion, $f ( t )$ is the coefficient of the drift term and $g ( t )$ is the coefficient of the diffusion term. Let $p _ { t }$ be the density function of the forward process. After determining the forward process, the conditional distribution $p _ { t } ( x _ { t } | x _ { 0 } )$ has a closed-form
+
+$$
+p _ {t} \left(x _ {t} | x _ {0}\right) = \mathcal {N} \left(x _ {t}; s _ {t} x _ {0}, s _ {t} ^ {2} \sigma_ {t} ^ {2} I _ {D}\right),
+$$
+
+where $\begin{array} { r } { s _ { t } = \exp \left( \int _ { 0 } ^ { t } f ( \xi ) \mathrm { d } \xi \right) , \sigma _ { t } = \sqrt { \int _ { 0 } ^ { t } g ^ { 2 } ( \xi ) / s ^ { 2 } ( \xi ) \mathrm { d } \xi } } \end{array}$ . To generate samples from $p _ { 0 } .$ , diffusion models reverse the given forward process and obtain the following reverse process (Song et al., 2020):
+
+$$
+\mathrm{d} y _ {t} = \left[ f (t) y _ {t} - g (t) ^ {2} \nabla \log p _ {t} (y _ {t}) \right] \mathrm{d} t + g (t) \mathrm{d} \bar {B} _ {t}, \quad y _ {0} \sim p _ {0}
+$$
+
+where ${ \bar { B } } _ { t }$ is a reverse-time Brownian motion. A conceptual way to approximate the score function is to minimize the score matching (SM) objective function:
+
+$$
+\min _ {s _ {\theta} \in \mathrm{NN}} \mathcal {L} _ {\mathrm{SM}} = \int_ {\delta} ^ {T} \mathbb {E} _ {x _ {t} \sim q _ {t}} \| \nabla \log p _ {t} (x _ {t}) - s _ {\theta} (x _ {t}, t) \| _ {2} ^ {2} \mathrm{d} t,\tag{1}
+$$
+
+where NN is a given function class and $\delta > 0$ is the early stopping parameter to avoid a blow-up score. Since the ground truth score ∇ log p<sub>t</sub> is unknown, this objective function can not be calculated. To avoid this problem, Vincent (2011) propose the denoised score matching (DSM) objective function:
+
+$$
+\min _ {s _ {\theta} \in \mathrm{NN}} \mathcal {L} _ {\mathrm{DSM}} = \int_ {\delta} ^ {T} \mathbb {E} _ {x _ {0} \sim q _ {0}} \mathbb {E} _ {x _ {t} | x _ {0}} \| \nabla \log p _ {t} (x _ {t} | x _ {0}) - s _ {\theta} (x _ {t}, t) \| _ {2} ^ {2} \mathrm{d} t.
+$$
+
+As shown in Vincent (2011), the DSM and SM objective functions differ up to a constant independent of optimized parameters, which indicates these objective functions have the same landscape.
+
+## 3.1 MIXTURE OF LOW-RANK MIXTURE OF GAUSSIAN (MOLR-MOG) MODELING
+
+This part shows our MoLR-MoG modeling, which reflects the low-dimensional (Gong et al., 2019) and multi-modal property (Brown et al., 2023; Kamkari et al., 2024) of real-world data. More specifically, we assume the data distribution lives near a union of K linear subspaces rather than arbitrary manifolds. Concretely, for the k-th subspace (represented by a matrix $\mathring { A } _ { k } ^ { \ast } \in \mathbb { R } ^ { D \times d _ { k } }$ with orthonormal columns or the k-th manifold), we place a $n _ { k }$ -modal MoG within that subspace:
+
+$$
+w _ {k} (x) = \sum_ {l = 1} ^ {n _ {k}} \pi_ {k, l} \mathcal {N} \big (x; A _ {k} ^ {*} \mu_ {k, l} ^ {*}, A _ {k} ^ {*} \Sigma_ {k, l} ^ {*} A _ {k} ^ {* ^ {\top}} \big),
+$$
+
+where covariance $\Sigma _ { k , l } ^ { * } = U _ { k , l } ^ { * } U _ { k , l } ^ { * \top } , l = 1 , \dots , n _ { k }$ with $U _ { k , l } ^ { * } \in \mathbb { R } ^ { d _ { k } \times d _ { k , l } } ( d _ { k , l } \leq d _ { k } )$ and $\mu _ { k , l } ^ { * }$ is the mean of the l-th modal of the k-th subspace. As shown in (Brown et al., 2023), the different manifold has different $d _ { k }$ and we do not require that $d _ { k }$ is exactly the same for each manifold. Then, the target distribution has the following form
+
+$$
+p _ {0} = \sum_ {k = 1} ^ {K} \frac {1}{K} \sum_ {l = 1} ^ {n _ {k}} \pi_ {k, l} \mathcal {N} \left(x; A _ {k} ^ {*} \mu_ {k, l} ^ {*}, A _ {k} ^ {*} \Sigma_ {k, l} ^ {*} A _ {k} ^ {* ^ {\top}}\right).\tag{2}
+$$
+
+From the universal approximation perspective, by placing enough components and choosing parameters $\{ \pi _ { k , l } , \mu _ { k , l } ^ { * } , \Sigma _ { k , l } ^ { * } \}$ , a MoG can approximate any smooth density arbitrarily well, which is more general than the Gaussian latent of Yang et al. (2024a) and Wang et al. (2024).
+
+Mixture of Experts (MoE)-Nonlinear MoG score. Let $\gamma _ { t } = s _ { t } \sigma _ { t } , \Sigma _ { k , l , t , A } = s _ { t } ^ { 2 } A _ { k } ^ { * } U _ { k , l } ^ { * } U _ { k , l } ^ { * \top } A _ { k } ^ { * \top } +$ $\gamma _ { t } ^ { 2 } I$ and $\begin{array} { r } { \delta _ { k , l , t , A } ( x ) = x - s _ { t } \mu _ { k , l } ^ { * } - \frac { s _ { t } ^ { 2 } } { s _ { * } ^ { 2 } + \gamma _ { * } ^ { 2 } } A _ { k } ^ { * } U _ { k , l } ^ { * } U _ { k , l } ^ { * \top } A _ { k } ^ { * \top } ( x - s _ { t } \mu _ { k , l } ^ { * } A _ { k } ^ { * } ) } \end{array}$ . Under the MoLR-MoG modeling, the score function has the following form:
+
+$$
+\nabla \log p _ {t} (x) = - \frac {1}{\gamma_ {t} ^ {2}} \frac {\sum_ {k = 1} ^ {K} \frac {1}{K} \sum_ {l = 1} ^ {n _ {k}} \pi_ {k , l} \mathcal {N} (x ; s _ {t} \mu_ {k , l} ^ {*} A _ {k} ^ {*} , A _ {k} ^ {*} \Sigma_ {k , l , t , A} ^ {*} A _ {k} ^ {* ^ {\top}})   \delta_ {k , l , t , A} (x)}{\sum_ {k = 1} ^ {K} \frac {1}{K} \sum_ {l = 1} ^ {n _ {k}} \pi_ {k , l} \mathcal {N} (x ; s _ {t} \mu_ {k , l} ^ {*} A _ {k} ^ {*} , A _ {k} ^ {*} \Sigma_ {k , l , t , A} A _ {k} ^ {* ^ {\top}})},
+$$
+
+This score function has a MoE structure, where each expert is the latent nonlinear MoG score. The linear encoder $A _ { k }$ first encodes images to the k-th manifold, and diffusion models run the denoising process. After that, the linear decoder $A _ { k } ^ { \top }$ decodes the denoised latent to the full-dimensional images. Since the estimation error introduced by the linear encoder and decoder has the order $D d _ { k } ^ { 3 } / \sqrt { n }$ (Yang et al., 2024a) and is not the dominant term, we assume the linear encoder and decoder are perfectly learned and focus on the more difficult latent MoG diffusion part in this work. From the empirical part, this operation is similar to using the pretrained stable diffusion VAE and only training the diffusion models in the latent space. For the k-th low-dimensional manifold, the score function is
+
+$$
+\nabla \log p _ {t, k} (x ^ {\mathrm{LD}}) = - \frac {1}{\gamma_ {t} ^ {2}} \frac {\sum_ {l = 1} ^ {n _ {k}} \pi_ {k , l} \mathcal {N} (x ^ {\mathrm{LD}} ; s _ {t} \mu_ {k , l} ^ {*} , \Sigma_ {k , l , t} ^ {*}) \delta_ {k , l , t} (x ^ {\mathrm{LD}})}{\sum_ {l = 1} ^ {n _ {k}} \pi_ {k , l} \mathcal {N} (x ; s _ {t} \mu_ {k , l} ^ {*} , \Sigma_ {k , l , t} ^ {*})},\tag{3}
+$$
+
+where $x ^ { \mathrm { L D } } \in \mathbb { R } ^ { d _ { k } }$ is a variable in the k-th low-dimensional subspace, $\Sigma _ { k , l , t } = s _ { t } ^ { 2 } U _ { k , l } ^ { * } U _ { k , l } ^ { * \top } + \gamma _ { t } ^ { 2 } I$ and $\begin{array} { r } { \delta _ { k , l , t } ( x ^ { \mathrm { L D } } ) = x ^ { \mathrm { L D } } - s _ { t } \mu _ { k , l } ^ { * } - \frac { s _ { t } ^ { 2 } } { s _ { t } ^ { 2 } + \gamma _ { t } ^ { 2 } } U _ { k , l } ^ { * } U _ { k , l } ^ { * \top } ( x ^ { \mathrm { L D } } - s _ { t } \mu _ { k , l } ^ { * } ) } \end{array}$ . Let
+
+$$
+s _ {k} ^ {*} (x ^ {\mathrm{LD}}, t) = \nabla \log p _ {t, k} (x ^ {\mathrm{LD}}), s ^ {*} (x ^ {\mathrm{LD}}, t) = (s _ {1} ^ {*} (x ^ {\mathrm{LD}}, t), s _ {2} ^ {*} (x ^ {\mathrm{LD}}, t), \ldots , s _ {K} ^ {*} (x ^ {\mathrm{LD}}, t)),
+$$
+
+where the parameters are $\theta ^ { * } \ = \ \{ \mu _ { k . l } ^ { * } , U _ { k . l } ^ { * } \} _ { k = 1 , \ldots , K } .$ . In this work, we want to learn the parameters of the ground truth score function. Hence, we construct a NN function class $s _ { \theta } =$ $( s _ { 1 } ( \cdot , \cdot ) , s _ { 2 } ( \cdot , \cdot ) , . . . , s _ { K } ( \cdot , \cdot ) )$ according to the above closed-from of MoE-latent MoG score. Let θ is the union of $\mu _ { k , l }$ and $U _ { k , l }$ . Since we mainly focus on the estimation and optimization in the latent subspace, we omit the superscript LD of the latent subspace when there is no ambiguity.
+
+(b) MoE-nonlinear MoG Score  
+![](images/e22c3b25e084cde2a23220774f6c7643ad4543843c2cc53d6626acf0fea7fef6.jpg)  
+Figure 3: Results of Different Modeling on Real-world Data.
+
+We note that this modeling can capture the information of each low-dimensional manifold and the multi-modal property of each latent distribution. In the next section, through the real-world experiments, we show that the MoE-latent MoG score has a better performance compared with the MoE-latent Gaussian
+
+![](images/5ea171c6f225f21c8d3dbaa53c2ed169f11b3388645da6feac4ba44fa8f140a4.jpg)
+
+![](images/bd39a8654c2046eca2deecaf9511c740b053c3f1364e3009f011f31fc4570583.jpg)  
+Figure 2: MoLR-MoG Modeling and Corresponding Nonlinear Score
+
+score induced by MoLRG modeling and compatible with the results of the MoE-latent Unet. In Section 5 and 6, we prove that by using the property of MoLR-MoG modeling, diffusion models can escape the curse of dimensionality and enjoy a fast convergence rate.
+
+Remark 3.1 (Comparison with MoLRG modeling). Wang et al. (2024) provide the first multi-subspace modeling, which is an important and meaningful step and Li et al. (2025) further design noisy MoLRG to study the representation of diffusion models. However, they assume a Gaussian latent with 0 mean, which can not capture the multi-modal property of real-world data. We also note that the MoLR-MoG modeling can not be viewed as MoLRG with $\scriptstyle \sum _ { k = 1 } ^ { K } n _ { k }$ subspace since this modeling assumes there are $\scriptstyle \sum _ { k = 1 } ^ { K } n _ { k }$ VAE, which is not reasonable in the real-world setting.
+
+## 4 EXPERIMENTS FOR MOE-LATENT MOG SCORE
+
+In this section, we empirically validate that our MoLR-MoG framework effectively models real-world data distributions. Specifically, we demonstrate that the MoE-latent MoG score not only generates semantically clear images that significantly outperform the MoLRG baseline, but also achieves performance comparable to a general MoLR-U-Net while requiring 10× fewer parameters across MNIST, CIFAR-10, and ImageNet 256 (Figure 3).
+
+Following Brown et al. (2023), we train 10 VAEs for each number in the MNIST, which represents our K low-dimensional manifold. In this part, we adopt nonlinear VAEs to achieve a good performance in real-world datasets. However, we still note that a series of theoretical works adopt linear subspaces, and our MoLR-MoG modeling with linear VAEs makes a step toward explaining the good performance of diffusion models. Subsequently, we train diffusion models comparing three parameterizations: a latent U-Net, a latent MoG NN (parameterized via Eq. 3 with $n _ { k } \in \{ 4 , 8 , 4 0 \}$ for MNIST, CIFAR-10, and ImageNet 256, respectively, for $k \in [ K ] )$ , and a latent Gaussian NN utilizing a closed-form linear score (Wang et al., 2024).
+
+Discussion. From a qualitative perspective, as shown in Figure 3, the generation results with MoLRG modeling are difficult to distinguish specific numbers. On the contrary, the MoE-latent MoG can generate clean images comparable with the images generated by MoLR-Unet, which means this modeling captures the multimodal property of each low-dimensional manifold. The training loss curve (Figure 4) shows that the loss of MoE-MoG NN is significantly smaller than the MoE-Gaussian and close to MoE-Uet, which indicates MoE-MoG NN efficiently approximates the ground-truth score and supports our theoretical results. From a quantitative perspective, we calculate the CLIP score for the
+
+![](images/78159b403138605ffffecbdccf4a976f36908e9fa3e1c551a40dd3426d2f4ef2.jpg)  
+Figure 4: Loss Curve for CIFAR-10
+
+parachute class of ImageNet with text prompts "a photo of parachute". The Clip score for MoLR with Unet, MoG, and Gaussian NN is 0.304, 0.293, and 0.254, which indicates MoLR-MoG achieves almost comparable text-to-image alignment with MoE-Unet. Furthermore, the MoLR-MoG NN contains many fewer parameters compared to Unet since it uses the prior of latent MoG.
+
+Discussion on Expert-Specific VAE. As shown in the score of MoLR-MoG, different from latent diffusion models with a single VAE, there are K VAEs to encode the input to the corresponding manifold. We note that this operation is important for MoLR-MoG with small MoG experts. As shown in Figure 5, with a unified VAE, the unified latent is complex, and a MoG expert can not learn a meaningful image with the target class. Hence, with a unified VAE, latent diffusion models require a large latent Unet. However, with an expert-specific VAE (for example, we fine-tune the pretrained VAE with the parachute class dataset), the latent manifold becomes simple, and latent MoG experts are enough to generate clear models, which also supports our theoretical modeling.
+
+We note that these experiments aim to show that the MoLR-MoG modeling is reasonable instead of achieving the SOTA performance. It is possible to achieve great performance with a small-sized NN using MoLR-MoG modeling in the application. For large-scale datasets without labels, we can use a clustering algorithm to divide the data into different clusters. Then, we can train a VAE encoder, decoder, and latent MoG score for each cluster. For the VAE training, we do not require training the VAE from a sketch. We can LoRA fine-tune a VAE pretrained on large-scale datasets (for example, DC-AE (Chen et al., 2024a) for our ImageNet experiments) for each expert, which shares a pretrained VAE backbone and has a smaller model size. When
+
+![](images/2b2df7f638469820d4636e44ec652d6c61feec2a1872ed41e4a5c043bd1a4acc.jpg)  
+w/ Expert Specific VAE
+
+![](images/d73833b229ba8d27404e23f92a491d4122ee197a9d1143b3d81cfd6722763bcc.jpg)  
+w/Unified VAE  
+Figure 5: MoLR-MoG with Different VAE
+
+generating images, we activate different VAE LoRA according to the clustering weight, which matches the spirit of MoE. We leave it as an interesting future work.
+
+## 5 ESCAPE THE CURSE OF DIMENSIONALITY WITH MOLR-MOG MODELING
+
+This section shows that diffusion models can escape the curse of dimensionality by using MoLR-MoG properties. Before introducing our results, we first introduce the assumption on the target data.
+
+Assumption 5.1. For $x \sim p _ { 0 }$ , we have that $\| x \| _ { 2 } \leq R .$
+
+The bounded-support assumption is widely used in theoretical works (Chen et al., 2022; Yang et al., 2024b; Bortoli, 2022; Yang et al., 2025a;b) and is naturally satisfied by image datasets. For a latent MoG, each component concentrates almost all mass within a few standard deviations of its mean, so by taking the most component means and variances, one can choose R large enough that $\| x \| _ { 2 } \leq R$ holds with high probability.
+
+Since Moe-latent MoG score has a closed-form, we only need to learn the parameters $\mu _ { k , l }$ and $U _ { k , l }$ at a fixed time $t , \ \mathbf { A } s$ a result, we consider the estimation error at a fixed time $t .$ Let $\ell ( \theta ; x , t ) =$ $\left\| s _ { \theta } ( x , t ) - s ^ { * } ( x , t ) \right\| _ { 2 } ^ { 2 }$ be the per-sample squared error at time t. In this part, we study the estimation error with a limited training dataset $\{ x _ { i } \} _ { i = 1 } ^ { n }$
+
+$$
+\left| \mathcal {L} (\theta) - \widehat {\mathcal {L}} _ {n} (\theta) \right|, \text { with } \widehat {\mathcal {L}} _ {n} (\theta) = \frac {1}{n} \Sigma_ {i = 1} ^ {n} \ell (\theta ; x _ {i}, t).
+$$
+
+To obtain the estimation error, we first provide the Lipschitz constant for $s _ { \theta }$ and the loss function by fully using the property of MoLR-MoG modeling and MoE-latent MoG score.
+
+Lemma 5.2. [Lipschitz Continuity] Let $L _ { \mu _ { l } }$ and $L _ { U _ { k } }$ be the Lipschitz constant w.r.t. $s _ { \theta }$ . With MoLR-MoG modeling and Theorem $5 . I ,$ there is a constant
+
+$$
+L \leq \sqrt {\Sigma_ {i = 1} ^ {K} n _ {k} (L _ {\mu_ {l}} ^ {2} + L _ {U _ {k}} ^ {2})} = O \left((\Sigma_ {k = 1} ^ {K} n _ {k}) ^ {\frac {1}{2}} C _ {w}\right)
+$$
+
+such that for any $\theta , \theta ^ { \prime } , \| s _ { \theta } ( x , t ) - s _ { \theta ^ { \prime } } ( x , t ) \| _ { 2 } \ \leq \ L \| \theta - \theta ^ { \prime } \| _ { 2 } ,$ , where $\begin{array} { r } { C _ { w } = \frac { ( R + s _ { t } B _ { \mu } ) ^ { 3 } s _ { t } ^ { 2 } } { \gamma _ { \ast } ^ { 4 } } , B _ { \mu } = } \end{array}$ $\operatorname* { m a x } _ { k , l } \Vert \mu _ { k , l } \Vert _ { 2 }$ . For $s _ { \theta }$ and $s ^ { * }$ , we have that $2 \| s _ { \theta } ( x , t ) - s ^ { * } ( x , t ) \| _ { 2 } \le 2 ( R + s _ { t } B _ { \mu } ) / \gamma _ { t } ^ { 2 } : = L _ { l } .$
+
+Then, we obtain the Lipschitz constant $L ^ { \prime } = L _ { l } L$ for the whole loss function. With this Lipschitz property, the next step is to argue that fitting the network on n samples generalizes to the true population loss. We do so by controlling the Rademacher complexity of the loss class and then using a Bernstein concentration argument to obtain the following theorem.
+
+Theorem 5.3. Denote by ${ \widehat { \mathcal { L } } } _ { n } ( \theta )$ the empirical loss on n i.i.d. samples and by $\mathcal { L } ( \boldsymbol { \theta } )$ its population counterpart. Then there exist constants $C _ { 1 } , C _ { 2 }$ such that with probability at least $1 - \delta$ ,for all $\theta \in \Theta$
+
+$$
+\left| \mathcal {L} (\theta) - \widehat {\mathcal {L}} _ {n} (\theta) \right| \leq O \left(C _ {1} \frac {(R + s _ {t} B _ {\mu}) ^ {4} s _ {t} ^ {2} \sqrt {\Sigma_ {k = 1} ^ {K} n _ {k}}}{\gamma_ {t} ^ {6}} \sqrt {\frac {\Sigma_ {k = 1} ^ {K} n _ {k} d _ {k}}{n}} + C _ {2} \sqrt {\frac {\log (1 / \delta)}{n}}\right).
+$$
+
+$$
+w h e r e C _ {1} = \max _ {\theta \in \Theta} \| \theta_ {i} - \theta_ {j} \| _ {2}, C _ {2} = \sigma \log 2, \sigma^ {2} = \sup _ {\theta \in \Theta} V a r [ \ell (\theta ; X, t) ].
+$$
+
+This result removes the exponential dependence on $D$ with the number of latent subspace $K ,$ , the latent dimension $d _ { k } ,$ , and the number of modalities $n _ { k }$ at each linear subspace, which reflects the key feature of the real-world data and escape the curse of dimensionality. The remaining question is why diffusion models enjoy a fast and stable optimization process. In the next part, we show that with MoLR-MoG modeling, the objective function is locally strongly convex and answer this question.
+
+## 6 STRONGLY CONVEX PROPERTY AND CONVERGENCE GUARANTEE
+
+In this part, by using the property of MoLR-MoG modeling, we derive explicit expressions for the Jacobian and Hessian of the objective function for 2-modal MoG latent and general MoG latent. Then, we establish conditions under which the resulting score-matching loss is locally strongly convex for each setting. Finally, we provide the convergence guarantee for the optimization.
+
+## 6.1 2-MODAL LATENT MOG HESSIAN ANALYSIS AND OPTIMIZATION
+
+In this section, we show that, under sufficient cluster separation, the Hessian matrix near $\theta ^ { * }$ simplifies to a block-diagonal form, yielding local strong convexity, which derives a linear convergence rate. As discussed in Section 3.1, following the real-world setting, we consider the optimization dynamic in the k-th latent subspace. While our modeling contains $K$ encoders and decoders, facing an input image $x ,$ , we can first determine which cluster image x belongs $^ { \mathrm { t o , } }$ , and then use the corresponding $A _ { k }$ to encode it into the corresponding latent space. Then, we only use data belonging to k clustering to train the k-th latent MoG score. This operation matches our experimental settings, and Wang et al. (2024) also adopts this operation. When considering the optimization problem, to simplify the calculation of the Hessian matrix, we set $d _ { k , l } = 1$
+
+Similar to Shah et al. (2023), we start from a latent 2-modal MoG with the same covariance matrix $\Sigma _ { k } ^ { * }$ and $\mu _ { k , 1 } ^ { * } = \mu _ { k } ^ { * } , \mu _ { k , 2 } ^ { * } = - \mu _ { k } ^ { * }$ , which leads to the following score:
+
+$$
+\nabla \log p _ {t, k} (x) = - \frac {1}{\gamma_ {t} ^ {2}} \frac {\frac {1}{2} \mathcal {N} (x ; s _ {t} \mu_ {k} ^ {*} , \Sigma_ {k} ^ {*}) \delta_ {k} ^ {\prime} (x) + \frac {1}{2} \mathcal {N} (x ; - s _ {t} \mu_ {k} ^ {*} , \Sigma_ {k} ^ {*}) \epsilon_ {k} (x)}{\frac {1}{2} \mathcal {N} (x ; s _ {t} \mu_ {k} ^ {*} , \Sigma_ {k} ^ {*}) + \frac {1}{2} (x ; - s _ {t} \mu_ {k} ^ {*} , \Sigma_ {k} ^ {*})},\tag{4}
+$$
+
+$$
+\epsilon_ {k} (x) = x - s _ {t} \mu_ {k} ^ {*} - \frac {s _ {t} ^ {2}}{s _ {t} ^ {2} + \gamma_ {t} ^ {2}} U _ {k} ^ {*} U _ {k} ^ {* \top} (x - s _ {t} \mu_ {k} ^ {*}), \text {and} \delta_ {k} ^ {\prime} (x) = x + s _ {t} \mu_ {k} ^ {*} - \frac {s _ {t} ^ {2}}{s _ {t} ^ {2} + \gamma_ {t} ^ {2}} U _ {k} ^ {*} U _ {k} ^ {* \top} (x + s _ {t} \mu_ {k} ^ {*}).
+$$
+
+Assumption 6.1. [Separation within a cluster] Within each cluster $k ,$ the two symmetric peaks are well separated in the sense that $\| s _ { t } \mu _ { k } ^ { * } - \left( - s _ { t } \mu _ { k } ^ { * } \right) \| \geq \Delta _ { \operatorname { i n t r a } }$ , for some $\Delta _ { \mathrm { i n t r a } } \gg \gamma _ { t }$ . Consequently, if a sample x is drawn from the $" + "$ peak then its responsibility under the $^ { 6 6 } - ^ { 5 9 }$ peak satisfies
+
+$$
+r _ {k} ^ {-} (x) = \frac {\frac {1}{2} \mathcal {N} (x ; - s _ {t} \mu_ {k} ^ {*} , \Sigma_ {k} ^ {*})}{\frac {1}{2} \mathcal {N} (x ; s _ {t} \mu_ {k} ^ {*} , \Sigma_ {k} ^ {*}) + \frac {1}{2} \mathcal {N} (x ; - s _ {t} \mu_ {k} ^ {*} , \Sigma_ {k} ^ {*})} = O \big (e ^ {- \Delta_ {\mathrm{intra}} ^ {2} / (2 \gamma_ {t} ^ {2})} \big) \ll 1,
+$$
+
+and symmetrically $r _ { k } ^ { + } ( x ) \ll 1$ when x is drawn from the $^ { 6 6 } - ^ { 5 9 }$ peak.
+
+The above assumption means that the separation of the two modals is sufficient. For each symmetric sub-peak, if the distance between them is relatively small, we can view them as having a mean of 0. Since they are the same distribution $( \mu = 0$ and $\begin{array} { r } { \dot { \Sigma } = U _ { k } U _ { k } ^ { \top } + \gamma _ { t } ^ { 2 } I ) } \end{array}$ , they are the same regardless of how they mix, which indicates that we can assume $r _ { k } ^ { + }$ ≈ 1 or $r _ { k } ^ { - }$ ≈ 1. Moreover, in practice, if raw data do not exhibit such clear gaps, one can always apply a simple linear embedding to magnify inter-mean distances relative to noise, thereby enforcing the same hard-assignment regime.
+
+Since the ground truth score function has a closed-form under the MoLR-MoG modeling, we focus on the score matching objective function $\mathcal { L } _ { \mathrm { S M } } ( \boldsymbol { \theta } )$ instead of ${ \mathcal { L } } _ { \mathrm { D S M } } ( \theta )$ and abbreviate ${ \mathcal { L } } _ { \mathrm { S M } } ( \theta )$ as $\mathcal { L } ( \boldsymbol { \theta } )$ . We note that $\bar { \mathcal { L } _ { \mathrm { S M } } } ( \bar { \boldsymbol { \theta } } )$ and ${ \mathcal { L } } _ { \mathrm { D S M } } ( \theta )$ are equivalent up to a constant independent of θ, which indicates the optimization landscape is the same. Furthermore, when considering the convergence guarantee under a 2-layer wide ReLU NN, Li et al. (2023) also adopt score matching objective $\mathcal { L } _ { \mathrm { S M } }$ instead of $\mathcal { L } _ { \mathrm { D S M } }$ . Though calculating the bound of Jacobian $J _ { k } ^ { \mu } ( x ) \dot { = } \partial _ { \mu _ { k } } s _ { \theta } , J _ { k } ^ { U } ( x )$ and the Hessian matrix w.r.t. $\mathcal { L } ,$ , we provide the local strongly convexity parameters for the objective function.
+
+Lemma 6.2. [Local Strong Convexity] Combining Lemma B.4 with continuity $o f \nabla ^ { 2 } { \mathcal { L } } _ { \mathrm { { } } }$ , there exist $\alpha > 0$ and neighborhood U of $\theta ^ { * }$ such that $\nabla ^ { 2 } \hat { \mathcal { L } } ( \theta ) \succeq \alpha I , \forall \theta \in \Theta . I f \forall x \in \hat { \mathbb { R } } ^ { d _ { k } } , r _ { k } ^ { + } ( x ) = 1$ or $r _ { k } ^ { - } ( x ) = 1$ are strictly satisfied,
+
+$$
+\alpha = \min \left\{\frac {s _ {t} ^ {2}}{(s _ {t} ^ {2} + \gamma_ {t} ^ {2}) ^ {2}}, \frac 4 (U _ {k} ^ {\top} \mu_ {k})) ^ {2} + \| U _ {k} \| _ {2} ^ {2} \| \mu_ {k} \| _ {2} ^ {2} - \| U _ {k} \| _ {2} \| \mu_ {k} \| _ {2} \sqrt {8 (U _ {k} ^ {\top} \mu_ {k})) ^ {2} + \| U _ {k} \| _ {2} ^ {2} \| \mu_ {k} \| _ {2} ^ {2}}{2} \right\},
+$$
+
+Theorem 6.3. [Local Linear Convergence] Under Assumptions 5.1 and 6.1, ifwe take $\eta _ { m } = \eta =$ $2 / ( \eta + L ^ { \prime } )$ , and $\kappa = L ^ { \prime } / \alpha$ , then there exists a neighborhood U ofθ<sup>∗</sup> such that
+
+$$
+\left\| \theta^ {(m)} - \theta^ {\star} \right\| _ {2} \leq \left(\frac {\kappa - 1}{\kappa + 1}\right) ^ {m} \left\| \theta^ {(0)} - \theta^ {\star} \right\| _ {2},
+$$
+
+where m is the number ofgradient descent iterations.
+
+This result gives a lower bound on the convergence rate near $\theta ^ { \star }$ . Due to its strongly convex property, the convergence rate is fast, which explains the fast and stable optimization process.
+
+ProofOverview. Assumption 6.1 justifies the Jacobian simplification (Lemma B.2), which in turn yields the Hessian block structure (Lemma B.4). By Schur complement, this result gives local strong convexity (Lemma 6.2). Combining with the Lipschitz constant, we finish the proof.
+
+## 6.2 GENERAL MOG LATENT HESSIAN ANALYSIS AND OPTIMIZATION
+
+We now extend our analysis to the case where each subspace k carries an asymmetric Gaussian mixture (Equation 3). As before, we first state the key separation assumption and show that on each subspace, the individual Gaussian distributions in the mixture of Gaussian are highly separated from each other. Then, we simplify the Hessian and prove local convexity. Finally, we conclude a linear convergence rate based on the strongly convex and smooth property.
+
+Assumption 6.4. [Highly Separated Gaussian] Consider the Gaussian mixture
+
+$$
+p _ {k} (x) = \sum_ {l = 1} ^ {n _ {k}} \pi_ {k, l} \mathcal {N} (x; \mu_ {k, l}, \Sigma_ {k, l}), \qquad r _ {k, l} (x) := \frac {\pi_ {k , l} \mathcal {N} (x ; \mu_ {k , l} , \Sigma_ {k , l})}{\sum_ {i = 1} ^ {n _ {k}} \pi_ {k , i} \mathcal {N} (x ; \mu_ {k , i} , \Sigma_ {k , i})}.
+$$
+
+There exist constants $\varepsilon \ll 1$ and $\delta \ll 1$ such that when $x \sim p _ { k }$ we have
+
+$$
+\operatorname * {P r} _ {x \sim p _ {k}} \left(\exists l \in \{1, \dots , n _ {k} \} \text {   with   } r _ {k, l} (x) \geq 1 - \varepsilon\right) \geq 1 - \delta .
+$$
+
+Justification. With MoLR-MoG modeling, after adding diffusion noise of scale $\gamma _ { t } .$ , each point x remains within $O ( \gamma _ { t } )$ of the subspace’s moment-matched center $\bar { \mu } _ { k }$ . Concretely, the subspace structure (or a preliminary projection onto principal components) ensures $\| x - \bar { \mu } _ { k } \| _ { 2 } \le \Delta = ^ { \cdot } C \gamma _ { \underline { { t } } }$ with high probability, for some moderate constant C. Hence, any third-order Taylor term $\propto \| x - \bar { \mu } _ { k } \| ^ { 3 }$ is $O ( \gamma _ { t } ^ { \bar { 3 } } )$ , which vanishes compared to the leading Hessian scale $O ( \gamma _ { t } ^ { 2 } )$ . In the following corollary, we further show the approximation effect of equivalent Gaussians.
+
+Corollary 6.5. Assume that $\| \mu _ { k , i } ^ { * } - \mu _ { k , j } ^ { * } \| _ { 2 } \leq \delta , \| U _ { k , i } ^ { * } - U _ { k , j } ^ { * } \| _ { 2 } \leq \epsilon a n d \| x - \bar { \mu } _ { k } ^ { * } \| _ { 2 } \leq \Delta$ . We have
+
+$$
+\left\| \log p (x) - \log \bar {p} (x) \right\| _ {2} = O \left(\epsilon + \delta \Delta + \Delta^ {3}\right)
+$$
+
+Remark 6.6 (Separated Gaussian Simplification). For simplicity of description, we assume the individual Gaussian distributions in the mixture of Gaussians are highly separated. Actually, if there are $n _ { k } ^ { \prime }$ Gaussians that are not separated from each other, we can employ clustering techniques to transform them into $n _ { k }$ mutually independent Gaussian distributions. The error caused by such an operation can be calculated using corollary 6.5. The core intuition is that the modals should not have much influence on each other. Hence, we can also use the idea of recursion to first cluster the general MoG into a 2-modal MoG latent. Then, we can use the analysis of Section 6.1 with Theorem 6.1.
+
+Then, similar to the above section, we also calculate the Hessian matrix and show the local strong convex parameters. Finally, we provide the convergence guarantee for general MoLR-MoG modeling.
+
+Lemma 6.7. [Eigenvalues ofthe Hessian] Assume Theorem 6.4, the Hessian at the k-th subspace is convex on a neighborhood ofθ<sup>∗</sup>. $I f \forall x \in \mathbb { R } ^ { d _ { k } } , r _ { k } ^ { + } ( x ) = 1 o r - 1$ are strictly satisfied, we have
+
+$$
+\lambda_ {\mathrm{min}} (H _ {\mu_ {k, l} \mu_ {k, l}}) = \frac {\pi_ {k , l} s _ {t} ^ {2}}{(s _ {t} ^ {2} + \gamma_ {t} ^ {2}) ^ {2}},
+$$
+
+and $\lambda _ { \operatorname* { m i n } } \big ( H _ { U _ { k , l } U _ { k , l } } \big )$ has thefollowingform:
+
+$$
+\left(\pi_ {k, l} 4 (U _ {k, l} ^ {\top} \mu_ {k, l})) ^ {2} + \| U _ {k, l} \| _ {2} ^ {2} \| \mu_ {k, l} \| _ {2} ^ {2} - \| U _ {k, l} \| _ {2} \| \mu_ {k, l} \| _ {2} \sqrt {8 (U _ {k , l} ^ {\top} \mu_ {k , l})) ^ {2} + \| U _ {k , l} \| _ {2} ^ {2} \| \mu_ {k , l} \| _ {2} ^ {2}}\right) / 2.
+$$
+
+Lemma 6.8. [Local Strong Convexity] Assume Theorem $6 . 4 ,$ in a neighborhood $o f \theta ^ { * } , \nabla ^ { 2 } \mathcal { L } ( \theta ) \succeq$ α $^ { \prime } I , \alpha ^ { \prime } > 0 , \bar { \forall \theta } \in \Theta . \ I f \forall \bar { x } \in \mathbb { R } ^ { d _ { k } } , \exists \bar { l } \in [ n _ { k } ] , r _ { k , l } ( x ) = 1$ are strictly satisfied, $\alpha ^ { \prime } \overset { \cdot } { = } \operatorname* { m i n } \{ \lambda _ { 1 } , \overset { \cdot } { \lambda _ { 2 } } \}$ where $\begin{array} { r } { \lambda _ { 1 } = \operatorname* { m i n } _ { l = 1 \ldots , n _ { k } } \frac { c _ { k , l } \gamma _ { t } ^ { 4 } } { ( s _ { t } ^ { 2 } + \gamma _ { t } ^ { 2 } ) ^ { 2 } } , \lambda _ { 2 } = \operatorname* { m i n } _ { l = 1 , 2 , \ldots , n _ { k } } = \lambda _ { \operatorname* { m i n } } ( H _ { U _ { k , l } U _ { k , l } } ) . } \end{array}$
+
+Thus, even without symmetry, equivalent Gaussians and sufficient subspace separation recover the same local convexity and linear convergence guarantees as in the asymmetric case. Similar to Theorem 6.3, under Theorem 6.4, we can obtain a convergence guarantee.
+
+Remark 6.9 (Previous MoG Learning through Score Matching). Shah et al. (2023) and Chen et al. (2024b) consider MoG data and analyze the optimization process of diffusion models at the full space. However, these works aim to design a specific algorithm to learn the MoG distribution instead of using a standard optimization algorithm. On the contrary, by using the MoLR-MoG property to calculate the Hessian matrix, we adopt the GD algorithm and obtain the convergence guarantee.
+
+Remark 6.10 (Initialization). Since the multi-modal GMM latent leads to a highly non-convex landscape, Theorem 6.3 and the corresponding asymmetric variant require the initialization to be around $\theta ^ { * }$ to guarantee local strong convexity and obtain a local convergence guarantee. As the MoLR-MoG is the first step to model the multi low-dimensional and multi-modal property, we leave the analysis of the global convergence guarantee as an interesting future work.
+
+## 6.3 ANALYSIS WITHOUT HIGHLY SEPARATED CONDITION
+
+In this part, we extend our analysis to latent MoG with overlap, which is closer to the real-world data. We define the pairwise overlap factor $\xi _ { i , j } ( x )$ between components i and j at the k-th manifold
+
+$$
+\xi_ {i, j} (x) \triangleq r _ {k, i} (x) r _ {k, j} (x).
+$$
+
+and the maximum expected overlap for the manifold as: $\begin{array} { r } { \epsilon _ { \mathrm { o v e r l a p } } = \operatorname* { m a x } _ { i } \sum _ { j \neq i } \mathbb { E } _ { - } x \sim p _ { t } [ \xi _ { i , j } ( x ) ] , } \end{array}$
+
+Without the high-separation assumption, our analysis proceeds in two steps. With the overlap factor $\epsilon _ { \mathrm { o v e r l a p } } .$ , we first examine the block-diagonal Hessian, deriving a refined lower bound $\alpha .$ Second, we analyze the full Hessian by treating off-diagonal interference as a perturbation bounded by the overlap factor. Applying Weyl’s Inequality, we prove that the global matrix remains positive definite provided the perturbation (introduced by the overlap) is smaller than the effective diagonal curvature $\alpha ,$ thus guaranteeing linear convergence.
+
+Lemma 6.11 (Minimum Curvature for 2-Mode Mixture). Consider a mixture of two Gaussian components. Let $\begin{array} { r } { \epsilon _ { o \nu e r l a p } = \operatorname* { s u p } _ { x } r _ { k } ^ { + } ( x ) r _ { k } ^ { - } ( x ) } \end{array}$ denote the maximum pointwise overlap factor. The minimum eigenvalue ofthe ideal Hessian matrix, denoted as $\alpha _ { 2 - m o d e } ,$ is bounded below by:
+
+$$
+\alpha_ {2 - m o d e} \triangleq (1 - 4 \epsilon_ {o v e r l a p}) \min (\lambda_ {\min} (H _ {\mu_ {k} \mu_ {k}}), \lambda_ {\min} (H _ {U _ {k} U _ {k}})),
+$$
+
+and
+
+$$
+\lambda_ {\mathrm{min}} (H) \geq \alpha_ {2 - m o d e} - C ^ {\prime} \epsilon_ {o v e r l a p} > 0,
+$$
+
+where $C ^ { \prime }$ is defined in D.1.3.
+
+Lemma 6.12 (Minimum Curvature for Multi-Modal). Let $\begin{array} { r } { \epsilon _ { k , l } ^ { t o t a l } = \sum _ { j \neq l } \mathbb { E } [ \xi _ { j , l } ( x ) ] } \end{array}$ represent the total probability mass leakingfrom the l-th component due to overlap. The minimum eigenvalue ofthe block-diagonal Hessian, denoted as α<sub>Multi-Modal</sub>, is determined by the component with the minimum effective mass:
+
+$$
+\alpha_ {M u l t i - M o d a l} \triangleq \min _ {l \in \{1, \dots , n _ {k} \}} \left[ (\pi_ {k, l} - \epsilon_ {k, l} ^ {t o t a l}) \min \left(\lambda_ {\min} (H _ {\mu_ {k, l} \mu_ {k, l}}), \lambda_ {\min} (H _ {U _ {k, l} U _ {k, l}})\right) \right],
+$$
+
+and
+
+$$
+\lambda_ {\mathrm{min}} (H) \geq \alpha_ {M u l t i - M o d a l} - \tilde {C} \cdot \epsilon_ {o v e r l a p},
+$$
+
+where $\tilde { C }$ is defined in D.2.4. For the Hessian to remain positive definite, the intrinsic weight ofevery cluster must exceed its total confusion with other clusters $( i . e . , \pi _ { k , l } > \epsilon _ { k . l } ^ { t o t a l }$ for all l).
+
+## 7 CONCLUSION
+
+In this work, we provide a mixture of low-rank mixture of Gaussian (MoLR-MoG) modeling for target data, which reflects the low-dimensional and multi-modal property of real-world data. Through the real-world experiments, we first show that the MoLR-MoG is a suitable modeling for the realworld data. Then, we analyze the estimation error and optimization process under the MoLR-MoG modeling and explain why diffusion models can achieve great performance with a small training dataset and a fast optimization process.
+
+For the estimation error, we show that with the MoLR-MoG modeling, the estimation error is $R ^ { 4 } \sqrt { \Sigma _ { k = 1 } ^ { K } n _ { k } } \sqrt { \Sigma _ { k = 1 } ^ { K } n _ { k } d _ { k } } / \sqrt { n _ { c } }$ , which means diffusion models can take fully use of the multi subspace, low-dimensional and multi-modal information to escape the curse of dimensionality. For the optimization process, we conducted a detailed analysis of the score-matching loss landscape. By formulating the exact score in both symmetric and asymmetric mixture settings, we derived explicit expressions for the parameter Jacobians and identified the dominant components under standard separation assumptions. Then, we prove that the population loss becomes strongly convex in a neighborhood of the ground truth score function, by estimating the Hessian and presenting lower bounds on both its minimal eigenvalue and the convergence rate. Then, we provide the local convergence guarantee for the score matching objective function, which explains the fast and stable training process of diffusion models.
+
+Future work and limitation. Though we have extended the situation to multi-manifold MoG, how to extend the analysis to more general non-Gaussian sub-manifolds (e.g. heavy-tailed or multi-modal beyond second moments) by higher-order moment matching is still unknown. Meanwhile, we wish to design optimization algorithms or network architectures that explicitly leverage the block-diagonal Hessian structure for faster training. For example, we can perform a natural-gradient step separately in each block with a block-diagonal Hessian with decomposed data, which will accelerate the optimization process.

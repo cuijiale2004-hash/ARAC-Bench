@@ -1,0 +1,2742 @@
+[
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "ABSTRACT"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                450,
+                344,
+                547,
+                359
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Reinforcement Learning with Verifiable Rewards (RLVR) is a powerful paradigm for enhancing the reasoning ability of Large Language Models (LLMs). Yet current RLVR methods often explore poorly, leading to premature convergence and entropy collapse. Moreover, they tend to produce poorly calibrated policies that remain confident in their generations regardless of correctness. To address this challenge, we introduce Curiosity-Driven Exploration (CDE), a framework that leverages the model’s intrinsic sense of curiosity to guide exploration. We formalize curiosity with signals from both the actor and the critic: for the actor, we use perplexity <sup>1</sup> over its generated response, and for the critic, we use the variance of value estimates from a multi-head critic architecture. Both signals serve as an exploration bonus within the RLVR framework to guide the model. Our theoretical analysis shows that the actor-wise bonus inherently penalizes overconfident errors and promotes diversity among correct responses; moreover, we connect the critic-wise bonus to the well-established count-based exploration bonus in RL. Empirically, our method achieves an approximate +3 point improvement over standard RLVR using GRPO/PPO on AIME benchmarks."
+                    }
+                ]
+            },
+            "bbox": [
+                230,
+                376,
+                767,
+                599
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "1 INTRODUCTION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                174,
+                626,
+                338,
+                641
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Reinforcement learning has significantly advanced the reasoning capabilities of Large Language Models (LLMs). A leading paradigm is Reinforcement Learning with Verifiable Rewards (RLVR), which directly optimizes models based on the correctness of their final answers. Despite the development of advanced RLVR algorithms like GRPO (Guo et al., 2024) and DAPO (Yu et al., 2025b), critical challenges persist. Problems such as premature convergence and entropy collapse (Cui et al., 2025) are frequently observed, posing fundamental challenges to the efficiency of RLVR."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                657,
+                826,
+                743
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "These challenges stem from the classic exploration-exploitation dilemma in reinforcement learning (Sutton & Barto, 2018). Phenomena like entropy collapse reveal a critical flaw in the training process: it is heavily biased towards exploitation, causing models to converge prematurely instead of sufficiently exploring their environment for better solutions. Although the RL literature encompasses a wide range of exploration strategies, these methods exhibit limitations when applied to LLMs. Simple heuristics, including ϵ-greedy policies (Sutton & Barto, 2018) and entropy bonuses (Haarnoja et al., 2018), either inject randomness to the environment or encourage the policy to be more stochastic. Directly applying those approaches often demonstrates debatable effectiveness in complex environments like Deep RL (Andrychowicz et al., 2021) and LLM-based reasoning (Cui et al., 2025; Shen, 2025)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                750,
+                826,
+                888
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "<sup>1</sup>Our bonus is technically the logarithm of the perplexity (log-PPL). For simplicity, we refer to it as the PPL bonus throughout the paper."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                897,
+                825,
+                924
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "1"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                949,
+                503,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "More principled strategies include count-based and prediction-based approaches. The former, including UCB (Lai, 1987) and LinUCB (Li et al., 2010), incentivizes visits to rarely explored states, while the latter, like ICM (Pathak et al., 2017) and RND (Burda et al., 2018b), reward an agent for reaching hard-to-predict states. Recent work has focused on adapting these methods for tuning LLMs (Bai et al., 2025; Sun et al., 2025; Gao et al., 2025; Yu et al., 2025a). However, these strategies often require training auxiliary modules and effective state representations (Burda et al., 2018a). This requirement is particularly challenging for LLMs, where efficiently represent a reasoning path into a fixed-size embedding remains an open problem (Fu et al., 2024), and simplistic approaches such as using the last hidden state are often problematic (Barbero et al., 2024)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                104,
+                828,
+                231
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We first explored count-based methods using the SimHash technique (Tang et al., 2017), which maps the embedding of a CoT response into a discrete hash code, and then uses the visitation frequency of hash cells as pseudo-counts (see Appendix D). However, this approach proved problematic, exposing the inherent challenge of representing complex reasoning trajectories. As illustrated in Figure 1, most responses collapsed into a small number of hash grids. This clustering creates a highly concentrated count distribution, undermining the effectiveness of count-based exploration. Therefore, developing efficient and scalable exploration methods for LLMs remains a critical challenge."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                236,
+                617,
+                390
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/26bc0e803fe3ab09b2adb4997443d40197236e62d853a85efa237b542883d977.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 1: Distribution of number of visitations across hashcells."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                635,
+                239,
+                808,
+                372
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this work, we propose an intuitive approach that leverages the model’s intrinsic sense of curiosity as a guide for exploration. An"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                395,
+                616,
+                424
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "LLM, having been trained on vast reasoning corpora, develops a sophisticated internal model of what constitutes a familiar versus a novel reasoning pattern. This parallels early childhood development (Chu & Schulz, 2020), where learning is not driven by an external summary and count of experiences, but is instead propelled by an intrinsic curiosity to explore novel situations. We formalize this principle in our Curiosity-Driven Exploration (CDE) framework, which considers curiosity signals from both the actor and the critic. For the actor, perplexity (PPL) over its generated response serves as the curiosity measure. For the critic, we measure curiosity via the variance of its posterior value distribution. We then approximate this posterior by extending the PPO framework with a multi-head, bootstrapped structure (Figure 2).The curiosity signals serve as an exploration bonus, shaping the reward and advantage functions to effectively guide exploration."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                422,
+                826,
+                565
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/63fd7c4b4426cb94b96ec897f526964fea8a43cff21f5bf3f096e2b4f5d511e3.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 2: Illustration of the multi-head critic framework."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                189,
+                578,
+                823,
+                719
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We provide a theoretical foundation for our method, establishing two key properties. First, we prove that the actor’s perplexity bonus intrinsically penalizes overconfident errors while encouraging diversity among correct responses (Theorem 3.1). Second, we connect the critic’s bonus to classical RL theory by showing it is equivalent to count-based bonuses in the linear MDP setting (Theorem 3.2), grounding our approach in established exploration principles."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                763,
+                826,
+                835
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Empirically, our method delivers consistent performance gains across four widely used mathematics benchmarks (AIME25, AIME24, AMC23, and MATH), achieving a notable +3 point improvement on the challenging AIME benchmarks. Beyond these performance gains, our analysis of the training dynamics uncovers a critical failure mode we term calibration collapse: under a standard GRPO policy, a model’s confidence progressively decouples from its correctness, while the proposed PPL bonus mitigates this miscalibration."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                840,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "2"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2 PRELIMINARIES: RLVR, GRPO AND PPO"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                102,
+                560,
+                118
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We frame the language generation process as a sequential decision-making problem, trained using the RLVR paradigm (Lambert et al., 2024; Yu et al., 2025b). In RLVR, a rule-based verifier assesses the correctness of a generated response by comparing it against the ground truth, providing a verifiable reward signal."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                133,
+                825,
+                189
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Group Relative Policy Optimization (GRPO (Shao et al., 2024)) is a critic-free RL algorithm. Given a prompt q, the policy π<sub>θ</sub> generates a group of G candidate responses "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\left\\{ o _ { 1 } , o _ { 2 } , \\ldots , o _ { G } \\right\\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Each response "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "o _ { i }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "receives a reward "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "r _ { i } = r ( o _ { i } , q )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". The advantage of the i-th response is calculated by normalizing its reward relative to the others in the group: "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "A _ { i } = ( r _ { i } - \\operatorname { m e a n } ( r _ { 1 } , \\ldots , r _ { G } ) ) / \\operatorname { s t d } ( r _ { 1 } , \\ldots , r _ { G } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Let "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta _ { \\mathrm { o l d } } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "be the behavior policy used to generate the responses. The policy is updated by maximizing the GRPO objective:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                195,
+                825,
+                279
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {J} _ {\\mathrm{GRPO}} (\\theta) = \\mathbb {E} _ {q \\sim \\mathcal {D}, \\{o _ {i} \\} _ {i = 1} ^ {G} \\sim \\pi_ {\\theta_ {\\mathrm{old}}}} \\Big [ \\frac {1}{G} \\sum_ {i = 1} ^ {G} \\frac {1}{| o _ {i} |} \\sum_ {t = 1} ^ {| o _ {i} |} \\min \\big (\\tilde {r} _ {i, t} A _ {i}, \\mathsf {c l i p} (\\tilde {r} _ {i, t}, 1 - \\varepsilon , 1 + \\varepsilon) A _ {i} \\big) \\Big ],",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/9bebdd7f9beca6428ef24e21851c0062241e5b28a1b273bc53ba32d8a4da9f7b.jpg"
+                }
+            },
+            "bbox": [
+                207,
+                284,
+                787,
+                324
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\tilde { r } _ { i , t } = \\pi _ { \\theta } ( o _ { i , t } \\mid q , o _ { i , < t } ) / \\pi _ { \\theta _ { \\mathrm { o l d } } } ( o _ { i , t } \\mid q , o _ { i , < t } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the token-level probability ratio."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                327,
+                735,
+                344
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Proximal Policy Optimization (PPO(Schulman et al., 2017)) is an actor-critic algorithm that uses a learned value function, or critic "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "V _ { \\phi }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", to estimate advantages. For a single response o with a final reward "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "r ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": "the advantage at token t is:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                349,
+                825,
+                393
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "A _ {t} = \\sum_ {l = t} ^ {| o |} (\\gamma \\lambda) ^ {l - t} \\delta_ {l}, \\text {   where   } \\delta_ {l} = r _ {l} + \\gamma V _ {\\phi} (q, o _ {\\leqslant l + 1}) - V _ {\\phi} (q, o _ {\\leqslant l}).",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/f13d56d72de90c0828b7b287520a72516eed6db36986202bfac24559e2d1fbbe.jpg"
+                }
+            },
+            "bbox": [
+                274,
+                395,
+                720,
+                436
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Here, the reward is applied only at the final token "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( r _ { | o | } = r"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "r _ { l } = 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "l < | o | )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". The hyperparameters "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\gamma"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and λ are the discount factor and GAE trace-decay parameter, respectively. The PPO policy objective is:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                440,
+                826,
+                483
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {J} _ {\\mathrm{PPO}} (\\theta) = \\mathbb {E} _ {q \\sim \\mathcal {D}, o \\sim \\pi_ {\\theta_ {\\mathrm{old}}}} \\Big [ \\frac {1}{| o |} \\sum_ {t = 1} ^ {| o |} \\min \\big (\\tilde {r} _ {t} A _ {t}, \\mathsf {c l i p} (\\tilde {r} _ {t}, 1 - \\varepsilon , 1 + \\varepsilon) A _ {t} \\big) \\Big ].",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/cd23b8afb49f692704e1551645bcaf0acbf9b0c9b1aec808ca87af9a431bbc49.jpg"
+                }
+            },
+            "bbox": [
+                261,
+                487,
+                733,
+                527
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3 CDE: CURIOSITY-DRIVEN EXPLORATION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                544,
+                553,
+                560
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "This section first analyzes count-based exploration, highlighting a key challenge in its application. We then introduce Curiosity-Driven Exploration (CDE), a systematic framework that leverages curiosity signals from both the actor and the critic. We elaborate on the specific formulations for actor and critic curiosity in Sections 3.2 and 3.3, respectively."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                574,
+                825,
+                632
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.1 CHALLENGE OF COUNT-BASED EXPLORATION FOR RLVR"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                647,
+                616,
+                662
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Count-based exploration methods use response embeddings to quantify novelty, assigning an exploration bonus to rare or less frequent responses patterns. To implement this efficiently, we investigated a hash-based counting method (Tang et al., 2017), which projects CoT embeddings into discrete hash grids and uses grid visitation frequency as pseudo-counts (details in Appendix D)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                672,
+                826,
+                729
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "While conceptually appealing, this approach fails in practice. We hypothesize the root cause is the poor expressiveness of embeddings. Effectively representing a reasoning trajectory in a single embedding is challenging, and simple heuristics such as the last token’s hidden state, are often problematic (Barbero et al., 2024). As illustrated in Figure 1, where most responses collapse into the same or neighboring hash grids, leading to a highly concentrated distribution of counts and thus undermining the effectiveness of count-based exploration for RLVR."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                734,
+                825,
+                821
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this work, we introduce an exploration paradigm guided by the model’s intrinsic curiosity, moving beyond methods that rely on explicit counts or response embeddings. Our approach is inspired by early cognitive development (Chu & Schulz, 2020), where, much like children, the model is encouraged to explore what it finds novel while acting confidently on familiar patterns. Learning is therefore not driven by an external count of experiences but is propelled by an intrinsic drive to explore. We formalize this principle with separate curiosity signals for the actor and the critic, beginning with the actor’s implementation."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                825,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "3"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.2 EXPLORATION GUIDED BY ACTOR CURIOSITY"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                104,
+                540,
+                119
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We model actor curiosity as the actor’s uncertainty about its own actions. Intuitively, a response that is surprising to the actor—i.e., has a low probability under its current policy—likely resides in an underexplored region of its learned distribution."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                128,
+                825,
+                174
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "A natural and computationally efficient measure of this surprise is the perplexity of the actor’s generation. We formalize this as a response-level curiosity bonus, defined as the negative average log-probability of a generated response "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "o = \\{ o _ { 1 } , \\ldots , o _ { T } \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", given a prompt q:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                179,
+                825,
+                223
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "B _ {\\mathrm{actor}} (q, o) = - \\frac {1}{T} \\sum_ {t = 1} ^ {\\top} \\log \\pi (o _ {t} | o _ {<   t}, q)\\tag{1}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/8a74ebdd58a154ea98d57ccc254b646d8682370471f27455f99a3a810d1b16a4.jpg"
+                }
+            },
+            "bbox": [
+                369,
+                229,
+                627,
+                268
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where π denotes the actor policy. A higher value for "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "B _ { \\mathrm { a c t o r } } ( q , o )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "indicates greater surprise and thus a stronger intrinsic reward signal for exploration."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                277,
+                825,
+                306
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "However, simply adding this bonus to the original reward can be unstable and sub-optimal. Unconstrained exploration might incentivize the model to generate high-perplexity but low-quality or inaccurate responses (a behavior known as reward hacking), or lead to over-exploration where the policy fails to converge to a stable, high-quality output. To address this, we integrate the bonus using an adaptive clipping mechanism. The total response-level reward, r<sup>p</sup>, is a combination of the original reward signal "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "r ( q , o )"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                311,
+                826,
+                397
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\widehat {r} (q, o) = r (q, o) + \\omega \\min (\\frac {| r (q , o) |}{\\kappa}, \\alpha B _ {\\mathrm{actor}} (q, o))\\tag{2}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/e208639503cf6e84eb8e01b958b4b2386f6882aadac8286fd986ca956358a38e.jpg"
+                }
+            },
+            "bbox": [
+                330,
+                402,
+                665,
+                435
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "This formulation promotes exploration by rewarding responses that the actor finds surprising, while constraining the bonus to remain a fraction of the original reward. The behavior of this reward function is controlled by three key hyperparameters:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                446,
+                825,
+                491
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• The bonus weight ω is a dynamic coefficient, typically set with an annealing schedule to decrease over the course of training. This allows for aggressive exploration in the early stages and then gradually shifts focus towards exploitation of high-reward regions as the policy converges."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                502,
+                825,
+                546
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• The clipping ratio κ governs the maximum size of the curiosity bonus relative to the original reward. By capping the bonus at "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "| r ( q , o ) | / \\kappa"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", it ensures the bonus remains a supplement and prevents it from dominating the learning signal."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                549,
+                825,
+                592
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• The bonus scaling factor α normalizes the curiosity bonus "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "B _ { \\mathrm { a c t o r } } ( q , o )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "before it is compared to the clipped reward. A higher α allows the curiosity bonus to reach the clipping threshold more easily, whereas a smaller α diminishes its potential impact."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                595,
+                826,
+                638
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Calibration Effect Beyond exploration, we study the calibration effect of the PPL bonus. To build this intuition, we analyze responses along two axes: correctness and PPL. Among these four categories, two require particular attention:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                652,
+                826,
+                696
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "1. Incorrect responses with low PPL indicate that the model is highly confident in its answer, yet the response is wrong. This reflects overfitting and should be penalized."
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                714,
+                568,
+                757
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/99f55fb15be414b62acc4054dc8cd29461fe5f61fcb134cfc8e29ef202b76c79.jpg"
+                },
+                "content": "",
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                614,
+                702,
+                799,
+                789
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "2. Correct responses with high PPL suggest that the model is less familiar with such answers, but they nevertheless turn out to be successful. This reflects effective exploration and should be encouraged."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                761,
+                566,
+                818
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Figure 3: Responses by correctness and PPL."
+                    }
+                ]
+            },
+            "bbox": [
+                591,
+                800,
+                823,
+                828
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "As illustrated in Figure 3, the PPL bonus intrinsically penalizes confident mistakes while encouraging novel correct responses. For correct responses, those novel responses (with higher PPL) receive a larger positive reward. For incorrect responses, those confident responses (with lower PPL) receive larger penalty as it receives smaller PPL bonus. The following theorem formalizes this intuition; its precise statement and proof are deferred to Appendix F."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                835,
+                826,
+                907
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "4"
+                    }
+                ]
+            },
+            "bbox": [
+                491,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Theorem 3.1. Let "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { h }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denote the policy at training step h. With PPL bonus in equation 1, the update to "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { h + 1 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "calibrates the policy’s confidence asfollows:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                104,
+                823,
+                133
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "(i) Among correct responses, those with higher PPL receive a larger relative probability increase."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                138,
+                810,
+                154
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "(ii) Among incorrect responses, those with lower PPL receive a larger relative probability decrease."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                161,
+                825,
+                176
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/46f3144f729a8de5423e8e7c82557b4949c4355cefb2fe9bc2a7c1e5b684618a.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 4: The next-token distribution of the policy "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\boldsymbol { \\theta } } ."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                197,
+                184,
+                375,
+                303
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The PPL bonus can be viewed as an enhancement to the traditional entropy based signals by incorporating sample-specific information. The entropy bonus is inherently sample-agnostic; as defined in Equation 3, the entropy "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { H } _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is computed over the entire next-token probability distribution, π<sub>θ</sub> "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( v \\mid q , o _ { < t } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", making it independent of the token that is actually sampled. As illustrated in Figure 4, this means that even when the model makes a highconfidence error (e.g., by sampling Token 1), the entropy bonus fails to penalize that choice."
+                    }
+                ]
+            },
+            "bbox": [
+                397,
+                186,
+                826,
+                311
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {H} _ {t} = - \\sum_ {v \\in \\mathcal {V}} \\pi_ {\\theta} (v \\mid q, o _ {<   t}) \\log \\pi_ {\\theta} (v \\mid q, o _ {<   t}).\\tag{3}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/0a64f481a2693256cc5d559408018413701860b2af5362eb9d7c7c3e7b9e042a.jpg"
+                }
+            },
+            "bbox": [
+                457,
+                319,
+                764,
+                349
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.3 EXPLORATION GUIDED BY CRITIC CURIOSITY"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                366,
+                539,
+                381
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In contrast to critic-free methods such as REINFORCE and GRPO, the critic (value function) in actor–critic frameworks provides a higher-level understanding of the prompt–response pair by estimating the expected reward-to-go. Since this estimate is learned directly from collected trajectories, its posterior distribution conditioned on the observed data naturally reflects the degree of coverage: regions with dense data yield concentrated (low-variance) posteriors, whereas sparsely sampled regions result in higher uncertainty. Posterior distributions are a well-established means of quantifying predictive uncertainty in deep learning models (Gal & Ghahramani, 2016; Lakshminarayanan et al., 2017; Yu et al., 2025a). As shown in Figure 5, the orange curve exhibits lower variance—evidence of better data coverage—whereas the other curve is more dispersed, reflecting greater uncertainty."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                393,
+                828,
+                518
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To approximate the posterior distribution of value estimates, we adopt the classical bootstrap method (Davison & Hinkley, 1997), widely used in statistics and increasingly recognized in the RL community as an effective tool for exploration (Osband et al., 2016; Ciosek et al., 2019; Bai et al., 2021). We implement this idea through a multi-head critic (left subfigure in Figure 2), where K critics "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{ \\hat { V } _ { 1 } , \\dots , \\hat { V } _ { K } \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "share a common LLM backbone. Each head is trained on a resampled subset of the collected trajectories (right subfigure in Figure 2), thereby producing an empirical approximation to the posterior distribution."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                525,
+                616,
+                667
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/bf607225a9abf66e09dd683309f281ee17ed67d5ab25e38734f386d96b375eed.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                627,
+                529,
+                820,
+                679
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We use the standard deviation across the K heads as a principled curiosity signal to guide the policy toward under-explored regions where the heads have high disagreement. In the following theorem, we establish a surprising yet intuitive result: under a Linear MDP assumption, this standard deviation is a consistent estimator of the pseudo-count bonus."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                672,
+                616,
+                757
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Figure 5: An illustration of two posterior distributions of the critic and their bootstrap approximations."
+                    }
+                ]
+            },
+            "bbox": [
+                624,
+                691,
+                825,
+                748
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Theorem 3.2. In linear MDPs, the standard deviation across multi-head critics is a consistent estimator ofthe pseudo-count exploration bonus, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\sqrt { \\phi _ { n , t } ^ { \\top } \\Lambda _ { n , t } ^ { - 1 } \\phi _ { n , t } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", as used in LSVI-UCB (Jin et al., 2020) and CFPO (Cassel & Rosenberg, 2024), where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\phi _ { n , t } = \\phi ( s _ { n , t } , a _ { n , t } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denotes the feature of state-action pair and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\begin{array} { r } { \\Lambda _ { n , t } = \\sum _ { i = 0 } ^ { n } \\phi _ { i , t } \\phi _ { i , t } ^ { \\top } + \\lambda I } \\end{array}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the coverage matrix."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                761,
+                826,
+                830
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Appendix G provides the rigorous formulation of the linear MDP assumptions and the proof for Theorem 3.2, with further empirical support in Section 4.4. Building on this foundation, our multihead PPO algorithm adapts the standard PPO training stages: (i) generating trajectories with the actor, (ii) updating the actor, and (iii) updating the critic. The key distinction is our incorporation of multi-head variance as an exploration bonus. The full procedure is detailed below and illustrated in Figure 2."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                840,
+                826,
+                924
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "5"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• Actor roll-out: For clarity, we describe the process for a single prompt q. The actor generates a set of n responses, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\big \\{ o _ { 1 } , \\dotsc , o _ { n } \\big \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", each of which receives a corresponding verifiable reward "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "r _ { i }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                104,
+                825,
+                133
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• Actor update: In this step, the advantage is calculated as:"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                136,
+                571,
+                152
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\widehat {A} _ {i, t} = \\underbrace {\\sum_ {l = t} ^ {| o _ {i} |} (\\gamma \\lambda) ^ {l - t} \\widehat {\\delta} _ {i , l}} _ {\\approx \\tilde {A} _ {i, t}} + \\omega \\min \\left(\\frac {| \\tilde {A} _ {i , t} |}{\\kappa}, \\alpha B _ {\\mathrm{critic}} (q, o _ {i, \\leqslant t + 1})\\right).",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/49ade402e79c57ce9afe7482ba6879596c51e146379e85fb15ba5760b4b8e024.jpg"
+                }
+            },
+            "bbox": [
+                300,
+                159,
+                707,
+                223
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The advantage consists of two components. The first term, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\tilde { A } _ { i , t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", is a modified PPO advantage estimate that leverages an ensemble of K value heads instead of a single value function:"
+                    }
+                ]
+            },
+            "bbox": [
+                184,
+                234,
+                825,
+                265
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\widehat {\\delta} _ {i, l} = r _ {i, l} + \\frac {\\gamma}{K} \\sum_ {j = 1} ^ {K} \\widehat {V} _ {j} (q, o _ {i, \\leqslant l + 1}) - \\frac {1}{K} \\sum_ {j = 1} ^ {K} \\widehat {V} _ {j} (q, o _ {i, \\leqslant l}).",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/41000ea523c210723f85306a141fcde40c0b65df0e8b89d9bb805968a16511b4.jpg"
+                }
+            },
+            "bbox": [
+                316,
+                272,
+                692,
+                314
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The second term introduces the multi-head critic bonus "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( B _ { \\mathrm { c r i t i c } } ) _ { \\mathrm { \\cdot } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", governed by the bonus weight ω, clipping ratio "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\kappa ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and scaling factor α (see discussion following Equation "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\dot { 2 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for interpretation). Specifically, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "B _ { \\mathrm { c r i t i c } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is defined as the standard deviation across the "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "K"
+                    },
+                    {
+                        "type": "text",
+                        "content": "value heads, encouraging exploration by assigning higher bonus to actions leading to uncertain/less-visited regions:"
+                    }
+                ]
+            },
+            "bbox": [
+                184,
+                323,
+                826,
+                381
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "B _ {\\text { critic }} \\left(q, o _ {i, \\leqslant t + 1}\\right) = \\operatorname{std} \\left(\\left\\{\\hat {V} _ {j} (q, o _ {i, \\leqslant t + 1}) \\mid 1 \\leqslant j \\leqslant K \\right\\}\\right).",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/2c98e4e14a02878de140158b4dc37dc995684f77535fa40cbdbeb15d94398240.jpg"
+                }
+            },
+            "bbox": [
+                315,
+                388,
+                694,
+                412
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• Critic update: The critic heads are updated using the collected roll-outs, which form a dataset "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { D } \\ = \\ \\{ ( \\bar { q } , o _ { i , \\leqslant t } , r _ { i } ) | i \\ \\in \\ [ n ] , t \\ \\in \\ [ | o _ { i } | \\hat { ] } \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "u. Each critic head "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "j"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is trained on a subset of the data, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { D } _ { i } \\subset \\mathcal { D }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", sampled with replacement. The hyperparameter "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\zeta \\in ( 0 , 1 ]"
+                    },
+                    {
+                        "type": "text",
+                        "content": "controls the size of this subset "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "| \\mathcal { \\breve { D } } _ { j } | = \\zeta | \\mathcal { D } |"
+                    },
+                    {
+                        "type": "text",
+                        "content": "|, creating a trade-off: a smaller "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\zeta"
+                    },
+                    {
+                        "type": "text",
+                        "content": "increases head diversity, while a larger "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\zeta"
+                    },
+                    {
+                        "type": "text",
+                        "content": "improves sample efficiency. The multi-head critic is then trained by minimizing the following bootstrap loss:"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                421,
+                826,
+                493
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {L} _ {\\phi} = \\frac {1}{\\zeta K | \\mathcal {D} |} \\sum_ {j = 1} ^ {K} \\sum_ {(q, o, r) \\in \\mathcal {D} _ {j}} \\left(\\hat {V} _ {j} (q, o) - r\\right) ^ {2}.",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/01f9ea6226aaf72bb52599a01a6e8602cf29cce42bccd58b4b77efe325e3bfba.jpg"
+                }
+            },
+            "bbox": [
+                352,
+                500,
+                655,
+                542
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4 EXPERIMENTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                559,
+                328,
+                575
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.1 DATASET AND MODEL"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                590,
+                372,
+                604
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We evaluate our proposed method, CDE, against standard PPO and GRPO baselines on four challenging mathematical reasoning benchmarks: MATH (Hendrycks et al., 2021), AMC23 (MAA, b), AIME24, and AIME25 (MAA, a). All experiments are implemented in the Verl framework, using the Qwen3-4B-Base model (Yang et al., 2025) and Llama-3.2-3B-Instruct (Grattafiori et al., 2024) trained on the DAPO-17K dataset (Yu et al., 2025b). Full implementation details and the prompt are provided in Appendix B."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                616,
+                826,
+                703
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.2 MAIN RESULTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                717,
+                325,
+                732
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We benchmark our method against the original GRPO/PPO as well as two additional baselines: the entropy bonus for traditional entropy-based exploration (Schulman et al., 2017) and i-MENTOR for curiosity-driven exploration (Gao et al., 2025). The main results are presented in Table 1 while the training dynamics is presented in Figure 6. Here K Heads represents multi-head critic PPO with K heads. For all evaluations, we set the sampling temperature to 1.0. On the MATH dataset, we report accuracy from a single response (Avg@1). Following the protocol of (Wang et al., 2025), for the other three datasets we generate 16 independent samples and report both Pass@16 and the average accuracy (Avg@16). The key observations are as follows:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                743,
+                826,
+                857
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• The PPL bonus enhances the mathematical reasoning ability of the GRPO method, yielding an improvement of approximately `2 points across datasets and models. In particular, our method achieves notable gains on Pass@16, surpassing the baseline GRPO over Qwen3-4B-Base model by about `8 points on the AIME24 dataset."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                867,
+                826,
+                924
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "6"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/9550b7a10df4d42b7489eae3a00ef2c744de83cc4be2f454600e0993ad3f929c.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 1: Zero-shot accuracy on the validation datasets. Avg column represents the overall accuracy across datasets, calculated by averaging the Avg@1 score from MATH with the Avg@16 scores (mean and standard deviation) from the remaining datasets. We "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { u s e } \\ : \" \\ : - \\ : \""
+                    },
+                    {
+                        "type": "text",
+                        "content": "to exclude the results for Llama-3.2-3B-Instruct on AIME25, since its performance is approximately 1 point."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\">Model</td><td rowspan=\"2\">MATH Avg@1</td><td colspan=\"2\">AMC23</td><td colspan=\"2\">AIME24</td><td colspan=\"2\">AIME25</td><td rowspan=\"2\">Avg</td></tr><tr><td>Avg@16</td><td>Pass@16</td><td>Avg@16</td><td>Pass@16</td><td>Avg@16</td><td>Pass@16</td></tr><tr><td colspan=\"9\">GRPO based methods</td></tr><tr><td>Qwen3-4B-Base-GRPO</td><td>87.3</td><td> $63.6 \\pm 0.9$ </td><td>89.1</td><td> $20.8 \\pm 1.1$ </td><td>41.9</td><td> $21.0 \\pm 0.8$ </td><td>39.2</td><td>48.2</td></tr><tr><td> $\\Lsh$  w/ Entropy bonus</td><td>86.8</td><td> $64.3 \\pm 0.6$ </td><td>89.7</td><td> $21.8 \\pm 1.0$ </td><td>39.4</td><td> $21.2 \\pm 0.4$ </td><td>41.1</td><td>48.5</td></tr><tr><td> $\\Lsh$  i-MENTOR-GRPO</td><td>87.6</td><td> $63.2 \\pm 0.7$ </td><td>89.1</td><td> $22.5 \\pm 0.3$ </td><td>39.3</td><td> $23.0 \\pm 0.4$ </td><td>40.4</td><td>49.1</td></tr><tr><td> $\\Lsh$  w/ PPL bonus</td><td>87.7</td><td> $67.8 \\pm 1.3$ </td><td>89.5</td><td> $23.3 \\pm 0.9$ </td><td>48.5</td><td> $23.5 \\pm 1.0$ </td><td>42.5</td><td>50.6</td></tr><tr><td>Llama-3.2-3B-Instruct-GRPO</td><td>53.8</td><td> $30.0 \\pm 0.3$ </td><td>59.4</td><td> $13.1 \\pm 0.2$ </td><td>30.7</td><td>-</td><td>-</td><td>32.3</td></tr><tr><td> $\\Lsh$  w/ PPL bonus</td><td>55.8</td><td> $32.8 \\pm 0.5$ </td><td>65.0</td><td> $14.6 \\pm 0.3$ </td><td>35.1</td><td>-</td><td>-</td><td>34.4</td></tr><tr><td colspan=\"9\">PPO based methods</td></tr><tr><td>Qwen3-4B-Base-PPO</td><td>86.6</td><td> $64.1 \\pm 0.6$ </td><td>87.2</td><td> $17.8 \\pm 0.5$ </td><td>36.0</td><td> $17.5 \\pm 0.8$ </td><td>33.7</td><td>46.5</td></tr><tr><td> $\\Lsh$  w/ Entropy bonus</td><td>83.9</td><td> $66.3 \\pm 1.2$ </td><td>87.5</td><td> $17.9 \\pm 0.8$ </td><td>30.6</td><td> $19.5 \\pm 0.4$ </td><td>33.0</td><td>46.9</td></tr><tr><td> $\\Lsh$  i-MENTOR-PPO</td><td>85.8</td><td> $60.9 \\pm 0.9$ </td><td>85.9</td><td> $18.9 \\pm 0.5$ </td><td>39.4</td><td> $19.6 \\pm 0.7$ </td><td>36.5</td><td>46.3</td></tr><tr><td> $\\Lsh$  w/ PPL bonus</td><td>87.9</td><td> $66.1 \\pm 1.0$ </td><td>88.5</td><td> $18.3 \\pm 0.5$ </td><td>37.6</td><td> $18.3 \\pm 1.1$ </td><td>33.5</td><td>47.7</td></tr><tr><td> $\\Lsh$  w/ 2 Heads</td><td>83.2</td><td> $63.6 \\pm 0.9$ </td><td>89.9</td><td> $19.6 \\pm 0.7$ </td><td>34.8</td><td> $19.6 \\pm 1.0$ </td><td>36.1</td><td>46.6</td></tr><tr><td> $\\Lsh$  w/ 4 Heads</td><td>87.3</td><td> $63.9 \\pm 1.2$ </td><td>87.9</td><td> $21.5 \\pm 0.7$ </td><td>35.5</td><td> $21.5 \\pm 1.3$ </td><td>45.5</td><td>48.5</td></tr><tr><td> $\\Lsh$  w/ 8 Heads</td><td>85.1</td><td> $66.7 \\pm 0.8$ </td><td>86.9</td><td> $21.7 \\pm 1.3$ </td><td>46.4</td><td> $19.0 \\pm 0.8$ </td><td>37.1</td><td>48.1</td></tr><tr><td> $\\Lsh$  w/ 16 Heads</td><td>88.3</td><td> $65.0 \\pm 0.9$ </td><td>88.7</td><td> $20.5 \\pm 0.8$ </td><td>41.9</td><td> $20.0 \\pm 1.3$ </td><td>38.8</td><td>48.6</td></tr><tr><td>Llama-3.2-3B-Instruct-PPO</td><td>51.9</td><td> $27.2 \\pm 0.2$ </td><td>59.1</td><td> $12.5 \\pm 0.3$ </td><td>29.2</td><td>-</td><td>-</td><td>30.5</td></tr><tr><td> $\\Lsh$  w/ 4 Heads</td><td>56.1</td><td> $32.2 \\pm 0.4$ </td><td>63.7</td><td> $14.3 \\pm 0.1$ </td><td>35.5</td><td>-</td><td>-</td><td>34.2</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                174,
+                167,
+                820,
+                425
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/155f90fa2c2a2b453f728f76fcd1e73b758fefe211b3416ca153431d6028afe0.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                191,
+                445,
+                475,
+                589
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/e4996e37f548ed445d7507c5bd090d9ac7b2636b507bdf6c7a5093d680af2e9b.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 6: Comparison of Avg@16 accuracy on AIME25 over training of vanilla GRPO and PPO (Baseline methods) and GRPO with PPL bonus and 16 head multi-head PPO (Our methods)."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                517,
+                445,
+                800,
+                589
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• Across benchmarks, multi-head PPO consistently outperforms vanilla PPO. Using "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "K = 4"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "K = 1 6"
+                    },
+                    {
+                        "type": "text",
+                        "content": "heads yields average gains of roughly `2 points, and we observe an increase of around `10 points in Pass@16 on AIME datasets with Qwen3-4B-Base model in many cases."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                654,
+                826,
+                699
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• The performance of multi-head PPO generally increases with the number of heads K: with "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "K = 2"
+                    },
+                    {
+                        "type": "text",
+                        "content": "delivers negligible gains over the baseline, and performance begins to plateau once "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "K \\geqslant 4 ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", which suggests that a modest number of heads can capture most of the curiosity signals needed."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                705,
+                826,
+                750
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• The consistent outperformance of multi-head PPO "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( K \\geqslant 4 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "over PPO with a PPL bonus suggests that the critic’s disagreement reflects a higher-level uncertainty about the long-term value of a reasoning path, which provides a more strategic exploration signal."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                757,
+                826,
+                801
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• Figure 6 illustrates CDE’s effective exploration strategy: while initially lagging the PPO/GRPO baselines in test accuracy, it achieves superior final performance. This initial trade-off prevents the model from prematurely exploiting spurious high-reward paths. As exploration expands state-action coverage, the policy refines, enabling a more effective shift to exploitation that yields a higher accuracy ceiling."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                809,
+                826,
+                880
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We further provide an analysis of the multi-head critic’s computational cost, including memory usage and runtime, in Appendix C."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                895,
+                825,
+                924
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "7"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.3 UNDERSTANDING THE EFFECT OF THE PPL BONUS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                103,
+                573,
+                119
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Bonus weight decay is crucial. We compare four schedules for the bonus weight ω—No decay, Linear, Cosine, and Staircase—as illustrated in Figure 7, with the performance of models trained under each schedule summarized in Table 2. Briefly, the No decay schedule maintains strong exploration throughout training, while the Staircase schedule reduces ω abruptly, enabling strong exploration in the early phase and then removing the bonus for final convergence. The Linear and Cosine schedules provide intermediate behaviors."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                128,
+                584,
+                256
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/f690450234a8676f8e7436134cb5ba0d478995c59505ae44c20dd88b1800074c.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 7: An illustration of different weight anneal schedules."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                599,
+                128,
+                813,
+                224
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The results in Table 2 underscore two insights: First, decay of the bonus weight is necessary, as all decay schedules outperform the no-decay baseline. Second, strong exploration in the early phase is crucial, with the staircase scheme proving most effective by sustaining high exploration initially to broaden state–action coverage and then removing the bonus abruptly to allow stable convergence. We also track entropy dynamics, providing extra support for the importance of weight decay (see Figure 11, Appendix E)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                262,
+                826,
+                348
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/1d4ee2922a6b8c3d8588076d512d97b021474a81978cfe0e951d93a273a39dec.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 2: Zero-shot accuracy of GRPO models under different PPL bonus weight decay schedules. The schedules follow those illustrated in Figure 7."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\">Model</td><td rowspan=\"2\">MATHAvg@1</td><td colspan=\"2\">AMC23</td><td colspan=\"2\">AIME24</td><td colspan=\"2\">AIME25</td><td rowspan=\"2\">Avg</td></tr><tr><td>Avg@16</td><td>Pass@16</td><td>Avg@16</td><td>Pass@16</td><td>Avg@16</td><td>Pass@16</td></tr><tr><td colspan=\"9\">Bonus Weight Decay Schedules</td></tr><tr><td>Qwen3-4B-Base-GRPO</td><td>87.3</td><td>63.6</td><td>91.1</td><td>21.0</td><td>41.9</td><td>20.8</td><td>39.2</td><td>48.2</td></tr><tr><td> $\\Lsh \\omega$  No decay</td><td>85.1</td><td>64.5</td><td>84.6</td><td>20.8</td><td>39.0</td><td>22.3</td><td>36.2</td><td>48.2</td></tr><tr><td> $\\Lsh \\omega$  Linear decay</td><td>85.4</td><td>66.1</td><td>91.9</td><td>23.3</td><td>40.4</td><td>20.0</td><td>40.4</td><td>48.7</td></tr><tr><td> $\\Lsh \\omega$  Cosine decay</td><td>86.7</td><td>68.1</td><td>90.0</td><td>22.5</td><td>44.9</td><td>21.5</td><td>40.7</td><td>49.7</td></tr><tr><td> $\\Lsh \\omega$  Staircase decay</td><td>87.7</td><td>67.8</td><td>89.2</td><td>23.5</td><td>48.5</td><td>23.3</td><td>40.3</td><td>50.6</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                174,
+                397,
+                818,
+                502
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Analysis of Calibration. As shown in Figure 8(a), models trained with standard GRPO suffer from a phenomenon we term calibration collapse: early in standard GRPO training, correct responses have lower PPL (higher confidence) than incorrect ones, but as training progresses this gap shrinks. By contrast, with a PPL bonus (subfigure (b)), this separation is sustained throughout training. This pattern can be partially explained by Theorem 3.1: while both standard GRPO and GRPO with a PPL bonus tend to increase confidence on correct answers, the PPL bonus suppresses confident errors, thereby improving calibration."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                516,
+                826,
+                616
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "This finding is original and practically important. Ideally, a trained model should be faithful—confident when its answer is correct and cautious when it is not. Better calibration enhances interpretability and supports inference-time selection strategies such as self-certainty BoN (Wang et al., 2022) and DeepConf (Fu et al., 2025). It also connects to the growing literature on calibrating LLMs, both during training (e.g., (Shen et al., 2024)) and at test time (e.g., (Ulmer et al., 2024))."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                621,
+                826,
+                693
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/c0232b4048cb01091047f46f936c2941aafaf5f5ed2726ad6236b59d579e0abd.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "(a) GRPO without PPL bonus"
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                194,
+                703,
+                475,
+                868
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/68ca83c7bf148cab54b4c9c78aec51757f3cdfeab13a076114ffacf21f43af6c.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "(b) GRPO with PPL bonus"
+                    },
+                    {
+                        "type": "text",
+                        "content": "Figure 8: Average response PPL per training step, stratified by correctness."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                517,
+                703,
+                800,
+                868
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "8"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.4 FURTHER ANALYSIS OF THE MULTI-HEAD CRITIC"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                104,
+                565,
+                119
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Analysis of sub-samplefraction ζ. Additionally, we examine the sensitivity of the critic update to the hyperparameter ζ (sub-sample fraction). We vary ζ under two configurations—critics with 16 heads and with 4 heads—and compare "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\zeta \\in \\{ 0 . 5 , 1 \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". As shown in Table 3, while a smaller number of heads benefits from a larger sub-sample fraction, the overall performance is stable across settings. The model demonstrates robustness to the masking fraction ζ, achieving similar results for both values tested (0.5 and 1.0)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                128,
+                826,
+                214
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/46b0bb26c3c6875b8244c2801cf85d9a93250c0357da08350373b15b54b029f9.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 3: Ablation study on sub-sample fraction "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\zeta ."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\">Model</td><td rowspan=\"2\">MATH Avg@1</td><td colspan=\"2\">AMC23</td><td colspan=\"2\">AIME24</td><td colspan=\"2\">AIME25</td><td rowspan=\"2\">Avg</td></tr><tr><td>Avg@16</td><td>Pass@16</td><td>Avg@16</td><td>Pass@16</td><td>Avg@16</td><td>Pass@16</td></tr><tr><td colspan=\"9\">Mask fraction</td></tr><tr><td>16 Heads ; ζ = 0.5</td><td>88.3</td><td>65.0</td><td>88.7</td><td>20.5</td><td>41.9</td><td>20.0</td><td>38.8</td><td>48.6</td></tr><tr><td>16 Heads ; ζ = 1</td><td>85.4</td><td>65.3</td><td>85.3</td><td>21.0</td><td>39.2</td><td>21.7</td><td>43.2</td><td>48.4</td></tr><tr><td>4 Heads ; ζ = 0.5</td><td>86.1</td><td>66.4</td><td>85.8</td><td>18.1</td><td>36.7</td><td>23.1</td><td>39.1</td><td>48.4</td></tr><tr><td>4 Heads ; ζ = 1</td><td>87.3</td><td>63.9</td><td>87.9</td><td>21.5</td><td>35.5</td><td>21.5</td><td>45.5</td><td>48.5</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                174,
+                244,
+                818,
+                343
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Analysis of dynamics of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "B _ { \\mathbf { c r i t i c } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "across different datasets and over the course of training. First, we find that "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "B _ { \\mathrm { c r i t i c } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is sensitive to data novelty. As shown in Figure 9, we compared the average critic disagreement across three datasets. The disagreement is lowest on the familiar training data (DAPO-17K) and significantly higher on unseen data from both an in-domain validation set (AMC23) and an out-of-domain set (GPQA). This result supports the intuition that the multi-head critics tend to show stronger disagreement on data that is less frequently encountered during training."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                359,
+                616,
+                487
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Second, the exploration bonus naturally anneals over the course of training. As the model repeatedly encounters similar reasoning paths, the critics’ value estimates converge, thus reducing the bonus. This dynamic provides empirical support for interpreting the multi-head bonus as an implicit, count-based exploration mechanism (see Figure 8, Appendix E)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                492,
+                617,
+                577
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/45f3befae69ae14059986e4379ddd526232cdcdfb6da0e22688f50477c8cdf19.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 9: Distribution of the std of value heads across different datasets."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                630,
+                364,
+                818,
+                510
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.5 SENSITIVITY ANALYSIS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                592,
+                383,
+                607
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this subsection, we conduct a more comprehensive ablation study on the hyperparameters κ and α in Equation 2."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                618,
+                825,
+                648
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/c4729187a64250c5c644e079d2278446a9981c08fac0a87132414632f9fc46ba.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 4: Sensitivity analysis of Qwen3-4B-Base-GRPO under different "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( \\kappa , \\alpha )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "settings."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\">Model</td><td rowspan=\"2\">MATHAvg@1</td><td colspan=\"2\">AMC23</td><td colspan=\"2\">AIME24</td><td colspan=\"2\">AIME25</td><td rowspan=\"2\">Avg</td></tr><tr><td>Avg@16</td><td>Pass@16</td><td>Avg@16</td><td>Pass@16</td><td>Avg@16</td><td>Pass@16</td></tr><tr><td>Qwen3-4B-Base-GRPO</td><td>87.3</td><td>63.6</td><td>89.1</td><td>20.8</td><td>41.9</td><td>21.0</td><td>39.2</td><td>48.2</td></tr><tr><td>→ κ = 3, α = 1 (Original)</td><td>87.7</td><td>67.8</td><td>89.5</td><td>23.3</td><td>48.5</td><td>23.5</td><td>42.5</td><td>50.6</td></tr><tr><td>→ κ = 1, α = 1</td><td>20.9</td><td>11.1</td><td>54.6</td><td>1.5</td><td>12.7</td><td>1.3</td><td>11.4</td><td>8.67</td></tr><tr><td>→ κ = 2, α = 1</td><td>87.6</td><td>66.5</td><td>86.9</td><td>22.3</td><td>42.5</td><td>21.6</td><td>40.1</td><td>49.5</td></tr><tr><td>→ κ = 4, α = 1</td><td>88.6</td><td>68.2</td><td>90.1</td><td>23.6</td><td>46.6</td><td>22.7</td><td>40.8</td><td>50.8</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                189,
+                679,
+                800,
+                767
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/04853594bdba12e9de885022a8fbbdd9da71349f5045d8318edfa6ea527e43fe.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 5: Sensitivity analysis of Qwen3-4B-Base-PPO under different "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( \\kappa , \\alpha )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "settings."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\">Model</td><td rowspan=\"2\">MATHAvg@1</td><td colspan=\"2\">AMC23</td><td colspan=\"2\">AIME24</td><td colspan=\"2\">AIME25</td><td rowspan=\"2\">Avg</td></tr><tr><td>Avg@16</td><td>Pass@16</td><td>Avg@16</td><td>Pass@16</td><td>Avg@16</td><td>Pass@16</td></tr><tr><td>Qwen3-4B-Base-PPO</td><td>86.6</td><td>64.1</td><td>87.2</td><td>17.8</td><td>36.0</td><td>17.5</td><td>33.7</td><td>46.5</td></tr><tr><td>→ $\\kappa = 3, \\alpha = 0.5$  (Original)</td><td>87.3</td><td>63.9</td><td>87.9</td><td>21.5</td><td>35.5</td><td>21.5</td><td>45.5</td><td>48.5</td></tr><tr><td>→ $\\kappa = 1, \\alpha = 1$ </td><td>86.5</td><td>65.0</td><td>89.5</td><td>20.8</td><td>42.5</td><td>20.5</td><td>39.8</td><td>48.2</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                187,
+                815,
+                800,
+                880
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "As illustrated in Table 5, the critic-wise bonus is generally robust to hyperparameter choices; setting both κ and α to 1 produces nearly identical performance. The actor-wise bonus is relatively more sensitive. Generally, to get relative good performance, the clipping fraction κ should not be set to small, i.e. the bonus should be constrained to be not exceeding at least 50% of the labeled reward."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                895,
+                825,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "9"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                825,
+                133
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5 RELATED WORK"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                152,
+                346,
+                169
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.1 REINFORCEMENT LEARNING (RL) FOR LLM REASONING"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                184,
+                617,
+                199
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Reinforcement Learning is a central technique for advancing the reasoning capabilities of LLMs. Initial approaches relied on reward models that provided either outcome-based supervision, focusing on the final answer (Cobbe et al., 2021), or process-based supervision (Uesato et al., 2022). More recently, RLVR (Lambert et al., 2024) has emerged as a powerful alternative, demonstrating significant performance on complex reasoning tasks in mathematics and coding (Guo et al., 2025). Parallel efforts aim to improve upon the standard RLVR paradigm with techniques such as self-evolving (Huang et al., 2025; He et al., 2025), parallel thinking (Zheng et al., 2025; 2026). Despite these advances, persistent concerns remain regarding robustness (Cai et al., 2025; Zhao et al., 2025; Huang et al., 2026) and a lack of exploration evidenced by entropy collapse (Cui et al., 2025; Shen, 2025), highlighting the need for more principled training approaches."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                210,
+                826,
+                351
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.2 EXPLORATION IN REINFORCEMENT LEARNING"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                366,
+                542,
+                381
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Efficient exploration remains a central challenge in Reinforcement Learning, which aim to balance between exploration and exploitation (Sutton & Barto, 2018; Weng, 2020; Amin et al., 2021). Many foundational approaches are random-based methods, such as adding Gaussian noise (Lillicrap et al., 2015), ϵ-greedy policy (Sutton & Barto, 2018), or applying entropy (Haarnoja et al., 2018) or KL regularization (Vieillard et al., 2020) to encourage policy stochasticity. While simple, these methods promote randomness rather than targeted discovery, which can be suboptimal (Dann et al., 2022) and yields inconsistent performance gains in complex settings like Deep RL (Andrychowicz et al., 2021) or LLM training (Cui et al., 2025; Shen, 2025). In contrast, a more powerful paradigm directs exploration by adding an intrinsic bonus to guide agents toward novel or uncertain parts of the environment. This includes count-based approaches like UCB (Lai, 1987), LinUCB (Li et al., 2010), and LSVI-UCB (Jin et al., 2020), which use pseudo-counts of state-action visitations to explore rarely visited areas and have achieved near-optimal guarantees in bandits and linear MDPs. A parallel branch involves prediction-based methods, such as ICM (Pathak et al., 2017) and RND (Burda et al., 2018b), which use a predictive model’s error as a bonus to reward the agent for reaching hard-to-predict states."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                393,
+                826,
+                602
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Applying these guided exploration principles is a growing field in LLM tuning. For instance, Bai et al. (2025) brings count-based principles to the RLHF process by introducing a coin flipping module. Others have focused on prediction-based bonuses. Drawing inspiration from RND, Gao et al. (2025) use an auxiliary network to predict the output of a fixed target network, with the prediction error serving as a novelty signal. Sun et al. (2025) implement an ICM-style approach, where the intrinsic reward is derived from the prediction error of a learned forward dynamics model. However, these methods require training of additional modules and rely on effective representation of responses, which is challenging (Fu et al., 2024; Barbero et al., 2024). In contrast, CDE offers a simple yet effective approach. It derives intrinsic curiosity signals directly from the actor and critics, requiring only minimal modifications to the training framework. This design yields efficient exploration that is validated both theoretically and empirically on challenging math datasets."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                607,
+                828,
+                763
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "6 CONCLUSION AND FUTURE WORK"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                781,
+                496,
+                797
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We have presented Curiosity-Driven Exploration, an efficient technique that enhances agent learning by incorporating curiosity signals from both the actor and the critic. Our approach is notably lightweight, demanding only minor modifications to the original training architecture. Its effectiveness is demonstrated by consistent accuracy improvements over strong baselines on a suite of challenging mathematical reasoning benchmarks, with these empirical results strongly corroborating our underlying theoretical framework and intuition. The calibration collapse revealed in our analysis aligns with recent findings on the root causes of LLM hallucination (Kalai et al., 2025), pointing to a promising avenue for future work."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                813,
+                828,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "10"
+                    }
+                ]
+            },
+            "bbox": [
+                488,
+                948,
+                509,
+                960
+            ]
+        }
+    ]
+]

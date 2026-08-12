@@ -1,0 +1,3134 @@
+[
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "ABSTRACT"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                450,
+                277,
+                547,
+                294
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Diffusion models (DMs) have recently shown remarkable performance on inverse problems (IPs). Optimization-based methods can fast solve IPs using DMs as powerful regularizers, but they are susceptible to local minima and noise overfitting. Although DMs can provide strong priors for Bayesian approaches, enforcing measurement consistency during the denoising process leads to manifold infeasibility issues. We propose Noise-space Hamiltonian Monte Carlo (N-HMC), a posterior sampling method that treats reverse diffusion as a deterministic mapping from initial noise to clean images. N-HMC enables comprehensive exploration of the solution space, avoiding local optima. By moving inference entirely into the initial-noise space, N-HMC keeps proposals on the learned data manifold. We provide a comprehensive theoretical analysis of our approach and extend the framework to a noise-adaptive variant (NA-NHMC) that effectively handles IPs with unknown noise type and level. Extensive experiments across four linear and three nonlinear inverse problems demonstrate that NA-NHMC achieves superior reconstruction quality with robust performance across different hyperparameters and initializations, significantly outperforming recent state-of-the-art methods. The code is available at https://github.com/NA-HMC/NA-HMC."
+                    }
+                ]
+            },
+            "bbox": [
+                228,
+                308,
+                767,
+                546
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "1 INTRODUCTION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                174,
+                575,
+                338,
+                590
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Inverse problems (IPs) have wide applications in many domains, including computer vision (Janai et al., 2021; Quan et al., 2024), protein science (Yi et al., 2023; Ouyang-Zhang et al., 2023; Yang et al., 2019), medical imaging (Song et al., 2022b; Chu et al., 2025; Dao et al., 2024), scientific computing (Zheng et al., 2025; Xia & Zabaras, 2022; Xu et al., 2024). The goal is to reconstruct an unknown x "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\in \\mathbb { R } ^ { n }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "from noisy measurements "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pmb { y } \\in \\mathbb { R } ^ { m }"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                604,
+                826,
+                676
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\boldsymbol {y} = \\mathcal {A} (\\boldsymbol {x}) + \\eta ,\\tag{1}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/dc4d8fcb06b7cf94d079a8be2a8179df9fcda62b23c919e7f4b8b1b48929539e.jpg"
+                }
+            },
+            "bbox": [
+                444,
+                681,
+                552,
+                696
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where A is a known forward operator, and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\eta \\in \\mathbb { R } ^ { m }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is additive noise. Diffusion models (DMs) have recently shown powerful capabilities in modeling complex data distributions, which can provide a powerful class of priors for high-dimensional data x in solving IPs."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                700,
+                825,
+                744
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Existing diffusion-based methods have demonstrated remarkable success across diverse inverse problems (Chung et al., 2023; Daras et al., 2024; Zheng et al., 2025; Song et al., 2022b). Although remarkable progress has been made, as illustrated in Figure 1, current diffusion-based methods suffer from three complementary limitations and issues: (1) Iterative guidance methods such as DPS (Chung et al., 2023), DDRM (Kawar et al., 2022), DDNM(Wang et al., 2023), ΠGDM (Song et al., 2023), and TMPD (Boys et al., 2024) use the likelihood term to shift intermediate images directly, systematically pushing intermediate states off the learned data manifold and violating the trainingtime noise-conditioning of the denoiser, resulting in various failure reconstructions like accumulated artifacts as shown in Figure 1 (a). (2) Stochastic MAP methods that optimize in image space, including ReSample (Song et al., 2024), DiffPIR (Zhu et al., 2023), DAPS (Zhang et al., 2024), SITCOM (Alkhouri et al., 2025a), and DIIP (Chihaoui & Favaro, 2025a) can match y well with very sharp details but require carefully tuned hyperparameters to not overfit to noise. This limits their effectiveness in high or unknown noise settings. (3) Deterministic MAP methods that optimize in the DM noise space (DMPlug, (Wang et al., 2024)) remove randomness but often get stuck in a single mode, especially in severely ill-posed problems like phase retrieval, due to a lack of posterior exploration. In short, enforcing data consistency mid-diffusion can break prior adherence, while optimizing only for fidelity leads to overfitting or mode collapse."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                750,
+                826,
+                890
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "<sup>∗</sup>Equal contribution."
+                    }
+                ]
+            },
+            "bbox": [
+                192,
+                896,
+                318,
+                909
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "<sup>†</sup> Corresponding author."
+                    }
+                ]
+            },
+            "bbox": [
+                192,
+                909,
+                339,
+                924
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "1"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                503,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                826,
+                203
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/4caa9b91a606294e5ce6a8ddbae6ae8b394470f73b645c758c7f369a7ce47aea.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 1: Comparison of existing methods and their limitations with the N-HMC method. (a) Iterative Guidance Methods (DPS) lead to manifold infeasibility. (b) Stochastic MAP methods (Re-Sample) (Song et al., 2024) are susceptible to overfitting to noise. (c) Deterministic MAP methods "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( D M P l u g )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "(Wang et al., 2024) become trapped in a local mode. (d) Our method performs sampling in the noise space "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { \\nabla } _ { \\mathbf { x } _ { T } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and maps samples to images via a deterministic mapping "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\bf x } _ { 0 } = \\mathcal { D } ( { \\bf x } _ { T } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                204,
+                212,
+                790,
+                381
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Sampling from the full posterior ensures that the learned prior acts automatically as a regularizer, while an annealing schedule for noise standard deviation "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\sigma _ { y }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "promotes efficient exploration and prevents the sampler from being trapped in early local modes. Importantly, the method relies only on a fixed set of hyperparameters that remain constant across tasks, datasets, levels of measurement noise, avoiding the repeated tuning required by many existing approaches."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                474,
+                825,
+                547
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To address the practical challenges that the measurement noise level is often unknown, we further introduce a Noise-Adaptive N-HMC (NA-NHMC). Instead of requiring a fixed noise level, we take a principled Bayesian approach, placing a non-informative prior on the noise variance and marginalizing it out. This yields a parameter-free likelihood term that automatically adapts to the true underlying noise in the measurements. As shown in experiments, this allows NA-NHMC to achieve robust, high-quality reconstructions across varying and even unknown noise types and levels without any task-specific hyperparameter tuning. In contrast, the performance of other methods depends on the hyperparameters listed in Section A.5, which were specifically tuned for Gaussian noise. Our key contributions include: (1) In Section 3.1, we propose N-HMC, a posterior sampling method that addresses the three key limitations of existing state-of-the-art (SOTA) approaches. We further analyze its sampling behavior and provide a theoretical guarantee of its robustness to measurement noise in Section 3.2 and Appendix A.2. (2) In Section 3.3, we extend our method to settings with unknown noise types and levels. We show that it outperforms SOTA methods on most metrics (Section 4.3), especially for non-linear and high noise problems. (3) In extensive experiments, NA-NHMC method solves diverse inverse problem tasks under unknown noise types and levels without any task- or noise-specific hyperparameter tuning, in contrast to many existing methods. (4) We demonstrate in Section 4.1 that the annealing schedule for "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\sigma _ { y }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "helps promote early exploration and prevent local-mode collapse, especially in severely ill-posed tasks like phase retrieval."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                551,
+                826,
+                805
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2 PRELIMINARIES"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                824,
+                341,
+                839
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2.1 DIFFUSION MODELS FOR INVERSE PROBLEMS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                854,
+                537,
+                869
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Daras et al. (2024) broadly classifies methods for solving inverse problems (IPs) into two categories. The first is maximum a posteriori (MAP) inference, which aims to find the single most probable x. An alternative is the Bayesian framework, where the goal becomes generating plausible reconstructions by sampling from the posterior distribution "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p ( { \\pmb x } | { \\pmb y } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p ( { \\pmb x } | { \\pmb y } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "can be decomposed into the prior "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p ( { \\pmb x } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and the likelihood "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p ( \\pmb { y } | \\pmb { x } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". MAP delivers fast optimization, but struggles with high noise and multimodal posteriors, easily converging to local minima. In contrast, the Bayesian approach samples from "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p ( { \\pmb x } | { \\pmb y } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to generate plausible reconstructions, quantify uncertainty, and handle multimodality. Both approaches critically depend on powerful prior models like DMs that encode the complex statistical structure of complex data and prior knowledge."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                882,
+                825,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "2"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                825,
+                189
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Most diffusion-based approaches to IPs are based on the denoising diffusion probabilistic models (DDPM) framework (Ho et al., 2020; Song & Ermon, 2020). The framework consists of forward and reverse diffusion processes. The forward process gradually corrupts the clean images "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\scriptstyle { \\mathbf { { \\mathit { x } } } } _ { 0 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "towards standard Gaussian noise "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { \\nabla } _ { \\mathbf { x } _ { T } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". This process can be described by a stochastic differential equation (SDE), dx "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\begin{array} { r } { \\mathbf { \\sigma } = - \\frac { \\beta _ { t } } { 2 } \\pmb { x } d t + \\sqrt { \\beta _ { t } } d \\pmb { w } } \\end{array}"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", where w is the standard Wiener process. In practice, the process is discretized via a variance schedule "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{ \\beta _ { t } \\} _ { t = 1 } ^ { T }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", forming a Markov chain:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                194,
+                826,
+                284
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "q (\\boldsymbol {x} _ {1: T} | \\boldsymbol {x} _ {0}) := \\prod_ {t = 1} ^ {T} q (\\boldsymbol {x} _ {t} | \\boldsymbol {x} _ {t - 1}), \\quad q (\\boldsymbol {x} _ {t} | \\boldsymbol {x} _ {t - 1}) := \\mathcal {N} (\\boldsymbol {x} _ {t}; \\sqrt {1 - \\beta_ {t}} \\boldsymbol {x} _ {t - 1}, \\beta_ {t} \\boldsymbol {I})\\tag{2}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/02f5af6703ebe25a883d126520012b620c206d7177cc932d12c5589a3e152e2c.jpg"
+                }
+            },
+            "bbox": [
+                241,
+                287,
+                754,
+                329
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In order to generate clean images, the reverse process begins with a noisy sample "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\pmb x } _ { T } \\sim \\mathcal { N } ( { \\pmb x } _ { T } ; { \\mathbf 0 } , I )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and recursively refines it according to the reverse SDE, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\begin{array} { r } { d \\pmb { x } = - \\frac { \\beta _ { t } } { 2 } \\pmb { x } d t - \\beta _ { t } \\nabla _ { \\pmb { x } } \\log p _ { t } ( \\pmb { x } ) d t + \\sqrt { \\beta _ { t } } d \\pmb { \\overline { { w } } } , } \\end{array}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "where w is the time-reversed standard Wiener process, and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { t } ( \\pmb { x } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the marginal probability of the noisy manifold at time t. "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\nabla _ { \\pmb { x } } \\log p _ { t } ( \\pmb { x } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is called the score function and is usually approximated by a neural network θ trained through score-matching methods."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                334,
+                825,
+                407
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Using the same discretization, clean images can be generated from the prior using an iterative denoising process."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                412,
+                823,
+                441
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "p _ {\\theta} (\\boldsymbol {x} _ {0: T}) := p (\\boldsymbol {x} _ {T}) \\prod_ {t = 1} ^ {T} p _ {\\theta} (\\boldsymbol {x} _ {t - 1} | \\boldsymbol {x} _ {t}), \\quad p _ {\\theta} (\\boldsymbol {x} _ {t - 1} | \\boldsymbol {x} _ {t}) := \\mathcal {N} (\\boldsymbol {x} _ {t - 1}; \\boldsymbol {\\mu} _ {\\theta} (\\boldsymbol {x} _ {t}, t), \\boldsymbol {\\Sigma} _ {\\theta} (\\boldsymbol {x} _ {t}, t))\\tag{3}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/86785ad3d06fa0172f057da25545eac1150f994f106e2acd554fe28533d67daa.jpg"
+                }
+            },
+            "bbox": [
+                194,
+                446,
+                777,
+                488
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Building on the DDPM framework, to accelerate the denoising process, Song et al. (2022a) proposes Denoising Diffusion Implicit Models (DDIM), which define a non-Markovian and fully deterministic forward/reverse process "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( \\beta _ { t } = 0 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Unlike DDPM, which injects stochasticity at each step to improve robustness, DDIM iteratively maps the initial noise "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { \\nabla } _ { \\mathbf { \\mathcal { X } } \\mathcal { T } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to a clean sample "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\scriptstyle { \\mathbf { { \\mathit { x } } } } _ { 0 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "via a deterministic trajectory. For our method, this property is particularly beneficial, as it allows us to consider the entire reverse process as a deterministic mapping from "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { \\nabla } _ { \\mathbf { \\mathcal { X } } \\mathcal { T } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\scriptstyle { \\mathbf { { \\vec { x } } } } _ { 0 }"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                500,
+                825,
+                585
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Among successful DM-based methods for inverse problems, DPS and its variants (Chung et al., 2023; Kawar et al., 2022; Wang et al., 2023; Song et al., 2023; Chung et al., 2022) are best-known reconstruction algorithms. But they suffer from approximation errors from Tweedie’s formula corrections. To mitigate noise sensitivity, TMPD incorporates second-order information to correct the guidance trajectory; however, like other iterative methods, it relies on modifying intermediate states, which risks drifting off the learned manifold. SITCOM (Alkhouri et al., 2025b) operates on the noisy image at each diffusion step and enforces a triple-consistency constraint: data fidelity, backward consistency with the diffusion posterior mean, and forward consistency along the diffusion trajectory. DIIP (Chihaoui & Favaro, 2025b) updates the initial noise "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { \\nabla } _ { \\mathbf { x } _ { T } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "with data fidelity gradients after the standard diffusion sampling process. DMPlug (Wang et al., 2024) proposes a noise-space formulation but treats inverse problems as optimization tasks, making it sensitive to noise. While early stopping can mitigate this, its criterion is task- and noise-dependent. At the high noise levels considered here, the optimizer often becomes trapped in a local mode, rendering early stopping ineffective. Similar behavior is observed in other Maximum a Posteriori (MAP) methods such as ReSample (Song et al., 2024), which optimizes directly in clean-image space (leading to noisy or blurry images under early stopping). DAPS (Zhang et al., 2024), despite being formulated as a posterior sampling method, uses a heuristic "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat { \\sigma } _ { y }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "that is much smaller than its true value to strengthen the consistency of the measurement. This deviation from true posterior sampling makes DAPS effectively MAP-like, inheriting the same sensitivity to noise."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                589,
+                826,
+                856
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2.2 HAMILTONIAN MONTE CARLO (HMC)"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                869,
+                486,
+                883
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Hamiltonian Monte Carlo (HMC) (Duane et al., 1987) is an MCMC (Metropolis et al., 1953) sampling method that utilizes a fictitious momentum variable and simulates Hamiltonian dynamics to efficiently explore distant regions. Due to its superior scaling properties in high dimensions compared to other simpler Metropolis methods Brooks et al. (2011), HMC is particularly well suited for sampling in high-dimensional space, such as the "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "3 \\times 2 5 6 \\times 2 5 6"
+                    },
+                    {
+                        "type": "text",
+                        "content": "pixel space of images."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                895,
+                825,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "3"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                825,
+                148
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The Hamiltonian is defined as "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "H = U + V"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "U = - \\log p ( { \\pmb x } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "V = \\textstyle { \\frac { 1 } { 7 } } v ^ { \\top } M ^ { - 1 } v"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Then, we discretize the trajectory using the leapfrog integrator. For a single leapfrog step with step size δ, we have"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                152,
+                823,
+                195
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\boldsymbol {v} (t + \\delta / 2) = \\boldsymbol {v} (t) - \\frac {\\delta}{2} \\frac {\\partial U}{\\partial \\boldsymbol {x}} \\Big | _ {\\boldsymbol {x} (t)},\\tag{4}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/48eac51e72947d0bacf3ecce9620f3847a44c775d48d216588bce59ca7e7c1ed.jpg"
+                }
+            },
+            "bbox": [
+                357,
+                199,
+                578,
+                234
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\pmb {x} (t + \\delta) = \\pmb {x} (t) + \\delta \\pmb {M} ^ {- 1} \\pmb {v} (t + \\delta / 2),\\tag{5}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/9d76532f3de95e27defbebe4a8a3a7a00264192fc0e8a50f34799c169ec5d433.jpg"
+                }
+            },
+            "bbox": [
+                372,
+                237,
+                630,
+                253
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\boldsymbol {v} (t + \\delta) = \\boldsymbol {v} (t + \\delta / 2) - \\frac {\\delta}{2} \\frac {\\partial U}{\\partial \\boldsymbol {x}} \\Big | _ {\\boldsymbol {x} (t + \\delta)},\\tag{6}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/0cd55b07bd6bfc74f8c537887ebfd9cf220f647d03cfbf877e0b263cba39a7f0.jpg"
+                }
+            },
+            "bbox": [
+                372,
+                257,
+                638,
+                292
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pmb { v } ( 0 ) \\sim \\mathcal { N } ( \\pmb { v } ; \\mathbf { 0 } , M )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". This process is repeated L times to form a full trajectory. Due to a discretization error, the Hamiltonian is no longer preserved, which introduces bias and violates the detailed balance. To correct for this, a Metropolis-Hastings (MH) correction step is applied at the end of each trajectory with acceptance probability of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\alpha = \\mathbf { \\bar { m i n } } ( 1 , \\exp ( - H _ { 1 } + H _ { 0 } ^ { \\cdot } ) ;"
+                    },
+                    {
+                        "type": "text",
+                        "content": "), where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "H _ { 0 } , H _ { 1 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denotes the initial and proposed Hamiltonian, respectively."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                299,
+                825,
+                369
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3 METHODOLOGY"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                388,
+                343,
+                404
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this section, we propose a posterior sampling method, Noise-space Hamiltonian Monte Carlo (N-HMC), to solve IPs with pretrained DMs. We show its derivation in Section 3.1 and discuss its robustness to measurement noise in Section 3.2. In Section 3.3, our method is modified to allow for unknown types and levels of measurement noise."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                420,
+                825,
+                478
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.1 NOISE-SPACE HAMILTONIAN MONTE CARLO (N-HMC)"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                493,
+                602,
+                508
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The goal in solving inverse problems is to sample from the posterior distribution "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p ( \\pmb { x } _ { 0 } | \\pmb { y } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "∝ "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p ( \\pmb { x } _ { 0 } ) p ( \\pmb { y } | \\pmb { x } _ { 0 } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Since direct sampling from "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p ( \\pmb { x } _ { 0 } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is intractable, pretrained diffusion models are employed to provide a powerful prior. Standard diffusion-based approaches draw "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\pmb x } _ { T } \\sim p ( { \\pmb x } _ { T } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "from a Gaussian noise prior and iteratively denoise through intermediate timesteps, aiming to sample from "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p ( \\pmb { x } _ { T } \\mid \\pmb { y } ) , p ( \\pmb { x } _ { T - 1 } \\mid \\pmb { y } ) , \\dots , p ( \\pmb { x } _ { 0 } \\mid \\pmb { y } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "in sequence. The key challenge is evaluating the intractable likelihood "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p ( \\pmb { y } | \\pmb { x } _ { t } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "at each intermediate timestep t. To address this, iterative guidance methods (Kawar et al., 2022; Wang et al., 2023; Chung et al., 2023; Song et al., 2023; Rozet et al., 2024; Song et al., 2024; Zhang et al., 2024) introduce approximations and apply likelihood corrections of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { \\boldsymbol { x } } _ { t } \\gets \\mathbf { \\boldsymbol { x } } _ { t } + \\eta \\nabla _ { \\mathbf { \\boldsymbol { x } } _ { t } } \\log p ( \\mathbf { \\boldsymbol { y } } | \\mathbf { \\boldsymbol { x } } _ { t } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". However, these gradient-based corrections systematically push intermediate states "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { \\Delta } _ { \\mathbf { \\mathcal { X } } _ { t } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "away from the distribution on which the denoiser is trained, leading to what we refer to as the manifoldfeasibility problem. Following SITCOM (Alkhouri et al., 2025b), we formalize this issue as:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                518,
+                825,
+                686
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Definition 3.1 (Manifold Feasibility). For a pretrained diffusion model, let "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { t } ( \\pmb { x } _ { t } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denote the marginal distribution at noise level t, and let "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { M } _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "be its high-probability generative manifold. An inverse-problem solver maintains manifold feasibility if the intermediate states "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{ \\pmb { x } _ { t } \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "fed into the denoiser remain close to "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { M } _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for all t, ensuring the final reconstruction "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\scriptstyle { \\pmb x } _ { 0 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "lies on the learned data manifold."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                689,
+                825,
+                760
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Geometrically, standard guidance methods update "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { x } _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "using the likelihood gradient "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\nabla _ { \\mathbf { x } _ { t } } \\log p ( \\mathbf { y } | \\mathbf { x } _ { t } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "In high-dimensional spaces, this gradient vector often contains components orthogonal to the local tangent space of the data manifold "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { M } _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Consequently, adding this gradient systematically pushes the state "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { x } _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "into low-probability regions (off-manifold), feeding out-of-distribution inputs to the denoiser and causing accumulated artifacts as shown in Figure 1 (a). To avoid such approximations, we propose posterior sampling by drawing from the initial noise space. The sampled noise is then unconditionally denoised to a clean image. We adopt unconditional DDIM for the denoising process, which treats the entire denoising trajectory as a deterministic mapping "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat { \\mathbf { x } } _ { 0 } = \\mathcal { D } ( \\mathbf { x } _ { T } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", so the problem becomes evaluating the posterior distribution of noise (Xia et al., 2023), i.e., "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p ( { \\pmb x } _ { T } | { \\pmb y } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "We refer to our approach as noise-space sampling because HMC updates are performed exclusively on the initial noise "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "x _ { T } \\sim \\mathcal { N } ( 0 , \\bar { I } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "This differs from image-space and iterative guidance methods that directly modify intermediate states "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { \\Delta } _ { \\mathbf { \\mathcal { X } } _ { t } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "using measurement-consistency gradients. Sampling from the noise space offers two advantages: (i) the prior "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p ( { \\pmb x } _ { T } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is a simple Gaussian distribution, and (ii) the likelihood "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p ( { \\pmb y } | { \\pmb x } _ { T } ) = p ( { \\pmb y } | \\mathcal { D } ( \\bar { \\pmb x } _ { T } ) )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is directly accessible without intermediate approximations."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                771,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "4"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                825,
+                147
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We use HMC for efficient posterior sampling in the noise space. To strictly justify our sampling objective, we formulate the inference process as a latent variable model where the initial noise "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "x _ { T }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the sole latent variable. We treat the unconditional DDIM process with "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "N"
+                    },
+                    {
+                        "type": "text",
+                        "content": "steps as a deterministic parameterized generator function, denoted as "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { D } : \\mathbb { R } ^ { n } \\ \\overset { \\cdot } {  } \\ \\mathbb { R } ^ { n }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", which maps "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { \\nabla } _ { \\mathbf { \\mathcal { X } } \\mathcal { T } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to a clean image "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat { \\pmb x } _ { 0 } = \\mathcal { D } ( { \\pmb x } _ { T } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Under this formulation, the measurement generation process is defined by "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\textbf { \\textit { x } } _ { T } \\overset { \\mathcal { D } } { \\longrightarrow } \\hat { \\textbf { \\textit { x } } } _ { 0 } \\overset { \\mathcal { A } , \\eta } { \\longrightarrow } \\textbf { \\textit { y } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "Consequently, the conditional distribution of y given "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "x _ { T }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "depends entirely on the generated image "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\scriptstyle { \\hat { \\mathbf { x } } } _ { 0 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". The likelihood term is thus mathematically exact: "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\dot { p } ( { \\pmb y } | { \\pmb x } _ { T } ) = \\dot { p } ( { \\pmb y } | \\hat { \\pmb x } _ { 0 } = \\mathbf { \\bar { \\mathcal { D } } } ( { \\pmb x } _ { T } ) ) = \\ddot { N } ( { \\pmb y } ; { \\pmb A } ( { \\pmb { \\mathcal { D } } } ( { \\pmb x } _ { T } ) ) , \\sigma _ { u } ^ { 2 } I )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". This allows us to perform posterior sampling directly in the noise space using the exact gradient of the likelihood with respect to "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "x _ { T }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "Then we can compute the conditional score using "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { B a y e s } ^ { \\prime }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "rule:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                152,
+                825,
+                297
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\nabla_ {\\boldsymbol {x} _ {T}} \\log p (\\boldsymbol {x} _ {T} | \\boldsymbol {y}) = \\nabla_ {\\boldsymbol {x} _ {T}} \\log p (\\boldsymbol {x} _ {T}) + \\nabla_ {\\boldsymbol {x} _ {T}} \\log p (\\boldsymbol {y} | \\boldsymbol {x} _ {T}).\\tag{7}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/6583d3b0b1c3436c29f11bef3613b9388bb80b3ad85a821c1074869ecc9d9f6e.jpg"
+                }
+            },
+            "bbox": [
+                307,
+                305,
+                687,
+                321
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Since "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbfit { \\mathbf { x } } _ { T }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is Gaussian noise in the DDIM framework, the first term is simply"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                335,
+                674,
+                351
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\nabla_ {\\pmb {x} _ {T}} \\log p (\\pmb {x} _ {T}) = - \\nabla_ {\\pmb {x} _ {T}} \\frac {\\| \\pmb {x} _ {T} \\| ^ {2}}{2} = - \\pmb {x} _ {T}.\\tag{8}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/8d2739eadab1e44a67424f4bff7e52225e38eec12ffe9263aa829721ab1290db.jpg"
+                }
+            },
+            "bbox": [
+                357,
+                358,
+                638,
+                388
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "For the case of Gaussian measurement noise, if the noise level "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\sigma _ { y } ^ { 2 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is known, the likelihood term becomes"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                404,
+                825,
+                433
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\nabla_ {\\pmb {x} _ {T}} \\log p (\\pmb {y} | \\pmb {x} _ {T}) = \\nabla_ {\\pmb {x} _ {T}} \\log p (\\pmb {y} | \\mathcal {D} (\\pmb {x} _ {T})) = - \\nabla_ {\\pmb {x} _ {T}} \\frac {\\| \\pmb {y} - \\mathcal {A} (\\mathcal {D} (\\pmb {x} _ {T})) \\| ^ {2}}{2 \\sigma_ {y} ^ {2}}.\\tag{9}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/9c27682c3bc538985dbad540e78f72189d3472c8d2ca22ae519568f9892a91b9.jpg"
+                }
+            },
+            "bbox": [
+                254,
+                438,
+                740,
+                473
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We define "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p ( { \\pmb y } | { \\pmb x } _ { T } ) = p ( { \\pmb y } | \\mathcal { D } ( { \\pmb x } _ { T } ) )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "by viewing the denoising trajectory as a deterministic mapping "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat { \\mathbf { x } } _ { 0 } = \\mathcal { D } ( \\mathbf { x } _ { T } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". This term can be computed directly using automatic differentiation. Because "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { D } ( \\pmb { x } _ { T } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "results from a multi-step denoising process, backpropagating through multiple score networks can be computationally expensive. Following Wang et al. (2024), we illustrate in Appendix A.9 that accurate samples can still be obtained with as few as two denoising steps."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                488,
+                825,
+                559
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Once the conditional score "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\nabla _ { { \\pmb x } _ { T } } \\log p ( { \\pmb x } _ { T } | { \\pmb y } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is computed, our method proceeds with standard Hamiltonian Monte Carlo (HMC) sampling. We use the identity matrix as the mass matrix for momentum sampling. During implementation, we observed that the initial noise may lie in regions of very low posterior probability, which forces HMC to adopt a tiny step size in order to maintain a proper acceptance rate. To address this issue, we use an annealing schedule for "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\sigma _ { y } ."
+                    },
+                    {
+                        "type": "text",
+                        "content": ", allowing "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { \\nabla } _ { \\mathbf { \\mathcal { X } } \\mathcal { T } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to explore the noise space more freely with a larger step size in the start-up stage. Once "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\sigma _ { y }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "gradually declines to the target level, posterior samples are collected. The complete procedure is summarized in Algorithm 1, along with the unconditional DDIM denoising process in Algorithm 2."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                564,
+                826,
+                678
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.2 ROBUSTNESS TO MEASUREMENT NOISE"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                694,
+                491,
+                708
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "An additional benefit of N-HMC over MAP methods is that the Gaussian prior acts as a regularization term in the noise space, keeping the noise vector "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { \\nabla } _ { \\mathbf { x } _ { T } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "close to the hypersphere of radius "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\sqrt { n }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "Therefore, N-HMC produces samples that are robust to measurement noise, as justified by Proposition 1. For simplicity, we assume Gaussian measurement noise and that the forward operator A is approximately linear along the clean image manifold."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                719,
+                823,
+                792
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Proposition 1. Assume that the distribution of the decoded sample "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\scriptstyle { \\pmb x } _ { 0 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "around the ground truth "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pmb { x } _ { 0 } ^ { * }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is well-approximated by a Gaussian distribution "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { \\theta } ( \\hat { \\pmb x } _ { 0 } ) \\approx \\mathcal { N } ( \\hat { \\pmb x } _ { 0 } ; \\pmb x _ { 0 } ^ { * } , \\sigma _ { 0 } ^ { 2 } \\pmb I _ { n } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Then, the residual "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pmb { y } - \\pmb { A } \\hat { \\pmb { x } } _ { 0 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "satisfies"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                805,
+                825,
+                848
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathbb {E} _ {(\\hat {\\boldsymbol {x}} _ {0}, \\boldsymbol {y}) \\sim p _ {\\theta} (\\hat {\\boldsymbol {x}} _ {0}, \\boldsymbol {y} | \\boldsymbol {x} _ {0} ^ {*})} \\| \\boldsymbol {y} - \\boldsymbol {A} \\hat {\\boldsymbol {x}} _ {0} \\| ^ {2} = \\sigma_ {y} ^ {2} \\mathrm{tr} (\\boldsymbol {B} \\boldsymbol {B} ^ {\\top}) + \\mathrm{tr} (\\boldsymbol {A} \\boldsymbol {\\Sigma} _ {\\mathrm{post}} \\boldsymbol {A} ^ {\\top}),",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/223ea8b5e03131067413d103c1ae9fd70745fc4bfb011fe25b915734d4dc4586.jpg"
+                }
+            },
+            "bbox": [
+                274,
+                854,
+                718,
+                875
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                878,
+                218,
+                893
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\boldsymbol {\\Sigma} _ {\\text {post}} = \\left(\\frac {\\boldsymbol {A} ^ {\\top} \\boldsymbol {A}}{\\sigma_ {y} ^ {2}} + \\frac {\\boldsymbol {I} _ {n}}{\\sigma_ {0} ^ {2}}\\right) ^ {- 1}, \\quad \\boldsymbol {B} = \\left(\\boldsymbol {I} _ {m} - \\frac {\\boldsymbol {A} \\boldsymbol {\\Sigma} _ {\\text {post}} \\boldsymbol {A} ^ {\\top}}{\\sigma_ {y} ^ {2}}\\right),",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/9df3c8ca64733ece8d4f4d25228796880f440606cdb172dab94038aa120d6c36.jpg"
+                }
+            },
+            "bbox": [
+                297,
+                890,
+                697,
+                928
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "5"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "algorithm",
+            "content": {
+                "algorithm_caption": [],
+                "algorithm_content": [
+                    {
+                        "type": "text",
+                        "content": "Algorithm 1: N-HMC\nRequire: # HMC iterations K, # leapfrog steps L, initial integration step size δ, measurement noise schedule {σy,k}, xT, y, A, γ\n1: for k = 0 to K - 1 do\n2: repeat\n3: p ~ N(0, I) // Initial momentum\n4:  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat{x}_0"
+                    },
+                    {
+                        "type": "text",
+                        "content": " = DDIM(xT)\n5:  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "H_0"
+                    },
+                    {
+                        "type": "text",
+                        "content": " =  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\frac{1}{2}\\|\\boldsymbol{x}_T\\|^2"
+                    },
+                    {
+                        "type": "text",
+                        "content": " +  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\frac{1}{2\\sigma_{y,k}^2}\\|\\boldsymbol{y} - \\mathcal{A}(\\hat{x}_0)\\|^2"
+                    },
+                    {
+                        "type": "text",
+                        "content": " +  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\frac{1}{2}\\boldsymbol{p}^\\top \\boldsymbol{p}"
+                    },
+                    {
+                        "type": "text",
+                        "content": " // Current Hamiltonian\n6:  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "x_T^* \\leftarrow x_T"
+                    },
+                    {
+                        "type": "text",
+                        "content": " // Initialize proposal xT\n7: for l = 0 to L - 1 do\n8: p ← p -  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\frac{\\delta}{2}\\left(x_T^* + \\frac{1}{2\\sigma_{y,k}^2} \\nabla_{x_T^*}\\|\\boldsymbol{y} - \\mathcal{A}(\\hat{x}_0^*)\\|^2\\right)"
+                    },
+                    {
+                        "type": "text",
+                        "content": " // Update momentum\n9:  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "x_T^* \\leftarrow x_T^* + \\delta p"
+                    },
+                    {
+                        "type": "text",
+                        "content": " // Update xT*\n10:  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat{x}_0^* = \\text{DDIM}(x_T^*)"
+                    },
+                    {
+                        "type": "text",
+                        "content": "\n11: p ← p -  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\frac{\\delta}{2}\\left(x_T^* + \\frac{1}{2\\sigma_{y,k}^2} \\nabla_{x_T^*}\\|\\boldsymbol{y} - \\mathcal{A}(\\hat{x}_0^*)\\|^2\\right)"
+                    },
+                    {
+                        "type": "text",
+                        "content": " // Update momentum\n12: end for\n13:  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "H_1"
+                    },
+                    {
+                        "type": "text",
+                        "content": " =  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\frac{1}{2}\\|\\boldsymbol{x}_T^*\\|^2"
+                    },
+                    {
+                        "type": "text",
+                        "content": " +  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\frac{1}{2\\sigma_{y,k}^2}\\|\\boldsymbol{y} - \\mathcal{A}(\\hat{x}_0^*)\\|^2"
+                    },
+                    {
+                        "type": "text",
+                        "content": " // Proposal Hamiltonian\n14: u ~ Unif(0, 1)\n15: if u < exp(H0 - H1) then\n16: Accept proposal\n17: else\n18: δ ← γδ // Anneal step size δ\n19: end if\n20: until Proposal accepted\n21:  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "x_T"
+                    },
+                    {
+                        "type": "text",
+                        "content": " ←  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "x_T^*"
+                    },
+                    {
+                        "type": "text",
+                        "content": " // Accept the proposal\n22: end for\n23: return xT"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                106,
+                825,
+                488
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\cal I } _ { m }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "m \\times m"
+                    },
+                    {
+                        "type": "text",
+                        "content": "identity matrix. m denotes the dimension of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { \\pmb { y } } ."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                513,
+                625,
+                530
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The expected residual decomposes into two contributions: a noise-dependent term that appears only when measurement noise is present, and a second term that persists in all settings due to intrinsic uncertainty of prior diffusion models. In Corollary 1.1 below, we show that both terms behave in a way that yields a residual whose magnitude matches the true measurement noise."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                536,
+                825,
+                594
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Corollary 1.1 Under the assumptions of Proposition 1, if "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\sigma _ { 0 } / \\sigma _ { y } \\ll 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", the residual "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pmb { y } - \\pmb { \\mathcal { A } } ( \\hat { \\pmb { x } } _ { 0 } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "satisfies"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                606,
+                823,
+                633
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathbb {E} _ {(\\hat {\\boldsymbol {x}} _ {0}, \\boldsymbol {y}) \\sim p _ {\\theta} (\\hat {\\boldsymbol {x}} _ {0}, \\boldsymbol {y} | \\boldsymbol {x} _ {0} ^ {*})} \\| \\boldsymbol {y} - \\mathcal {A} (\\boldsymbol {x} _ {0}) \\| ^ {2} \\to m \\sigma_ {y} ^ {2}.",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/4cf9c685e69077bbcebd85b254290823ce15fc2d9c65b170b64e39ccdddf2b3f.jpg"
+                }
+            },
+            "bbox": [
+                351,
+                633,
+                643,
+                652
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In other words, the magnitude of residual aligns with the true known level of measurement noise, indicating that N-HMC remains robust and does not overfit to noise."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                659,
+                823,
+                688
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.3 NOISE-ADAPTIVE NHMC"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                703,
+                398,
+                718
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In practice, the type and level of measurement noise are often unknown, making the likelihood term "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p ( \\pmb { y } \\mid \\pmb { x } _ { T } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "intractable. To address this, other methods usually have tunable hyperparameters that control the strength of the likelihood term or use task-specific early stopping criteria. Instead of this heuristic approach, we introduce a noise-adaptive sampling method, NA-NHMC, which extends N-HMC to the unknown noise setting without any additional hyperparameter tuning."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                729,
+                825,
+                801
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We treat the noise variance as a latent variable and adopt the Jeffreys prior, a principled noninformative choice due to its parameterization invariance. It is scale-invariant and represents maximal uncertainty about the noise level, making it appropriate when no prior information about "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\sigma _ { y }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is available. It can also be viewed as the limiting case of an Inverse-Gamma prior "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\sigma _ { y } ^ { 2 } \\sim \\mathrm { I n v - } \\tilde { \\Gamma } ( \\alpha , \\beta )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "as "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\alpha , \\beta \\to 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": "The Inverse-Gamma distribution is the conjugate prior for the variance of a Gaussian likelihood. Proposition 2 characterizes the resulting behavior under additional assumptions."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                806,
+                825,
+                892
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "p (\\sigma_ {y} ^ {2}) \\sim \\frac {1}{\\sigma_ {y} ^ {2}}.",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/102bbb898ad0bbeec05a42b8781ad475eb8cad9b52de2e49896edf40ff8de2ea.jpg"
+                }
+            },
+            "bbox": [
+                450,
+                893,
+                544,
+                928
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "6"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Proposition 2 Under the assumptions of Proposition 1 and that the pretrained diffusion model unconditionally generates images that lie on the high-quality manifold "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( \\sigma _ { 0 } / \\sigma _ { y } \\ll 1 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", then the update rule of NA-NHMC follows:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                103,
+                825,
+                146
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\nabla_ {\\boldsymbol {x} _ {T}} \\log p (\\boldsymbol {y} | \\boldsymbol {x} _ {T}) _ {\\mathrm{NA-NHMC}} = - \\frac {1}{2 \\sigma_ {y} ^ {2}} \\nabla_ {\\boldsymbol {x} _ {T}} \\| \\boldsymbol {y} - \\mathcal {A} (\\mathcal {D} (\\boldsymbol {x} _ {T})) \\| ^ {2}.",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/2f28066835b9f9d02582f60acbbffc2bbb8a63d648c36697b451948d6678f73b.jpg"
+                }
+            },
+            "bbox": [
+                297,
+                154,
+                697,
+                186
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "By marginalizing "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\sigma _ { y } ^ { 2 } ."
+                    },
+                    {
+                        "type": "text",
+                        "content": ", the likelihood term becomes"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                205,
+                504,
+                223
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\begin{array}{l} p (\\boldsymbol {y} \\mid \\boldsymbol {x} _ {T}) = \\int_ {0} ^ {\\infty} p (\\boldsymbol {y} \\mid \\boldsymbol {x} _ {T}, \\sigma_ {y} ^ {2})   p (\\sigma_ {y} ^ {2})   d \\sigma_ {y} ^ {2} \\\\ \\qquad \\propto \\left(\\frac {1}{2} \\big \\| \\boldsymbol {y} - \\mathcal {A} (\\mathcal {D} (\\boldsymbol {x} _ {T})) \\big \\| ^ {2}\\right) ^ {- m / 2}. \\end{array}\\tag{10}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/c8b6b9b7f8258c176a96c65872263fa572a9d323d26eecc8ef9ea2ace27830f5.jpg"
+                }
+            },
+            "bbox": [
+                348,
+                233,
+                645,
+                311
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "(11)"
+                    }
+                ]
+            },
+            "bbox": [
+                792,
+                285,
+                823,
+                299
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where m denotes the dimensionality of the measurement space. The derivation of this expression is provided in Appendix A.1. Substituting this marginalized likelihood into the N-HMC framework yields our proposed noiseadaptive Algorithm 3. Proposition 2 below shows that, with an appropriate measurement noise prior, the likelihood term "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\nabla _ { \\pmb { x } _ { T } } \\log p ( \\pmb { y } | \\pmb { x } _ { T } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "of NA-NHMC is identical to that of N-HMC (with known noise level)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                330,
+                550,
+                441
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Figure 2 demonstrates Proposition 2 in practice. All experiments use an identical setup across different noise levels, highlighting that our method does not require any hyperparameter tuning for a specific noise level. Despite the absence of such tunable parameters, the estimated standard deviation of the measurement noise, computed as "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\lVert \\pmb { y } - \\pmb { \\mathcal { A } } ( \\hat { \\pmb { x } } _ { 0 } ) \\rVert / \\sqrt { m }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", closely matches the true, unknown noise level "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\sigma _ { y } ."
+                    },
+                    {
+                        "type": "text",
+                        "content": "This confirms that NA-NHMC effectively adapts to varying noise without specific tuning. The complete NA-NHMC is summarized in Algorithm 3."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                448,
+                550,
+                589
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/52f63b3826118d1d5f3cd26b1e3cfb6eae57916f7becda754f67d10ec3e2183b.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 2: Gaussian deblur task on FFHQ "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( 2 5 6 \\times 2 5 6 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "with varying measurement noise levels "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\sigma _ { y } ."
+                    },
+                    {
+                        "type": "text",
+                        "content": "The estimated standard deviation of measurement noise "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\| \\pmb { y } - \\pmb { \\mathcal { A } } ( \\hat { \\pmb { x } } _ { 0 } ) \\| / \\sqrt { m }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "demonstrates that our noise-adaptive method accurately recovers the true "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\sigma _ { y }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "(indicated by dashed line) without overfitting across different noise levels."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                566,
+                349,
+                815,
+                513
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The flexibility of NA-NHMC goes beyond noise-level robustness. Although NA-NHMC is formulated assuming Gaussian measurement noise, experiments with alternative noise types (Section 4.3) show that the method remains effective across other common noise distributions, demonstrating its broader robustness."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                594,
+                550,
+                679
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4 EXPERIMENTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                702,
+                328,
+                718
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Following previous approaches (Wang et al., 2024) (Zhang et al., 2024), we evaluate our method on two datasets: FFHQ 256 × 256 (Karras et al., 2019) and ImageNet 256 × 256 (Deng et al., 2009), using 100 images from the validation set of each dataset. We utilize the same pretrained DM trained by Chung et al. (2023) for FFHQ and by Dhariwal & Nichol (2021) for ImageNet except for ReSample. For ReSample, we use a pretrained LDM by Rombach et al. (2022). All measurements are corrupted by additive Gaussian noise with standard deviation "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\sigma _ { y }"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                734,
+                826,
+                821
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We compare our method against several representative baselines, including DiffPIR (Zhu et al., 2023), RED-diff (Mardani et al., 2023), DPS (Chung et al., 2023), DAPS (Zhang et al., 2024), ReSample (Song et al., 2024), SITCOM (Alkhouri et al., 2025b), and DMPlug (Wang et al., 2024). The implementation details for all the baseline methods are provided in Appendix A.5. We evaluate reconstruction quality using three standard metrics: peak signal-to-noise ratio (PSNR), structural similarity index measure (SSIM) (Wang et al., 2004), and Learned Perceptual Image Patch Similarity (LPIPS) (Zhang et al., 2018)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                825,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "7"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "NA-NHMC (Ours)"
+                    }
+                ]
+            },
+            "bbox": [
+                723,
+                300,
+                803,
+                311
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.1 EXPERIMENT RESULTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                104,
+                375,
+                118
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Linear IPs. We evaluate our approach on four linear inverse problems. For super-resolution tasks, we consider both 4× and 16× downsampling using 4 × 4 and 16 × 16 average pooling operations, respectively. We also examine random inpainting with 92% of pixels randomly masked, and anisotropic Gaussian deblurring using blur kernels with standard deviations of 20 and 1 in orthogonal directions. The results for linear IPs are presented in Tables 10-13."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                130,
+                825,
+                202
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Nonlinear IPs. We further assess performance on three challenging nonlinear inverse problems. The first is nonlinear deblurring using encoded blur kernels from Tran et al. (2021). The second is phase retrieval, where only the Fourier magnitude is observed as measurements. Finally, we consider HDR reconstruction, which aims to recover images with a higher dynamic range by a factor of 2 from tone-mapped observations. The results for nonlinear IPs are presented in Tables 1, 2, 14, 15."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                207,
+                826,
+                279
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Main Results. Our method achieves comparable or superior performance across most tasks, as measured by PSNR and SSIM on both the FFHQ and ImageNet datasets. Notably, the improvement over SOTA methods is more pronounced for nonlinear tasks, which are substantially more challenging than linear IPs. Many existing SOTA approaches are MAP-based by design (e.g., ReSample, SITCOM, and DMPlug) or become MAP-like heuristically (e.g., DAPS). While these methods perform well in low-noise regimes, they often overfit when the noise level is higher. Since the noise levels used in our experiments "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( \\sigma _ { y } = 0 . 0 5 , 0 . 2 0 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ") exceed those commonly reported in prior work, our results further demonstrate that the proposed noise-adaptive method is more robust and consistently outperforms alternatives across most tasks and metrics without any hyperparameter tuning. Figure 4 contains visual examples for the nonlinear deblurring problem. See Appendix A.12 for more examples. A fundamental distinction lies in the generalization capability across diverse degradation conditions. Standard guidance-based methods (e.g., DPS) inherently rely on manual hyperparameter calibration to balance measurement fidelity against the diffusion prior. As evidenced in Table 4, the optimal step size is highly task-dependent (ranging from "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\zeta = 0 . 4 \\ \\mathrm { t o } \\ \\zeta = 1 0 . 0 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", meaning a static configuration fails to generalize. In contrast, NA-NHMC derives its dynamics from the marginalized posterior, which effectively acts as an automatic gradient normalization mechanism. This structural advantage allows a single configuration to robustly generalize across varying tasks and noise levels without task-specific recalibration."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                284,
+                550,
+                561
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/cabf1ab1b4769dadedc433413c33994291844e816dcfc48adb763e804161af4a.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "DPS"
+                    },
+                    {
+                        "type": "text",
+                        "content": "DAPS"
+                    },
+                    {
+                        "type": "text",
+                        "content": "Figure 3: Comparative results are averaged over 100 independent runs. (Top) Mean absolute error (MAE) heapmaps. (Bottom) Standard deviation heatmaps across runs. Our method achieves the lowest standard deviation compared to DPS and DAPS, indicating reduced sensitivity to initialization."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                560,
+                309,
+                821,
+                428
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                560,
+                826,
+                660
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/bc1e20a5dc334b6f7e5144e2ead974242f57d3c11db156a4d9f82518010ad599.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 4: Nonlinear deblurring results on FFHQ (256 × 256) dataset with "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\sigma _ { y } = 0 . 2 ."
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Visual comparison across state-of-the-art methods shows our approach produces high-quality reconstructions with sharp details and minimal artifacts."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                192,
+                667,
+                803,
+                784
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.2 HIGHLY ILL-POSED IPS: PHASE RETRIEVAL"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                869,
+                519,
+                883
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Another challenge commonly faced by both MAP and sampling-based methods is becoming trapped in a local mode, particularly in highly multimodal IPs such as phase retrieval. Figure 5 illustrates this issue. While DPS and DMPlug occasionally recover the correct solution, most initializations converge to spurious local modes and are thus counted as failures. In contrast, our method incorporates early exploration through "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\sigma _ { y }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "scheduling, making it more robust to initialization and substantially more likely to recover the global solution."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                895,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "8"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                825,
+                160
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/44065b4b1b8af086fd2d66a16625d54ffe5c3cb213dcd38c3025c23123ba28ae.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                176,
+                161,
+                383,
+                260
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/23d03ea4333de42d09612c81077097cf6e0913c2eef8ab2cff4e839ab273863a.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Progress (%)"
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                392,
+                162,
+                601,
+                260
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/fe7ec4a9fb89c88cecd265c2c1fe3c4d0485388f8a63696450792965d2e81c77.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 5: Phase retrieval task on FFHQ "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( 2 5 6 \\times 2 5 6 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "with "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\sigma _ { y } = 0 . 0 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Each curve shows the median performance, with shaded areas denoting the 5th–95th percentile interval. Our method successfully solves the IP at a much higher rate than DPS and DMPlug. This is due to the annealing schedule of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\sigma _ { y }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "that allows for initial exploration of the noise space, resulting in a lower probability of being stuck on a local mode."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                591,
+                161,
+                816,
+                279
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We quantify robustness to initialization using the standard deviation map in Figure 3. Our method achieves a mean absolute error (MAE) comparable to that of DPS, but with substantially lower pixel-wise standard deviation. While DPS can, on average, produce accurate reconstructions, its performance is sensitive to initialization and may introduce artifacts in both the face and background (red circle). In contrast, such artifacts never appear in any of the 100 runs with our method. Notably, despite exhibiting lower overall uncertainty, our method still assigns uncertainty in complex regions, which aligns with areas of high MAE (orange)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                378,
+                826,
+                479
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/1ccfffc76244a92d2728bdfe417d8d9a694e9308664283d6e0218e4e0dcfbcd4.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 1: Non-linear IPs Results on FFHQ (256 × 256) with Gaussian Noise "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\sigma _ { y } = 0 . 0 5"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". (Bold: best, underline: second best)"
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\"></td><td colspan=\"3\">Nonlinear Deblurring</td><td colspan=\"3\">Phase Retrieval</td><td colspan=\"3\">HDR Reconstruction</td></tr><tr><td>PSNR ↑</td><td>SSIM ↑</td><td>LPIPS ↓</td><td>PSNR ↑</td><td>SSIM ↑</td><td>LPIPS ↓</td><td>PSNR ↑</td><td>SSIM ↑</td><td>LPIPS ↓</td></tr><tr><td>DiffPIR</td><td>26.12</td><td>0.743</td><td>0.289</td><td>16.77</td><td>0.482</td><td>0.543</td><td>25.20</td><td>0.814</td><td>0.223</td></tr><tr><td>RED-diff</td><td>18.12</td><td>0.217</td><td>0.680</td><td>11.83</td><td>0.213</td><td>0.769</td><td>21.44</td><td>0.525</td><td>0.458</td></tr><tr><td>DPS</td><td>23.26</td><td>0.672</td><td>0.300</td><td>10.87</td><td>0.296</td><td>0.714</td><td>27.46</td><td>0.849</td><td>0.168</td></tr><tr><td>DAPS</td><td>27.00</td><td>0.736</td><td>0.283</td><td>18.52</td><td>0.414</td><td>0.528</td><td>26.03</td><td>0.758</td><td>0.259</td></tr><tr><td>ReSample</td><td>24.57</td><td>0.637</td><td>0.432</td><td>13.95</td><td>0.377</td><td>0.677</td><td>23.65</td><td>0.722</td><td>0.386</td></tr><tr><td>SITCOM</td><td>24.97</td><td>0.569</td><td>0.328</td><td>11.89</td><td>0.216</td><td>0.723</td><td>26.97</td><td>0.753</td><td>0.256</td></tr><tr><td>DMPlug</td><td>27.15</td><td>0.784</td><td>0.266</td><td>-</td><td>-</td><td>-</td><td>25.17</td><td>0.783</td><td>0.260</td></tr><tr><td>NA-NHMC (ours)</td><td>27.66</td><td>0.792</td><td>0.249</td><td>19.30</td><td>0.554</td><td>0.482</td><td>28.45</td><td>0.849</td><td>0.217</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                176,
+                532,
+                820,
+                660
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/b037a3219f44dee4f99ad77254dd47b47812ddcff480f202a42dd5ab0061a057.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 2: Non-linear IPs on ImageNet "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( 2 5 6 \\times 2 5 6 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "with Gaussian Noise "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\sigma _ { y } = 0 . 0 5"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". (Bold: best, underline: second best)"
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\"></td><td colspan=\"3\">Nonlinear Deblurring</td><td colspan=\"3\">HDR Reconstruction</td></tr><tr><td>PSNR ↑</td><td>SSIM ↑</td><td>LPIPS ↓</td><td>PSNR ↑</td><td>SSIM ↑</td><td>LPIPS ↓</td></tr><tr><td>DiffPIR</td><td>24.24</td><td>0.638</td><td>0.381</td><td>23.29</td><td>0.730</td><td>0.273</td></tr><tr><td>RED-diff</td><td>17.94</td><td>0.244</td><td>0.623</td><td>20.98</td><td>0.524</td><td>0.415</td></tr><tr><td>DPS</td><td>17.60</td><td>0.427</td><td>0.482</td><td>25.31</td><td>0.763</td><td>0.248</td></tr><tr><td>DAPS</td><td>24.28</td><td>0.632</td><td>0.404</td><td>23.57</td><td>0.709</td><td>0.283</td></tr><tr><td>SITCOM</td><td>24.00</td><td>0.556</td><td>0.355</td><td>24.76</td><td>0.708</td><td>0.276</td></tr><tr><td>DMPlug</td><td>22.30</td><td>0.576</td><td>0.421</td><td>20.61</td><td>0.562</td><td>0.431</td></tr><tr><td>NA-NHMC (ours)</td><td>24.98</td><td>0.694</td><td>0.308</td><td>25.86</td><td>0.779</td><td>0.253</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                258,
+                724,
+                738,
+                845
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.3 ROBUSTNESS TO UNKNOWN MEASUREMENT NOISE"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                869,
+                576,
+                883
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In practice, the measurement noise may be unknown and its type may not be Gaussian. This can pose a problem as many methods require multiple hyperparameters that are tuned for a specific level and type of measurement noise. In this section, we evaluate our method’s robustness to unknown measurement noise on two tasks and two noise types: impulse and speckle. For impulse noise, each pixel in each channel is randomly replaced by 0 or 1 with a probability "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p / 2"
+                    },
+                    {
+                        "type": "text",
+                        "content": "each, where p ∼ Unif(0, 0.2). For speckle noise, the noise takes the form "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "y ( 1 + \\epsilon )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", where y is the measurement tensor and ϵ ∼ Unif(0, 0.4). Table 3 shows that our method achieves superior performance on most metrics while using the exact same hyperparameters as the Gaussian noise experiment. As illustrated in Figure 6, methods such as DiffPIR, which do not suffer from noise overfitting in the Gaussian setting, now struggle with impulse noise. In contrast, even under high noise levels, NA-NHMC remains robust, producing high-quality reconstructions."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                895,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "9"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                826,
+                231
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/31c61b529a32e61f7fd04dfa0197d8790e38d8350a929a2e7fbc0ed96814b1ee.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Ground Truth"
+                    },
+                    {
+                        "type": "text",
+                        "content": "Measurement"
+                    },
+                    {
+                        "type": "text",
+                        "content": "DiffPIR"
+                    },
+                    {
+                        "type": "text",
+                        "content": "RED-dif"
+                    },
+                    {
+                        "type": "text",
+                        "content": "DPS"
+                    },
+                    {
+                        "type": "text",
+                        "content": "DAPS"
+                    },
+                    {
+                        "type": "text",
+                        "content": "ReSample"
+                    },
+                    {
+                        "type": "text",
+                        "content": "DMPlug"
+                    },
+                    {
+                        "type": "text",
+                        "content": "Ours"
+                    },
+                    {
+                        "type": "text",
+                        "content": "Figure 6: Nonlinear deblurring results on FFHQ (256×256) dataset under different noise conditions. (Top) Impulse noise. (Bottom) Speckle noise."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                192,
+                260,
+                803,
+                367
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/0c43371fce8f853530df24777ad33ebdc4c1e0543fe74274ef2fe7e4cefc572d.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 3: The Performance Comparison with Different Types and Levels of Measurement Noise on FFHQ (256 × 256). (Bold: best, underline: second best)"
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"3\"></td><td colspan=\"6\">Super Resolution (×4)</td><td colspan=\"6\">Nonlinear Deblurring</td></tr><tr><td colspan=\"3\">Impulse</td><td colspan=\"3\">Speckle</td><td colspan=\"3\">Impulse</td><td colspan=\"3\">Speckle</td></tr><tr><td>PSNR ↑</td><td>SSIM ↑</td><td>LPIPS ↓</td><td>PSNR ↑</td><td>SSIM ↑</td><td>LPIPS ↓</td><td>PSNR ↑</td><td>SSIM ↑</td><td>LPIPS ↓</td><td>PSNR ↑</td><td>SSIM ↑</td><td>LPIPS ↓</td></tr><tr><td>DiffPIR</td><td>19.54</td><td>0.492</td><td>0.549</td><td>25.91</td><td>0.733</td><td>0.324</td><td>21.00</td><td>0.402</td><td>0.526</td><td>25.96</td><td>0.731</td><td>0.299</td></tr><tr><td>RED-diff</td><td>15.15</td><td>0.341</td><td>0.692</td><td>21.81</td><td>0.481</td><td>0.516</td><td>13.82</td><td>0.109</td><td>0.781</td><td>18.59</td><td>0.269</td><td>0.650</td></tr><tr><td>DPS</td><td>21.99</td><td>0.581</td><td>0.395</td><td>27.00</td><td>0.761</td><td>0.246</td><td>21.64</td><td>0.595</td><td>0.322</td><td>23.42</td><td>0.678</td><td>0.302</td></tr><tr><td>DAPS</td><td>15.00</td><td>0.361</td><td>0.702</td><td>24.48</td><td>0.597</td><td>0.442</td><td>17.94</td><td>0.259</td><td>0.657</td><td>26.46</td><td>0.698</td><td>0.308</td></tr><tr><td>ReSample</td><td>22.98</td><td>0.639</td><td>0.483</td><td>26.17</td><td>0.733</td><td>0.387</td><td>22.74</td><td>0.616</td><td>0.471</td><td>24.64</td><td>0.692</td><td>0.409</td></tr><tr><td>SITCOM</td><td>16.56</td><td>0.392</td><td>0.628</td><td>23.16</td><td>0.600</td><td>0.425</td><td>17.92</td><td>0.259</td><td>0.612</td><td>26.49</td><td>0.667</td><td>0.295</td></tr><tr><td>DMPlug</td><td>19.52</td><td>0.358</td><td>0.562</td><td>26.79</td><td>0.689</td><td>0.336</td><td>23.79</td><td>0.662</td><td>0.335</td><td>25.82</td><td>0.740</td><td>0.308</td></tr><tr><td>NA-NHMC (ours)</td><td>23.42</td><td>0.631</td><td>0.382</td><td>27.36</td><td>0.768</td><td>0.290</td><td>24.16</td><td>0.677</td><td>0.319</td><td>27.97</td><td>0.796</td><td>0.253</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                174,
+                467,
+                820,
+                583
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5 CONCLUSION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                611,
+                321,
+                627
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this work, we introduce N-HMC, a posterior sampler that operates in the noise space using reverse diffusion as a deterministic mapping from initial noise to a clean image, enabling posterior exploration while keeping proposals on the learned data manifold. The developed noise-adaptive variant, NA-NHMC, eliminates task-specific hyperparameter tuning by automatically adapting to unknown noise types and levels, which is a significant practical advantage over existing approaches. Theory establishes the correctness and efficiency of noise-space sampling, and experiments across diverse linear and nonlinear inverse problems on FFHQ and ImageNet show state-of-the-art reconstructions, robustness to initialization and noise, competitive runtimes with a few denoising steps, and uncertainty-aware estimates. The provided analysis and experiments also show that our method can mitigate measurement-consistency drift, noise overfitting, and local-mode collapse without relying on any task-specific hyperparameter tuning."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                643,
+                826,
+                797
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "While NA-NHMC shows promising results, it incurs higher computational cost compared to other methods such as DPS due to HMC sampling. Additionally, its reliance on a small number of diffusion steps may limit its immediate applicability to more complex applications. Moreover, the high dimensionality of the posterior leads to long warmup phases before reaching stationarity. Future work could address these challenges by developing more efficient gradient estimation techniques and incorporating faster warmup strategies that relax the requirement of exact detailed balance."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                803,
+                826,
+                888
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "10"
+                    }
+                ]
+            },
+            "bbox": [
+                490,
+                948,
+                509,
+                960
+            ]
+        }
+    ]
+]

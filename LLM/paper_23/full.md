@@ -1,0 +1,218 @@
+## ABSTRACT
+
+With an ever-growing zoo of LLMs and benchmarks, the need to orchestrate multiple models for improved task performance has never been more pressing. While frameworks like Mixture-of-Agents (MoA) attempt to coordinate LLMs, they often fall short in terms of (1) selecting relevant agents, (2) facilitating effective intra-agent communication, and (3) integrating responses efficiently. In this work, we propose Graph-of-Agents (GoA), a new graph-based framework for modeling multi-agent LLM communication. Our approach begins with node sampling, selecting only the most relevant agents by leveraging model cards that summarize each model’s domain, task specialization, and other characteristics. Next, we construct edges between the selected agents by evaluating their responses against one another to determine relevance ordering. Directed message passing is then performed from highly relevant agents to less relevant ones to enhance their responses, followed by reverse message passing to refine the original responses of the more relevant agents. Finally, the updated responses are aggregated via graph-based pooling (e.g., max or mean pooling) to produce a single, unified answer. We evaluate GoA on diverse multi-domain benchmarks (MMLU, MMLU-Pro, GPQA) and domain-specific benchmarks (MATH, HumanEval, MedMCQA), with an agent pool of 6 LLMs spanning multiple domains. Surprisingly, GoA achieves superior performance using only 3 selected agents, outperforming recent multi-agent LLM baselines that utilize all 6 agents simultaneously. By adopting a graph structure, GoA offers both scalability and effectiveness through structured message passing—positioning it as a strong candidate for navigating the challenges of the ever-growing LLM zoo. Code is available at: https://github.com/UNITES-Lab/GoA.
+
+## 1 INTRODUCTION
+
+Too many LLMs, too many benchmarks. As the ecosystem of Large Language Models (LLMs) (Wei et al., 2022a) rapidly diversifies, researchers are increasingly overwhelmed—not just by the sheer number of models available, but also by the complexity of evaluating and combining them effectively at test time to solve complex tasks. In this era of abundant LLMs, a central challenge emerges:
+
+(Q) Given the diversity ofavailable LLMs, how can we design an effective playground where agents interact synergistically—leveraging strengths, compensating for weaknesses, and improving decision-making through efficient collaboration?
+
+As an early attempt to address this challenge, Mixture-of-Agents (MoA) (Wang et al., 2024a; Li et al., 2025) has recently been introduced as a pioneering approach that explores how leveraging multiple LLMs can enhance overall model performance through the Mixture-of-Experts (MoE) (Shazeer et al., 2017) framework. As illustrated in Figure 1 (c), MoA aggregates responses from multiple LLM agents, appends them to the original query and feeds the enriched input to the next layer. This facilitates multi-agent synergy, enabling models to complement each other and refine predictions collaboratively. While MoA has shown that integrating multiple LLMs can be advantageous over a single model, it still faces several limitations that hinder its scalability and effectiveness:
+
+Which agents? As shown in Figure 1 (b), following the scaling law of diverse LLM agents, selecting a relevant subset from a large pool of agents handling complex and diverse queries (Figure 1 (a)) is a crucial challenge. The current MoA approach lacks an effective agent selection mechanism, instead forwarding queries to all available agents, leading to excessive computational costs. This not only risks multi-agent system explosion but also introduces noise from irrelevant agents, highlighting the need for a more efficient and practical agent selection strategy.
+
+![](images/81dc0e84cfc8eccf26721b388ac4e17f869b676f974a7472bd3aa957539bc89e.jpg)  
+Figure 1: Current multi-agent LLM pipeline and our proposed approach.(a) Given a query that spans diverse domains (e.g., biomedical + math + code), (b) selecting and organizing agents from a large pool of LLMs to form an effective multi-agent system remains a significant challenge. (c) The current Mixture-of -Agents (MoA) approach integrates all available agents, aggregates their responses, and forwards the combined output to the next layer. However, it lacks generalizability to larger agent pools (e.g., 10 or 100) and suffers from heavy intra-layer communication overhead. (d) In contrast, our proposed Graph-of Agents (GoA) addresses this challenge through a graph-based structure. In GoA, only a subset of relevant agents is selected to form the graph’s nodes, with intra-layer communication facilitated via directed message passing—flowing from more relevant agents to less relevant ones. By leveraging this graph structure, GoA achieves greater scalability and enables more efficient communication between agents, resulting in a more powerful and adaptive framework.
+
+How do they communicate? Once agents are selected, facilitating effective communication among them becomes a pivotal challenge. MoA adopts a many-to-one aggregation scheme, but this approach has notable drawbacks: it requires collecting responses from all available agents and treating them as a single chunk, which fails to capture fine-grained interactions—such as one-to-one communication between individual agent pairs. Moreover, since different agents have varying strengths and relevance depending on the query, treating all agent messages equally can hinder consensus. Instead, adaptively weighting responses based on their relevance is crucial for improving decision-making.
+
+How to integrate? Finally, when making the final decision, MoA aggregates responses by concatenating tokens from all agents. However, this approach incurs a huge computational cost, with a complexity of O(LNd), where L is the number of communication layers, N is the number of agents, and d is the token length per agent. Given that token usage is directly tied to cost, this method becomes prohibitively expensive. Moreover, not all agents contribute equally valuable responses—some domain-specialized agents produce significantly higher-quality outputs than others. A scalable integration mechanism that prioritizes more reliable agents while reducing the impact of less relevant ones is essential for cost-efficient and effective decision-making.
+
+⋆ Our Approach. To address these challenges, we propose a graph-based multi-agent framework, Graph-of-Agents (GoA), as a novel remedy to enhance multi-agent communication. GoAfundamentally rethinks multi-agent collaboration by modeling agents as nodes and their relevance-based relationships as edges, enabling structured message passing. This graph-based design allows for the selective activation of only relevant agents (as a subgraph of entire pool) while capturing inter-agent interactions through message passing and finalizing decisions via graph-based pooling. GoA follows a structured process, as shown in Figure 1 (d):
+
+❶ Which agents? → Node Sampling: GoA begins by selecting relevant agents based on available metadata (e.g., domain, task) from model cards. This information is provided to a meta-LLM, simply a general-domain LLM, which identifies the most relevant agents given the query.
+
+❷ How do they communicate? → Edge Sampling & Message Passing: Once nodes (agents) are selected, we obtain their initial responses and ask each agent to rank others, capturing the significance of each agent’s output. Based on these rankings, we construct directed edges in two perspectives: (i) Source-to-Target: Higher-ranked agents (i.e., highly influential nodes with more relevant responses) propagate their information to lower-ranked agents, allowing them to refine their responses based on more confident initial answers. (ii) Target-to-Source: After lower-ranked agents update their responses, the refined information is passed back to the higher-ranked agents, enabling them to further adjust their outputs based on the improved responses from their neighborhood agents.
+
+❸ How to integrate? → Graph Pooling: With refined responses, GoA applies max or mean pooling, akin to graph pooling, to adaptively aggregate the outputs of multiple agents. GoA is extensively evaluated on diverse multi-domain benchmarks (MMLU, MMLU-Pro, GPQA) and domain-specific benchmarks (MATH, HumanEval, MedMCQA), demonstrating its generalizability and adaptability across a wide range of tasks. These results highlight the effectiveness of viewing multi-agent collaboration through the lens of graph structures.
+
+It is important to note that, unlike traditional multi-agent learning method that require model finetuning or additional training, our proposed GoA framework, as like MoA, operates purely through the prompt interface. This design ensures compatibility with black-box LLM APIs while maintaining high adaptability across diverse domains during test-time inference.
+
+Our contributions are three-fold:
+
+• We identify key challenges in current multi-agent LLM systems: selecting which agents to sample, facilitating effective communication, and integrating responses efficiently.
+
+• We formulate multi-agent collaboration as a graph-based framework and introduce GoA, incorporating node sampling, edge sampling, message passing, and graph pooling. This enables construction of a scalable multi-agent LLM ecosystem, while enhancing inter-agent communication.
+
+• We demonstrate the effectiveness of GoA across diverse benchmarks, including MMLU, MMLU-Pro, GPQA, MATH, HumanEval, and MedMCQA. Notably, using only 3 agents, GoA outperforms recent multi-agent baselines that rely on pools of 6 agents, highlighting how graph-based structures improve both the scalability and effectiveness of multi-agent collaboration.
+
+## 2 RELATED WORK
+
+LLM Reasoning and Test-Time Inference. Test-time reasoning with LLMs has seen rapid advances through prompt engineering techniques such as Chain-of-Thought (CoT) (Wei et al., 2022b), Tree-of-Thought (Yao et al., 2023), and Graph-of-Thought (Besta et al., 2024; Yao et al., 2024), which enable models to decompose complex problems into structured sub-tasks. While most prior work focuses on improving a single LLM’s reasoning via internal prompting strategies (Zhou et al., 2023; Xu et al., 2024; Feng et al., 2024), a parallel direction has emerged around collaborative reasoning at inference time using multiple LLMs (Du et al., 2023a; Chan et al., 2023). In these multi agent setups, multiple LLMs interact in test-time without additional finetuning, often aiming to boost factual accuracy or reasoning diversity. However, these approaches typically rely on simplistic communication protocols such as symmetric debate or sequential refinement, lacking structured mechanisms for message routing or adaptive collaboration. Our work builds on this foundation by proposing a graph-based test-time collaboration framework that formalizes agent interactions through directional message passing, enabling richer and more scalable multi-agent reasoning.
+
+LLM Ensembles and Multi-Agent LLM Collaboration. Another approach to leveraging multiple LLMs is ensemble-based inference, where outputs from several models are aggregated or selected (Fang et al., 2024; Yuan et al., 2023). Recent works introduce router mechanisms (Wang et al., 2023b; Hari & Thomson, 2023; Wang et al., 2024b; Yue et al., 2025) to reduce computational cost by selectively querying a subset of models. However, many of these ensemble strategies treat LLMs as interchangeable units without modeling their relationships. Meanwhile, graph-based structures have begun to emerge to coordinate multi-agent systems, notably in frameworks like MacNet (Qian et al., 2024) and GPTSwarm (Zhuge et al., 2024), which model agents as nodes in static DAGs. Also DyLAN (Liu et al., 2024b) performs dynamic agent activation using an Agent Importance Score computed via forward–backward peer-rating propagation and coordinates agents through a temporal feed-forward communication network. Yet, these approaches rely on predefined topologies or assume a single agent role-playing multiple personas, limiting flexibility and expressiveness, and sometimes requiring additional optimization. In contrast, our proposed framework, GoA, constructs dynamic graphs based on task relevance, enabling one-to-one communication across a diverse pool of specialized LLMs. Through node sampling, directional edge construction, and graph pooling, GoA supports efficient and adaptive collaboration—addressing the underexplored challenge of coordinating heterogeneous agents for domain-diverse reasoning at test time.
+
+![](images/8c3c33ffbffe7213a5060248016a7017b3b190b967e6f6957d15b30998e51e3a.jpg)  
+Figure 2: Overall pipeline of GoA. (a) Overview: Given a query (Q) spanning diverse domains, GoA approaches multi-agent LLMs through the lens of a graph framework and produces an answer (A). (b) Node Sampling: Each agent is mapped to a model card containing domain and task information. The Meta-LLM, a general-purpose LLM, takes Q and the model cards as input and selects the most relevant agents, forming an adaptive multi-agent framework. (c) Edge Sampling: After collecting initial responses from selected agents, each agent evaluates the relevance of others (excluding itself) to generate a normalized score matrix. Edges are established in Source-to-Target and Target-to-Source directions, while low-relevance nodes are pruned using a threshold τ=0.05. (d) Message Passing: GoA first passes messages from source to target nodes, allowing lower-ranked agents to refine responses, then reverses the flow to update source nodes. (e) Graph Pooling: With updated responses structured as a graph, GoA outputs the final prediction via max or mean pooling.
+
+## 3 METHODOLOGY
+
+## 3.1 PRELIMINARIES AND NOTATIONS
+
+Multi-agent LLMs. We define a system of N LLM agents, where each agent $i \in { 1 , \dots , N }$ specializes in a particular domain or task. The agents collaboratively process a given query Q to generate an optimized response A.
+
+As a graph. We represent the multi-agent system as a directed graph, $\mathcal { G } = ( \nu , \mathcal { E } )$ , where $\nu =$ $v _ { 1 } , \ldots , v _ { N }$ denotes the set of agent nodes and $\mathcal { E } \subseteq \mathcal { V } \times \mathcal { V }$ is the directed edges. Once a subset of S relevant agents are selected from the multi-agent pool of size N, the adjacency matrix $\mathbf { A } \in \mathbb { R } ^ { S \times S }$ is constructed. The matrix is defined such that $\mathbf { A } _ { i j } ^ { - } > 0 \mathrm { i f } ( v _ { i } , v _ { j } ) \in \mathcal { E }$ and ${ \bf A } _ { i j } = 0$ otherwise.
+
+## 3.2 OUR APPORACH: GOA
+
+In this section, we present GoA, a novel approach specifically designed to enhance multi-agent communication through a graph-based framework, as shown in Figure 2.
+
+Overview. GoA begins with node sampling, where a meta-LLM (a general-purpose LLM) selects the most relevant agents from a given pool based on the query and a model card dictionary. Each model card summarizes information extracted from the Hugging Face README file, including the LLM’s domain and specialized tasks (Sec. 3.2.1). After collecting initial responses from the selected agents, we rank each agent based on scores assigned by other agents. Agents are then sorted by these scores to define two node types: source nodes (highly relevant and influential) and target nodes (less influential). This establishes bidirectional relationships: source-to-target and target-tosource (Sec. 3.2.2). In the message-passing, we first propagate messages from source to target, allowing target nodes to refine their responses based on input from more relevant agents. We then reverse the flow—target to source—so that source nodes can further refine their outputs using the updated responses. This two-step process ensures that each agent’s contribution is weighted by its relevance to the query (Sec. 3.2.3). Finally, we apply graph pooling: either max pooling based on the most connected source node or mean pooling guided by the meta-LLM to generate the final answer (Sec. 3.2.4).
+
+## 3.2.1 NODE SAMPLING
+
+Given a query $\mathcal { Q } ,$ our goal is to select a subset of agents most relevant to the task. To achieve this, we leverage publicly available model cards from Hugging Face (Jain, 2022), which contain useful metadata such as the dataset the LLM was trained on, its specialized domain, model size. Using this information, we summarize each agent’s model card into three key categories: (1) The domain of the LLM, (2) The specialized task, and (3) The model size and special features. Once the summarized model card is obtained, we prompt the Meta-LLM<sup>1</sup> to determine which agents are most likely to generate the most effective response given the query. Formally, the selected subset of agents, $\dot { \mathcal { V } _ { s } } \subseteq \breve { \mathcal { V } }$ , is obtained as:
+
+$$
+\mathcal {V} _ {s} = \text { Meta - LLM } (\text { Top- } k | \mathcal {Q}, \text { Model   Cards }),\tag{1}
+$$
+
+where Top-k selects the k most relevant agents based on their alignment with the query and model card information. For example, as illustrated in Figure 2 (b), if the query pertains to biomedical, mathematics, and code-related domains, the selected agents would primarily belong to these specialized areas to maximize multi-agent synergy. This approach effectively filters out unnecessary agents (e.g., law-related models), preventing agent explosion (i.e., involving an unmanageable number of agents) while maintaining relevance agents for handling the query, answering “Which agents?”.
+
+## 3.2.2 EDGE SAMPLING
+
+Once the subset of selected agents $\gamma _ { s }$ is obtained, we prompt each agent to generate its initial response to the query Q, forming a response set $\mathcal { R } = \{ \bar { v } _ { 1 } ( \mathcal { Q } ) , \dots , v _ { S } ( \bar { \mathcal { Q } } ) \}$ , where $S = | \nu _ { s } | .$ To model inter-agent relevance, we construct a score matrix in which each agent scores the responses of all other agents (excluding its own to reduce self-bias) based on alignment with Q. These scores are normalized such that each agent distributes a total score of 1.0 across the remaining S−1 agents. We then compute a relevance score $S _ { j }$ for each agent j by summing the scores it receives from others:
+
+$$
+\mathcal{S}_{j} = \sum_{\substack{i = 1\\ i\neq j}}^{S}\operatorname{Score}_{i\to j}.\tag{2}
+$$
+
+The relevance scores $s$ are then used to rank agents and determine their communication roles $( \mathrm { e . g . }$ source vs. target). To avoid including weak or noisy responders—particularly in cases where model cards may lack detailed information—we introduce a threshold hyperparameter τ. Agents with $s _ { j } ~ < ~ \tau$ are pruned from the communication graph, ensuring scalability and better task-fit in the constructed structure.
+
+Using the remaining high-relevance agents, we define a weighted directed adjacency matrix $\textbf { A } \in$ $\mathbb { R } ^ { S \times \breve { S } }$ to govern message passing. Each entry ${ \bf A } _ { j i }$ represents how much influence agent i exerts on agent $j$ when passing messages. It is computed by normalizing the total relevance scores of all neighbors of agent j:
+
+$$
+\mathbf {A} _ {j i} = \frac {\mathcal {S} _ {i}}{\sum_ {k \in \mathcal {N} _ {j}} \mathcal {S} _ {k}}, \quad \text { where } \mathcal {N} _ {j} = \{i \mid (i \rightarrow j) \in E \}.\tag{3}
+$$
+
+This scoring formulation ensures that more relevant agents have proportionally greater influence, and it enables fine-grained 1-to-1 communication tailored to task-specific needs. Figure 2(c) illustrates how the score matrix and pruning mechanism dynamically shape the communication graph.
+
+## 3.2.3 MESSAGE PASSING
+
+Now, given the edge information and weighted adjacency matrix, we proceed with message passing, a key advantage of the graph structure. To incorporate the significance of each agent, GoA performs message passing in two steps: Source-to-Target followed by Target-to-Source.
+
+Source-to-Target. For highly influential nodes, it is crucial to maintain their initial strength rather than being influenced by less significant or noisy nodes. Conversely, less significant nodes benefit from receiving messages (i.e., more relevant responses to the query) from stronger nodes. Thus, we first propagate information from source nodes (higher-ranked agents) to target nodes (lower-ranked agents), allowing the latter to refine their responses based on more confident initial answers:
+
+$$
+\mathcal {R} _ {j} ^ {\prime} = v _ {j} \left(\left\| _ {j = i + 1} ^ {S} \mathbf {A} _ {i j} \mathcal {R} _ {i} ^ {\text { sorted }}\right), \text {   where   } i <   j \leq S, \right.\tag{4}
+$$
+
+where $\mathcal { R } _ { j } ^ { ' }$ represents the updated response for target node $j$ after receiving messages from source node i. Here, $v _ { j } ( \cdot )$ denotes the forward pass of LLM j, represents the concatenation of neighboring responses, and $\mathcal { R } _ { i } ^ { \mathrm { s o r t e d } }$ represents the sorted responses, ranked from highly relevant to less relevant based on the relevance scores S obtained in Equation 2. With these updated responses, we now proceed with the Target-to-Source step.
+
+Target-to-Source. Since the previous step only updates target nodes, we also allow source nodes to refine their responses based on the improved outputs of their neighbors $( \mathcal { R } _ { j } ^ { ' } )$ , rather than the initial responses from target nodes. This enables source nodes to incorporate the consensus of their neighboring agents, indirectly influenced by the original source node, leading to further refinement:
+
+$$
+\mathcal {R} _ {i} ^ {\prime \prime} = v _ {i} \left(\left\| _ {j = i + 1} ^ {S} \mathbf {A} _ {j i} \mathcal {R} _ {j} ^ {\prime}\right), \text {   where   } i <   j \leq S, \right.\tag{5}
+$$
+
+where $\mathcal { R } _ { i } ^ { ' \prime }$ represents the refined response for source nodes. With both source and target nodes refining their responses collaboratively through the graph structure, we effectively address the question of “How do they communicate $\because$ . We now move on to the final step: response integration.
+
+## 3.2.4 GRAPH POOLING
+
+To address the question of “How to integrate?” while minimizing the computational cost associated with token stacking, we formalize response integration through graph pooling, a common approach in graph-based tasks that requires aggregating node representations into a single graph representation. Motivated by this, we propose two pooling strategies: ❶ Max-Pooling, which relies on the most influential node (i.e., the agent with the highest number of incoming edges, indicating a higher relevance score). ❷ Mean-Pooling, which balances contributions by considering responses from all selected agents but on a reduced scale, unlike MoA, which involves all available agents. Formally, this can be expressed as:
+
+$$
+\mathcal {A} = \left\{ \begin{array}{l} \mathcal {R} _ {\text { max - source }} ^ {\prime \prime} \quad \text { if   } \max \text {-pooling} \\ \text { Meta - LLM(Average | \mathcal {R } ^{\prime\prime})} \quad \text { if   mean - pooling}, \end{array} \right.\tag{6}
+$$
+
+where $\mathcal { R } _ { \mathrm { m a x - s o u r c e } } ^ { ' \prime }$ denotes the refined response of the agent with the highest number of source edges $( \mathrm { i . e . }$ , the most relevant agent). In summary, max-pooling prioritizes the response of the most significant agent, while mean-pooling incorporates responses from all selected agents, requiring an additional forward pass through the Meta-LLM. We introduce these two variants as $\mathsf { G o A } _ { \mathsf { m a x } }$ and $\mathsf { G o A } _ { \mathsf { m e a n } } .$ , which will be analyzed in the experiment sections. The averaging is performed in a weighted manner using the relevance scores assigned during edge sampling.
+
+## 3.3 GOA GENERALIZES MOA
+
+Lastly, we demonstrate that GoA generalizes the existing MoA framework. Specifically, as illustrated in Figure 1 (c), the message-passing and response-updating procedure of MoA (Wang et al., 2024a) can be formulated as:
+
+$$
+\mathcal {R} _ {i} ^ {\prime} = v _ {i} (\left\| \right. _ {j = 1} ^ {N} \mathcal {R} _ {j} + \mathcal {Q}).\tag{7}
+$$
+
+Comparing this to Equation 4, we establish the following:
+
+Table 1: Benchmark performance across multi-domain and domain-specific benchmarks. Singleagent baselines: General: Qwen2.5-7B-Instruct (Team, 2024), Code: Qwen2.5-Coder-7B-Instruct (Hui et al., 2024), Math: Mathstral-7B-v0.1 (AI, 2024), Biomedical: Bio-Medical-Llama-3-8B (Con, 2024), Finance: finance-Llama3-8B (Cheng et al., 2024), Legal: Saul-7B-Instructv1 (Colombo et al., 2024). Multi-agent baselines: Debate (Du et al., 2023b), Self-Consistency (SC) (Wang et al., 2023a), Refine (Madaan et al., 2023), ReConcile (Chen et al., 2023), MoA (Wang et al., 2024a), and Self-MoA (Li et al., 2025). Our proposed framework, GoA (Graph-of-Agents), despite using only 3 agents (i.e., top-k=3), outperforms both multi-agent baselines with 6 agents and single-agent models, demonstrating strong collaborative synergy and capability across both multidomain and domain-specific tasks. All performance is measured using zero-shot CoT in test-time.
+
+<table><tr><td rowspan="2" colspan="2"></td><td colspan="3">Multi-Domain</td><td colspan="3">Domain-Specific</td></tr><tr><td>MMLU</td><td>MMLU-Pro</td><td>GPQA</td><td>MATH</td><td>Human Eval</td><td>MedMCQA</td></tr><tr><td rowspan="6">Single-Agent</td><td>General</td><td>77.61</td><td>53.90</td><td>32.83</td><td>69.00</td><td>81.50</td><td>55.22</td></tr><tr><td>Code</td><td>68.04</td><td>42.33</td><td>33.84</td><td>59.60</td><td>85.37</td><td>45.57</td></tr><tr><td>Math</td><td>63.47</td><td>37.19</td><td>30.81</td><td>48.60</td><td>57.93</td><td>45.25</td></tr><tr><td>Biomedical</td><td>46.60</td><td>27.90</td><td>25.25</td><td>18.80</td><td>20.73</td><td>47.00</td></tr><tr><td>Finance</td><td>54.11</td><td>25.52</td><td>28.28</td><td>13.80</td><td>27.44</td><td>42.08</td></tr><tr><td>Legal</td><td>55.86</td><td>27.57</td><td>30.30</td><td>12.40</td><td>36.59</td><td>41.50</td></tr><tr><td rowspan="6">Multi-Agent(6 Agents)</td><td>Debate</td><td>72.53</td><td>47.05</td><td>29.29</td><td>69.60</td><td>40.24</td><td>53.05</td></tr><tr><td>SC</td><td>77.97</td><td>54.12</td><td>36.36</td><td>69.80</td><td>82.57</td><td>55.70</td></tr><tr><td>Refine</td><td>77.40</td><td>54.71</td><td>38.92</td><td>71.60</td><td>80.49</td><td>54.94</td></tr><tr><td>ReConcile</td><td>69.61</td><td>44.19</td><td>34.34</td><td>45.60</td><td>50.20</td><td>54.60</td></tr><tr><td>MoA</td><td>75.71</td><td>53.33</td><td>32.83</td><td>65.80</td><td>76.22</td><td>54.94</td></tr><tr><td>Self-MoA</td><td>78.14</td><td>54.19</td><td>33.84</td><td>68.20</td><td>79.27</td><td>55.56</td></tr><tr><td rowspan="2">Multi-Agent(3 Agents)</td><td> $GoA_{Max}$ </td><td>79.18</td><td>54.78</td><td>39.98</td><td>69.83</td><td>84.67</td><td>60.04</td></tr><tr><td> $GoA_{Mean}$ </td><td>78.52</td><td>54.27</td><td>40.54</td><td>73.12</td><td>84.98</td><td>57.92</td></tr></table>
+
+Proposition 1 Graph-of-Agents (GoA) reduces to MoA when the node sampling parameter k equals the total number of agents N, the adjacency matrix is fully connected with all edge weights set to 1, i.e., $\mathbf { A } \in \mathbb { R } ^ { N \times N } = 1$ , and a self-loop is included with the initial query (Q) at each layer, ultimately aggregated via mean pooling.
+
+Thus, GoA serves as a more flexible and extensible generalization of multi-agent communication frameworks. By introducing structured message passing, adaptive agent selection, and weighted aggregation, GoA can scale to large agent pools while maintaining efficiency and robustness. As our work focuses on test-time inference, the prompts used in this study are provided in Appendix B.
+
+## 4 EXPERIMENTS
+
+## 4.1 IMPLEMENTATION DETAILS
+
+Benchmarks. We evaluate performance on two multi-domain (MMLU (Hendrycks et al., 2020), MMLU-Pro (Wang et al., 2024c), GPQA (Rein et al., 2023)) and three domain-specific benchmarks (MATH (Lightman et al., 2023), HumanEval (Chen et al., 2021), MedMCQA (Pal et al., 2022)). For MMLU and MMLU-Pro, due to their large sizes, we used stratified sampling: 50 samples per category across 57 categories for MMLU, and 150 samples per category across 14 categories for MMLU-Pro. For the agent pool, we primarily leveraged six LLMs with 7–8B parameters, covering diverse domains such as General, Code, Math, Biomedical, Finance, and Legal. The specific LLMs are listed in Table 1.
+
+## 4.2 MAIN RESULTS
+
+Effectiveness. In Table 1, we present benchmark results across both multi-domain and domainspecific tasks, comparing single-agent baselines, multi-agent baselines with 6 agents, and our proposed GoA (3 agents). ❶ Among single-agent baselines, the general-purpose model achieves the highest average performance (61.15), but falls short of the best-performing multi-agent models. Specialized agents (e.g., Math, Biomedical, Finance) tend to perform well only in narrow domains and underperform in others, leading to lower overall averages. ❷ Multi-agent baselines with 6 agents—especially Refine (62.15) and Self-MoA (61.63)—demonstrate improved performance over all single-agent baselines, confirming the benefits of agent collaboration. However, their effectiveness varies across benchmarks, with no single method dominating all tasks. ❸ Our proposed GoA method outperforms all baselines across most metrics. $G o A _ { \mathrm { M a x } }$ achieves the highest average score, with top performance on MMLU (79.18), MMLU-Pro (54.78), and MedMCQA (60.04). $G o A _ { \mathrm { M e a n } }$ records the best scores on GPQA (40.54), MATH (73.12), and HumanEval (84.98), showing robust and consistent gains across both reasoning and domain-specific tasks. ❹ Notably, while other multi-agent methods rely on integrating all 6 agents, GoA achieves superior results using only 3, suggesting that selective and structured agent collaboration can be more effective than full integration.
+
+Efficiency. Another crucial perspective for testtime LLM collaboration is efficiency—that is, handling multiple LLMs in a scalable manner. Table 2 presents a comparison between MoA and GoA on the MMLU-Pro dataset in terms of accuracy, number of LLM calls, average token usage (input + output), and latency. Unlike MoA, which employs multiple rounds of proposers (i.e., all available agents) and a final aggregator, GoA reduces LLM usage and latency while improving accuracy. This improvement stems from its design philosophy—node and edge sampling followed by graph pooling—which selectively involves only relevant agents in the system, making it a more efficient and practical approach for multi-agent LLM collaboration.
+
+Table 2: Efficiency analysis in MMLU-Pro.
+
+<table><tr><td></td><td>Acc.</td><td>Calls</td><td>Tokens (k)</td><td>Time (s)</td></tr><tr><td>MoA</td><td>53.33</td><td>19</td><td>56.05</td><td>240.26</td></tr><tr><td> $GoA_{Max}$ </td><td>54.78</td><td>11</td><td>19.18</td><td>100.43</td></tr><tr><td> $GoA_{Mean}$ </td><td>54.27</td><td>12</td><td>22.58</td><td>118.52</td></tr></table>
+
+Scaling Up. To evaluate generalization to proprietary models, we tested GoA with gpt-4o on GPQA, MedMCQA (100 sampled), and HumanEval. Table 3 shows multi-agent setups outperform the single-agent baseline. Notably, while DyLAN (Liu et al., 2024a) employs eight specialized agents (e.g., ‘Python Assistant’, ‘Algorithm Developer’), our GoA with only three agents achieves higher performance, mirroring trends seen with open-source models. This advantage stems from our graphbased reasoning and relevance-aware message-
+
+Table 3: Scaling up with gpt-4o model.
+
+<table><tr><td></td><td>GPQA</td><td>MedMCQA</td><td>HumanEval</td></tr><tr><td>gpt-4o</td><td>47.47</td><td>77.00</td><td>90.20</td></tr><tr><td>Debate (6 Agents)</td><td>53.03</td><td>80.00</td><td>85.98</td></tr><tr><td>SC (6 Agents)</td><td>54.27</td><td>81.00</td><td>92.07</td></tr><tr><td>Refine (6 Agents)</td><td>54.98</td><td>82.00</td><td>91.92</td></tr><tr><td>Reconcile (6 Agents)</td><td>53.03</td><td>75.00</td><td>91.46</td></tr><tr><td>MoA (6 Agents)</td><td>50.51</td><td>80.00</td><td>92.07</td></tr><tr><td>DyLAN (8 Agents)</td><td>58.89</td><td>81.00</td><td>92.07</td></tr><tr><td>GoAMax(3 Agents)</td><td>55.05</td><td>82.00</td><td>93.29</td></tr><tr><td>GoAMax(6 Agents)</td><td>56.57</td><td>83.00</td><td>93.90</td></tr></table>
+
+passing mechanism (Section 4.3), which enables targeted and noise-resilient communication. These results highlight that well-designed communication strategies can be more effective than simply increasing the number of agents, underscoring both the effectiveness and scalability of GoA.
+
+## 4.3 WHY GRAPH?
+
+The key aspect of GoA is its graph-based framework for multi-agent LLM collaboration. In this section, we show how the graph structure and the new message-passing benefit LLM collaboration.
+
+Graph-based Reasoning. Figure 3 presents a case study illustrating how a graph-based framework improves reasoning by comparing recent MoA with our proposed GoA when handling an anatomydomain from the MMLU dataset. In MoA, all available agents are used, including those from unrelated domains such as math and code. These irrelevant agents introduce noise (e.g., ‘Answer: 1’), which negatively affects the final prediction. In contrast, GoA avoids irrelevant agent usage by applying node sampling followed by edge sampling, thereby constructing a query-specific graph structure. This enables targeted message-passing among relevant agents, leading to more accurate discussions (e.g., ‘Answer: 0’) and final predictions. Overall, this comparison shows how a graphbased framework enhances reasoning in multi-agent scenarios by leveraging structured interactions and relevance-aware message passing.
+
+![](images/ade95fdf0715eea4c17eae1b9a6695d972a3e42c32732084927922e7718f9e08.jpg)  
+Figure 3: Reasoning process of (a) Mixture-of-Agents (MoA) and (b) Graph-of-Agents (GoA).
+
+Relevance-aware Message-Passing. We now delve into GoA’s relevance-aware messagepassing framework under a stricter fixed-node setting, targeting the HumanEval benchmark with three code-specific models. As shown in Table 4, the baseline models exhibit varying performance—Qwen2.5-Coder-7B-Instruct performs best, while the others fall behind. In the multi-agent setting, we compare our approach against existing frameworks: MoA
+
+Table 4: Effectiveness of Message-Passing.
+
+<table><tr><td></td><td>HumanEval</td></tr><tr><td>Qwen2.5-Coder-7B-Instruct</td><td>85.37</td></tr><tr><td>Seed-Coder-8B-Instruct</td><td>80.49</td></tr><tr><td>deepseek-coder-7b-instruct-v1.5</td><td>73.17</td></tr><tr><td>MoA - MoE-based (3 Agents)</td><td>85.37</td></tr><tr><td>Debate - Debate-based (3 Agents)</td><td>71.95</td></tr><tr><td>Reconcile - Confidence-based (3 Agents)</td><td>80.61</td></tr><tr><td>GoAMax - Graph-based (3 Agents)</td><td>85.98</td></tr></table>
+
+(MoE-based) (Wang et al., 2024a), Debate (Du et al., 2023b), and Reconcile (confidencebased) (Chen et al., 2023), with our GoA (graph-based) achieving the highest performance. This gain stems from its tailored message-passing mechanism, where edges are formed based on node relevance to the given question: information flows from highly relevant nodes (e.g., Qwen2.5-Coder-7B-Instruct) to less relevant ones (e.g., deepseek-coder-7b-instruct-v1.5), which update their internal state, followed by a feedback phase that produces an aggregated response. These results demonstrate that graph-based approaches—especially when combined with relevance-aware message passing—offer a promising paradigm for LLM collaboration.
+
+## 4.4 ABLATION STUDY
+
+Table 5 presents an ablation analysis on MMLU-Pro and GPQA. The top row shows the original GoA setting with the best performance. ❶ Interestingly, reversing the message-passing direction causes the largest performance drop (–2.60 on MMLU-Pro and –5.05 on GPQA), even worse than removing only one direction (Source-to-Target or Target-to-Source). This matches our expectation: when less-influential nodes become artificially dominant, they disrupt the intended flow and inject noise back into the original source nodes. This underscores a
+
+Table 5: Ablation study on modules, top-k, and τ.
+
+<table><tr><td></td><td>MMLU-Pro</td><td>GPQA</td></tr><tr><td>GoA (Top-k=3, τ=0.05)</td><td>54.78</td><td>39.98</td></tr><tr><td>Reverse Message Passing</td><td>52.18</td><td>34.93</td></tr><tr><td>w/o Target-to-Source</td><td>53.66</td><td>38.03</td></tr><tr><td>w/o Source-to-Target</td><td>52.21</td><td>36.12</td></tr><tr><td>w/o Scoring ( $\mathbf{A}_{ij} = 1$ )</td><td>52.91</td><td>37.34</td></tr><tr><td>Top-k=2</td><td>53.54</td><td>36.75</td></tr><tr><td>Top-k=5</td><td>54.65</td><td>39.13</td></tr><tr><td>τ=0.1</td><td>53.12</td><td>38.43</td></tr><tr><td>τ=0.2</td><td>52.78</td><td>37.12</td></tr></table>
+
+key design insight—preserving the correct bidirectional flow, (1) Source-to-Target and (2) Targetto-Source, is essential for GoA’s effectiveness.. Removing Target-to-Source message passing leads to a noticeable drop (–1.12 MMLU-Pro, –1.95 GPQA), showing that feedback from target nodes is crucial. ❷ Removing Source-to-Target causes even larger degradation (–2.57, –3.86), highlighting the importance of initial information flow. Together, these results confirm the complementary role of bidirectional message passing. ❸ Disabling edge scoring $( A _ { i j } = 1 )$ consistently reduces performance, validating the benefit of relevance-based weighting. ❹ Varying the number of agents shows $k = 2$ limits diversity while $k = 5$ introduces slight degradation (likely requiring tailored τ), with k = 3 remaining scalable and performant. ❺ Adjusting the edge threshold τ shows that overly sparse graphs $( \tau = 0 . 1 , 0 . 2 )$ harm performance, while $\tau = 0 . 0 5$ balances focus and connectivity. Overall, these results demonstrate that bidirectional message passing, adaptive edge scoring, and selective agent activation all contribute to GoA’s effectiveness.
+
+## 5 CONCLUSION
+
+In this study, we introduce GoA, a graph-based framework that re-designs multi-agent communication to address key challenges: selecting relevant agents, enabling effective communication, and integrating responses efficiently. Extensive experiments demonstrate consistent gains across diverse benchmarks. We believe GoA can advance the development of large-scale collective intelligence in the emerging multi-agent LLM era.
+
+## ACKNOWLEDGEMENTS
+
+This research was partially funded by the National Institutes of Health (NIH) under award 1R01EB03710101. The views and conclusions contained in this document are those of the authors and should not be interpreted as representing the official policies, either expressed or implied, of the NIH. This research was also partially supported by the Amazon Research Award.
+
+## ETHICS STATEMENT
+
+We propose a graph-based multi-agent LLM collaboration framework, GoA. However, the LLMs used in GoA may still exhibit inherent biases and undesirable traits from pretraining. Consequently, its outputs carry similar risks of misuse as other test-time methods.
+
+## REPRODUCIBILITY STATEMENT
+
+We provide our code at the link: https://github.com/UNITES-Lab/GoA. All experiments were conducted on A6000 GPU. The datasets used are publicly available.
+
+## REFERENCES
+
+Bio-medical: A high-performance biomedical language model. https://huggingface.co/ContactDoctor/Bio-Medical-Llama-3-8B, 2024.
+
+Mistral AI. MathΣtral. https://mistral.ai/news/mathstral/, July 2024.
+
+Maciej Besta, Nils Blach, Ales Kubicek, Robert Gerstenberger, Michal Podstawski, Lukas Gianinazzi, Joanna Gajda, Tomasz Lehmann, Hubert Niewiadomski, Piotr Nyczyk, and Torsten Hoefler. Graph of Thoughts: Solving Elaborate Problems with Large Language Models. Proceedings ofthe AAAI Conference on Artificial Intelligence, 38(16):17682–17690, March 2024. ISSN 2374- 3468. doi: 10.1609/aaai.v38i16.29720.
+
+Chi-Min Chan, Weize Chen, Yusheng Su, Jianxuan Yu, Wei Xue, Shanghang Zhang, Jie Fu, and Zhiyuan Liu. ChatEval: Towards Better LLM-based Evaluators through Multi-Agent Debate, August 2023.
+
+Justin Chih-Yao Chen, Swarnadeep Saha, and Mohit Bansal. Reconcile: Round-table conference improves reasoning via consensus among diverse llms. arxiv preprint, 2309.07864, 2023. URL https://arxiv.org/abs/2309.13007.
+
+Mark Chen, Jerry Tworek, Heewoo Jun, Qiming Yuan, Henrique Ponde De Oliveira Pinto, Jared Kaplan, Harri Edwards, Yuri Burda, Nicholas Joseph, Greg Brockman, et al. Evaluating large language models trained on code. arXiv preprint arXiv:2107.03374, 2021.

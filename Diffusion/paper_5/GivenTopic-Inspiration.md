@@ -1,0 +1,10 @@
+Given Topic: Research in generative modeling through score-based diffusion processes faces a critical challenge wherein trained models frequently memorize training data rather than generating novel samples, thereby undermining generalization and raising privacy concerns. While empirical mitigation strategies have been explored, theoretical understanding of memorization mechanisms remains limited, particularly in non-asymptotic, finite-sample regimes. Existing analyses fail to rigorously disentangle memorization from generalization under practical training configurations. The core problem is to establish a theoretical framework that characterizes why highly expressive models optimizing standard training objectives converge toward empirical data distributions instead of underlying population distributions, and to identify the statistical and representational factors governing this transition.
+
+Given Inspiration:
+1. The statistical observation that minimizing empirical denoising objectives can induce a persistent bias toward training samples rather than the true data-generating distribution.
+2. The approximation-theoretic principle that empirical distributions and smooth population densities demand fundamentally different representational complexities from learned functions.
+3. The insight that multi-modal data structures interact with noise corruption schedules to create distinct statistical regimes where empirical and population behaviors diverge.
+4. The hypothesis that model capacity relative to sample size determines whether the learned representation captures generalizable structure or idiosyncratic training instances.
+5. The regularization perspective that controlling the smoothness of learned mappings can prevent overfitting to irregular empirical distributions.
+6. The dynamical view that the interplay between optimization dynamics, expressiveness, and finite samples drives convergence toward either population or empirical modes.
+7. The architectural insight that constraining the effective degrees of freedom in highly expressive networks can promote generalization over memorization.

@@ -1,0 +1,11 @@
+Given Topic: In the field of efficient long-form video understanding with multimodal large language models, visual token compression has become critical due to the prohibitive computational cost of processing massive token sequences. Existing methods primarily rely on importance-based pruning or similarity-based merging to reduce redundancy. However, these approaches predominantly focus on informational commonalities while inadequately addressing content dynamics and narrative turning points. Furthermore, the lack of joint spatio-temporal modeling restricts the effective capture of complex video redundancies. The core scientific issue is how to simultaneously achieve aggressive token reduction and preserve critical dynamic events that drive video narratives, thereby maintaining both computational efficiency and semantic completeness.
+
+Given Inspiration:
+1. The inherent duality of video content, comprising persistent static elements and transient dynamic events, suggests that compression strategies must address both continuity and change.
+2. The insight that similarity primarily indicates redundancy, whereas difference signifies narrative-critical moments, motivates a balanced treatment of both properties.
+3. The observation that prevailing compression paradigms optimize almost exclusively for informational commonality, resulting in a systemic neglect of abrupt transitions and turning points.
+4. The principle that an ideal video representation should minimally encode stable content while precisely retaining tokens that capture pivotal dynamic shifts.
+5. The recognition that spatial and temporal correlations in video tokens are deeply coupled, necessitating unified rather than isolated relational modeling.
+6. The perspective that sharp temporal discontinuities in feature space correspond to semantic events, mirroring how narrative plots are driven by key turning points.
+7. The understanding that relational structures among tokens naturally form cohesive clusters representing persistent visual elements across spatio-temporal dimensions.
+8. The hypothesis that maintaining narrative integrity under aggressive compression requires explicitly safeguarding tokens associated with significant content changes rather than merely preserving representative samples.

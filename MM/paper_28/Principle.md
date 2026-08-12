@@ -1,0 +1,62 @@
+**Principle 1: Robustness Against Circular Reasoning in Internal-Signal-Based Token Reward Computation for Hallucination Mitigation**
+
+**Definition:**  
+In multimodal preference optimization, leveraging a model's own internal cross-modal signals—such as attention maps, patch entropy, and semantic similarity—to compute token-level rewards introduces an inherent risk of circular reasoning. If the base model has already learned incorrect visual associations, its internal activations may spuriously assign high relevance to hallucinated tokens, thereby reinforcing rather than correcting factual errors. Consequently, any method proposing self-contained, intrinsic reward signals must demonstrate that its reward computation is structurally resilient to pre-existing model hallucinations, rather than assuming internal signals are automatically trustworthy. This principle demands evidence that the method can disentangle coincidental activation patterns from genuine visual grounding, particularly in edge cases where individual modalities fail. Robust token-reward mechanisms must incorporate compensatory signal fusion, failure-mode diversification, and explicit empirical falsification on adversarial or biased examples to ensure that reward assignment genuinely suppresses hallucinations. Without such safeguards, token-level rewards risk degenerating into self-referential confirmation loops that amplify the very behaviors they seek to eliminate. The evaluation of this principle is therefore central to distinguishing principled self-correction mechanisms from naive introspection-based heuristics.
+
+**Core Evaluation Criteria:**
+- **Multi-Signal Compensation and Failure Independence:** Does the work demonstrate through visualization or adversarial diagnostics that when one internal signal fails (e.g., attention misaligned to a hallucinated object), complementary signals (e.g., semantic similarity, local entropy) detect and correct the misalignment rather than propagate it?
+- **Explicit Edge-Case Falsification:** Are there dedicated experiments on highly biased, adversarial, or rare-corner-case benchmarks showing that the method does not amplify hallucinations when the base model is already confused?
+- **Interpretability of Reward Guardrails:** Does the method provide qualitative or quantitative evidence that hallucinated tokens and high-frequency function words receive systematically lower rewards than visually grounded content tokens, proving the mechanism is not a black-box auto-scorer?
+- **Structural Anti-Amplification Design:** Is the reward formulation designed such that rejected responses explicitly penalize tokens with weak visual support, and chosen responses require convergent validation across multiple independent signal types, creating a mirrored penalty-reward structure?
+
+---
+
+**Principle 2: Discriminative Validity and Interpretability of Fine-Grained Token-Level Visual Relevance Rewards in Multimodal DPO**
+
+**Definition:**  
+A foundational premise of token-level preference optimization is that not all response tokens contribute equally to visual fidelity, and that fine-grained reward differentiation should yield superior alignment compared to sequence-level aggregation. However, increased granularity introduces the risk of noise, spurious correlations, and reduced interpretability if token rewards do not actually correlate with human-judgable visual relevance. This principle evaluates whether the proposed token-level weighting scheme possesses genuine discriminative power—meaning it can reliably separate visually critical tokens from visually irrelevant or hallucinated ones—and whether this granularity provides measurable marginal value over coarser schemes. The principle further requires that the reward components be individually inspectable and interpretable, allowing reviewers and practitioners to diagnose why specific tokens receive high or low scores. Ultimately, token-level methods must prove that their granularity is a source of precision rather than an unnecessary complication that obscures optimization dynamics. Evaluating this principle ensures that fine-grained alignment does not devolve into opaque, over-parameterized reweighting.
+
+**Core Evaluation Criteria:**
+- **Correlation with Visual Grounding:** Do ablation studies (e.g., weighting only top-K vs. bottom-K tokens) quantitatively demonstrate that tokens receiving the highest rewards are indeed responsible for the majority of hallucination reduction and factual improvement?
+- **Granularity Necessity and Monotonicity:** Does performance improve consistently as a larger proportion of tokens are weighted, and does token-level weighting significantly outperform sequence-level or span-level baselines with equivalent training budgets?
+- **Component Interpretability:** Are the hierarchical signals (global attention, local entropy, semantic similarity) individually visualized and explained, showing that each captures a distinct, human-interpretable aspect of token-visual relevance rather than forming an uninspectable latent score?
+- **Anti-Spuriousness Controls:** Does the work explicitly test and report that linguistically frequent but visually empty tokens do not receive disproportionately high rewards due to positional bias or attention artifacts?
+
+---
+
+**Principle 3: Theoretical and Empirical Justification of Multi-Signal Fusion and Optimization Stability in Token-Weighted Preference Learning**
+
+**Definition:**  
+When heterogeneous internal signals are fused into a scalar token reward within a preference optimization framework, the design of the fusion mechanism critically determines both the validity of the reward semantics and the stability of training. Ad-hoc combinations—such as fixed linear weights with heuristic nonlinearities—may achieve empirical gains yet lack theoretical grounding, raising concerns about whether the method is exploiting dataset-specific artifacts rather than learning robust visual alignment. This principle requires that fusion strategies be justified in terms of signal complementarity, failure-mode orthogonality, or statistical properties of the optimization landscape, and that alternatives such as learnable gating be rigorously evaluated and rejected for principled reasons. Furthermore, because token-level rewards can introduce high variance into gradient estimates, the method must demonstrate stable optimization dynamics throughout training. The principle thus separates rigorously engineered reward mechanisms from convenient heuristic assemblies by demanding both conceptual justification and empirical verification of training stability.
+
+**Core Evaluation Criteria:**
+- **Principled Fusion Design:** Is the fusion function motivated by explicit properties of the signals (e.g., complementary coverage of spatial vs. semantic alignment, entropy-based reliability weighting) rather than being presented as an unmotivated default, and are fixed coefficients defended against learnable alternatives through direct ablation?
+- **Training Dynamics Verification:** Are loss curves, reward margins, and gradient norms tracked across training iterations to demonstrate that token-level modulation does not induce oscillation, divergence, or gradient explosion under standard DPO hyperparameters?
+- **Hyperparameter Sensitivity and Boundedness:** Does the work systematically analyze key coefficients (e.g., balance between attention and semantic branches, KL regularization strength) and employ bounded activation functions to ensure reward values remain in a stable, non-explosive range?
+- **Comparative Distinctiveness:** Are the design choices clearly differentiated from related token-level or multimodal DPO variants in terms of signal source, weighting role, and optimization objective, proving that the fusion is not a minor architectural tweak?
+
+---
+
+**Principle 4: Cross-Architecture Generalization and Fair Comparative Benchmarking for Multimodal Token-Level Preference Optimization**
+
+**Definition:**  
+Claims of general improvement in multimodal alignment are only credible if they hold across diverse model architectures, scales, and training configurations, rather than being artifacts of a single base model's inductive biases. This principle demands that token-level preference optimization methods be validated on multiple MLLM families with distinct visual encoders and language backbones to confirm that the proposed signal extraction and reward mechanism transfer robustly. Equally important is the fairness of empirical comparisons: novel methods often introduce additional hyperparameters that, if meticulously tuned, can create an unfair advantage over baseline methods evaluated under their originally reported or suboptimal settings. This principle therefore evaluates whether the experimental protocol controls for tuning effort, dataset consistency, and computational budget across all compared methods. A method that demonstrates broad generalization and fair, comprehensive benchmarking is distinguishable from one that produces impressive yet isolated leaderboard scores.
+
+**Core Evaluation Criteria:**
+- **Cross-Model and Cross-Scale Validation:** Are experiments conducted on at least two distinct architectural families and multiple parameter scales, showing consistent hallucination reduction and general capability preservation?
+- **Controlled Baseline Configuration:** Are all baseline methods trained under identical or equivalent data conditions, and does the proposed method avoid per-benchmark hyperparameter tuning by using fixed values across all models and datasets?
+- **Benchmark Diversity and Adversarial Coverage:** Does evaluation span multiple dimensions including generation quality, discrimination accuracy, adversarial robustness, and standard instruction-following, rather than relying on a narrow set of favorable metrics?
+- **Related Work Coverage and Differentiation:** Are closely related contemporaneous methods systematically compared or at least discussed, with clear articulation of differences in granularity, signal provenance, and reliance on external tools?
+
+---
+
+**Principle 5: Computational Efficiency and Practical Overhead Control of Intrinsic Token-Level Reward Mechanisms in MLLM Alignment**
+
+**Definition:**  
+While fine-grained token-level rewards promise superior alignment quality, they risk nullifying their practical value if reward computation introduces prohibitive memory overhead, excessive per-sample latency, or dependence on costly external APIs and auxiliary models. This principle evaluates whether the method maintains the efficiency and self-contained nature that make direct preference optimization attractive relative to reinforcement learning pipelines. A well-designed intrinsic reward mechanism should exploit activations already computed during the forward pass, minimize additional peak memory, and require only modest one-time pre-computation. The principle thereby distinguishes methods that achieve granularity without sacrificing deployability from those that burden practitioners with unacceptable resource costs or infrastructure complexity. In an era where MLLM alignment increasingly targets on-device and production deployments, computational parsimony is as critical as algorithmic novelty.
+
+**Core Evaluation Criteria:**
+- **Overhead Quantification:** Are training time per sample and peak memory usage explicitly reported relative to standard DPO, with overhead percentages quantified rather than vaguely described as "minimal"?
+- **One-Time vs. Recurrent Cost Separation:** Is the cost of reward pre-computation clearly separated from per-epoch training costs, demonstrating that the mechanism is not introducing hidden computation during the optimization loop?
+- **External Dependency Elimination:** Does the method rely solely on the base model's internal representations, avoiding calls to external vision models, LLM APIs, or synthetic data generators that would increase deployment complexity and latency?
+- **Scalability Profile:** Is overhead analysis provided across different model sizes or batch configurations to confirm that computational costs do not scale disproportionately with model capacity?

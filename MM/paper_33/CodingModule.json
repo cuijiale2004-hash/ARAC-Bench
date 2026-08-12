@@ -1,0 +1,86 @@
+{
+  "overview": "PaDT introduces Visual Reference Tokens (VRTs) into MLLMs, enabling unified textual and visual output generation through a dynamic multi-modal codebook, a lightweight PaDT decoder for structured visual predictions (bounding boxes, masks, scores), and a robust training strategy with random VRT sampling and per-token cross-entropy loss, achieving state-of-the-art performance across detection, segmentation, grounding, and captioning tasks.",
+  "count": 16,
+  "modules": [
+    {
+      "id": 1,
+      "name": "Visual Reference Token (VRT) Generation Module",
+      "description": "Implements the projection from original visual patch features (F_patch) to visual reference prototypes (P_ref) via a lightweight module f_vp consisting of LayerNorm and a low-rank linear projection, producing per-patch VRT embeddings that maintain positional correspondence to image regions."
+    },
+    {
+      "id": 2,
+      "name": "Dynamic Embedding Module",
+      "description": "Constructs the dynamic multi-modal codebook by concatenating the original text embedding table (E_text) with the visual reference prototypes (P_ref) from the current forward pass, forming E_dyn = [E_text; P_ref]. This module dynamically expands the embedding space per image rather than using a fixed global codebook."
+    },
+    {
+      "id": 3,
+      "name": "PaDT Head Module",
+      "description": "Augments the LLM's textual classifier weight matrix by concatenating P_ref, producing W_tv = [W_text; P_ref], enabling the model to predict both textual token indices and VRT indices in a unified output vocabulary space."
+    },
+    {
+      "id": 4,
+      "name": "PaDT Decoder Module",
+      "description": "Implements the lightweight visual task decoder consisting of three two-way attention blocks that process VRT hidden features grouped by detected objects. Injects learnable bounding box, mask, and score task tokens per object group, performing cross-attention with patch features and self-attention within object queries to produce structured visual outputs (bbox coordinates, segmentation masks, confidence scores)."
+    },
+    {
+      "id": 5,
+      "name": "VRT Sampling Strategy Module",
+      "description": "Implements the random foreground VRT sampling strategy for training supervision. For each forward pass, randomly selects N_vrt foreground tokens from the ground-truth object mask/box region, constructing the foreground mask M that identifies which VRTs serve as valid supervision targets for the current training step."
+    },
+    {
+      "id": 6,
+      "name": "Robust Per-Token Cross-Entropy Loss Module",
+      "description": "Implements the masked cross-entropy loss for VRT prediction. Suppresses non-selected foreground tokens by setting their logits to -infinity in the softmax normalization, ensuring they are neither rewarded nor penalized. Combines this with the random sampling strategy to prevent overfitting to fixed token sets and encourage diverse visual reference exploration."
+    },
+    {
+      "id": 7,
+      "name": "Task-Specific Loss Module",
+      "description": "Implements the decoder's task-specific objectives: L_bbox combining GIoU and L1 loss for bounding box regression, L_mask combining dice loss and focal loss for segmentation, and L_score using L2 loss for confidence score prediction. Aggregates with the robust CE loss to form the final training objective."
+    },
+    {
+      "id": 8,
+      "name": "Data Preprocessing and VRT Annotation Pipeline",
+      "description": "Processes input images through the vision encoder to extract patch features and constructs VRT annotations. Maps ground-truth bounding boxes and segmentation masks to their corresponding patch indices, generating foreground masks for VRT sampling. Handles both mask-based (for segmentation datasets) and box-based (for detection-only datasets) sampling modes."
+    },
+    {
+      "id": 9,
+      "name": "RIC Dataset Construction Module",
+      "description": "Implements the Referring Image Captioning dataset construction pipeline that re-annotates COCO images using a VLM supervisor. Given an image and its box-level annotations, generates enriched captions that explicitly reference instance IDs in a structured format, producing training samples with interleaved text and visual grounding references."
+    },
+    {
+      "id": 10,
+      "name": "Multi-Task Template and Prompt Formatting Module",
+      "description": "Manages the interaction templates for each vision task (open-vocabulary detection, referring expression comprehension/segmentation, referring image captioning). Formats prompts and constructs ground-truth response sequences with VRT placeholders interleaved with text tokens according to task-specific templates."
+    },
+    {
+      "id": 11,
+      "name": "Training Pipeline Module",
+      "description": "Orchestrates the full supervised fine-tuning workflow including epoch management, gradient accumulation, bfloat16 mixed-precision training, gradient checkpointing, FlashAttention-2 integration, and learning rate scheduling. Supports both task-specific and multi-task (PaDT Pro) joint training configurations."
+    },
+    {
+      "id": 12,
+      "name": "Autoregressive Inference and VRT Decoding Module",
+      "description": "Implements the inference pipeline where the MLLM autoregressively generates interleaved textual and VRT tokens. Parses the output sequence to extract grouped VRT predictions per detected object, feeds them into the PaDT decoder to produce final bounding boxes, segmentation masks, and confidence scores. Supports prompt-based task switching for multi-task inference."
+    },
+    {
+      "id": 13,
+      "name": "Evaluation Metrics Module",
+      "description": "Implements all evaluation metrics used in the paper: Accuracy@IoU≥0.5 for REC, cumulative IoU (cIoU) for RES, mAP@[50:95], AP@50, AP@75, AR@[50:95] for OVD, and CIDEr-D, METEOR, ROUGE-L, BLEU-4, Greedy Precision (GP), Greedy Recall (GR) for RIC."
+    },
+    {
+      "id": 14,
+      "name": "Ablation Study Framework Module",
+      "description": "Provides controlled experiment configurations for ablating individual components: VRT usage vs. coordinate prediction, dynamic embedding module (f_vp) presence/absence, robust CE loss vs. standard CE, random VRT selection vs. all-foreground selection vs. border-aware sampling, number of sampled VRTs per target, and individual task-specific loss contributions."
+    },
+    {
+      "id": 15,
+      "name": "Token Activation Map and Visualization Module",
+      "description": "Implements Token Activation Map (TAM) computation and visualization for analyzing semantic alignment between output tokens and image patches. Generates heatmaps of VRT candidate activations over the input image, visualizing spatial continuity and object consistency of VRT predictions to contrast with digit-by-digit coordinate activation patterns."
+    },
+    {
+      "id": 16,
+      "name": "SAM2 Integration and Mask Refinement Module",
+      "description": "Implements the compatibility layer with SAM2-L for mask refinement, supporting point prompts (from VRT coordinates), box prompts (from PaDT decoder output), mask prompts (from PaDT decoder output), and their combinations. Enables evaluation of how different prompt types enhance segmentation quality at the expense of additional inference cost."
+    }
+  ]
+}

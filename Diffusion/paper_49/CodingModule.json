@@ -1,0 +1,86 @@
+{
+"overview": "This paper decomposes masked diffusion model (MDM) training variance into three sources (masking pattern noise, masking rate noise, data noise) and proposes six variance-reduction methods—most notably P-POTS (Pareto-optimal t-sampler) and MIRROR (complementary masking)—to stabilize MDM training and close the performance gap with autoregressive models across textual and multimodal benchmarks.",
+"count": 16,
+"modules": [
+{
+"id": 1,
+"name": "MDM Forward Process & Base Loss",
+"description": "Implementation of the standard masked diffusion forward process: sampling clean data x0 from the data distribution, sampling masking rate t from Uniform[0,1], independently masking each eligible token with probability t to produce xt, and computing the sample loss l_theta(x0, t, xt) as the average negative log-likelihood over masked tokens."
+},
+{
+"id": 2,
+"name": "Training Variance Decomposition",
+"description": "Implementation of the law-of-total-variance decomposition that breaks total training variance Var(l_theta) into three components: (A) masking pattern noise from xt randomness conditional on x0 and t, (B) masking rate noise from variability of expected loss g_theta(x0,t) across t for fixed x0, and (C) data noise from variability across x0. Provides both analytical computation and empirical estimation routines."
+},
+{
+"id": 3,
+"name": "Online Variance Estimator",
+"description": "Maintains running sufficient statistics (weighted mean of losses, weighted mean of squared losses, weighted mean of squared weighted losses) across training to produce unbiased variance estimates. Supports importance-weighted updates when non-uniform t-sampling is enabled, enabling real-time monitoring of A, B, C variance components."
+},
+{
+"id": 4,
+"name": "P-POTS: EPR Model Fitting",
+"description": "Pre-training phase that estimates g(t) and v(t) empirically by drawing multiple t-values and masked samples per data point, computing per-t-bin estimates of mean loss and variance, then fitting the Exponential-Polynomial Root (EPR) parametric form p_EPR(t) via KL divergence minimization to approximate the optimal p*(t) proportional to sqrt(g^2(t)+v(t))."
+},
+{
+"id": 5,
+"name": "P-POTS: Pareto-Optimal t-Sampler",
+"description": "Replaces the uniform t~U[0,1] sampler with the fitted EPR distribution. Draws t from p*(t) and re-weights the loss by 1/p*(t) to maintain unbiased estimation of the training objective while minimizing A+B+C variance. Includes the Pareto-optimality proof implementation and importance weight normalization."
+},
+{
+"id": 6,
+"name": "MIRROR: Complementary Masking",
+"description": "Constructs two noised inputs from the same x0 and t: x1_t by masking token i if U_i < t, and x2_t by masking token i if U_i > 1-t. Computes individual losses l1 and l2 for each, then averages them as the final loss estimate. Leverages negative correlation between the two complementary masks to reduce masking pattern noise A by at least half."
+},
+{
+"id": 7,
+"name": "ISAD: Importance Sampling on Answer Delimiters",
+"description": "Shifts masking probability toward rare answer-delimiter tokens using a token-dependent sampling distribution q_j(t), where tokens in rare-ids receive an elevated masking probability min(1, t+delta). Applies per-token importance reweighting 1/q_j(t) to preserve unbiasedness, reducing pattern noise A by guiding the model on answer-token prediction."
+},
+{
+"id": 8,
+"name": "SyRM: Syntax-and-Response Mask",
+"description": "Extends the eligible masking set from response tokens alone to response tokens union syntax tokens in the prompt (e.g., HTML tags). Partitions tokens into homogeneous groups, applies same masking rate to both groups, and computes a combined loss. Reduces pattern noise A while incurring bounded optimum-shift bias, with algebraic decomposition into alpha*L_resp + (1-alpha)*L_coord."
+},
+{
+"id": 9,
+"name": "StraTS: Stratified T-Sampling",
+"description": "Replaces i.i.d. t~U[0,1] sampling by partitioning [0,1] into k equal-width strata and sampling approximately n/k masking rates per stratum per batch. Proven to reduce masking rate noise B via elimination of inter-stratum variance, with recommended strata count k = ceil(sqrt(batch_size))."
+},
+{
+"id": 10,
+"name": "EMA: Bin-Wise Control Variate",
+"description": "Partitions the t-interval [0,1] into m equal bins and maintains exponential moving averages of loss statistics within each bin. Uses per-bin EMA baselines as control variates to cancel baseline-related noise from heteroscedastic losses, dynamically fitting optimal control-variate coefficients per bin. Derives principled choices for number of bins and EMA rate via MSE minimization."
+},
+{
+"id": 11,
+"name": "Method Combination & Synergy Controller",
+"description": "Orchestrates valid combinations of variance-reduction methods, enforcing compatibility constraints (e.g., P-POTS with MIRROR is recommended for maximal synergy, while EMA + stratified sampling is discouraged due to potential estimation bias). Configures P-POTS+MIRROR joint training where MIRROR shifts v(t) toward regions favored by P-POTS, creating super-additive variance reduction."
+},
+{
+"id": 12,
+"name": "Dataset Preprocessing & Tokenizer",
+"description": "Handles dataset-specific preprocessing for all four benchmarks: OpenScience (multi-domain knowledge), GSM8K (math reasoning with CoT extraction and boxed-answer cleaning), HiTab (tabular QA with HTML syntax-token identification), and text-to-image-2M (multimodal text-to-image pairs). Applies tokenization, max-sequence-length filtering (4096), answer-delimiter annotation for ISAD, and syntax-token labeling for SyRM."
+},
+{
+"id": 13,
+"name": "MDM Training Loop",
+"description": "Main training pipeline integrating standard MDM training with all variance-reduction methods. Manages epoch scheduling, batch assembly, method dispatch (which variance-reduction techniques are active), gradient computation through adjusted losses, parameter updates with gradient accumulation and mixed-precision support, and checkpoint selection via early stopping on validation loss with patience."
+},
+{
+"id": 14,
+"name": "MDM Inference & Block Decoding",
+"description": "Implements the iterative block-diffusion decoding procedure for MDMs: given a masked input of predetermined generation length, repeatedly applies the denoising model with a remasking-masking schedule (cosine mask schedule for images) across multiple diffusion steps until all tokens are predicted. Supports greedy decoding (temperature 0) for reproducibility and configurable generation-length/steps/block-length per dataset."
+},
+{
+"id": 15,
+"name": "Evaluation Metrics & Multi-Seed Runner",
+"description": "Computes pass@1 accuracy for textual benchmarks (OpenScience, GSM8K, HiTab) and CLIP score for text-to-image-2M. Orchestrates multi-seed experiments (three independent seeds) with fixed model, data, and hyperparameters, computing per-seed results, mean, and run-to-run variability ranges. Enables direct comparison against ARM baselines and identifies cases where best-baseline runs fall below worst-method runs."
+},
+{
+"id": 16,
+"name": "Ablation & Sensitivity Analysis Framework",
+"description": "Configures controlled ablation experiments isolating individual method contributions and their combinations (P-POTS alone, MIRROR alone, P-POTS+MIRROR, ISAD, SyRM, StraTS, EMA, Clipped schedule, Standard). Includes sensitivity analysis for EPR vs. polynomial p(t) fitting under drift conditions, hyperparameter robustness testing (strata count, EMA bins/rate, ISAD delta), and computational overhead tracking (training time per method)."
+}
+]
+}

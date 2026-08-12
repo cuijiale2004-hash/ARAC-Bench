@@ -1,0 +1,62 @@
+**Principle 1: Mechanistic Justification and Architectural Necessity of Linear Attention for In-Context Temporal Difference Learning in Offline RL**
+
+**Definition:**  
+The work must establish a clear, mechanistic connection between its chosen neural architecture—specifically linear attention—and the algorithmic primitive it seeks to implement, namely in-context temporal-difference (TD) learning for local value estimation. Rather than treating the architecture as a black-box function approximator, the research should demonstrate that linear Transformer layers implicitly execute TD-style weight updates equivalent to preconditioned SARSA, yielding closed-form interpretability. This principle is crucial because offline RL frequently suffers from opaque value estimation; a theoretically grounded architecture provides confidence that the model generalizes via algorithmic alignment rather than mere memorization. Furthermore, the work must empirically validate that this specific architectural choice is not merely theoretically convenient but actually essential for performance and stability compared to more expressive alternatives. Reviewers in this subfield scrutinize whether standard self-attention or small MLPs could substitute the linear mechanism without loss, so principled ablations and comparative analyses are expected. Consequently, a high-quality submission must bridge formal proofs of algorithmic equivalence with rigorous empirical demonstrations that the linear inductive bias improves sample efficiency and mitigates extrapolation error in compositional environments.
+
+**Core Evaluation Criteria:**
+- **Closed-Form Algorithmic Interpretation**: Does the work derive or reference a closed-form equivalence showing that linear attention layers implement explicit TD(0)-style or preconditioned gradient updates on retrieved contexts?
+- **Ablation Against Expressive Alternatives**: Are systematic comparisons provided against architecturally similar but more expressive modules (e.g., standard softmax self-attention, small MLPs over retrieved sets) to isolate the necessity of the linear inductive bias?
+- **Empirical Stability and Performance**: Do the ablations demonstrate that the linear mechanism achieves superior or comparable task performance with lower variance, particularly on replay-style and long-horizon benchmarks where unstable value propagation is common?
+- **Theoretical-Convenience vs. Empirical-Essentiality**: Does the paper explicitly argue and validate that the linear structure is chosen for reasons beyond analytical tractability, such as improved generalization across local neighborhoods or avoidance of overfitting in low-data regimes?
+
+---
+
+**Principle 2: Retrieval Quality, State-Space Coverage, and Local Neighborhood Validity for Compositional Value Estimation in Offline RL**
+
+**Definition:**  
+Because the proposed method composes global value estimates from local, retrieval-dependent Q-functions, the validity of the retrieved neighborhood is the foundational pillar of both theoretical guarantees and empirical success. This principle demands rigorous evaluation of the retrieval mechanism—typically k-nearest-neighbors in state space—not only as an engineering choice but as a statistical operation that must satisfy coverage assumptions. The research must articulate how practical hyperparameters (e.g., context length k) map to theoretical locality radii, and it must diagnose how violations of locality—due to sparse datasets, high-dimensional observations, or semantic mismatches between geometrically close states—degrade value estimation. In compositional tasks where distinct subtasks occupy different state-space regions, the retrieval strategy must reliably isolate behaviorally coherent transitions. Reviewers expect that the authors confront the limitations of fixed metrics like L2 distance and connect empirical retrieval quality to the theoretical coverage ratio. Ultimately, transparent analysis of retrieval coverage separates robust local approximation methods from fragile heuristics that collapse when offline data is unevenly distributed.
+
+**Core Evaluation Criteria:**
+- **Theory-Practice Mapping**: Does the work clearly explain how the practical retrieval size implicitly determines the theoretical local neighborhood radius, and is this relationship visualized or quantified?
+- **Retrieval Strategy Ablation**: Are multiple retrieval strategies (e.g., random, state-similar, state-similar-with-high-reward) compared to verify that local coherence—not merely additional context—drives performance gains?
+- **Coverage-Aware Failure Analysis**: Are failure cases explicitly linked to coverage violations, such as large query-to-neighbor distances in small datasets, and do these cases validate the theoretical coverage assumption rather than being treated as outliers?
+- **Metric Robustness and Limitations**: Does the paper discuss the brittleness of its chosen distance metric for high-dimensional or image-based observations, and does it outline whether learned or task-aware retrievers are feasible extensions?
+
+---
+
+**Principle 3: Computational Transparency and Wall-Clock Scalability of Per-Query Retrieval and Contextual Inference in Offline Q-Learning**
+
+**Definition:**  
+Retrieval-augmented offline RL introduces a per-query memory lookup and a context-dependent forward pass that standard global-critic methods do not require. Consequently, reviewers treat computational transparency—including wall-clock training time, inference latency, FLOPs, and peak memory—as a first-class evaluation dimension alongside asymptotic sample efficiency or final policy returns. The work must demonstrate that the retrieval and in-context inference pipeline is not merely asymptotically sound but practically deployable, especially when the offline buffer is large. This includes documenting engineering optimizations such as pre-computed indices, cached lookups, and the scalability of cost with respect to context length and Transformer depth. Without such analysis, the method risks being viewed as a theoretical construct unsuitable for standard offline RL workflows where training throughput and inference cost directly impact experimental turnaround and real-world applicability. Therefore, authors are expected to provide scaling laws or empirical cost-performance trade-offs that allow practitioners to select operating points balancing accuracy and efficiency.
+
+**Core Evaluation Criteria:**
+- **Comprehensive Cost Benchmarking**: Are per-step training time, inference latency, FLOPs, and peak memory consumption reported and compared against both value-regularization baselines (e.g., IQL, CQL) and sequential models (e.g., Decision Transformer, RA-DT)?
+- **Scaling Analysis with Context Length**: Does the work empirically characterize how training cost and memory scale with the number of retrieved transitions and the number of linear attention layers, enabling practitioners to select efficient operating points?
+- **Amortization and Caching Justification**: Are implementation details provided to show that repeated nearest-neighbor computations are amortized via pre-computation or caching, and is the resulting constant-time lookup overhead quantified relative to the overall training loop?
+- **Practical Efficiency Claims**: Do the authors explicitly position their method within the compute-performance Pareto frontier, demonstrating that performance gains are not purchased at the cost of prohibitive overhead relative to recent strong baselines?
+
+---
+
+**Principle 4: Failure Mode Diagnosis and Robustness to Dataset Coverage and Reward Sparsity in Local Offline Q-Learning**
+
+**Definition:**  
+Offline RL algorithms are ultimately judged by their reliability across diverse dataset qualities, not merely their best-case performance on large, dense datasets. This principle requires that authors move beyond aggregate benchmark scores to diagnose environments where the proposed local Q-learning mechanism fails catastrophically. In particular, because local approximation depends on retrieving neighbors that share consistent dynamics and reward structure, methods are vulnerable to sparse coverage, low-reward transitions, and small dataset sizes. The research must analyze whether poor performance stems from incidental dataset characteristics (e.g., insufficient trajectories) or from fundamental algorithmic limitations (e.g., inability to handle multimodal local structure). By providing dataset statistics, retrieval distance distributions, and qualitative value visualizations, the authors can demarcate the operational regime of the method and instill confidence that successes are reproducible rather than artifacts of favorable data densities. Such diagnostic rigor is essential for establishing whether local in-context value learning represents a broadly applicable paradigm or a niche solution for narrowly favorable settings.
+
+**Core Evaluation Criteria:**
+- **Catastrophic Failure Investigation**: Does the paper identify and deeply analyze failure environments, distinguishing between dataset sparsity and fundamental methodological incapacity?
+- **Dataset-Property Correlation**: Are performance variations correlated with quantitative dataset statistics such as trajectory count, mean return, state-space density, and the distribution of retrieved neighbor distances?
+- **Local Linearity Stress Testing**: Does the work examine scenarios where the local neighborhood may violate the linear approximability assumption—such as contact-rich dynamics or multimodal returns—and explain why the method remains viable (e.g., via latent-space linearity) or where it breaks down?
+- **Value-Estimation Fidelity**: Are learned Q-values compared against oracle estimators (e.g., online SAC) through scatter plots or correlation analyses to verify that local fitting improves value accuracy rather than merely shifting biases?
+
+---
+
+**Principle 5: Consistency between Training-Time Context Dependence and Inference-Time Policy Deployment in Retrieval-Augmented Actor-Critic Frameworks**
+
+**Definition:**  
+In retrieval-conditioned actor-critic methods, the critic's value estimates depend on dynamically retrieved context during training, yet the final extracted policy must often operate without ongoing access to the offline dataset or retrieval module at inference time. This principle evaluates whether the work rigorously addresses potential train-test mismatches arising from this asymmetry. Reviewers expect a clear exposition of how the policy is trained (e.g., via advantage-weighted regression on context-dependent Q-values) and why its deployment without retrieval does not introduce distributional shift or behavioral inconsistency. The paper must articulate the causal pathway from local critic updates to a globally coherent policy, ensuring that the actor internalizes the value structure rather than memorizing context-specific action preferences. This is particularly important when the method frames itself as a general plug-in for existing offline RL pipelines (e.g., IQL or TD3+BC), where training stability depends on consistent critic-to-policy value propagation. A convincing submission therefore demonstrates not only that the policy can be evaluated independently, but that its performance is statistically robust precisely because the local critic has successfully distilled compositional value knowledge into the actor's parametric representation.
+
+**Core Evaluation Criteria:**
+- **Train-Test Pipeline Clarity**: Is the inference protocol explicitly defined, and does the paper justify why omitting retrieval at test time does not violate the policy's input distribution or induce covariate shift?
+- **Policy Extraction Justification**: Does the work explain how the actor learns from context-dependent advantages to produce a retrieval-free policy, and is this consistent with standard actor-critic practice?
+- **Behavioral Consistency Evidence**: Is there empirical evidence (e.g., comparing training and inference rollouts, or value correlation plots) that the policy's actions remain stable and high-performing when retrieval is disabled after training?
+- **Framework Generality**: Does the paper demonstrate that the local critic can be integrated into multiple existing offline RL paradigms without introducing train-test inconsistencies specific to each paradigm?

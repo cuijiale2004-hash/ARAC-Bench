@@ -1,0 +1,81 @@
+{
+  "overview": "SFPO proposes a three-stage fast–reposition–slow policy update mechanism that restructures GRPO's one-shot on-policy update into a stabilized trajectory, improving sample efficiency and convergence for LLM reasoning reinforcement learning while remaining plug-compatible with existing GRPO pipelines.",
+  "count": 15,
+  "modules": [
+    {
+      "id": 1,
+      "name": "GRPO Objective & Advantage Computation",
+      "description": "Implements the core GRPO training objective including group-relative advantage normalization (mean/std across candidate responses), token-level importance ratio computation, clipped surrogate objective, and explicit KL regularization against a reference policy. This serves as the base loss L(θ) = -J(θ) that SFPO wraps around."
+    },
+    {
+      "id": 2,
+      "name": "SFPO Stage I: Fast Trajectory",
+      "description": "Implements the fast trajectory stage performing K successive gradient descent steps on the same rollout batch starting from θ_{s,0}, producing the sequence θ_{s,0} → θ_{s,1} → ... → θ_{s,K}. Captures the cumulative displacement across inner steps to stabilize the update direction by integrating the local gradient field rather than trusting a single noisy vector."
+    },
+    {
+      "id": 3,
+      "name": "SFPO Stage II: Reposition Mechanism",
+      "description": "Implements the interpolation-based reposition step that linearly interpolates between the starting point θ_{s,0} and the fast trajectory endpoint θ_{s,K} as θ̃_{s,K} = θ_{s,0} + α(θ_{s,K} - θ_{s,0}). Controls off-policy drift by acting as an implicit trust-region radius, with α regulating how much of the stabilized fast trajectory is exploited versus staying close to the on-policy iterate."
+    },
+    {
+      "id": 4,
+      "name": "SFPO Stage III: Slow Correction",
+      "description": "Implements the final slow correction step that performs one additional gradient update at the repositioned point: θ_{s+1} = θ̃_{s,K} - η∇_θ L(θ̃_{s,K}). Provides a curvature-aware adjustment that realigns updates with the correct optimization trajectory and compensates for any residual error from the reposition interpolation."
+    },
+    {
+      "id": 5,
+      "name": "Unified SFPO Update Rule",
+      "description": "Combines all three stages into the unified SFPO update equation: θ_{s+1} = θ_{s,0} - η[α Σ_{k=0}^{K-1} ∇_θ L(θ_{s,k}) + ∇_θ L(θ̃_{s,K})], implementing the complete fast–reposition–slow decomposition as a drop-in replacement for the standard one-shot GRPO update. Handles the conditional branching when α=0 (reverting to vanilla GRPO)."
+    },
+    {
+      "id": 6,
+      "name": "Entropy-Triggered Adaptive Alpha Scheduler",
+      "description": "Implements the online adaptive scheduling of α based on policy entropy monitoring. Maintains a rolling buffer of the past ω entropy values, computes the one-sided z-score Z_s = (H_s - μ_s)/σ_s, and triggers α→0 when |Z_s| ≥ τ, reverting SFPO to standard GRPO for all subsequent steps. This exploits the fast trajectory in the high-signal early phase and reverts to pure on-policy updates near convergence."
+    },
+    {
+      "id": 7,
+      "name": "Rollout Generation & Group Sampling Engine",
+      "description": "Handles generation of G candidate response sequences per input prompt using the current policy π_θ, managing autoregressive decoding with configurable temperature, context length, and response count. Organizes rollouts into groups for advantage normalization and collects per-token log-probabilities for importance ratio computation."
+    },
+    {
+      "id": 8,
+      "name": "Reward Computation & Processing Pipeline",
+      "description": "Computes verifiable rewards for math reasoning responses (binary correctness signals), applies group-level reward normalization, and prepares per-token reward signals for advantage estimation. Handles the mapping from sequence-level rewards to token-level credit assignment used in the GRPO objective."
+    },
+    {
+      "id": 9,
+      "name": "Reasoning RL Training Data Pipeline",
+      "description": "Loads and preprocesses mathematical reasoning training datasets (DAPO+Math, Skywork-OR1), handles prompt formatting, tokenization with configurable context lengths, batch construction with fixed batch size and per-question response group size. Supports both small-scale (~24K) and large-scale (~105K) dataset configurations."
+    },
+    {
+      "id": 10,
+      "name": "Training Loop Orchestrator",
+      "description": "Manages the full SFPO training loop including iteration-level scheduling, rollout generation, the three-stage SFPO update, entropy tracking, adaptive α decisions, and checkpoint management. Controls the total number of training steps, integrates with the verl framework, and handles multi-GPU coordination on a single node."
+    },
+    {
+      "id": 11,
+      "name": "Math Reasoning Evaluation Suite",
+      "description": "Implements evaluation on six mathematical reasoning benchmarks (Math500, AIME24, AIME25, AMC, MinervaMath, OlympiadBench) with multiple rollout passes at temperature 1.0, computing average Pass@1 accuracy. Also supports coding benchmark evaluation (LiveCodeBench) with configurable response length and multi-pass averaging."
+    },
+    {
+      "id": 12,
+      "name": "Efficiency & Resource Profiling Module",
+      "description": "Tracks and compares rollout counts required to reach target accuracy levels, measures wall-clock training time, profiles GPU memory consumption during training steps, and computes speedup ratios for rollout reduction and time savings. Analyzes the breakdown of per-step time across rollout generation, policy updates, and overhead."
+    },
+    {
+      "id": 13,
+      "name": "Ablation Study Framework",
+      "description": "Provides controlled experiment infrastructure for: (a) varying α with fixed small/large K, (b) varying K with fixed α, (c) removing Stage III slow correction, (d) removing entropy control, (e) comparing interpolation vs KL-penalty in Stage II, (f) comparing different α decay strategies (direct reset vs linear decay). Supports automated comparison across these configurations."
+    },
+    {
+      "id": 14,
+      "name": "Training Dynamics Visualization & Analysis",
+      "description": "Generates training curves for validation accuracy over steps, response length dynamics, entropy loss evolution, and reward progression throughout training. Compares SFPO vs GRPO dynamics to identify convergence speed differences, entropy collapse patterns, and response length stability. Produces publication-quality figures for paper reporting."
+    },
+    {
+      "id": 15,
+      "name": "Configuration & Experiment Management",
+      "description": "Manages experiment configurations including model selection, dataset paths, hyperparameters (K, α₀, η, ω, τ, ϵ, β), context lengths, and training budgets. Handles YAML/JSON-based configuration inheritance for ablation variants, integrates logging with training runs, supports checkpoint saving/loading, and automates result aggregation into tables and reports."
+    }
+  ]
+}

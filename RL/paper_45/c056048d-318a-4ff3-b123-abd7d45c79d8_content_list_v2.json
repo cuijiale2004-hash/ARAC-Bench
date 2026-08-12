@@ -1,0 +1,2149 @@
+[
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "ABSTRACT"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                450,
+                328,
+                547,
+                343
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Parallel thinking has emerged as a novel approach for enhancing the reasoning capabilities of large language models (LLMs) by exploring multiple reasoning paths concurrently. However, activating such capabilities through training remains challenging. Existing methods mainly rely on supervised fine-tuning (SFT) over synthetic data, which encourages teacher-forced learning rather than exploration and generalization. To address this issue, we propose Parallel-R1, the first reinforcement learning (RL) framework that instills parallel thinking for complex real-world reasoning tasks, e.g., mathematical reasoning task, beyond synthetic tasks. Our framework employs a progressive curriculum that addresses the coldstart problem in training parallel thinking with RL. We first use SFT on promptgenerated trajectories from easier tasks to instill the parallel thinking behavior, then transition to RL to explore and generalize this skill on harder problems. Experiments on various math benchmarks, including MATH, AMC23, and AIME, show that Parallel-R1 successfully elicits parallel thinking, leading to 8.4% accuracy improvements over the sequential thinking model trained directly on difficult tasks with RL. Further analysis reveals a distinct shift in the model’s thinking patterns: in the early stage, it utilizes parallel thinking as an exploration strategy, while in the later stage, it employs this ability for multi-perspective verification. Most significantly, we validate parallel thinking as a mid-training exploration scaffold, where this intermediate phase unlocks a higher performance ceiling after RL, yielding a 42.9% improvement over the sequential RL baseline."
+                    }
+                ]
+            },
+            "bbox": [
+                230,
+                358,
+                767,
+                652
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "1 INTRODUCTION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                174,
+                676,
+                336,
+                691
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Google’s Gemini (Comanici et al., 2025) recently credited its success at the International Mathematical Olympiad (IMO) in part to a novel capability: parallel thinking (Luong & Lockhart, 2025). This approach, as exemplified in Figure 1 (top), parallelizes multiple independent reasoning branches before synthesizing them into a single conclusion. Although the underlying mechanism remains unknown, this success highlights the value of parallel thinking for future LLM development. In cognitive science, it is well established that humans depend on such parallel exploration, considering multiple possibilities before converging on coherent conclusions. This fosters divergent thought and helps reduce the risk of premature closure to suboptimal solutions (Johnson-Laird, 1994; Sowden et al., 2019). Moreover, parallel thinking provides such benefits by leveraging the concurrent execution capability of modern GPUs to explore multiple reasoning paths in parallel (Yang et al., 2025b). Inspired by these, this work investigates how to effectively incorporate parallel thinking into LLMs."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                708,
+                826,
+                863
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Despite its promise, activating parallel thinking remains challenging, as the sequential nature of current LLMs inherently constrains this ability. While test-time strategies (Yao et al., 2023; Wang et al., 2022; Brown et al., 2024; Zhang et al., 2024; Hsu et al., 2025; Rodionov et al., 2025; Fu et al., 2025; Xiong et al., 2025a) can elicit such behavior, they only work during inference without internalizing the capability. This has spurred growing interest in permanently instilling this capability through parallel-aware training. However, current training-based approaches fall short of this goal. Methods based on supervised fine-tuning (SFT) (Yang et al., 2025b; Macfarlane et al., 2025; Chen et al., 2025) (i) depend on costly pipelines to curate high-quality trajectories; (ii) rarely yield performance gains beyond faster inference; and (iii) achieve parallelism via superficial teacher-forcing rather than free exploration. Consequently, while models can replicate known patterns, their capability to generalize the underlying parallel thinking strategies is severely limited."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                867,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "1"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                503,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/63ea9b8944b41243a1238b9b454663686bad3da5db2e406f826b5868f3905873.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 1: An overview of Parallel-R1. (Top) During inference, the model generates in a standard autoregressive fashion until emitting a special <Parallel> tag. At that point, it spawns multiple threads to explore different reasoning branches or perspectives, then summarizes their outputs into one conclusion. Next, these contents are merged back into the main context, and autoregressive generation continues. This cycle may repeat several times before the model arrives at the final answer. (Bottom) Parallel thinking is activated through a progressive multi-stage training approach. Intuitively, the approach first equips the model with parallel thinking ability on easy math problems and then progressively extends it to more general and difficult problems through reinforcement learning."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                251,
+                104,
+                750,
+                314
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                450,
+                826,
+                551
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In contrast, reinforcement learning (RL) offers a more scalable approach to instilling parallel thinking in LLMs through exploration. However, since current autoregressive LLMs are not exposed to parallel thinking behaviors during pre-training or SFT, they are unable to produce such trajectories natively. As a result, a cold-start stage becomes essential for seeding this capability with supervised signals. This stage requires a large-scale, high-quality dataset to teach basic formats, which is scarce for complex real-world problems and difficult to synthesize. This explains why successful applications of RL for parallel thinking have solely been confined to narrow, synthetic domains, such as the CountDown task (Pan et al., 2025). Additionally, the optimal reward function for reinforcing parallel thinking with RL remains an open question. Relying solely on outcome-based rewards drives models toward shortcuts that bypass genuine parallel thinking, whereas enforcing structure-based rewards may lead to parallelism even when it is unnecessary. Furthermore, the strategic role and underly ing mechanisms of parallel thinking remain insufficiently understood—for instance, how reasoning behaviors evolve and benefit training—thereby limiting our ability to fully harness their potential."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                556,
+                826,
+                739
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To address these challenges, we present Parallel-R1, the first RL framework for instilling parallel thinking in LLMs on general mathematical reasoning tasks. First, to address the model’s lack of format knowledge for parallel thinking, we start our training process with an SFT stage on easy math tasks. A key observation is that simple prompting already yields high-quality trajectories on such problems (see Table 1), enabling the construction of the Parallel-GSM8K dataset. Building on this finding, we design a progressive curriculum: SFT on easy problems to learn basic formats, followed by RL on harder tasks to generalize the capability. Second, to tackle the critical challenge of reward design, we propose and investigate multiple reward schemes and find an effective alternating reward strategy, which switches between an outcome-based (accuracy) reward and a reward that encourages parallel thinking behaviors within fixed windows achieves a superior balance between performance and parallel thinking behaviors. Finally, to shed light on the black-box role of parallel thinking, we analyze the model’s learned parallel thinking behavior and uncover a strategic evolution: parallel thinking shifts from computational exploration in early stages to multi-perspective verification in later stages. This further motivates our concept of parallel thinking as a mid-training scaffold, which empirically boosts performance, reaching 25.6% on AIME25. We explore these contributions across both autoregressive and multiverse variants to provide robust insights into architectural design."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                744,
+                826,
+                926
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "2"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                825,
+                148
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In summary, our core contributions can be concluded as follows:"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                152,
+                599,
+                167
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• We propose Parallel-R1, the first RL framework to learn parallel thinking on general mathematical reasoning tasks, enabled by our progressive training curriculum and dedicated reward design."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                174,
+                825,
+                217
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• We delve deep into the learning dynamics, revealing that the target of parallel thinking evolves from exploration to verification. Additionally, we identify the concept of parallel thinking as a mid-training exploration scaffold, leading to a 42.9% gain over the sequential baseline after RL."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                218,
+                826,
+                261
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• We provide comprehensive experiments to show the consistent gains of our approach across various benchmarks. Our ablations further offer practical insights into reward and architectural design."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                263,
+                825,
+                292
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2 RELATED WORK"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                311,
+                346,
+                328
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2.1 PARALLEL THINKING"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                343,
+                367,
+                357
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Parallel thinking has recently emerged as an active area of research. A common brute-force strategy is to spawn multiple independent trajectories at the very beginning and join their outcomes only at the end (Brown et al., 2024; Wang et al., 2022), or to exchange thoughts at fixed intervals (Rodionov et al., 2025; Hsu et al., 2025). Obviously, such schemes lack adaptivity as the points of branching and aggregating are dictated by a pre-defined schedule, not conditioned on the intermediate progress of the thinking process itself. To achieve finer-grained control, methods such as Monte Carlo Tree Search (Zhang et al., 2024) and Tree of Thoughts (Yao et al., 2023) offer more nuanced parallelism; however, they are still guided by hand-crafted heuristics based on external verifiers. Recent work (Pan et al., 2025; Yang et al., 2025b) strives for adaptive parallelism through RL or SFT. However, these studies either (i) focus mainly on efficiency—losslessly converting a single long CoT into an adaptive parallel form via SFT, which limits the discovery of new reasoning patterns, or (ii) verify RL only on synthetic tasks like Countdown. In this work, we argue that learning parallel thinking via RL is a more generic and promising direction: it uncovers novel, highly adaptive reasoning behaviors, leading to improved performance beyond the “lossless transformation” paradigm of Yang et al. (2025b). To this end, we propose Parallel-R1, the first RL framework that enables adaptive parallel thinking ability for general mathematical reasoning tasks."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                369,
+                826,
+                594
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2.2 IMPROVING REASONING VIA RLVR"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                608,
+                465,
+                625
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Reinforcement Learning with Verifiable Rewards (RLVR) optimizes language models via RL using outcome-based, automatically checkable rewards, eliminating the need for trained reward models and the corresponding reward hacking. Recent advances have demonstrated the effectiveness of RLVR in diverse domains (Guo et al., 2025; Wang et al., 2025a; Huang et al., 2025b; Wang et al., 2025b; Liu et al., 2025; 2026). In parallel, a growing body of work aims to make RLVR more efficient and stable, proposing new training paradigms such as self-play (Zhao et al., 2025; Huang et al., 2025a) and test-time RL (Zuo et al., 2025; Zhou et al., 2025), as well as more robust RL algorithms (Yu et al., 2025; Yue et al., 2025; Wang et al., 2025c). However, existing autoregressive LLMs do not inherently possess parallel thinking abilities; therefore, we cannot directly instill such parallel thinking ability into LLMs through those RLVR approaches. To this end, we present the first RL framework that extends RLVR to parallel thinking on general reasoning tasks (e.g., mathematical problem solving)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                635,
+                826,
+                804
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3 LEARNING PARALLEL THINKING VIA REINFORCEMENT LEARNING"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                821,
+                764,
+                839
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Previous approaches to training parallel thinking in real-world tasks have primarily relied on SFT (Yang et al., 2025b; Macfarlane et al., 2025; Chen et al., 2025), a paradigm that suffers from several key limitations. To overcome these issues, we propose Parallel-R1, the first RL framework that enables adaptive parallel thinking for complex reasoning tasks. Our key idea is to bootstrap with simple tasks to generate cold-start data, and then use RL to transfer parallel thinking to harder problems, thus avoiding complex data generation for challenging cases. Within this framework, we investigate two complementary settings for learning parallel thinking: one without architectural modifications and another with explicit architectural changes. In the latter, we modify both attention masks and position ids to prevent cross-attention between independent paths following Multiverse."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                854,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "3"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                826,
+                162
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.1 FORMULATION OF PARALLEL THINKING BEHAVIORS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                176,
+                584,
+                191
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "When solving complex problems, humans often encounter moments of confusion or uncertainty, which we define as “critical steps” within a reasoning chain (Wang et al., 2025c; Li et al., 2025). At these points, engaging in parallel thinking allows us to explore multiple candidate solution paths simultaneously, thereby facilitating convergence toward a more reliable and higher-quality conclusion. Motivated by this paradigm, we formalize parallel thinking in LLMs as a two-stage process:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                203,
+                826,
+                273
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "1. Exploration: When the model identifies a critical step, it temporarily suspends the main path and launches a multi-branch search, generating N independent reasoning branches simultaneously."
+                    }
+                ]
+            },
+            "bbox": [
+                165,
+                279,
+                826,
+                309
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "2. Summary: After exploration, the model aggregates the outcomes from all branches, extracts their unique key insights, and resolves conflicts to arrive at the most promising final conclusion. Subsequently, it automatically resumes the main reasoning path and inputs this summarized conclusion."
+                    }
+                ]
+            },
+            "bbox": [
+                163,
+                309,
+                826,
+                353
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We allow the model to interleave parallel thinking by repeating these two stages whenever needed during the generation process. An illustration of one such unit is provided in Figure 1 (Top). To realize this behavior, we introduce three control tags: "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "< \\mathrm { P a r a l 1 e l } > . \\ . \\ . < / \\mathrm { P a r a l 1 e l } > ."
+                    },
+                    {
+                        "type": "text",
+                        "content": "<Path>...</Path>, and <Summary>...</Summary>, corresponding to the exploration phase, the isolation of independent reasoning paths, and the summarization of all parallel thinking paths, respectively. Using these tags, we further define the workflow during inference as follows:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                358,
+                826,
+                444
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Workflow at Inference Phase During inference, our trained model dynamically activates parallel thinking behaviors as follows. It begins with autoregressive generation along the main reasoning path. When a <Parallel> token is predicted, the model pauses the main reasoning thread and concurrently generates multiple reasoning threads within separate "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\angle \\mathrm { P a t h } > . \\ . \\ . < / \\mathrm { P a t h } >"
+                    },
+                    {
+                        "type": "text",
+                        "content": "blocks. Once all parallel threads are completed, their outputs are automatically consolidated into a concise <Summary>...</Summary> block, which integrates insights from diverse perspectives. The summarized context is then used to resume and complete the main reasoning thread. This adaptive and dynamic inference procedure effectively exploits parallelism to enhance reasoning performance."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                457,
+                826,
+                571
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.2 THE LIGHTWEIGHT DATA PIPELINE FOR PARALLEL THINKING COLD-START"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                585,
+                745,
+                599
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Due to the sequential nature of both LLMs and humans, collecting high-quality parallel thinking data is a significant challenge. Even though humans think in the parallel fashion, they will summarize and only say/write the summarization. Thus, such data is extremely rare in the natural distribution. Existing approaches (e.g., Yang et al. (2025b)) exploit the inherent parallelism of long CoTs. However, they rely on"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                611,
+                486,
+                737
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/7143c5945c41c1c708d9d220191ddd655789902256d4ce1214b8a38e21c27628.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 1: Comparison of the ratio of parallel thinking data generated by DeepSeek-R1-0528-Qwen-3-8B on the DAPO and GSM8K datasets under the same prompt templates and sampling settings."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Data</td><td># Samples</td><td>Parallel Thinking Format (%)</td></tr><tr><td>GSM8K</td><td>7472</td><td>83.7</td></tr><tr><td>DAPO</td><td>17916</td><td>0.0</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                495,
+                681,
+                823,
+                728
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "complex, multi-stage data pipelines to rewrite long CoT trajectories to parallel reasoning demonstrations, avoiding human annotations. While highly effective for imitation learning, such rewritten traces do not originate from native parallel reasoning and therefore pre-shape the model with teacherinduced reasoning behaviors. This makes them fundamentally unsuitable as cold-start supervision for our scientific goal: RL induce parallel-thinking behaviors through exploration."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                734,
+                825,
+                808
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To address this issue, our key observation is that while a lightweight prompting approach struggles to generate high-quality parallel thinking data for complex problems from the DAPO dataset, it proves highly effective for simpler tasks from GSM8K, as showcased in Table 1. Based on this finding, we propose a simple data pipeline that prompts LLMs with detailed instructions to construct a large-scale, high-quality corpus for easier problems. Specifically, we utilized DeepSeek-R1-0528-Qwen-3-8B as a data generator, seeded with the 7,473 samples of the GSM8K training set, to generate high-quality parallel thinking trajectories. Next, we extracted the non-thinking parts to serve as gold annotations, creating our cold-start dataset called Parallel-GSM8K."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                813,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "4"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "As the structured model variant (described in Section 3.4) involves architectural modifications, strict adherence to the format is required for successful training. Therefore, to ensure the quality and alignment of this corpus, we perform an additional filtering step, a Parallel Thinking Format Check, which is implemented by Algorithm 1. Crucially, this dataset is used to instill the basic format of parallel thinking, serving as a foundation for RL to generalize this ability to more complex problems."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                104,
+                826,
+                176
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.3 LEARNING PARALLEL THINKING VIA RL IN AUTOREGRESSIVE MODELS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                194,
+                718,
+                209
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We further explore strategies to enable parallel thinking without modifying the model architecture."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                222,
+                818,
+                239
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.3.1 REINFORCEMENT LEARNING ALGORITHMS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                256,
+                532,
+                271
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We use Group Relative Policy Optimization (GRPO) (Shao et al., 2024) as our RL algorithm. The detailed background about GRPO is further provided in Appendix C. The rollout process follows a multi-turn interactive framework, where the LLM alternates between sequential generation, parallel exploration, and sequential summarization, with the detailed process being described in Section 3.1."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                281,
+                826,
+                340
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.3.2 CURRICULUM TRAINING AND REWARD MODELING"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                357,
+                586,
+                373
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "During the training of Parallel-R1, a progressive curriculum is applied, involving three stages: (i) Cold-Start Stage (i.e., SFT on Easy Math); (ii) RL on Easy Math, and (iii) RL on General Math."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                383,
+                825,
+                414
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Cold-Start Stage. To initialize the RL actor, we first apply SFT on the curated Parallel-GSM8K dataset introduced in Section 3.2. This cold-start stage addresses the model’s lack of format knowledge, equipping it with a basic capability to generate outputs in the correct parallel thinking format."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                431,
+                825,
+                476
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "RL on Easy Math. After the cold-start stage with SFT, the model already possesses the basic ability to generate special tags for parallel thinking, but the behavior is not stable since these tags have never appeared during pre-training. To address this issue, we further perform small-scale RL to enhance the format learning, where we use the same question set following our cold-start stage and use GRPO (Shao et al., 2024) for our RL training. To ensure both parallel ratio and accuracy, the final reward format in this stage is defined as: "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "R _ { f i n a l } = R _ { \\mathrm { { \\langle P a r a l l e l \\rangle } } } \\& R _ { \\mathrm { { a c c } } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Here, the Accuracy Reward "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( R _ { \\mathrm { a c c } } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "evaluates the correctness of the final response, while the Parallel Reward "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( R _ { \\langle \\mathrm { P a r a l l e l } \\rangle } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "incentivizes the model to use parallel thinking in its generation. This reward structure is designed to be binary and strict: a positive reward of +1 is given only if the generated output contains at least one parallel thinking unit AND the final answer is correct. Otherwise, the model receives a penalty of -1."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                493,
+                826,
+                633
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "RL on General Math. After training stages on easy math, the model should be stable enough to generate control tags and produce outputs in the correct parallel thinking format if needed, but it still struggles with more challenging mathematical tasks. To address this, we further apply RL to general math datasets, thereby generalizing the model’s parallel thinking ability beyond simple cases."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                651,
+                825,
+                709
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Specifically, we use the accuracy reward "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( R _ { \\mathrm { a c c } } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "as our sole reward in this stage. This is because the primary goal of this stage is to improve task performance. For the seed problems, we select the widely used DAPO dataset. Finally, models trained from this stage yield our Parallel-Seen variant."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                714,
+                825,
+                758
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.4 ELICITING PARALLEL THINKING VIA RL IN MULTIVERSE MODELS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                777,
+                681,
+                792
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In the previous section, we explored an RL framework that trains models to use parallel thinking without modifying their autoregressive architecture. However, this approach, which we refer to as Parallel-Seen, does not explicitly isolate reasoning paths during training. Therefore, both forward computation and backward gradients interfere across paths during training."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                805,
+                826,
+                863
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To address this challenge, we introduce another structured variant of our framework, Parallel-Unseen. This model incorporates explicit inductive biases into the attention mechanism to enforce path isolation. Specifically, inspired by prior work (Yang et al., 2025b), we design a Multiverse model with corresponding customized attention masks and position ids to this goal."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                868,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "5"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.4.1 MULTIVERSE ATTENTION MECHANISM"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                104,
+                504,
+                119
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We incorporate these inductive biases directly into the attention layer via Multiverse, as shown in Figure 2."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                128,
+                825,
+                157
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• Attention masks between different paths restricts tokens within a <Path> block to attend only to their own path and the shared context, preventing information leakage across sibling paths."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                164,
+                825,
+                193
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• Shared position encodings allocate each path a disjoint set of position indices, ensuring that parallel paths can begin decoding from identical positions without interference."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                195,
+                825,
+                224
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Together, these constraints enforce explicit isolation among reasoning paths while preserving visibility from the shared <Summary> block, which is essential for integrating insights across paths."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                229,
+                823,
+                261
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.4.2 THE TRAINING RECIPE AND REWARD MODELING"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                277,
+                575,
+                291
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In preliminary experiments, we find that directly applying the progressive training curriculum from Parallel-R1-Seen to the structured variant proves ineffective. We attribute this to the poor generalization of attention masks from easy to hard problems (Yang et al., 2025c). To address this limitation, we remove the Stage 1 RL and redesign the reward schedule, and evaluate two alternative schemes."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                301,
+                531,
+                415
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "(S1) Accuracy-only. We optimize solely for correctness without encouraging parallel thinking."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                431,
+                529,
+                460
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/e4029667d2fd26dffefa3a734263b69003431bd4430be4e9c326302807ed5bcf.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                542,
+                285,
+                821,
+                481
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "(S2) Alternating accuracy and parallel. This scheme alternates between two different reward functions within fixed windows of W=10 steps. For 80% of the steps, we use a standard accuracy-only reward "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( R _ { \\mathrm { a c c } } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". For the remaining 20%, we use a tiered reward system to provide a nuanced incentive for parallel thinking: (i) +1.2: If the generated output contains"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                465,
+                531,
+                563
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Figure 2: Illustration of the multiverse attention masks and position ids, where different tokens have distinct visible positions. Blank regions mean that tokens from separate paths cannot attend to each other."
+                    }
+                ]
+            },
+            "bbox": [
+                540,
+                493,
+                825,
+                561
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "at least one parallel thinking unit AND the final answer is correct; (ii) +1.0: If the generated output does not contain a parallel thinking unit AND the final answer is correct; (iii) -1.0: For all other cases with incorrect answers."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                561,
+                825,
+                604
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "This schedule reintroduces a calibrated incentive for parallel thinking without allowing it to dominate training. Taken together, these reward designs enable Parallel-R1-Unseen to exploit the benefits of structural isolation while mitigating the risk of overfitting to superficial parallel patterns."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                611,
+                825,
+                655
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4 EXPERIMENTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                676,
+                328,
+                691
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.1 EXPERIMENTAL SETUPS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                709,
+                385,
+                723
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We utilize Qwen-3-4B-Base (Yang et al., 2025a) as our backbone. Our implementation is adapted from the VERL codebase (Sheng et al., 2024) , where we follow its official training recipe without any hyperparameter tuning. In the cold start stage, we perform SFT on our curated Parallel-GSM8K, using a batch size of 128, a learning rate of 1e-5, a weight decay of 0.01, and a warm-up step ratio of 0.1 with the cosine learning-rate schedule, resulting in 58/230 gradient update steps for Parallel-SFT-Seen and Parallel-SFT-Uneen, respectively. For Stage 1, we optionally perform RL on GSM8K for five epochs, using a batch size of 1024, 5 rollouts, and a learning rate of 1e-6 without warm-up or learning rate scheduling, resulting in 35 gradient update steps. For Stage 2, we perform RL on the DAPO training set for 300 gradient update steps, using a batch size of 512, a rollout of 8, and a learning rate of 1e-6 without warm-up or learning rate scheduling."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                734,
+                826,
+                877
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We measure our models on four standard mathematical reasoning benchmarks, including AIME’24, AIME’25, AMC’23, and MATH (Hendrycks et al., 2021). Since our training data (DAPO) consist solely of numeric answers, models are biased toward numeric outputs. To prevent evaluation artifacts where correct LaTeX-formatted solutions in Math500 are judged as errors, we filter out LaTeXcontaining problems. We set the sample temperature to 1.0 and max response length to 3000. On the MATH dataset, we generate one response per question. For the remaining three datasets, we sample 16 independent responses per question at the same temperature and report the average accuracy (i.e., mean@16) to reduce randomness, which is consistent with Wang et al. (2025c). We additionally report pass@16 to show the upper bound of our approach with both internal and external parallelism."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                882,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "6"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/392501dfe8e3eb243f239021941cb47967a367da8c617705805646c373423fc0.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 2: Performance comparison on four mathematical reasoning benchmarks for the Qwen-3-4B-Base model trained under different sequential and parallel thinking configurations. For evaluation metrics, we report Mean@16 and Pass@16 for AIME25, AIME24, and AMC23, while MATH is assessed with Mean@1. # Parallel means the activation ratio of parallel thinking within all examples."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\">Method</td><td rowspan=\"2\"># Parallel</td><td colspan=\"2\">AIME25</td><td colspan=\"2\">AIME24</td><td colspan=\"2\">AMC23</td><td>MATH</td><td>Avg.</td></tr><tr><td>Mean@16</td><td>Pass@16</td><td>Mean@16</td><td>Pass@16</td><td>Mean@16</td><td>Pass@16</td><td>Mean@1</td><td></td></tr><tr><td>Qwen3-4B-Base</td><td>0.0</td><td>5.5</td><td>24.6</td><td>10.0</td><td>25.4</td><td>39.3</td><td>74.6</td><td>54.0</td><td>27.2</td></tr><tr><td colspan=\"10\">SFT + Parallel</td></tr><tr><td>Parallel-SFT-Seen</td><td>95.6</td><td>8.0</td><td>29.8</td><td>10.6</td><td>26.4</td><td>48.9</td><td>79.2</td><td>76.6</td><td>36.0</td></tr><tr><td>Parallel-SFT-Unseen</td><td>95.6</td><td>5.2</td><td>20.9</td><td>8.5</td><td>26.7</td><td>41.7</td><td>80.1</td><td>71.5</td><td>31.7</td></tr><tr><td colspan=\"10\">RL Approach</td></tr><tr><td>GRPO (DAPO)</td><td>0.0</td><td>14.8</td><td>32.4</td><td>18.5</td><td>30.6</td><td>63.6</td><td>85.1</td><td>83.5</td><td>45.1</td></tr><tr><td>+ RL on GSM8K</td><td>0.0</td><td>13.3</td><td>26.3</td><td>18.8</td><td>34.9</td><td>66.4</td><td>82.2</td><td>82.6</td><td>45.3</td></tr><tr><td>Improved GRPO (DAPO)</td><td>0.0</td><td>15.8</td><td>25.2</td><td>20.4</td><td>37.5</td><td>65.8</td><td>86.4</td><td>83.5</td><td>46.4</td></tr><tr><td>Parallel-R1-Seen</td><td>27.3</td><td>19.2</td><td>38.9</td><td>19.4</td><td>37.1</td><td>70.5</td><td>85.0</td><td>86.7</td><td>48.9</td></tr><tr><td>Parallel-R1-Unseen (S1)</td><td>13.6</td><td>17.7</td><td>37.8</td><td>18.3</td><td>33.2</td><td>69.7</td><td>88.9</td><td>82.6</td><td>47.1</td></tr><tr><td>Parallel-R1-Unseen (S2)</td><td>63.0</td><td>19.0</td><td>42.2</td><td>16.3</td><td>31.8</td><td>67.5</td><td>91.5</td><td>84.5</td><td>46.8</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                192,
+                169,
+                800,
+                337
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                356,
+                825,
+                441
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Discussion of Training Resources and Requirements The Parallel-R1-Seen has the comparable training cost as the sequential baseline: ∼3.5 days on 8×40GB GPUs. The Parallel-R1-Unseen variant requires a longer runtime (∼6 days on the same hardware) because it must dynamically construct multiverse-style 4D attention masks at every RL rollout step. Unlike Multiverse, which preprocesses all 4D masks offline during supervised data construction, our RL setting must build these masks online for every trajectory, resulting in additional overhead."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                458,
+                826,
+                544
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.2 MAIN RESULTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                561,
+                325,
+                577
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Table 2 presents the results across four benchmarks: AIME25, AIME24, AMC23, and MATH. We compare our method against three baselines: 1) RL with GRPO algorithm directly on the DAPO training set, 2) RL with GRPO algorithm in two stages: first trained on the GSM8K data, then further trained with RL on the DAPO set. The second baseline is included to ensure fair comparison, and 3) SFT + RL: a sequential baseline that first performs supervised fine-tuning on the Parallel-GSM8K dataset (treating special tokens as plain text), followed by GRPO training on the DAPO dataset."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                589,
+                826,
+                675
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "As shown in Table 2, our progressive Parallel-R1 framework proved to be the most effective approach, consistently outperforming all baseline methods. The top-performing autoregressive variant, Parallel-R1-Seen, achieved the highest average score of 48.9. This success stems from our curriculum learning strategy, which is designed to overcome the limitations of pure RL baselines. For example, while SFT provides a substantial initial improvement (i.e., 31.7 for Parallel-SFT-Unseen vs. 4.6 for the base model), it remains insufficient for advanced reasoning, as evidenced by its failure to reach the GRPO baseline score of 45.1. Furthermore, simply applying additional RL on easier data yields only marginal gains (i.e., 45.3 vs. 45.1) for the sequential baseline, further validating our cold-start strategy for targeted format and behavior learning. Additionally, the improved sequential baseline can outperform GRPO baseline by 1.1 points on average."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                680,
+                826,
+                835
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Our results also reveal several key design trade-offs. The superior performance of the autoregressive model compared to its multiverse counterparts suggests that explicit architectural modifications, while still leading to performance improvement over sequential baselines, can be detrimental to RL training. Second, the comparison between reward schedules in Parallel-R1-Unseen (S1) and (S2) demonstrates that reward design plays a pivotal role in balancing the parallel ratio against overall performance. A detailed discussion of these observations is provided in Section 4.3.3."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                840,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "7"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.3 ANALYSIS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                104,
+                289,
+                119
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.3.1 ABLATION STUDY ON TRAINING APPROACH"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                133,
+                539,
+                148
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this section, we further explore the role of two-stage RL in our training pipeline. One natural question is whether learning on GSM8K, which is a relatively simple math dataset, truly benefits from the RL, given that the structural parallel reasoning format (e.g., the correct use of <Parallel>, <Path>, and <Summary> tokens) can also be acquired directly through SFT (Yang et al., 2025b)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                161,
+                825,
+                219
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/81b166787705a2d17f05d5246b337cc41cf1e7a24732862cf2454fa8041cfc20.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 3: Ablation Study on Training Approach: comparison of different training configurations."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Training Configuration</td><td>AIME25</td><td>AIME24</td><td>AMC23</td><td>MATH</td><td>Avg.</td></tr><tr><td colspan=\"6\">Effect of Training Stages</td></tr><tr><td>Parallel-R1-Seen</td><td>19.2</td><td>19.4</td><td>70.5</td><td>86.7</td><td>48.9</td></tr><tr><td>- w/o RL on GSM8K</td><td>17.9</td><td>19.0</td><td>65.0</td><td>84.5</td><td>46.6</td></tr><tr><td>Parallel-R1-Unseen (S1)</td><td>17.7</td><td>18.3</td><td>69.7</td><td>82.6</td><td>47.1</td></tr><tr><td>+ with RL on GSM8K</td><td>14.4</td><td>12.9</td><td>52.3</td><td>74.4</td><td>38.5</td></tr><tr><td>- SFT on GSM8K (# Parallel ≈ 0)</td><td>15.0</td><td>18.8</td><td>62.8</td><td>83.9</td><td>45.1</td></tr><tr><td colspan=\"6\">Effect of Parallel Thinking Prompt</td></tr><tr><td>Parallel-R1-Seen</td><td>19.2</td><td>19.4</td><td>70.5</td><td>86.7</td><td>48.9</td></tr><tr><td>- w/o Parallel Thinking Prompt</td><td>20.4</td><td>16.5</td><td>66.7</td><td>84.8</td><td>47.1</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                191,
+                263,
+                805,
+                411
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Table 3 presents the results of this ablation study. For Parallel-Seen, removing the RL training on GSM8K in Stage 1 leads to a consistent performance drop (–2.3% on average). This indicates that learning format through SFT alone is insufficient. Without RL on easy tasks, the model enters Stage 2 training on more difficult general math without having acquired the ability to trigger or use parallel thinking adaptively. As a result, Stage 2 RL must both discover adaptive parallel-thinking behavior and strengthen mathematical reasoning on challenging tasks, which is more difficult to optimize. Additionally, the SFT stage provides the structural prior required for RL to explore parallel thinking. When we remove the Parallel-GSM8K SFT, parallel-thinking behaviors are rarely activated during RL, and the policy regresses to standard sequential generation."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                435,
+                826,
+                563
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Interestingly, the multiverse variant exhibits the opposite trend: adding Stage 1 RL on GSM8K significantly degrades performance (–8.6% on average). We hypothesize that this occurs because the structured attention mask learned on easy math tasks (GSM8K) does not transfer well to more complex problems, leading to a distribution shift and overfitting to superficial patterns, which is consistent with the findings in Yang et al. (2025c). This contrast highlights a key insight: while RL on easy math is crucial for the autoregressive variant to bootstrap adaptive parallel thinking, multiverse variants require a different training recipe and reward schedule to generalize effectively."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                566,
+                826,
+                667
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.3.2 ABLATION STUDIES ON PARALLEL THINKING PROMPT"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                690,
+                611,
+                705
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We also conduct ablation studies on the effect of our parallel thinking prompt. As shown in Table 3, removing the prompt results in a 1.8% performance drop on average. It indicates that providing detailed instructions during training helps the model better understand the parallel thinking process."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                717,
+                825,
+                762
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.3.3 ABLATION STUDIES ON REWARD MODELING"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                784,
+                544,
+                799
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We further answer one research question: how to effectively stimulate parallel thinking behavior? We test three reward modeling methods: direct accuracy, direct parallel, and an alternating approach. Table 4 shows the results. First, the “Accuracy” configuration, which optimizes solely for problem correctness, yields the highest average performance on two out of four benchmarks, particularly on the AMC dataset (69.7). However, this approach yields a very low parallel ratio of 13.6. In contrast, the “Parallel” configuration, which directly rewards the generation of parallel structures, achieves a high parallel ratio of 80.3. However, this focused optimization leads to a significant performance drop across most benchmarks. Our Alternating Acc./Parallel strategy provides a superior balance."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                813,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "8"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/4fea5a8cbc3e5ade2fff752133b76b5964eb472a8e69c9bf2133d2a37b4d220b.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 4: Ablation Study on Reward Modeling: comparison of different training configurations."
+                    },
+                    {
+                        "type": "text",
+                        "content": "Table 5: Diversity analysis on parallel thinking variants."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Training Configuration</td><td>Parallel Ratio</td><td>AIME 25</td><td>AIME 24</td><td>AMC 23</td><td>MATH</td></tr><tr><td>Accuracy</td><td>13.6</td><td>17.7</td><td>18.3</td><td>69.7</td><td>82.6</td></tr><tr><td>Parallel</td><td>80.3</td><td>17.7</td><td>15.2</td><td>59.4</td><td>81.7</td></tr><tr><td>Alternating Acc./Parallel</td><td>63.0</td><td>19.0</td><td>16.3</td><td>67.5</td><td>84.5</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                217,
+                128,
+                777,
+                191
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/64bb620495f5a3c08ca285469f5b3d7e87d2817d8d762e88c7f937fbacf227a7.jpg"
+                },
+                "table_caption": [],
+                "table_footnote": [],
+                "html": "<table><tr><td>Method</td><td>Token-Level Diversity (BLEU ↓)</td><td>Semantic Diversity (Cosine ↓)</td></tr><tr><td>Parallel-SFT-Unseen</td><td>0.0675</td><td>0.6360</td></tr><tr><td>Parallel-R1-Unseen (S2)</td><td>0.0627</td><td>0.6083</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                174,
+                224,
+                823,
+                279
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.4 ANALYSIS ON DIVERSITY OF PARALLEL THINKING"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                310,
+                571,
+                324
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this section, we investigate the diversity of paths within each generated parallel thinking block. Specifically, we utilize BLEU and cosine similarity to measure token-level diversity and semantic diversity, respectively. For token-level diversity, we compute pairwise BLEU scores between all paths within the same parallel block using sentence bleu function from the NLTK library. For semantic diversity, we encode each path using the widely adopted Sentence Transformer model "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathtt { a l 1 - M i n i L M - L 6 - v 2 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", which produces 384-dimensional sentence embeddings. We then compute pairwise cosine similarity between all encoded paths within each block. We report diversity results using the Parallel-SFT-Unseen and Parallel-R1-Unseen (S2) variants because they exhibit consistently high parallel ratios, ensuring that most examples contain multiple valid paths. This makes pairwise diversity computation well-defined and meaningful. We present the results in Table 5. The values indicate that, in both settings, the generated paths are not identical, and multiple distinct trajectories are present within each parallel block."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                335,
+                826,
+                505
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.5 EVOLUTION OF PARALLEL THINKING BEHAVIOR DURING RL TRAINING"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                522,
+                720,
+                536
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To gain deeper insight into how the model’s strategy evolves during training, we analyzed the positional dynamics of the <Parallel> block in the RL process. We measured the relative position of each block by dividing its starting token index by the total sequence length of the solution. The training dynamics in Figure 3 showcase a trend: the average relative position of the <Parallel> block steadily increases as the RL training step ascends."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                547,
+                550,
+                661
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We hypothesize that this positional shift may reflect a more conservative, risk-averse strategy to maximize its reward, a behavior shaped directly by the final-answerdominated reward design. In the early stages of training, when the model’s reasoning ability is weak, using parallel paths for computational exploration is a necessary, high-variance strategy to discover a potential solution. However, as the model’s core reasoning ability improves, such early-stage exploration becomes a liability that might introduce errors and jeopardize the final reward."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                666,
+                550,
+                779
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/53dba818d359c6d6d8defc540a0252e3912268791622d4c589e5984c72271a62.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 3: Dynamics of the relative position of the <Parallel> block during RL training. The increasing trend indicates the model learns to apply parallel thinking later in the reasoning process."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                598,
+                544,
+                820,
+                700
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                777,
+                825,
+                806
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Consequently, the model learns a more risk-averse strategy to secure a correct answer. It first derives a solution using a single, high-confidence reasoning path. Only after a potential answer is found, it deploys the "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "< \\mathtt { P a r a l l e l } >"
+                    },
+                    {
+                        "type": "text",
+                        "content": "block for multi-perspective verification. This late-stage use of parallel thinking confirms the result without risking the integrity of the primary reasoning path, thus maximizing the probability of receiving a positive reward. This observed behavior is consistent with a potential trade-off between final-answer optimization and the preservation of diverse reasoning structures. Two case studies illustrating this evolution are further provided in Appendix M. Additional analyses in Appendix H show similar trends on a larger model and a different domain."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                813,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "9"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/2cb36ca6e2e9d6ca4b7304d679e865e0dc8c544ec295553688f94665023b5a69.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 4: Two-stage training with parallel reasoning as a mid-training exploration scaffold. Left axis plots AIME25 accuracy for Baseline (gray), Stage-1 (blue), and Stage-2 (red); right axis shows the proportion of outputs using the explicit parallel thinking structure. Stage-1 (0–200 steps; vertical dashed line) alternates ACC/PAR rewards to promote exploration, while Stage-2 continues GRPO with an accuracy reward only and is plotted after a +200-step shift to align the timeline. As training transitions from parallel to sequential reasoning, the parallel ratio decreases yet accuracy continues to improve, peaking at 25.6%, which exceeds the sequential baseline trained via GRPO."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                176,
+                99,
+                818,
+                262
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.6 EXTRA BONUS: PARALLEL THINKING AS A MID-TRAINING EXPLORATION STRATEGY"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                378,
+                813,
+                393
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "This section explores whether parallel thinking can serve as a potential exploration scaffold to improve RL performance. To verify this, we design a two-stage training curriculum as follows."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                405,
+                823,
+                435
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• Stage-1 (Exploration Phase, before 200 steps): The primary goal of this initial phase is to maximize exploration. In this stage, we follow the training approach of our Parallel-R1-Unseen (S2) As shown by the green dashed line in Figure 4, this scheduler ensures a much higher parallel ratio, encouraging the model to constantly explore a wide breadth of reasoning paths."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                441,
+                825,
+                500
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• Stage-2 (Exploitation Phase, after 200 steps): At the 200-step mark, we change the focus from exploration to exploitation. The training objective is then switched to optimize for accuracy alone, allowing the model to exploit the effective strategies discovered during the exploration phase. We choose 200 steps as a switching point because, empirically, the parallel-structure behavior shows a noticeable transition around this region (Figure 3), though this choice is not theoretically optimal"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                500,
+                826,
+                571
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "As illustrated in Figure 4, upon entering stage 2, the model’s performance (red line) improves, reaching a peak AIME25 accuracy of 25.6%, a notable 42.9% improvement over the Baseline GRPO model. Critically, this performance gain occurs even as the model’s reliance on the parallel structure decreases (as shown by the declining parallel ratio in stage 2). This observation provides preliminary evidence that the benefit of parallel thinking may come not only from its explicit structure, but also from the broader policy space it encourages during exploration. In this sense, the initial forced exploration acted as a scaffold, guiding the model to a more effective region in the policy space, from which it could then learn a final policy."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                577,
+                826,
+                691
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5 CONCLUSION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                173,
+                709,
+                321,
+                724
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this work, we presented Parallel-R1, the first reinforcement learning framework to teach large language models to perform parallel thinking from scratch on real-world mathematical reasoning tasks. We proposed a progressive training curriculum, enabled by a simple data pipeline, that successfully bootstraps this complex skill by separating the learning of format, behavior, and core reasoning into distinct stages. Our approach achieved consistent accuracy improvements on several challenging mathematical reasoning benchmarks compared to strong baselines. Our analysis yielded several key insights into the learning dynamics. We discovered that the model learns a riskaverse strategy, shifting its use of parallel thinking from early-stage computational exploration to late-stage multi-perspective verification. Most significantly, we provide preliminary evidence that parallel thinking may function as a mid-training exploration scaffold, where a temporary forcedexploration phase appears to help the model reach a stronger final policy in our experiments."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                741,
+                826,
+                896
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "10"
+                    }
+                ]
+            },
+            "bbox": [
+                490,
+                948,
+                509,
+                960
+            ]
+        }
+    ]
+]

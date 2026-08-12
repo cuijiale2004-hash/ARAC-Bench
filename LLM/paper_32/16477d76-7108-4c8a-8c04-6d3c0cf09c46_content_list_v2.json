@@ -1,0 +1,2717 @@
+[
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "ABSTRACT"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                450,
+                291,
+                547,
+                308
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Self-evolving Large Language Models (LLMs) offer a scalable path toward superintelligence by autonomously generating, refining, and learning from their own experiences. However, existing methods for training such models still rely heavily on vast human curated tasks and labels, typically via fine-tuning or reinforcement learning, which poses a fundamental bottleneck to advancing AI systems toward capabilities beyond human intelligence. To overcome this limitation, we introduce R-Zero, a fully autonomous framework that generates its own training data from scratch. Starting from a single base LLM, R-Zero initializes two independent models with distinct roles – a Challenger and a Solver. These models are optimized separately and co-evolve through interaction: the Challenger is rewarded for proposing tasks near the edge of the Solver’s capability, and the Solver is rewarded for solving increasingly challenging tasks posed by the Challenger. This process yields a targeted, self-improving curriculum without any pre-existing tasks and labels. Empirically, R-Zero substantially improves reasoning capability across different backbone LLMs, e.g., boosting the Qwen3-4B-Base by +6.49 on math reasoning benchmarks, and +7.54 on general-domain reasoning benchmarks."
+                    }
+                ]
+            },
+            "bbox": [
+                228,
+                321,
+                767,
+                547
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/74e6c58e2e63d832f56116e02005467251d6ed6cc8d4fd962b8de7de77f11031.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Code: https://github.com/Chengsong-Huang/R-Zero."
+                    },
+                    {
+                        "type": "text",
+                        "content": "Figure 1: (Left): R-Zero employs a co-evolutionary loop between Challenger and Solver. (Right): R-Zero achieves strong benchmark gains without any pre-existing tasks or human labels."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                194,
+                594,
+                802,
+                779
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "1 INTRODUCTION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                174,
+                849,
+                338,
+                866
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Self-evolving Large Language Models (LLMs) represent a promising frontier for advancing language intelligence. By autonomously generating, refining, and learning from their own experiences, these models provide a scalable pathway toward artificial superintelligence (Tao et al., 2024; Tan et al., 2024). A critical requirement for training such self-evolving LLMs is access to large volumes of expertly curated tasks and labels, which serve as supervision signals for fine-tuning or reinforcement learning with verifiable rewards (RLVR) (Shao et al., 2024; DeepSeek-AI et al., 2025). However, relying on human annotators to create these tasks and labels is not only costly, labor-intensive, and difficult to scale, but also presents a fundamental bottleneck to advancing AI toward capabilities that could eventually surpass human intelligence (Su et al., 2025; Zhao et al., 2025a)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                882,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "1"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                826,
+                189
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To reduce dependence on human-curated data, self-generated and label-free methods have been proposed to eliminate the need for explicit supervision. In particular, label-free RL derives reward signals directly from the model’s own outputs, such as sequence-level confidence scores (Li et al., 2025a; Prabhudesai et al., 2025; Huang et al., 2025) and output entropy (Agarwal et al., 2025; Cheng et al., 2025). However, despite removing the need for explicit labels, label-free methods still relies on a pre-existing corpus of tasks, which limits its scalability in truly self-evolving settings. On the other side, self-challenging approaches train LLMs on tasks generated by the models themselves (Zhou et al., 2025a; Wang et al., 2025a; Zhao et al., 2025a). While promising, many of these methods rely on external code executors to ensure that the synthesized tasks are both feasible and verifiable. However, in domains that lack an explicit verification oracle, such as open-ended reasoning, ensuring the quality and correctness of self-generated data remains a significant challenge."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                194,
+                826,
+                349
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this paper, we propose R-Zero, a framework for training reasoning LLMs that can self-evolve from zero external data. In R-Zero, a single base model is initialized with two roles – a Challenger and a Solver that are independently optimized but co-evolve throughout the RL process. During co-evolving, the Challenger is rewarded for generating tasks targeted to be at the edge of Solver’s current abilities, while the Solver is rewarded for solving increasingly challenging tasks posed by the Challenger. Framework details are provided in Section 2, but briefly, in the Challenger training phase, the Challenger is trained via Group Relative Policy Optimization (GRPO) (Shao et al., 2024) to generate difficult questions. The reward signal is derived from the uncertainty for the frozen Solver, which is measured by the self-consistency of its multiple generated answers. In the Solver training phase, the Solver is fine-tuned with GRPO on a filtered set of these challenging questions generated by the now-frozen Challenger, using the pseudo-labels voted by itself. This entire process repeats, creating a self-evolving cycle that operates without any human intervention."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                354,
+                826,
+                523
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Our experiments demonstrate that R-Zero is a model-agnostic framework, consistently and iteratively improving the reasoning abilities of different backbone LLMs. For example, Qwen3-4B-Base model’s average score on math benchmarks increased by a significant +6.49 points after three iterations of self-evolution. Moreover, the reasoning skills learned through our math-focused questions can generalize to complex general-domain tasks, with models trained using R-Zero showing significant improvements on general domain reasoning benchmarks like MMLU-Pro (Wang et al., 2024) and SuperGPQA (Du et al., 2025). Our further analysis finds that R-Zero can act as a mid-training method, as models first improved by our method achieve higher performance after fine-tuned on labeled data. In addition, we provide an in-depth analysis that validates our framework’s components, demonstrates its synergy with supervised fine-tuning, and characterizes the co-evolutionary dynamics to identify both strengths and limitations, offering insights for future research."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                527,
+                826,
+                683
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2 METHOD"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                720,
+                284,
+                737
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2.1 OVERVIEW"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                763,
+                292,
+                779
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We propose R-Zero, a fully automated framework featuring a Challenger and a Solver, both initialized from the same base LLM. The framework operates in an iterative loop. We illustrate the main framework in Figure 2. First, the Challenger "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\left( Q _ { \\theta } \\right)"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is trained with Group Relative Policy Optimization (GRPO) to generate synthetic questions that are challenging for the current Solver (Sec. 2.2). A training dataset of question-answer pairs is then constructed from these synthetic questions using a filtering strategy and a majority-vote mechanism (Sec. 2.3). Next, the Solver "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( \\bar { S _ { \\phi } } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is fine-tuned on this new dataset, also using GRPO (Sec. 2.4). This iterative process allows the Challenger and Solver to co-evolve, leading to a progressively more capable Solver. The entire framework is selfsupervised, requiring no human intervention."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                799,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "2"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/2b613e3e117389d31ff16f596423d9e9a26e8a41b61f0bc18deadb0d8ddfc42c.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 2: An overview of our R-Zero framework, which illustrates the co-evolution of the Challenger and the Solver. Top: In the Challenger training phase, the Challenger is trained via GRPO to generate difficult questions. The reward signal is derived from the uncertainty for the frozen Solver, which is measured by the self-consistency of its multiple generated answers. Bottom: In the Solver training phase, the Solver is fine-tuned with GRPO on a filtered set of these challenging questions generated by the now-frozen Challenger, using the pseudo-labels voted by itself."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                179,
+                104,
+                807,
+                273
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2.2 CHALLENGER TRAINING"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                401,
+                388,
+                415
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The Challenger, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "Q _ { \\theta } ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is an autoregressive language model trained to generate challenging questions. We train "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "Q _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "using the GRPO algorithm detailed in Sec. I. The core of this process lies in designing a reward function that accurately captures the desired properties of a “good” question. This final scalar reward, r<sub>i</sub>, is then used in the GRPO. We focus on generating questions specifically within the domain of mathematics, as it provides a convenient and self-contained setting for our framework; the objective nature of mathematical answers allows for the straightforward generation of pseudo-labels via majority voting, without the need for external verification environments like code executors."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                426,
+                825,
+                526
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Uncertainty Reward. To guide the Challenger toward producing challenging yet solvable questions, we first define an uncertainty score. For a generated question x, we query the current Solver "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "S _ { \\phi }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for m responses "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{ y _ { 1 } , \\dots , y _ { m } \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". The most frequent response is treated as the pseudo-label "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\tilde { y } ( x )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and we compute the Solver’s empirical accuracy as "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\begin{array} { r } { \\hat { p } ( x ; S _ { \\phi } ) = \\frac { 1 } { m } \\sum _ { j = 1 } ^ { m } \\mathbb { 1 } \\{ y _ { j } = \\tilde { y } ( x ) \\} } \\end{array}"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". The uncertainty reward is then defined as:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                541,
+                825,
+                616
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "r _ {\\text { uncertainty }} (x; \\phi) = 1 - 2 \\left| \\hat {p} (x; S _ {\\phi}) - \\frac {1}{2} \\right|",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/bb966cc3ebf3ce349a1b34ebb0d1c767c996fda4b41450420daf818ee618ce26.jpg"
+                }
+            },
+            "bbox": [
+                367,
+                622,
+                630,
+                641
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "This function incentivizes questions where the Solver is maximally uncertain (accuracy approaches 50%). We provide a theoretical motivation for this reward function in Appendix F."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                647,
+                825,
+                678
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Repetition Penalty. To encourage diversity within a training batch X, we introduce a repetition penalty. We could use any similarity metric, but in our case, we specifically use the BLEU score for faster computation, as this calculation must be performed numerous times during the rollout process. We compute pairwise distances using BLEU score similarity, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "d _ { i j } = 1 - \\mathtt { B L E U } ( x _ { i } , x _ { j } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and group questions where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "d _ { i j } < \\tau _ { \\mathrm { B L E U } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "into clusters "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\mathcal { C } } = \\{ C _ { 1 } , . . . , \\dot { C _ { K } } \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". The penalty for a question "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "x _ { i }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "in a cluster "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "C _ { k }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is proportional to its relative size:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                691,
+                825,
+                777
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "r _ {\\mathrm{rep}} (x _ {i}) = \\lambda \\frac {| C _ {k} |}{B}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/908d7d151d71f726d2a0396163b64f59953aa393d87dcfc7915668ebf0b1972e.jpg"
+                }
+            },
+            "bbox": [
+                437,
+                785,
+                557,
+                816
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where B is the batch size and λ is a scaling factor. In our experiments, we set "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\lambda = 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". The implementation details are shown in Appendix B.4."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                821,
+                823,
+                852
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Format Check Penalty. A critical first step in the reward pipeline is a structural format check to verify that each generated question is correctly enclosed within <question> and </question> tags. If the output does not adhere to this required structure, it is immediately assigned a final reward of 0, and no further reward signals are computed."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                867,
+                826,
+                924
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "3"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Composite Reward and Policy Update. For all questions that pass the format check, we calculate a composite reward. The final scalar reward "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "r _ { i }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for each valid question "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "x _ { i }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "combines signals for uncertainty and repetition:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                104,
+                825,
+                147
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "r _ {i} = \\max \\bigl (0, r _ {\\text { uncertainty }} (x _ {i}; \\phi) - r _ {\\text { rep }} (x _ {i}) \\bigr)",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/620cd4c365b6ba8cdd2598318614864e689d157ecdbf62e97f6e4bcc5efa970c.jpg"
+                }
+            },
+            "bbox": [
+                359,
+                152,
+                633,
+                170
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "With these rewards "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{ r _ { 1 } , \\hdots , r _ { G } \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for a batch of generated questions, we compute the advantage "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\hat { A } } _ { i }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for each question and update the Challenger’s policy "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "Q _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "by minimizing the GRPO loss "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\mathcal { L } } _ { \\mathrm { G R P O } } ( \\theta )"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                178,
+                823,
+                209
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2.3 SOLVER DATASET CONSTRUCTION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                224,
+                457,
+                238
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "After updating the Challenger, we use it to generate a new, curated dataset to train the Solver. This process acts as a curriculum generator. We first sample a large pool of N candidate questions from the Challenger’s policy, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "x _ { i } \\sim Q _ { \\theta } ( { \\cdot } \\mid p _ { 0 } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". For each question, we obtain m answers from the current Solver, determine the pseudo-label "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\tilde { y } _ { i }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "via majority vote, and calculate the empirical correctness "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat { p } _ { i }"
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { A }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "question-answer pair "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( x _ { i } , \\tilde { y } _ { i } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is added to the training set "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "s"
+                    },
+                    {
+                        "type": "text",
+                        "content": "only if its correctness falls within an informative band, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "| \\hat { p } _ { i } - \\frac { 1 } { 2 } | \\leq \\delta"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". This filtering step discards tasks that are either too easy or too hard."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                250,
+                825,
+                335
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "While the primary goal of this filtering is to discard tasks that are too easy or too hard, it also serves as an implicit quality control mechanism. Since our pseudo-labels are derived from a majority vote, a very low empirical correctness "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat { p } _ { i }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "often indicates that the question itself is ambiguous, ill-posed, or that the resulting pseudo-label is unreliable. By filtering out these low-consistency items, our method simultaneously improves the quality and the uncertainty calibration of the training data."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                340,
+                825,
+                412
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2.4 SOLVER TRAINING"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                426,
+                348,
+                441
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The Solver, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "S _ { \\phi } ."
+                    },
+                    {
+                        "type": "text",
+                        "content": ", is then fine-tuned on the curated dataset of challenging problems "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "s ."
+                    },
+                    {
+                        "type": "text",
+                        "content": ". We also use GRPO for this stage, but with a simpler, verifiable reward signal. For a given question "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "x _ { i } \\in S"
+                    },
+                    {
+                        "type": "text",
+                        "content": "with its pseudo-label "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\tilde { y } _ { i }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", the Solver generates a batch of answers, each assigned a binary reward "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "r _ { j } { \\mathrm { : } }"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                452,
+                825,
+                497
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "r _ {j} = \\left\\{ \\begin{array}{l l} 1, & \\text { if   } x _ {j} \\text {   matches   with   the   pseudo - label   } \\tilde {y} _ {i}, \\\\ 0, & \\text { otherwise. } \\end{array} \\right.",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/564da3350cae97a6de8b03dcf756e0f0cebff08ed53e0682f2f7ac91898af35e.jpg"
+                }
+            },
+            "bbox": [
+                326,
+                503,
+                663,
+                537
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "This verifiable reward is used to compute the advantage "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\hat { A } _ { j }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and the Solver’s policy "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "S _ { \\phi }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is subsequently updated by minimizing the GRPO loss "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { L } _ { \\mathrm { G R P O } } ( \\phi )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". This process enhances the Solver’s ability to correctly answer the difficult questions generated by its co-evolving Challenger."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                546,
+                825,
+                590
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3 EXPERIMENTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                609,
+                328,
+                625
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.1 MODELS AND TRAINING DETAILS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                640,
+                452,
+                655
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We employ the Qwen3-4B-Base (Yang et al., 2025) and Qwen3-8B-Base models to assess the impact of scale within a single architectural family. Second, to ensure our approach is effective on a distinct lineage, we utilize the OctoThinker-3B and OctoThinker-8B models (Wang et al., 2025b).This choice is particularly relevant as Wang et al. (2025b) reported that applying RL training directly to Llama models yielded suboptimal results. As the OctoThinker series is continually trained from the Llama-3.1 models (Dubey et al., 2024), this comprehensive selection allows us to test our framework across different foundational architectures – Qwen vs. Llama. We assess our framework on a comprehensive suite of benchmarks, with the evaluation benchmarks presented in Appendix C."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                666,
+                826,
+                780
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Our entire framework is implemented based on the EasyR1 codebase (Zheng et al., 2025b). In each iteration of the "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "R – Z e r o"
+                    },
+                    {
+                        "type": "text",
+                        "content": "co-evolutionary loop, we follow a specific set of hyperparameters. The Challenger "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\left( Q _ { \\theta } \\right)"
+                    },
+                    {
+                        "type": "text",
+                        "content": "first generates a candidate pool of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "N = 8 , 0 0 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": "questions. To construct the training dataset for the Solver, these questions are filtered based on consistency. For each candidate question, we sample "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "m = 1 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": "answers from the current Solver "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( S _ { \\phi } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". A question is retained for the training set only if the number of answers matching the majority-vote pseudo-label is between 3 and 7, inclusive "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( \\delta = 0 . 2 5 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". This numerical range is consistent with the methodology used in previous research (Zhang & Zuo, 2025; Li et al., 2025b; Bercovich et al., 2025). When training the Challenger, the uncertainty reward "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "r ( x ; \\phi )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is calculated by sampling "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "m = 1 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": "responses from the Solver. For the intra-batch repetition penalty, we set the clustering distance threshold to "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\tau _ { \\mathrm { B L E U } } = 0 . 5"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                784,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "4"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/cfbe0e052633eac0ccaed90a646f5b0f249f029f908f86c78b4ca51afac0efbe.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 1: Comprehensive results on mathematical reasoning benchmarks. We compare each base model against a R-Zero ( challenger) baseline (where the Solver is trained on questions from an untrained Challenger) and our method, R-Zero. The peak performance is highlighted in bold."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Model Name</td><td>Avg.</td><td>AMC</td><td>Minerva</td><td>MATH</td><td>GSM8K</td><td>Olympiad</td><td>AIME25</td><td>AIME24</td></tr><tr><td colspan=\"9\">Qwen3-4B-Base</td></tr><tr><td>Base Model (w/o training)</td><td>42.57</td><td>45.70</td><td>38.24</td><td>68.20</td><td>87.79</td><td>41.04</td><td>10.30</td><td>6.7</td></tr><tr><td>Absolute Zero</td><td>46.42</td><td>52.45</td><td>41.96</td><td>76.20</td><td>89.34</td><td>42.56</td><td>10.20</td><td>12.20</td></tr><tr><td>R-Zero (challenger)</td><td>45.01</td><td>45.00</td><td>45.22</td><td>72.80</td><td>87.87</td><td>41.19</td><td>10.20</td><td>12.80</td></tr><tr><td>R-Zero (our method)</td><td>49.93</td><td>57.27</td><td>52.94</td><td>79.60</td><td>92.12</td><td>44.59</td><td>9.60</td><td>13.40</td></tr><tr><td colspan=\"9\">Qwen3-8B-Base</td></tr><tr><td>Base Model (w/o training)</td><td>48.64</td><td>51.95</td><td>50.00</td><td>78.00</td><td>89.08</td><td>44.74</td><td>12.10</td><td>14.60</td></tr><tr><td>Absolute Zero</td><td>52.68</td><td>57.89</td><td>57.90</td><td>76.60</td><td>92.00</td><td>47.80</td><td>18.20</td><td>18.40</td></tr><tr><td>R-Zero (challenger)</td><td>52.10</td><td>60.70</td><td>57.72</td><td>81.60</td><td>92.56</td><td>46.44</td><td>11.60</td><td>14.10</td></tr><tr><td>R-Zero (our method)</td><td>53.72</td><td>61.67</td><td>60.66</td><td>82.00</td><td>94.09</td><td>48.89</td><td>13.30</td><td>15.40</td></tr><tr><td colspan=\"9\">OctoThinker-3B</td></tr><tr><td>Base Model (w/o training)</td><td>26.64</td><td>17.19</td><td>24.26</td><td>55.00</td><td>73.69</td><td>16.15</td><td>0.21</td><td>0.00</td></tr><tr><td>Absolute Zero</td><td>27.23</td><td>22.50</td><td>22.70</td><td>53.20</td><td>75.80</td><td>13.20</td><td>0.50</td><td>2.70</td></tr><tr><td>R-Zero (challenger)</td><td>27.51</td><td>20.19</td><td>24.63</td><td>54.60</td><td>74.98</td><td>15.70</td><td>0.10</td><td>2.40</td></tr><tr><td>R-Zero (our method)</td><td>29.32</td><td>27.03</td><td>27.57</td><td>54.20</td><td>74.98</td><td>18.22</td><td>3.23</td><td>0.00</td></tr><tr><td colspan=\"9\">OctoThinker-8B</td></tr><tr><td>Base Model (w/o training)</td><td>36.41</td><td>32.11</td><td>41.91</td><td>65.20</td><td>86.96</td><td>26.52</td><td>1.56</td><td>0.62</td></tr><tr><td>Absolute Zero</td><td>36.60</td><td>32.50</td><td>44.90</td><td>62.80</td><td>87.00</td><td>25.60</td><td>3.30</td><td>0.10</td></tr><tr><td>R-Zero (challenger)</td><td>36.98</td><td>29.30</td><td>42.28</td><td>66.20</td><td>88.10</td><td>27.56</td><td>1.04</td><td>4.38</td></tr><tr><td>R-Zero (our method)</td><td>38.52</td><td>34.03</td><td>48.22</td><td>68.80</td><td>87.19</td><td>27.56</td><td>0.42</td><td>3.44</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                174,
+                155,
+                823,
+                425
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.1.1 EVALUATION SETTING"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                454,
+                388,
+                469
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The evaluation code is adopted from General-Reasoner (Ma et al., 2025). To ensure consistency, we reran the released evaluation code and reported the corresponding results. The reproduced results are well aligned with General-Reasoner and those in the Qwen-3 technical report (Yang et al., 2025)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                479,
+                825,
+                523
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The results presented in all experimental tables are obtained after 45 training steps, while in the figures we report evaluations performed at checkpoints every 15 steps during solver training. All results are reported based on the held-out test sets, ensuring a fair comparison across baselines and reproduced methods. Further implementation details and prompts can be found in Appendix B."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                527,
+                826,
+                585
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.2 RESULTS IN MATHEMATICAL REASONING"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                601,
+                508,
+                616
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The comprehensive results of our experiments are presented in Table 1. The findings confirm that our proposed framework, R-Zero, is a highly effective, model-agnostic method for enhancing the performance of language models on mathematical tasks across different architectures and scales."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                627,
+                826,
+                671
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Our iterative training process consistently and substantially improves upon the performance of the base models. This holds true for large models like Qwen3-8B-Base, where three iterations of R-Zero raise the average performance from a baseline of 49.18 to 54.69, a significant gain of +5.51 points. Similarly, on the smaller OctoThinker-3B, our method improves the average score from 26.64 to 29.32 (+2.68 points), demonstrating the broad applicability of our self-supervised training loop."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                676,
+                826,
+                750
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The critical role of the Challenger’s RL-based training is validated by the immediate performance leap from the Base Challenger to the first iteration of R-Zero. On Qwen3-8B-Base, this first iteration provides a +1.52 point gain over the baseline, and the improvement is even more pronounced on Qwen3-4B-Base at +3.7 points. This confirms that the intelligent curriculum generated by the RLtrained Challenger is significantly more effective than that of a non-trained generator."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                753,
+                826,
+                825
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.3 RESULTS IN GENERAL REASONING"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                840,
+                460,
+                856
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Previous work has demonstrated that training language models on reasoning-intensive domains, such as mathematics, can lead to improvements in general-domain capabilities (Huan et al., 2025). A key question, however, is whether this generalization effect still holds when the training curriculum is not human-labeled, but entirely self-generated through R-Zero."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                867,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "5"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/1efd63a562d18cb98783eff43daaf2b89757de3a8db38f41c7552a83ede89eb8.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 2: Results on general-domain reasoning benchmarks. The table compares the Base Model, a R-Zero ( challenger) baseline, and our R-Zero. The peak performance is highlighted in bold."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Model Name</td><td>Overall Avg.</td><td>SuperGPQA</td><td>MMLU-Pro</td><td>BBEH</td></tr><tr><td colspan=\"5\">Qwen3-4B-Base</td></tr><tr><td>Base Model (w/o training)</td><td>26.34</td><td>20.88</td><td>50.58</td><td>7.57</td></tr><tr><td>Absolute Zero</td><td>29.33</td><td>27.10</td><td>52.60</td><td>8.30</td></tr><tr><td>R-Zero (* challenger)</td><td>28.52</td><td>24.77</td><td>54.20</td><td>6.59</td></tr><tr><td>R-Zero (our method)</td><td>31.15</td><td>27.55</td><td>55.47</td><td>10.42</td></tr><tr><td colspan=\"5\">Qwen3-8B-Base</td></tr><tr><td>Base Model (w/o training)</td><td>31.98</td><td>28.33</td><td>58.97</td><td>8.63</td></tr><tr><td>Absolute Zero</td><td>34.40</td><td>31.89</td><td>60.50</td><td>10.80</td></tr><tr><td>R-Zero (* challenger)</td><td>31.29</td><td>30.12</td><td>54.14</td><td>9.60</td></tr><tr><td>R-Zero (our method)</td><td>34.50</td><td>31.38</td><td>61.53</td><td>10.60</td></tr><tr><td colspan=\"5\">OctoThinker-3B</td></tr><tr><td>Base Model (w/o training)</td><td>7.47</td><td>10.09</td><td>10.87</td><td>1.46</td></tr><tr><td>Absolute Zero</td><td>16.03</td><td>17.70</td><td>24.30</td><td>6.10</td></tr><tr><td>R-Zero (* challenger)</td><td>10.04</td><td>11.19</td><td>14.53</td><td>4.40</td></tr><tr><td>R-Zero (our method)</td><td>11.12</td><td>12.44</td><td>16.71</td><td>4.20</td></tr><tr><td colspan=\"5\">OctoThinker-8B</td></tr><tr><td>Base Model (w/o training)</td><td>11.70</td><td>13.26</td><td>20.21</td><td>1.64</td></tr><tr><td>Absolute Zero</td><td>18.40</td><td>18.80</td><td>31.40</td><td>5.00</td></tr><tr><td>R-Zero (* challenger)</td><td>21.30</td><td>16.99</td><td>41.46</td><td>5.46</td></tr><tr><td>R-Zero (our method)</td><td>23.00</td><td>19.82</td><td>40.92</td><td>8.25</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                241,
+                141,
+                758,
+                417
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "As shown in Table 2, this transfer of skills is evident across all tested models. For instance, three iterations of our math-focused training improve the average general-domain score of Qwen3-8B-Base by +5.13 points and OctoThinker-3B by +3.65 points. This generalization also extends to the key performance patterns observed in the mathematical results. This confirms that our method does not merely teach domain-specific knowledge, but enhances the model’s underlying capabilities in a way that successfully generalizes across domains."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                450,
+                826,
+                536
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4 ANALYSIS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                559,
+                294,
+                574
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this section, we conduct a series of in-depth analyses to better understand the behavior and effectiveness of our R-Zero framework. To ensure consistency, all analytical experiments presented here are conducted on the Qwen3-4B-Base model, unless explicitly stated otherwise. Some additional analyses are shown in Appendix D."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                594,
+                825,
+                651
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.1 ABLATION STUDY"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                671,
+                344,
+                686
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/1096f9f02ff04e7efec7f4f0738f8758bda2f08a5ced58b1631f7bc4c9a405fa.jpg"
+                },
+                "content": "",
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                174,
+                696,
+                205,
+                724
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Removing Repetition Penalty and Task Filtering will harm the final performance."
+                    }
+                ]
+            },
+            "bbox": [
+                207,
+                703,
+                741,
+                720
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To isolate the contribution of each key component within our R-Zero framework, we conduct a comprehensive ablation study on the Qwen3-4B-Base model. We specifically investigate the importance of two critical modules by disabling them one at a time and observing the impact on performance. The results are summarized in Table 3."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                734,
+                485,
+                849
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "As shown in the table, removing any core components leads to a significant degradation in performance. Removing the Repetition"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                854,
+                486,
+                896
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/72fc947cadedfb87c637334afcd958e594e15c2a439d43c6537e9a38fc34e772.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 3: Ablation results on Qwen3-4B-Base. w/o Filtering: Disables the difficulty-based curriculum filtering. w/o Rep. Penalty: Removes the repetition penalty from the Challenger’s reward."
+                    }
+                ],
+                "table_footnote": [
+                    {
+                        "type": "text",
+                        "content": "Penalty harms performance, indicating that generating a diverse set of questions is crucial for effective Solver training."
+                    }
+                ],
+                "html": "<table><tr><td>Method</td><td>Math AVG</td><td>General AVG</td></tr><tr><td>R-Zero</td><td>49.07</td><td>31.15</td></tr><tr><td colspan=\"3\">Ablations</td></tr><tr><td> $\\vdash$  w/o Rep. Penalty</td><td>45.76</td><td>28.73</td></tr><tr><td> $\\vdash$  w/o Filtering</td><td>47.35</td><td>26.69</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                495,
+                794,
+                821,
+                877
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "6"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Finally, disabling the Task Filtering module results in a notable performance drop, particularly on the general-domain average, which falls by over 6 points. As discussed in Section 2.3, this filtering serves a dual purpose: it calibrates the curriculum’s difficulty and acts as an implicit quality control mechanism by removing questions with low answer consistency. Without this filter, the Solver is trained on noisy data that likely includes ambiguous or ill-posed questions, which harms its ability to learn robustly."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                104,
+                826,
+                189
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.2 ITERATION SCALING"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                205,
+                362,
+                220
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/ee3d56c9215ce20ff4f140ad06a025c6cae37f643b835bea2fedfb3ea2dd4e8f.jpg"
+                },
+                "content": "",
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                174,
+                229,
+                204,
+                256
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Model performance eventually converges, with the timing depending on model size."
+                    }
+                ]
+            },
+            "bbox": [
+                207,
+                236,
+                759,
+                253
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Previous results demonstrate that R-Zero enhances the Solver’s capabilities. This raises a critical question about the long-term stability of our self-improvement loop: what are the limits of this process, and whether the eventual performance degradate? In this section, we conduct an analysis to investigate these iteration scaling dynamics, aiming to diagnose the underlying cause of this instability."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                279,
+                826,
+                349
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "As illustrated in Figure 3, our framework initially delivers on its promise, with models of all sizes showing significant performance improvements in the early stages of co-evolution. Unfortunately, this virtuous cycle does not continue indefinitely. After multiple iterations, we observe a consistent and concerning trend of performance degradation across all models. Intriguingly, we found a direct correlation between model scale and resilience to this collapse: the larger the model, the later the onset of performance degradation."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                356,
+                486,
+                523
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/c92cff705ec3101c25d5a487c0c679a04c20d73607b8247921b2f29ab3eb76f4.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 3: Math performance across different iteration times and model scales. The star markers indicate the peak performance for each model size."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                498,
+                357,
+                808,
+                479
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "For instance, the smallest 0.6B model reaches its peak performance as early as the first iteration (Step 15), after which its capabilities begin to decline. In contrast, the largest 4B model sustains its upward trajectory for three full iterations, only experiencing a sharp drop at Step 60. This pattern strongly suggests that while larger model capacity can delay the negative effects, it does not prevent them. This eventual collapse points to an inherent instability or limitation within our current self-improvement framework, highlighting a critical area for future investigation. We present some additional analysis results for this in Appendix E."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                530,
+                826,
+                628
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.3 SYNERGY WITH SUPERVISED DATA"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                646,
+                460,
+                661
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/fbf8297262da28d5d314c783dbfd50356ea914e543c9cbe5dc416abdb90cbcc5.jpg"
+                },
+                "content": "",
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                174,
+                670,
+                205,
+                696
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Using R-zero as a mid-training method boosts the effect of later training on human data."
+                    }
+                ]
+            },
+            "bbox": [
+                191,
+                674,
+                787,
+                694
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To analyze the utility of our framework in scenarios where a labeled dataset is available, we measure the synergy between R-Zero and traditional supervised fine-tuning using labeled datasets <sup>1</sup>. The GRPO settings for this experiment were kept identical to our main experiments."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                705,
+                825,
+                750
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We first establish a supervised baseline by fine-tuning the base model directly on the labeled data. For this process, we also employ GRPO."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                753,
+                823,
+                785
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We then apply our R-Zero framework, where at the end of each co-evolutionary iteration, the resulting checkpoint is also fine-tuned on the same labeled dataset. The results show that our method provides significant additional gains. As highlighted in Figure 4, this represents a gain of +2.35 points over the human-label-only baseline for 4B model."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                790,
+                826,
+                848
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "This finding confirms that R-Zero is not redundant with labeled data; instead, it acts as a powerful performance amplifier. The co-evolutionary process enables the model to better leverage the supervised information and achieve performance levels unattainable by standard fine-tuning alone."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                853,
+                825,
+                898
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "<sup>1</sup>https://huggingface.co/datasets/hiyouga/math12k"
+                    }
+                ]
+            },
+            "bbox": [
+                191,
+                909,
+                617,
+                924
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "7"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/46dbcfc31b412e8cb577da3172d0a5f938cbfcd46fca6bccfc839152de1b2103.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 4: Performance of R-Zero when combined with supervised fine-tuning. The dashed line represents the baseline of fine-tuning the base model on labelled data alone, showing that our iterative method provides a better initialization."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                192,
+                101,
+                800,
+                220
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We also studied the scenario where human-labeled datasets are mixed into the R-Zero generated dataset for training. We found that this concurrent training approach outperforms using either R-Zero dataset or humanlabel dataset alone, but it does not surpass the sequential strategy of first applying R-Zero and then performing SFT. We hypothesize that mixing the labeled data during R-Zero training may dilute the high-quality signal while partially mitigating noise. Performing R-Zero first allows the model to acquire reasoning ability before leveraging the high-quality human-labeled data, which appears to be the most effective strategy. The precise underlying reasons require further investigation."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                301,
+                825,
+                415
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/643eac840ac6dd5072c153e0031cf26d220bfd48c17f4224f1c1381574af2f42.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 4: Performance comparison across benchmarks when training with human-labeled data, Rzero self-generated data, and a mixed training strategy."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Dataset</td><td>AMC</td><td>Minerva</td><td>MATH</td><td>GSM8K</td><td>Olympiad</td><td>AIME25</td><td>AIME24</td><td>SuperGPQA</td><td>MMLU-Pro</td><td>BBEH</td></tr><tr><td>Human</td><td>57.97</td><td>55.15</td><td>80.8</td><td>92.04</td><td>48</td><td>9.58</td><td>10.31</td><td>29.49</td><td>57.03</td><td>9.71</td></tr><tr><td>R-Zero</td><td>57.27</td><td>52.94</td><td>79.6</td><td>92.12</td><td>44.59</td><td>9.6</td><td>13.4</td><td>27.55</td><td>55.47</td><td>10.42</td></tr><tr><td>R-Zero+Human</td><td>57.9</td><td>53.2</td><td>81.2</td><td>92.2</td><td>47.7</td><td>10.32</td><td>14.67</td><td>29.4</td><td>58.2</td><td>11.8</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                184,
+                426,
+                810,
+                477
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.4 EVOLUTION OF QUESTION DIFFICULTY AND DATA ACCURACY"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                551,
+                650,
+                566
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "P Question difficulty increases progressively with decreasing pseudo-label accuracy."
+                    }
+                ]
+            },
+            "bbox": [
+                174,
+                578,
+                748,
+                599
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/f99104437fdbe6376e3242157a18006665513a954fdc421e5f01b4ff0e727b06.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 5: Performance and data accuracy analysis. The highlighted column represents the true accuracy of the self-generated pseudo-labels for each question set."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\"></td><td colspan=\"5\">Performance of Evaluated Model (vs. Ground Truth)</td></tr><tr><td>Base Model</td><td>Solver (step 15)</td><td>Solver (step 30)</td><td>Solver (step 45)</td><td>Pseudo-Label Acc.</td></tr><tr><td> $\\mathcal{D}_{\\text{Step 15}}$ </td><td>48.0</td><td>59.0</td><td>57.0</td><td>61.0</td><td>79.0%</td></tr><tr><td> $\\mathcal{D}_{\\text{Step 30}}$ </td><td>52.5</td><td>53.0</td><td>51.5</td><td>53.5</td><td>69.0%</td></tr><tr><td> $\\mathcal{D}_{\\text{Step 45}}$ </td><td>44.0</td><td>47.0</td><td>45.0</td><td>50.5</td><td>63.0%</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                194,
+                654,
+                805,
+                737
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To understand the co-evolutionary dynamic, we analyzed how the Challenger’s generated questions and their corresponding pseudo-labels change across iterations. We sampled 200 questions from the Challenger’s policy after each of the first three training iterations, creating three distinct test sets: "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { D } _ { \\mathrm { s t e p } 1 5 } , \\mathcal { D } _ { \\mathrm { s t e p } 3 0 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { D } _ { \\mathrm { s t e p } 4 5 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". For this analysis, we assumed the external oracle model, GPT-4o, to be a perfect annotator, providing the ground truth answers for all generated questions."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                756,
+                825,
+                828
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The evaluation was conducted as follows: the performance of our internal models was measured against these GPT-4o ground truth answers. The score reported for GPT-4o itself, however, reflects the true accuracy of our self-generated pseudo-labels by comparing the pseudo label against the ground truth from the oracle (GPT-4o). The results on the filtered dataset are summarized in Table 5."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                833,
+                826,
+                890
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "This analysis reveals a multi-faceted dynamic. The first finding is that the questions generated by the Challenger become progressively more difficult. This is directly evidenced by evaluating a fixed model against the evolving question sets. For instance, the performance of the static Solver (Step 15), when measured against the consistent GPT-4o ground truth, drops from 59.0% on the questions for the Step 15 training to 47.0% on the questions for the Step 45. This confirms that the Challenger is successfully increasing the intrinsic difficulty of its curriculum."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                895,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "8"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                826,
+                161
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The second finding, revealed by the highlighted column, pertains to the true accuracy of the selfgenerated dataset. Unfortunately, while the accuracy of the pseudo-labels is initially high at 79.0%, it systematically drops to 63.0% by the third iteration. This trend indicates that as the system generates more difficult problems, the Solver’s majority vote becomes a less reliable source for ground truth. This decline in data quality is a critical trade-off and a potential bottleneck for the framework’s ultimate performance."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                166,
+                826,
+                252
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5 RELATED WORK"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                272,
+                346,
+                287
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.1 LABEL-FREE REINFORCEMENT LEARNING"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                305,
+                513,
+                319
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "A significant trend in recent research is Label-Free Reinforcement Learning, which aims to improve LLM reasoning without human-annotated data. Many such methods use the model’s own outputs as a reward signal. This includes leveraging sequence-level confidence (Li et al., 2025a; Prabhudesai et al., 2025), the consistency of answers derived from varied reasoning paths (Zhang et al., 2025a; Zuo et al., 2025; Zhang et al., 2025b; Zhou et al., 2025b; Prasad et al., 2024), minimizing the output entropy (Agarwal et al., 2025; Cheng et al., 2025), or even random (Shao et al., 2025) or negative reward (Zhu et al., 2025). These signals are often used within self-training loops where models fine-tune on their own most plausible solutions (Shafayat et al., 2025; Zhao et al., 2025b). While these methods all rely on a pre-existing set of unlabeled problems, R-Zero removes the need for any seed dataset."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                332,
+                826,
+                472
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.2 SELF-PLAY IN LARGE LANGUAGE MODELS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                489,
+                517,
+                505
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The paradigm of self-play, where models take on dual roles to create a self-improvement loop (Chen et al., 2024; Zhang et al., 2024), has recently been adapted to improve language models without human data. This approach has been particularly fruitful in verifiable domains like code generation, where a “Coder” agent’s program is verified by a “Tester” agent’s unit tests (Lin et al., 2025; Wang et al., 2025a; Pourcel et al., 2025; Jiang et al., 2025). More advanced frameworks push autonomy further by learning to generate the problems themselves, creating an adaptive curriculum from a small seed of examples or from scratch (Zhao et al., 2025a; Li et al., 2025c; Zhou et al., 2025a; Fang et al., 2025). Our work distinguishes itself by extending this paradigm to general reasoning domains that lack such verifiable environments, like coding tasks."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                517,
+                826,
+                643
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.3 REINFORCEMENT LEARNING WITH VERIFIABLE REWARDS (RLVR)"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                661,
+                684,
+                676
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Reinforcement Learning with Verifiable Rewards has been widely adopted as a versatile paradigm for enhancing LLMs across a multitude of tasks (Li et al., 2025d; DeepSeek-AI et al., 2025; Shao et al., 2024). Its effectiveness is demonstrated in diverse applications such as relation extraction (Dai et al., 2025), interactive GUI navigation (Shi et al., 2025b) and search-engine utilization (Jin et al., 2025). While early implementations relied on rule-based verifiers, recent work has begun to explore more sophisticated, model-based verifiers (Ma et al., 2025; Li et al., 2025b; 2024)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                688,
+                826,
+                773
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "6 LIMITATION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                794,
+                308,
+                809
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "While R-Zero demonstrates strong improvements in reasoning performance across multiple domains, several limitations remain. First, the core mechanism of R-Zero relies on domains where correctness can be objectively verified. The Challenger–Solver co-evolution process depends on clear, deterministic evaluation signals to produce reliable training feedback. Consequently, applying R-Zero to open-ended or subjective tasks, such as creative writing, dialogue, or preference-driven generation, remains difficult, as these tasks lack unambiguous correctness criteria. In addition, R-Zero currently employs specific labeling and verification strategies that may not generalize to all task types. Developing more robust and broadly applicable labeling mechanisms would further expand the range of domains where R-Zero can be effectively applied."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                825,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "9"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                825,
+                133
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "7 CONCLUSION AND FUTURE WORK"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                152,
+                496,
+                167
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this paper, we introduced R-Zero, a fully autonomous self-evolving framework that overcomes data dependency by having a Challenger and Solver co-evolve to create a self-generating curriculum. Our experiments demonstrate that R-Zero significantly improves LLM’s reasoning capability in multiple domains. Future work could further focus on improving efficiency, exploring more robust labeling techniques, and expanding R-Zero to new domains. Extending this self-evolutionary paradigm to open-ended generative tasks, such as creative writing or dialogue, where evaluation is subjective, remains a significant hurdle for future research."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                184,
+                826,
+                282
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "REPRODUCIBILITY STATEMENT"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                301,
+                439,
+                316
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To ensure the reproducibility of our research, we provide detailed information regarding our data and experimental setup. All datasets used in this work are publicly available; we provide details on data sources, any postprocess steps in Appendix B. A comprehensive list of all hyperparameters for each experiment can be found in a table in Appendix B and Sec. 3."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                333,
+                826,
+                390
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "REFERENCES"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                173,
+                409,
+                287,
+                424
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Shivam Agarwal, Zimin Zhang, Lifan Yuan, Jiawei Han, and Hao Peng. The unreasonable effectiveness of entropy minimization in llm reasoning. ArXiv preprint, abs/2505.15134, 2025."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                431,
+                823,
+                460
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Sanghwan Bae, Jiwoo Hong, Min Young Lee, Hanbyul Kim, JeongYeon Nam, et al. Online difficulty filtering for reasoning oriented reinforcement learning. ArXiv preprint, abs/2504.03380, 2025."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                174,
+                469,
+                823,
+                498
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Akhiad Bercovich, Itay Levy, Izik Golan, Mohammad Dabbah, Ran El-Yaniv, et al. Llamanemotron: Efficient reasoning models. ArXiv preprint, abs/2505.00949, 2025."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                174,
+                506,
+                823,
+                534
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Martin Briesch, Dominik Sobania, and Franz Rothlauf. Large language models suffer from their own output: An analysis of the self-consuming training loop. ArXiv preprint, abs/2311.16822, 2023."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                174,
+                544,
+                823,
+                584
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Zixiang Chen, Yihe Deng, Huizhuo Yuan, Kaixuan Ji, and Quanquan Gu. Self-play fine-tuning converts weak language models to strong language models. arXiv preprint arXiv:2401.01335, 2024."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                174,
+                594,
+                823,
+                635
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Daixuan Cheng, Shaohan Huang, Xuekai Zhu, Bo Dai, Wayne Xin Zhao, et al. Reasoning with exploration: An entropy perspective. ArXiv preprint, abs/2506.14758, 2025."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                645,
+                823,
+                674
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Karl Cobbe, Vineet Kosaraju, Mo Bavarian, Mark Chen, Heewoo Jun, et al. Training verifiers to solve math word problems. ArXiv preprint, abs/2110.14168, 2021."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                174,
+                683,
+                823,
+                710
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Runpeng Dai, Tong Zheng, Run Yang, and Hongtu Zhu. R1-re: Cross-domain relationship extraction with rlvr. ArXiv preprint, abs/2507.04642, 2025."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                174,
+                719,
+                823,
+                747
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "DeepSeek-AI, Daya Guo, Dejian Yang, Haowei Zhang, Jun-Mei Song, et al. Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement learning. ArXiv preprint, abs/2501.12948, 2025."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                174,
+                756,
+                823,
+                797
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Elvis Dohmatob, Yunzhen Feng, Arjun Subramonian, and Julia Kempe. Strong model collapse. ArXiv preprint, abs/2410.04840, 2024a."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                174,
+                806,
+                823,
+                835
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Elvis Dohmatob, Yunzhen Feng, Pu Yang, Franc¸ois Charton, and Julia Kempe. A tale of tails: Model collapse as a change of scaling laws. In Forty-first International Conference on Machine Learning, ICML 2024, Vienna, Austria, July 21-27, 2024, 2024b."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                174,
+                845,
+                823,
+                887
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Xinrun Du, Yifan Yao, Kaijing Ma, Bingli Wang, Tianyu Zheng, et al. Supergpqa: Scaling llm evaluation across 285 graduate disciplines. ArXiv preprint, abs/2502.14739, 2025."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                895,
+                823,
+                922
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "10"
+                    }
+                ]
+            },
+            "bbox": [
+                490,
+                948,
+                509,
+                960
+            ]
+        }
+    ]
+]

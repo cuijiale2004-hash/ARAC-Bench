@@ -1,0 +1,86 @@
+{
+  "overview": "HISTOGRAPH introduces a two-stage attention-based pooling layer for GNNs that aggregates historical node activations across layers via layer-wise attention (with signed normalization) and node-wise self-attention at readout, mitigating over-smoothing and improving graph-level, node-level, and link-level predictions across diverse benchmarks.",
+  "count": 16,
+  "modules": [
+    {
+      "id": 1,
+      "name": "Data Loading and Preprocessing",
+      "description": "Loading and preprocessing of TU benchmark datasets (IMDB-B, IMDB-M, MUTAG, PTC, PROTEINS, RDT-B, NCI1), OGB molecular datasets (MOLHIV, MOLBBBP, MOLTOX21, TOXCAST), node classification datasets (Cora, Citeseer, Pubmed, Actor, Squirrel, Chameleon), and link prediction dataset (OGBL-COLLAB). Handles dataset splits, feature normalization, and conversion to PyTorch Geometric data objects."
+    },
+    {
+      "id": 2,
+      "name": "Backbone GNN Architectures",
+      "description": "Implementation of backbone GNN encoders including GCN and GIN with configurable layer depth (from 2 to 64 layers). Each layer stores its intermediate node representations as historical activations, with optional per-layer linear projections to a common hidden dimension when layer output dimensionalities differ."
+    },
+    {
+      "id": 3,
+      "name": "Input Projection and Sinusoidal Positional Encoding",
+      "description": "Projects historical graph activations (stacked node embeddings across L layers) to a common hidden dimension D via a shared linear transformation. Adds fixed sinusoidal positional encodings over the layer index to inject layer-ordering information, broadcast across the node dimension."
+    },
+    {
+      "id": 4,
+      "name": "Layer-wise Attention Module",
+      "description": "Implements cross-layer attention where the final-layer embedding serves as the query and all historical layer embeddings serve as key and value. Computes scaled dot-product attention logits, averages them across nodes to obtain per-layer scores, then applies signed normalization (division by sum rather than softmax) to permit negative weights, enabling additive and subtractive filtering across the layer trajectory."
+    },
+    {
+      "id": 5,
+      "name": "Node-wise Self-Attention Module",
+      "description": "Applies multi-head self-attention (MHSA) over the cross-layer aggregated node embeddings exactly once at the readout stage, without spatial positional encodings to preserve permutation invariance. Optionally includes residual connections and LayerNorm. Produces context-aware node embeddings that model spatial interactions across the graph."
+    },
+    {
+      "id": 6,
+      "name": "HISTOGRAPH Model Integration",
+      "description": "Assembles the full HISTOGRAPH pipeline: (1) backbone GNN produces historical activations, (2) input projection with positional encoding, (3) layer-wise attention aggregation into per-node embeddings H, (4) node-wise self-attention refinement into Z, (5) global average pooling over nodes for graph-level representation G. Includes a learnable convex combination with mean-pooling baseline for training stabilization."
+    },
+    {
+      "id": 7,
+      "name": "End-to-End Training Loop",
+      "description": "Implements the standard end-to-end training workflow where both the backbone GNN and HISTOGRAPH head are trained jointly. Includes epoch management, loss computation (cross-entropy for classification, BCE for molecular tasks), gradient computation through the full model, and standard optimizer step with configurable learning rate scheduling."
+    },
+    {
+      "id": 8,
+      "name": "Frozen Backbone Fine-tuning (FT Mode)",
+      "description": "Implements the post-processing mode where a pretrained GNN backbone is frozen and only the HISTOGRAPH head is trained. Caches N×L×D historical activations per graph in a single forward pass, skips gradient computation through the backbone, and applies backpropagation only to the HISTOGRAPH head, substantially reducing memory and training time."
+    },
+    {
+      "id": 9,
+      "name": "Full Fine-tuning Mode",
+      "description": "Implements joint fine-tuning where both the pretrained backbone and the HISTOGRAPH head are trained together starting from a pretrained checkpoint. Allows the backbone weights to adapt while the HISTOGRAPH head learns to leverage historical activations."
+    },
+    {
+      "id": 10,
+      "name": "Evaluation Metrics Computation",
+      "description": "Implements all evaluation metrics used in the paper: classification accuracy with standard deviation for TU datasets, ROC-AUC for OGB molecular datasets, node classification accuracy for heterophilic/homophilic graphs, and Hits@50 for link prediction on OGBL-COLLAB. Supports multi-fold evaluation with mean and standard deviation reporting."
+    },
+    {
+      "id": 11,
+      "name": "Graph Classification Experiment Pipeline",
+      "description": "Runs the full graph classification experiments on TU datasets (7 datasets) and OGB datasets (4 datasets), comparing HISTOGRAPH against baselines including kernel methods, flat pooling (Mean/Max/Sum, Set2Set, JKNet), node-dropping pooling (SortPool, SAGPool, TopKPool, ASAP), clustering-based pooling (DiffPool, MinCutPool, HaarPool, StructPool), and attention-based pooling (GMT, DKEPool, SOPool). Configures backbone (5-layer GIN for TU, 3-layer GCN for OGB) and reports top-3 rankings."
+    },
+    {
+      "id": 12,
+      "name": "Node Classification and Depth Robustness Experiment",
+      "description": "Evaluates HISTOGRAPH on node classification across homophilic (Cora, Citeseer, Pubmed) and heterophilic (Actor, Squirrel, Chameleon) datasets. Runs depth-scaling experiments with GCN backbones of 2, 4, 8, 16, 32, and 64 layers to demonstrate HISTOGRAPH's mitigation of over-smoothing. Computes feature distance metrics across layers to quantify embedding diversity."
+    },
+    {
+      "id": 13,
+      "name": "Link Prediction Experiment",
+      "description": "Evaluates HISTOGRAPH as a drop-in replacement for the readout function on the OGBL-COLLAB link prediction benchmark using a GCN backbone. Reports Hits@50 on both test and validation sets, comparing against baseline GCN readout."
+    },
+    {
+      "id": 14,
+      "name": "Ablation Study Framework",
+      "description": "Implements controlled ablation experiments: (1) removing signed normalization (division-by-sum), (2) disabling layer-wise attention, (3) disabling node-wise attention, (4) replacing HISTOGRAPH with mean aggregation over all layers, (5) replacing with randomized attention, (6) varying number of historical layers retained. Reports accuracy degradation per component on PROTEINS and other datasets."
+    },
+    {
+      "id": 15,
+      "name": "Attention Visualization and Interpretability",
+      "description": "Generates layer-wise attention weight profiles across training regimes to show early-layer and final-layer emphasis. Plots embedding evolution (normed difference between final and intermediate representations) throughout training. Produces signal transformation visualizations on barbell graphs comparing GCN and HISTOGRAPH outputs, demonstrating adaptive trajectory filtering (low-pass vs high-pass behavior)."
+    },
+    {
+      "id": 16,
+      "name": "Computational Efficiency and Runtime Analysis",
+      "description": "Measures average training and inference time per epoch across configurations (3-layer and 32-layer GCN) on MOLHIV and TOXCAST datasets. Compares MeanPool, HISTOGRAPH (end-to-end), HISTOGRAPH (FT), and GMT baselines. Reports per-graph complexity analysis (O(NLD+N²D)) and validates that HISTOGRAPH adds only modest overhead relative to standard GNN forward pass while being significantly faster than full graph transformer layers."
+    }
+  ]
+}

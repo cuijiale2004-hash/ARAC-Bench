@@ -1,0 +1,7 @@
+Given Topic: Continual learning under parameter-efficient fine-tuning paradigms faces a critical dilemma: classical methods incur prohibitive costs by updating full backbones, while recent lightweight approaches rely on shallow, single-step retrieval that insufficiently reactivates historical task knowledge and often demands extra forward passes for query construction. The core scientific issue is how to enable deep, iterative memory activation within latent representations without increasing computational overhead, thereby alleviating catastrophic forgetting under strict resource constraints in incremental learning scenarios.
+
+Given Inspiration:
+1. Biological memory systems engage in multi-round associative recall and integration to robustly reactivate historical traces, suggesting that iterative recurrence is more effective than single-shot access for memory retrieval.
+2. Existing lightweight continual learning paradigms are limited by shallow retrieval depth, wherein one-time memory access inadequately awakens prior knowledge and constrains the stability-plasticity balance.
+3. Iterative numerical methods in optimization suggest that sequential refinement within a structured subspace can implicitly approximate higher-order corrective terms without explicit construction of costly second-order operators.
+4. Latent-space dynamics offer a natural substrate for budget-controlled retrieval, where convergence-driven iteration limits can replace redundant reconstruction of high-level features.

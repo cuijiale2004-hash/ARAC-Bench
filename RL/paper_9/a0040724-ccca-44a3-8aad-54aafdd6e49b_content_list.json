@@ -1,0 +1,1301 @@
+[
+    {
+        "type": "text",
+        "text": "ABSTRACT",
+        "text_level": 2,
+        "bbox": [
+            450,
+            400,
+            547,
+            415
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Practical guidance on training Large Language Models (LLMs) to leverage Code Interpreter across diverse tasks remains lacking. We present R1-Code-Interpreter, an extension of a text-only LLM trained via multi-turn supervised fine-tuning (SFT) and reinforcement learning (RL) to autonomously generate multiple code queries during step-by-step reasoning. Unlike prior RL + tool-use efforts focused on narrow domains such as math or retrieval, we curate 144 diverse reasoning and planning tasks and show that training a general-purpose Code Interpreter across them presents significant challenges due to task heterogeneity and scarcity of effective samples. To address this, we introduce a multi-stage curriculum learning approach that partitions training samples by measured improvement potential. The RL training prioritizes samples with higher potential and gradually shifts to lower-potential ones, increasing the average RL gains from merely +3.4% to +9.3% across Qwen-2.5 models (3/7/14B). Our final model, R1-CI-14B, improves average accuracy on the 37 test tasks from 44.1% to 72.4%, outperforming text-only GPT-4o (58.6%) and GPT-4o with Code Interpreter (70.9%). Notably, R1-CI-14B also exhibits emergent self-checking behavior through code generation. Datasets, Codes, and Models are available at https://github.com/yongchao98/R1-Code-Interpreter and https://huggingface.co/yongchao98.",
+        "bbox": [
+            230,
+            430,
+            767,
+            696
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "1 INTRODUCTION",
+        "text_level": 2,
+        "bbox": [
+            174,
+            719,
+            338,
+            734
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "While reinforcement learning (RL)-based fine-tuning has significantly improved LLMs’ reasoning and planning Wang et al. (2024); Guo et al. (2025); Jaech et al. (2024), models still struggle with seemingly simple tasks (Chen et al., 2025) and incur high token costs during inference-time search (Chen et al., 2024a). Textual reasoning excels at semantics and commonsense, but falls short in precise computation, symbolic manipulation, optimization, and algorithmic processing (Valmeekam et al., 2022). In contrast, symbolic code generation handles these rigorously and benefits from external tools (e.g., equation solvers). Prompting LLMs to generate and execute code often outperforms pure textual reasoning (Madaan et al., 2022; Liang et al., 2022; Chen et al., 2022).",
+        "bbox": [
+            169,
+            750,
+            826,
+            862
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "A key challenge is guiding LLMs to decide when to rely on textual reasoning versus programmatic solutions, given that most input questions lack explicit cues about which approach is best and the possible text/code solution space is large. OpenAI’s GPT models address this by incorporating a Code Interpreter, allowing iterative code generation and reasoning over outputs (Achiam et al.,",
+        "bbox": [
+            169,
+            868,
+            826,
+            925
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_number",
+        "text": "1",
+        "bbox": [
+            493,
+            949,
+            503,
+            959
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "chart",
+        "img_path": "images/edcff094a248a5bdcdc0dce77a8b007d0ddf85b774d1a78d1aab3eab1f99dffc.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            227,
+            104,
+            468,
+            228
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "chart",
+        "img_path": "images/f37e6ff7c55954bcec7881e6aa4a7751460720105aaa60d784f2989dfd5eecda.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            486,
+            103,
+            735,
+            227
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "image",
+        "img_path": "images/5c6a3416819d1c3262a210bb6310e94c8e1cfcbed3118bed94f5d8c2eea845a1.jpg",
+        "image_caption": [
+            "Figure 1: Training Code Interpreter-augmented reasoning models with multi-stage GRPO on 144 reasoning and planning tasks. (a) Our best model, R1-CI-14B, outperforms both GPT-4o (text-only) and GPT-4o with Code Interpreter. (b) Training reward and test scores improve steadily through the curriculum learning, then plateau at stage 4 after adding low-potential samples. (c) To assess sample effectiveness, we estimate improvement potential by repeatedly sampling answers with different agent frameworks and analyzing the correct/wrong distribution. GRPO begins with high-potential samples and gradually incorporates lower-potential ones."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            228,
+            233,
+            767,
+            387
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "2023). However, recent work Chen et al. (2024c) show that current Code Interpreter implementations struggle to effectively steer between text and code, underutilizing symbolic capabilities. Recent work such as ToRL (Li et al., 2025b) and ReTool (Feng et al., 2025) investigates training reasoning models to integrate with Code Interpreters. However, their training and evaluation are limited to math problems, leaving a significant gap from real-world applications that demand effectiveness across broader benchmarks. ToolRL (Qian et al., 2025) instead focuses on teaching models to select among multiple tools, where the Code Interpreter is used only for generating relatively simple code. Currently, public research still lacks a comprehensive understanding of how to fine-tune LLMs to integrate with Code Interpreter for robust, generalizable performance across hundreds of tasks.",
+        "bbox": [
+            169,
+            547,
+            826,
+            676
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "To tackle these challenges, we present R1-Code-Interpreter, a framework for integrating Code Interpreter into open-source LLMs. We curate 144 reasoning and planning tasks and synthesize 6.5k multi-turn text/code trajectories for supervised fine-tuning (SFT), followed by Group Relative Policy Optimization (GRPO) (Shao et al., 2024). In contrast to prior work, which shows that RL training can yield substantial improvements on single or simple tasks, we find that applying traditional DeepSeek-style RL training to a general Code Interpreter across 144 challenging tasks yields only marginal gains. This difficulty arises from task heterogeneity and the scarcity of effective samples. To address this, we propose a novel multi-stage curriculum learning approach guided by measured improvement potential. Specifically, after the SFT stage, the model is prompted with diverse single- and multi-turn agent strategies to answer the same question. The accuracy discrepancies among these answers are used to estimate improvement potential. RL training then proceeds in four stages, beginning with high-potential samples and moving to lower-potential ones.",
+        "bbox": [
+            169,
+            680,
+            826,
+            849
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "We finetune Qwen-2.5 (Qwen et al., 2025) models (3/7/14B), achieving average success rate improvements of 33.7% on 107 train tasks and 34.1% on 37 test tasks. As shown in Fig. 1, our best model, R1-CI-14B, raises testing accuracy from 44.1% to 72.4%, outperforming much larger GPT-4o textonly (58.6%) and GPT-4o with its inherent Code Interpreter (70.9%). The resulting model effectively combines code execution with textual reasoning, solving tasks through iterative “execute-and-explore”",
+        "bbox": [
+            169,
+            854,
+            828,
+            925
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "page_number",
+        "text": "2",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "interactions before producing final answers. The model gradually learns to generate code to verify its answers, an emergent behavior rarely observed before training. Our main contributions are:",
+        "bbox": [
+            169,
+            104,
+            825,
+            133
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "1) To our best knowledge, this is the first published work to train general Code Interpreter across multiple tasks and domains. Unlike prior work that focused on single task or tasks with simple reasoning, we curate 144 challenging reasoning and planning tasks, each with over 200 samples of varying difficulty. All tasks are standardized into a unified format to enable efficient rollout and automated correctness evaluation. They cover diverse reasoning skills, including mathematical, spatial, logical, ordinal, optimization, and search-based reasoning.",
+        "bbox": [
+            169,
+            138,
+            826,
+            224
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "2) Analysis of RL limitations and proposal of an effective multi-stage curriculum learning framework guided by improvement potential. We synthesize 6.5k multi-turn trajectories with interleaved reasoning and code execution for SFT, followed by RL for further optimization. By tuning the number of training tasks, we find that RL for general-purpose Code Interpreter is substantially more challenging due to task heterogeneity and scarcity of effective samples. Our proposed multistage curriculum learning with measured improvement potential effectively mitigates this bottleneck, raising RL performance gains from +3.4% to +9.3%.",
+        "bbox": [
+            169,
+            229,
+            826,
+            329
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "3) Cost-efficient training by separating model gradient calculation from code execution. We find that time-consuming code execution significantly reduces GPU utilization and accounts for a large portion of RL training time in the Code Interpreter, limiting the maximum batch size and hindering parallel efficiency. To address this, we design a specialized Code Execution Sandbox on multiple CPU nodes, decoupling execution from GPU-based gradient computation. This approach reduces overall training time by 39%, decreasing from around 4500 to 1845 GPU hours.",
+        "bbox": [
+            169,
+            334,
+            826,
+            419
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "4) Comparison of training strategies: 1) The multi-turn Code Interpreter framework proves more generalizable and effective than single-turn text or code generation frameworks. 2) Warm-starting with SFT significantly improves the training of Code Interpreter. 3) Qwen-2.5 models as base are better than DeepSeek R1-distilled reasoning models.",
+        "bbox": [
+            169,
+            425,
+            826,
+            482
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "2 CHALLENGES IN 144 REASONING AND PLANNING TASKS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            500,
+            686,
+            516
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "We compile 144 tasks from three major reasoning and planning benchmarks: 33 from Sym-Bench (Chen et al., 2025), 27 from Big-Bench-Hard (Suzgun et al., 2022), and 84 from Reasoning-Gym<sup>1</sup>. After removing near-duplicates, each task retains over 200 diverse samples. All tasks are standardized into a unified format and evaluated using rule-based criteria (e.g., exact match or constraint checks) for efficient rollout and testing. The tasks cover diverse reasoning and planning challenges for LLM evaluation. Detailed task descriptions are in Appendix Sec. I, and their associated capability categories, logic, spatial, order, optimization, search, and math, are summarized in Appendix Table 6. Recent work Chen et al. (2024c) highlights key challenges in steering LLMs to choose effectively between code and text: (1) The better mode (code vs. text) depends on task type, complexity, and model capabilities, which is often hard to predict; (2) LLM-generated code frequently degenerates into hard-coded text-like scripts, limiting its symbolic utility (Yang et al., 2024); (3) Many challenging tasks require models to iteratively explore and optimize the solutions in a difficult multi-turn behavior. Appendix Fig. 11 shows a representative example of GPT-5 failing to use the Code Interpreter.",
+        "bbox": [
+            169,
+            531,
+            828,
+            727
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "3 R1-CODE-INTERPRETER",
+        "text_level": 2,
+        "bbox": [
+            171,
+            744,
+            413,
+            761
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Fig. 2 shows a representative example of R1-Code-Interpreter in action. The model iteratively reasons, optionally generates code for execution, and refines its reasoning based on the results, continuing this process until the final answer is produced. The Code Interpreter is invoked only when deemed beneficial; otherwise, the model relies on pure textual reasoning. The system instruction directs the model to enclose code between the natural tokens ‘\\`\\`\\` python’ and ‘\\`\\`\\`’ when execution is needed. Upon detecting a code block, the system extracts and executes it via the Code Interpreter, then appends the result (prefixed with the special token ‘Code Execution Results:’) to the ongoing generation. This loop continues until either (1) the maximum of 8 code calls is reached, or (2) the model emits a final answer enclosed between $\\bullet _ { < } < < \\bullet$ and $\\bullet > > > { > { \\infty } }$",
+        "bbox": [
+            169,
+            776,
+            826,
+            902
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "page_footnote",
+        "text": "<sup>1</sup>https://github.com/open-thought/reasoning-gym",
+        "bbox": [
+            191,
+            909,
+            602,
+            925
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "page_number",
+        "text": "3",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "image",
+        "img_path": "images/58522ffe27e9337b88cb5a1c32ed2f88753f42e3c2fadcd134de9197855af293.jpg",
+        "image_caption": [
+            "Figure 2: Example response of R1-Code-Interpreter in Blocksworld task."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            207,
+            101,
+            789,
+            406
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Response format: To train R1-Code-Interpreter, we begin by designing a simple head prompt that guides the initial LLM to follow our predefined structure. As shown in Table 1, the prompt organizes the output into three iterative parts: reasoning, optional Code Interpreter invocation, and the final answer. We avoid imposing content-specific constraints (e.g., enforcing reflective reasoning or code calls) to preserve the model’s natural learning dynamics during RL.",
+        "bbox": [
+            169,
+            460,
+            826,
+            532
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Unlike prior work that enforces section tags like ‘<think>’, ‘<answer>’, or ‘<search>’ (Guo et al., 2025; Jin et al., 2025; Zhang et al., 2025), we rely solely on the final answer marker ‘<<<answer content>>>’ for answer extraction. For code, we leverage the LLM’s pretrained behavior of naturally starting code blocks with ‘\\`\\`\\` python’, which serves as implicit tagging. Our initial tests show this natural format performs better than forced tagging, as it aligns more closely with the model’s original distribution.",
+        "bbox": [
+            169,
+            537,
+            826,
+            625
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Table 1: Head prompt for R1-Code-Interpreter.",
+        "bbox": [
+            341,
+            631,
+            653,
+            647
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "The User asks a question, and you solve it. You first generate the reasoning and thinking process and then provide the User with the final answer. During the thinking process, \\*\\*you can generate python code\\*\\* for efficient searching, optimization, and computing with the format of starting the python block with \\`\\`\\` python. <sub>\\*\\*</sub>A code query must involve only a single script that uses ‘print’ function for the output.<sub>\\*\\*</sub>. Once the code script is complete, stop the generation. Then, the code interpreter platform will execute the code and return the execution output and error. Once you feel you are ready for the final answer, directly return the answer with the format <<<answer content>>> at the end of your response. Otherwise, you can continue your reasoning process and possibly generate mor code query to solve the problem.",
+        "bbox": [
+            174,
+            655,
+            821,
+            776
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "4 TRAINING SETTINGS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            808,
+            382,
+            824
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "We fine-tune R1-Code-Interpreter using SFT and GRPO on a subset of 144 tasks. We randomly select 107 tasks for training: 26 from SymBench, 20 from Big-Bench-Hard, and 61 from Reasoning-Gym, ensuring no sample overlaps with the test set. The remaining 37 tasks are used for evaluation. To generate SFT supervision, we prompt GPT-4o to produce multiple reasoning/execution trajectories per task and retain only those yielding correct answers. To enhance diversity and adaptability, we use varied prompt formats: some allow free-form reasoning such as the prompt in Table 1, while others enforce transitions between text and code. To encourage exploratory reasoning, we increase the proportion of answer trajectories with multi-turn generation, particularly those that adaptively adjust solving strategies (e.g., switching between code and text, or refining generated code). To balance the dataset, each task includes at most 70 valid trajectories, resulting in a final dataset of 6.5k highquality samples for SFT. To avoid training collapse, the training samples in GRPO has no overlaps with SFT. We conduct experiments using three default base models: Qwen2.5-14B-Instruct-1M, Qwen2.5-7B-Instruct-1M, and Qwen2.5-3B-Instruct (Qwen et al., 2025).",
+        "bbox": [
+            169,
+            839,
+            826,
+            925
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            173,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "page_number",
+        "text": "4",
+        "bbox": [
+            491,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            104,
+            826,
+            203
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "SFT is trained for 3 epochs to prevent overfitting. GRPO uses a learning rate of 1e-6 with 5 sampled responses per prompt and a KL penalty of 0.001. Learning rates are tuned in early-stage experiments. Training and inference temperatures are set to 1.0 and 0.6, respectively. We use a batch size of 32 for SFT and 128 for GRPO. Both stages perform full-parameter fine-tuning on 16 H100 GPUs. Answers are evaluated using predefined rules, with GPT-4o assisting in format normalization when necessary. For methods that output code as the final answer, we extract and execute the code using predefined logic to obtain the final result.",
+        "bbox": [
+            169,
+            208,
+            828,
+            306
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "4.1 GRPO WITH CODE INTERPRETER",
+        "text_level": 2,
+        "bbox": [
+            171,
+            321,
+            450,
+            337
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "We formulate our RL objective with a Code Interpreter $\\mathcal { C }$ as:",
+        "bbox": [
+            169,
+            348,
+            571,
+            363
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\max _ {\\pi_ {\\theta}} \\mathbb {E} _ {x \\sim D, y \\sim \\pi_ {\\theta} (\\cdot | x; \\mathcal {C})} [ r _ {\\phi} (x, y) ] - \\beta \\mathbb {D} _ {\\mathrm{KL}} [ \\pi_ {\\theta} (y | x; \\mathcal {C}) \\| \\pi_ {\\mathrm{ref}} (y | x; \\mathcal {C}) ],\\tag{4.1}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            246,
+            368,
+            748,
+            391
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "where $\\pi _ { \\theta }$ is the policy $\\mathbf { L L M } , \\pi _ { \\mathrm { r e f } }$ is the reference model, $r _ { \\phi }$ is the reward, and $\\mathbb { D } _ { \\mathrm { K L } }$ is the KL divergence (Shlens, 2014). Unlike prior work (Guo et al., 2025) that samples from $\\pi _ { \\boldsymbol { \\theta } } ( \\cdot \\mid x )$ , our policy $\\pi _ { \\theta } ( \\cdot \\mid x ; { \\mathcal { C } } )$ integrates external code execution, enabling hybrid reasoning. For each input $x ,$ GRPO samples a group of responses $\\left\\{ y _ { 1 } , y _ { 2 } , \\ldots , y _ { G } \\right\\}$ } from the reference policy $\\pi _ { \\mathrm { r e f } }$ and optimizes the policy by maximizing:",
+        "bbox": [
+            169,
+            396,
+            826,
+            468
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\begin{array}{l} \\mathcal {J} _ {\\mathrm{GRPO}} (\\theta) = \\mathbb {E} _ {x \\sim D, y _ {1: G} \\sim \\pi_ {\\mathrm{old}} (\\nmid x; \\mathcal {C})} \\bigg [ \\frac {1}{G} \\sum_ {i = 1} ^ {G} \\frac {1}{| y _ {i} |} \\sum_ {t = 1} ^ {| y _ {i} |} \\min \\Bigl (\\frac {\\pi_ {\\theta} (y _ {i , t} \\mid x , y _ {i , <   t} ; \\mathcal {C})}{\\pi_ {\\mathrm{ref}} (y _ {i , t} \\mid x , y _ {i , <   t} ; \\mathcal {C})}   \\hat {A} _ {i, t}, \\\\ \\qquad \\operatorname{clip} \\Bigl (\\frac {\\pi_ {\\theta} (y _ {i , t} \\mid x , y _ {i , <   t} ; \\mathcal {C})}{\\pi_ {\\mathrm{ref}} (y _ {i , t} \\mid x , y _ {i , <   t} ; \\mathcal {C})}, 1 - \\epsilon ,   1 + \\epsilon \\Bigr) \\hat {A} _ {i, t} \\Bigr) \\bigg ] -   \\beta   \\mathbb {D} _ {\\mathrm{KL}} \\bigl [ \\pi_ {\\theta}   \\|   \\pi_ {\\mathrm{ref}} \\bigr ], \\end{array}\\tag{4.2}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            186,
+            474,
+            779,
+            564
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "where ϵ and $\\beta$ are hyperparameters, and $\\hat { A } _ { i , t }$ is the advantage, computed from the relative rewards of responses within each group. We mask code execution tokens and compute the policy gradient only over LLM-generated tokens. The total rule-based reward R is defined as a weighted combination of correctness, format compliance, and efficiency. The agent receives +1.0 if the final outcome is correct, +0.1 if all intermediate responses satisfy the format requirements (and −0.1 otherwise), and −0.1 if the number of generation turns exceeds six. In factual reasoning tasks, final outcome correctness is judged by exact matching; in planning tasks, it checks whether all constraints and goals are satisfied.",
+        "bbox": [
+            169,
+            571,
+            826,
+            685
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Code Execution Sandbox: To save training and inference time, code execution allows up to 8 code calls and a 60-second timeout per script. However, as shown in Appendix Fig. 12, code execution lowers GPU utilization during training. Multi-turn code execution can be time-intensive, making Code Interpreter training significantly slower. Meanwhile, executing code on the GPU increases the risk of memory overflow, which forces smaller batch sizes and reduces training efficiency. To address this, we decouple gradient computation from code execution by deploying a specialized sandbox on five 64-core CPU nodes. Generated codes are executed directly in this sandbox in parallel during batch inference, reducing overall RL training time by about 39%.",
+        "bbox": [
+            169,
+            691,
+            826,
+            804
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "4.2 BOTTLENECKS IN GRPO TRAINING OF CODE INTERPRETER",
+        "text_level": 2,
+        "bbox": [
+            171,
+            816,
+            630,
+            830
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Fig. 3a–b show the evolution of GRPO training rewards and test scores. Unlike prior work focusing on single task (Jin et al., 2025; Zhang et al., 2025; Guan et al., 2025), where direct RL training effectively integrates tools with LLMs and achieves notable improvement, we find that training a Code Interpreter on over one hundred diverse tasks is highly challenging. Direct DeepSeek-style GRPO yields little improvement: task heterogeneity dilutes the reward signal, preventing effective optimization. Moreover, as shown in Fig. 3b, many tasks remain at scores below 10 (often 0), indicating that tasks are too difficult for LLMs to solve and rewards are too sparse to drive progress. In Fig. 3c, training on a single task shows clear improvement, consistent with prior work on singletask RL (Li et al., 2025b; Qian et al., 2025; Feng et al., 2025). Fig. 3d further varies the number of training tasks while fixing 50 samples per task. We observe that the maximum average score improvement decreases with task count, from a 27.4% lift in the single-task case to only 3.3% with 107 tasks. These results highlight how severe task heterogeneity and sparse effective samples hinder GRPO training, limiting its effectiveness.",
+        "bbox": [
+            169,
+            840,
+            826,
+            925
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "page_number",
+        "text": "5",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "chart",
+        "img_path": "images/e4726656cdd754b7a9ffd786c0dec42a8fdd2aed4afa236e6a973f4257705510.jpg",
+        "content": "",
+        "chart_caption": [
+            "(a)"
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            205,
+            104,
+            385,
+            296
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "chart",
+        "img_path": "images/1cc5b1050ed654bc818e6e128bb9b420c7c1cc6a233f4bdde28d51d1c8b59a2d.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            390,
+            106,
+            633,
+            294
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "chart",
+        "img_path": "images/5c74e3ad396c0de4ca3652f8f756b516f9fa16565a3e1532910f961323413035.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            642,
+            106,
+            805,
+            202
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "chart",
+        "img_path": "images/67a5ef8e3144aa6f5e1bdcea53c698076dd57a161c428beb5740dd35b4f055b5.jpg",
+        "content": "",
+        "chart_caption": [
+            "Figure 3: GRPO training without curriculum learning. (a) Training rewards increase slightly in the early steps, then plateau. (b) In the 14B setting, test scores across individual tasks (colored lines) show diverse trends, while the average score (bold black line) rises slightly before plateauing, mirroring (a). (c) Training curve on the single task Game24. (d) Average score improvement vs. number of tasks for GRPO training."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            642,
+            209,
+            807,
+            290
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            404,
+            826,
+            503
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Why vanilla GRPO underperforms on mixed data? Let $r _ { i } \\in \\{ 0 , 1 \\}$ be the final reward for rollout $y _ { i }$ in a group of size G, with group mean $\\begin{array} { r } { \\bar { r } = \\frac { 1 } { G } \\sum _ { j = 1 } ^ { G } r _ { j } } \\end{array}$ . Broadcasting the sequence-level advantage to tokens (and omitting clipping for clarity), the GRPO gradient splits into a policy term and a KL regularizer:",
+        "bbox": [
+            169,
+            508,
+            826,
+            570
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\nabla_ {\\theta} \\mathcal {J} _ {\\mathrm{GRPO}} (\\theta) = \\frac {1}{G} \\sum_ {i = 1} ^ {G} (r _ {i} - \\bar {r}) v _ {i} - \\beta \\nabla_ {\\theta} \\mathbb {D} _ {\\mathrm{KL}} \\left[ \\pi_ {\\theta} \\| \\pi_ {\\text {ref}} \\right], v _ {i} := \\frac {1}{| y _ {i} |} \\sum_ {t = 1} ^ {| y _ {i} |} \\nabla_ {\\theta} \\log \\pi_ {\\theta} \\left(y _ {i, t} \\mid x, y _ {i, <   t}; \\mathcal {C}\\right).\\tag{4.3}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            169,
+            578,
+            823,
+            619
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "If $r _ { i } \\stackrel { \\mathrm { i . i . d . } } { \\sim }$ Bernoulli(p), then",
+        "bbox": [
+            171,
+            632,
+            357,
+            651
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathbb {E} \\left[ (r _ {i} - \\bar {r}) ^ {2} \\right] = p (1 - p) \\left(1 - \\frac {1}{G}\\right).\\tag{4.4}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            374,
+            657,
+            620,
+            691
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Applying Cauchy–Schwarz to the policy term in equation 4.3 yields",
+        "bbox": [
+            171,
+            696,
+            620,
+            713
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathbb {E} \\left[ \\left\\| \\frac {1}{G} \\sum_ {i = 1} ^ {G} (r _ {i} - \\bar {r}) v _ {i} \\right\\| ^ {2} \\right] \\leq p (1 - p) \\left(1 - \\frac {1}{G}\\right) \\mathbb {E} \\left[ \\frac {1}{G} \\sum_ {i = 1} ^ {G} \\| v _ {i} \\| ^ {2} \\right].\\tag{4.5}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            267,
+            719,
+            727,
+            767
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Hence the policy signal is maximized at $\\begin{array} { r } { p = \\frac { 1 } { 2 } } \\end{array}$ and vanishes as $p  0$ or 1. In batches dominated by too-easy or too-hard items, the update is therefore governed by the KL term, contracting π<sub>θ</sub> toward $\\pi _ { \\mathrm { r e f } }$ . Hence, optimization cannot make headway. See Appendix Sec. E for detailed proving.",
+        "bbox": [
+            169,
+            776,
+            825,
+            820
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "4.3 MULTI-STAGE CURRICULUM LEARNING WITH POTENTIAL MEASUREMENT",
+        "text_level": 2,
+        "bbox": [
+            171,
+            835,
+            727,
+            849
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Based on above phenomenon and analysis, we propose a multi-stage curriculum learning method for GRPO training of a general Code Interpreter. Unlike conventional curriculum learning, which progresses from easy to difficult samples, our approach orders samples by their improvement potential, i.e., their expected benefit to model optimization. Samples that are either trivially easy (almost always solved) or excessively difficult (almost never solved) provide limited training signal. In contrast, samples that the model solves correctly about half the time offer the strongest optimization opportunities: training can steer the model toward the correct solution.",
+        "bbox": [
+            169,
+            854,
+            826,
+            925
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "page_number",
+        "text": "6",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "chart",
+        "img_path": "images/b2498dfc70cbe08d5021b4aec16376d4b30786c353b37c142893496c55c12dd6.jpg",
+        "content": "",
+        "chart_caption": [
+            "Figure 4: Multi-stage curriculum learning with the guidance of measured improvement potential for each sample."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            179,
+            109,
+            486,
+            260
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "chart",
+        "img_path": "images/e65dd0153a7425cf2d3dab9ef1fb93a92313a0de02c6fad0ef39a555d3faf196.jpg",
+        "content": "",
+        "chart_caption": [
+            "Figure 5: Score distribution across 144 training and testing tasks for the four compared methods."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            508,
+            109,
+            818,
+            267
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "table",
+        "img_path": "images/6672ca73c651b3fb4b3f1bb96b545d9176eae352021e5d121cf7494daa94735e.jpg",
+        "table_caption": [
+            "Table 2: Four pre-designed agents used in the measurement of improvement potential."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Full Name</td><td>Description (4 agents)</td></tr><tr><td>All Text</td><td>Prompting LLMs to reason using only text with Chain-of-Thought (CoT) (Wei et al., 2022).</td></tr><tr><td>All Code</td><td>Prompting LLMs to first reason with CoT, then produce code as the answer.</td></tr><tr><td>Code Agent</td><td>LLM determines the use of Code Interpreter during problem-solving with the prompt in Table 1.</td></tr><tr><td>CodeSteer</td><td>Code Agent guided by another Steering Agent based on the same LLM (Chen et al., 2025).</td></tr></table>",
+        "bbox": [
+            200,
+            359,
+            794,
+            468
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            492,
+            825,
+            522
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Estimating improvement potential: For Code-Interpreter-augmented LLMs, problem-solving can follow multiple strategies (e.g., pure textual reasoning, code execution, or mixed multi-turn approaches), resulting to notable performance gap. To capture this variability, we implement four agent variants (Table 2), each using distinct strategies to solve the same problem. Starting from the SFT-initialized base model, each agent generates 5 samples at different temperatures, yielding $N = 2 0$ answers per question. Let $a _ { i , j }$ denote the j-th answer for sample $x _ { i }$ , and $y _ { i , j } \\in \\{ 0 , 1 \\}$ its correctness label. The empirical correctness rate and the improvement potential score are defined as",
+        "bbox": [
+            169,
+            527,
+            826,
+            627
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "equation",
+        "text": "$$\np _ {i} = \\frac {1}{N} \\sum_ {j = 1} ^ {N} y _ {i, j}, \\quad \\Pi_ {i} = \\frac {p _ {i} (1 - p _ {i})}{\\frac {1}{4}} = 4 p _ {i} (1 - p _ {i}).\\tag{4.6}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            297,
+            638,
+            694,
+            680
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "By construction, $\\Pi _ { i } \\in [ 0 , 1 ]$ , maximized when $p _ { i } = 0 . 5$ (mixed outcomes) and minimized when $p _ { i } \\in \\{ 0 , 1 \\}$ (uniformly correct or incorrect). This formalizes our intuition and analysis in equation 4.5 that greatest improvement arises from samples with balanced successes and failures.",
+        "bbox": [
+            169,
+            694,
+            825,
+            738
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Multi-stage curriculum: To implement curriculum learning, we sort all training samples by $\\Pi _ { i }$ and partition them into four equally sized groups (four group IP ranges are: [0.0, 0.32], [0.32, 0.48], [0.48, 0.64], and [0.64, 1.00]), from highest to lowest potential. The partition is sample-wise rather than task-wise, as samples within the same task can differ significantly in potential due to varying difficulty. GRPO training begins with the highest-potential group, then progressively incorporates lower-potential groups in subsequent stages. Each stage runs for 150 steps, gradually expanding the training distribution until the full dataset is included by stage 4. Because the usable gradient scales with $p ( 1 - p )$ , ranking by Π<sub>i</sub> prioritizes samples with maximal expected signal. Fig. 4 shows training rewards and test scores over steps. Contrary to training without curriculum learning (Fig. 3), both metrics rise apparently, particularly in the first two stages. We also observe sharp drops in reward when new samples are merged at each new stage. However, little improvement is gained in the final stage, suggesting that adding low-potential samples offers limited benefit. These observations align with our theoretical analysis.",
+        "bbox": [
+            169,
+            743,
+            826,
+            925
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "page_number",
+        "text": "7",
+        "bbox": [
+            493,
+            946,
+            504,
+            959
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "5 EXPERIMENTS AND ANALYSIS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            103,
+            460,
+            118
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "5.1 OVERALL BETTER PERFORMANCE",
+        "text_level": 2,
+        "bbox": [
+            171,
+            133,
+            457,
+            147
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Baselines: To evaluate the effectiveness of R1-Code-Interpreter (R1-CI), we compare it against baselines: All Text, All Code, Code Agent, and CodeSteer (illustrated in Table 2). Note that Code Agent can also be regarded as a baseline, where the LLM is not fine-tuned with SFT or GRPO but is granted access to the Code Interpreter (CI wo Fine-tune). For broader comparison, we also compare R1-CI with GPT-4o + All Text and GPT-4o + OpenAI Code Interpreter. To assess the effectiveness of our introduced multi-stage curriculum learning and improvement potential, we compare against the following R1-CI variants: (1) a purely SFT-trained model without GRPO (R1-CI wo GRPO); (2) GRPO training without curriculum learning (R1-CI wo CL); and (3) GRPO with curriculum learning where data are calibrated by question difficulty rather than improvement potential (R1-CI wo IP).",
+        "bbox": [
+            169,
+            159,
+            826,
+            286
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Appendix Table 3 presents the experimental results of all compared methods across 107 training and 37 testing tasks. R1-CI significantly enhances the model’s reasoning and planning abilities, improving the average success rate by 36.4% on training tasks and 31.5% on testing tasks across 3B, 7B, and 14B model sizes. Notably, R1-CI-14B achieves a 72.4% success rate on testing tasks, outperforming the much larger GPT-4o with textual reasoning (58.6%) and GPT-4o with its trained Code Interpreter (70.9%). GPT-4o is utilized to synthesize SFT training data. After training, R1-CI 14B even outperforms GPT-4o. These consistent improvements across all model sizes highlight the method effectiveness and generalizability. Fig. 5 shows the score distribution across 144 tasks for the four compared methods. SFT and multi-stage curriculum learning of GRPO effectively reduce the number of tasks on which R1-CI models perform poorly. However, some tasks still yield low or even zero scores. This indicates that the inherent capabilities of the base LLM strongly affect overall performance, and training alone may not overcome limitations on tasks beyond the model’s inherent reasoning or knowledge abilities. When comparing R1-CI with R1-CI wo CL and R1-CL wo IP, we find incorporating multi-stage curriculum learning and using improvement potential instead of question difficulty as the calibration factor consistently enhance training performance across all three model sizes.",
+        "bbox": [
+            169,
+            291,
+            828,
+            513
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Evaluation on out-of-distribution (OOD) tasks. In Appendix Table 4, we evaluate the performance of R1-CI-7B and R1-CI-14B on unseen OOD tasks, including Graduate-Level Google-Proof Q&A (GPQA, Diamond) (Rein et al., 2024) and the American Invitational Mathematics Examination (AIME 24&25). Both models significantly outperform their untrained counterparts. In Appendix Fig. 13, we further assess the generalizability of our training framework by training the 14B model with SymBench and Reasoning-Gym as training data, and evaluating it on BBH as an OOD benchmark. The number of training tasks remained 107 as before. The green curve in the figure shows the new model’s performance on BBH, which is comparable to the purple curve representing the original R1-CI-14B model. These results demonstrate the satisfying generalizability of R1-Code-Interpreter to unseen tasks from diverse sources.",
+        "bbox": [
+            169,
+            520,
+            828,
+            660
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "chart",
+        "img_path": "images/1169f40c14f1ed016f2d6bf8d393081a49807fdc77be910f32fbe377c6de3603.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            192,
+            671,
+            397,
+            768
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "chart",
+        "img_path": "images/f085ead9bf993403155e65e47e611fd15c8b2c73f766d2952323446bba9c5a31.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            397,
+            672,
+            601,
+            768
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "chart",
+        "img_path": "images/ae94d5f52df37859ab0fb702132b79896a77bfa1cd9412ecdec8bee6328f7cbe.jpg",
+        "content": "",
+        "chart_caption": [
+            "Figure 6: Response characteristics of R1-CI models. (a) Proportion of answer trajectories that include self-checking with code. (b) Distribution of Code Interpreter usage number per answer. (c) Evolution of average response length per generation turn during the training process."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            602,
+            671,
+            805,
+            768
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "5.2 RESPONSE CHARACTERISTICS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            842,
+            424,
+            856
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Emergent behavior of Self-Checking: During GRPO training, we observe emergent behavior where the model integrates textual reasoning with code execution to improve solution verification. For example, in the final two reasoning turns of Fig. 2, the model generates code to test whether the proposed solution satisfies the constraints. Across test samples, the model learns to verify answers through either textual reasoning or code execution, exhibiting an emergent self-checking behavior that strengthens reasoning and planning. In Fig. 6a, we report the proportion of answer trajectories containing code-based self-checking, identified by querying GPT-4o on both current and preceding turns to determine whether the generated code attempts to validate earlier answers. After GRPO training, this proportion increases substantially, indicating that the model naturally acquires self-checking as a strategy to improve performance.",
+        "bbox": [
+            169,
+            867,
+            828,
+            925
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "page_number",
+        "text": "8",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            104,
+            826,
+            189
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Code usage turn number: In Fig. 6b, we show the distribution of Code Interpreter interaction turns: 0 indicates direct textual reasoning without code, 1 corresponds to solving with a single code execution, and values greater than 1 denote multi-turn code generation and refinement. The model learns to employ multi-turn reasoning with code, yet most problems are solved within fewer than four code interactions, keeping the reasoning process not overly costly.",
+        "bbox": [
+            169,
+            194,
+            826,
+            266
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Response length study: Previous work (Guo et al., 2025; Jin et al., 2025) observed that LLM responses tend to grow longer during RL training, as the model learns to explore solutions through long-chain reasoning. Fig. 6c shows the average response length over training steps. In contrast to prior findings, we observe no significant length increase even though GRPO truly improves model performance. Possible reasons include: (1) The SFT stage already instills long-chain reasoning; (2) The multi-turn interaction spreads reasoning across turns, reducing per-turn response length; (3) Code-augmented reasoning reduces reliance on long CoT chains, as it does not require iterative textual search.",
+        "bbox": [
+            169,
+            271,
+            826,
+            383
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "chart",
+        "img_path": "images/c4c5a127fc089ffcff5fb4b95beb175e34c156603d65ec748e04df364240480f.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            184,
+            390,
+            377,
+            511
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "chart",
+        "img_path": "images/183ab55d81b2d2315bd895aca00e92c41c6b31871592f191d38be2fd4e13771e.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            383,
+            390,
+            580,
+            511
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "chart",
+        "img_path": "images/b727778979fb51d8205a0a5fa9c4d2e42ea53e20ea9fc529ba37793013b4aab4.jpg",
+        "content": "",
+        "chart_caption": [
+            "Figure 7: Comparison of GRPO, PPO, and Reinforce++ as RL <sup>Figure</sup> <sup>8:</sup> <sup>Offline</sup> <sup>vs.</sup> <sup>online</sup> <sup>RL</sup> <sup>for</sup> multi-stage curriculum learning. algorithms."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            589,
+            393,
+            821,
+            508
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "5.3 ABLATION STUDY",
+        "text_level": 2,
+        "bbox": [
+            171,
+            573,
+            341,
+            588
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Multi-turn Code Interpreter: To investigate the gains from the multi-turn framework, we train the LLM with All Text and All Code using the same amount (6.5k) of GPT-4o sampled training data, as shown in Appendix Fig. 9a. Both All Text and All Code yield smaller improvements than CI, particularly on testing tasks, indicating that the multi-turn CI framework is more generalizable and effective, and that the gains are not primarily due to in-domain training.",
+        "bbox": [
+            169,
+            599,
+            826,
+            671
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "SFT dataset design In Appendix Fig. 9b, we further evaluate alternative SFT dataset designs: (1) w/ Wrong Data: In addition to the existing 6.5k correct answer trajectories, we also keep the same-sized incorrect answers synthesized by GPT-4o. However, this setting degrades model performance and increases variance, indicating instability. (2) w/o Varied Prompts: We synthesize the SFT dataset using a single generic prompt without varying code-use strategies. Results show that diverse prompts and strategies are crucial for enhancing dataset diversity and overall performance. (3) w/o Multi-Turn Emphasis: We remove the emphasis on multi-turn answer trajectories and adaptive solving strategies. This ablation leads to noticeable performance drops, demonstrating that diverse and high-quality multi-turn data play a key role in improving model capability.",
+        "bbox": [
+            169,
+            676,
+            826,
+            804
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Warm starts vs. cold starts: Appendix Fig. 15 compares GRPO training with and without the initial SFT stage. Unlike prior findings (Guo et al., 2025; Jin et al., 2025) suggesting SFT is unnecessary or only marginally helpful, we observe that SFT is crucial for enabling the model to reason effectively with the Code Interpreter. Multi-stage GRPO without the initial SFT stage brings mere improvements. This is likely due to the limited availability of effective samples for GRPO training when the model lacks sufficient capability.",
+        "bbox": [
+            169,
+            805,
+            826,
+            890
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "GRPO vs. PPO vs. Reinforce++: In Fig. 7, we evaluate the effectiveness of our framework with alternative RL algorithms. We compare GRPO (Shao et al., 2024), PPO (Schulman et al., 2017), and",
+        "bbox": [
+            169,
+            895,
+            826,
+            925
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "page_number",
+        "text": "9",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Reinforce++ (Hu, 2025), and observe that their performances on both training rewards and test scores are comparable. The overall upward performance trend indicates that our framework is adaptable across different RL algorithms.",
+        "bbox": [
+            169,
+            104,
+            825,
+            147
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "Offline vs. online RL training: In our multi-stage RL training setup, the dataset is partitioned into four groups before the first stage and remains fixed throughout, corresponding to an offline training setting. In Fig. 8, we compare this with two online variants: (1) Online-Merge: Before each stage, the dataset is repartitioned using the current model, and training proceeds on these updated groups. As in the offline case, later stages merge data from higher to lower potential groups, so the final stage accesses all data. (2) Online-Unmerge: Similar to (1), but each stage trains only on a single unmerged group, proceeding from high to low potential groups across stages. We find that offline and online training achieve comparable performance in later stages. Although the online variant converges faster, it incurs higher inference costs due to repeated repartitioning. The unmerged online setting performs worse overall. These results suggest that offline training is comparable to the relatively costly online training in our setting.",
+        "bbox": [
+            169,
+            152,
+            826,
+            308
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "RL training round number: In Appendix Fig. 10, we extend the RL training process with a newly partitioned dataset, derived from the first-round model shown in Fig. 4. However, the testing score does not improve with continued training; in fact, during the first stage, the testing score decreases even as training rewards increase. We attribute this to overfitting on the limited data group used in stage 1, partially alleviated in later stages as more data are introduced. These results indicate that a single round of RL training is sufficient, as the model effectively adapts across the entire dataset.",
+        "bbox": [
+            169,
+            313,
+            826,
+            398
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "Impact of sample improvement potential on GRPO training: In Fig. 14, we evaluate the effect of training GRPO with datasets of equal size but different ranges of improvement potential. Training samples are drawn from Reasoning Gym and SymBench, while evaluation is conducted on BBH for fair comparison. Models trained on higher-potential samples [0.64, 1.00] exhibit a more pronounced increase in training rewards and achieve higher BBH test scores. These results support our theoretical analysis in Section 4.3 and validate the correctness of multi-stage curriculum learning.",
+        "bbox": [
+            169,
+            402,
+            826,
+            489
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "Qwen-2.5 vs. DeepSeek-distilled models as base: Appendix Table 5 compares training performance using the general-purpose Qwen-2.5 models versus the same sized long-chain reasoning models distilled from DeepSeek R1 (Guo et al., 2025). Whether after SFT or using the raw models, Qwen consistently outperforms DeepSeek, particularly in code generation for solving tasks. Hence, choosing Qwen-2.5 series as base models for training is reasonable.",
+        "bbox": [
+            169,
+            489,
+            826,
+            561
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "5.4 R1-CI TRAINING AND INFERENCE COST",
+        "text_level": 2,
+        "bbox": [
+            171,
+            571,
+            493,
+            585
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "GRPO training for the Code Interpreter is computationally expensive. For instance, training R1-CI-14B takes around 1845 GPU hours even though our specialized Code Execution Sandbox already saves around 39% training time. The cost arises mainly from two factors: (1) GRPO requires multiple sampled rollouts per answer turn to enable reward-based comparison, which is further intensified in our multi-turn generation setting; (2) the Code Interpreter introduces additional overhead due to costly code execution, especially for scripts involving search, iteration, or optimization. Although we build the specialized Code Execution Sandbox and cap the execution time at 60 seconds per script, it still remains a major time sink. R1-CI requires multi-turn reasoning and code execution to reach the final answer, resulting in higher time and token costs compared to single-turn textual reasoning. In our evaluation, however, R1-CI solves most questions with fewer than four code executions and within two minutes.",
+        "bbox": [
+            169,
+            594,
+            828,
+            750
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "6 CONCLUSION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            761,
+            321,
+            777
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "We introduce a framework for training Code Interpreter–augmented LLMs using both supervised and reinforcement learning. Standard GRPO training is limited by task diversity and the sparsity of effective samples. Our proposed multi-stage curriculum learning addresses this by partitioning training questions according to their measured improvement potential, and progressively training from high- to low-potential samples. Training costs are reduced by 39% by decoupling time-consuming code execution from model optimization through a specialized Code Execution Sandbox. The resulting model, R1-CI-14B, outperforms GPT-4o + OpenAI Code Interpreter. We further investigate related training strategies and identify emergent self-checking behaviors via code generation. To our best knowledge, this is the first open-source, general-purpose Code Interpreter trained with these methods.",
+        "bbox": [
+            169,
+            784,
+            826,
+            924
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "page_number",
+        "text": "10",
+        "bbox": [
+            488,
+            946,
+            509,
+            960
+        ],
+        "page_idx": 9
+    }
+]

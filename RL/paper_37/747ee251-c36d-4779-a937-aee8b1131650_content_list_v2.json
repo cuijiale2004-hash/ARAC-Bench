@@ -1,0 +1,2363 @@
+[
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "ABSTRACT"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                450,
+                250,
+                547,
+                265
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Scalable and realistic simulation of multi-agent traffic behavior is critical for advancing autonomous driving technologies. Although existing data-driven simulators have made significant strides in this domain, they predominantly rely on supervised learning to align simulated distributions with real-world driving scenarios. A persistent challenge, however, lies in the distributional shift that arises between training and testing, which often undermines model generalization in unseen environments. To address this limitation, we propose SMART-R1, a novel R1-style reinforcement fine-tuning paradigm tailored for next-token prediction models to better align agent behavior with human preferences and evaluation metrics. Our approach introduces a metric-oriented policy optimization algorithm to improve distribution alignment and an iterative “SFT-RFT-SFT” post-training strategy that alternates between Supervised Fine-Tuning (SFT) and Reinforcement Fine-Tuning (RFT) to maximize performance gains. Extensive experiments on the large-scale Waymo Open Motion Dataset (WOMD) validate the effectiveness of this simple yet powerful R1-style training framework in enhancing foundation models. The results on the Waymo Open Sim Agents Challenge (WOSAC) showcase that SMART-R1 achieves state-of-the-art performance with an overall realism meta score of 0.7858, ranking first on the leaderboard at the time of submission."
+                    }
+                ]
+            },
+            "bbox": [
+                230,
+                281,
+                767,
+                532
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "1 INTRODUCTION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                174,
+                558,
+                338,
+                573
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Simulating multi-agent traffic behaviors plays a pivotal role in ensuring the safety and reliability of autonomous driving systems. However, modeling realistic and scalable traffic behaviors remains highly challenging due to the inherent uncertainty and multi-modality of human driving. Traditional simulators that simply replay logged data lack reactive capability, while rule-based methods, such as the Intelligent Driver Model (IDM) (Treiber et al., 2000), depend on handcrafted heuristics and fail to capture the diversity and realism of human behavior. To overcome these limitations, recent research (Montali et al., 2023) has reframed realistic traffic simulation as a distribution matching problem, aiming to align the behavior distributions of simulated agents with those observed in realworld data. The guiding principle is that, as simulation quality improves, the distributions of learned simulated agent behaviors should assign higher likelihoods to real-world logged samples."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                589,
+                826,
+                729
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Early learning-based simulators largely adopted architectures designed for motion forecasting, such as encoder–decoder Transformers (Shi et al., 2024; Zhou et al., 2023). Yet, simulation fundamentally differs from trajectory prediction: it requires (i) a closed-loop setup, (ii) consistent scene-level multi-agent futures, and (iii) recovery of the underlying behavior distribution rather than simple trajectory imitation. These distinctions often cause motion predictors to perform poorly when adapted to simulation. More recent advances in high-performing simulators have primarily followed two directions: diffusion-based models (Jiang et al., 2024; Huang et al., 2024) and autoregressive models (Seff et al., 2023; Philion et al., 2024). Diffusion models can generate diverse multi-modal futures by modeling joint trajectory distributions, but they suffer from computational inefficiency and struggle to capture multi-agent interactions. In contrast, autoregressive approaches treat agent behaviors as discrete tokens under the Next-Token Prediction (NTP) paradigm (Wu et al., 2024; Zhou et al., 2024), generating interactive and realistic multi-agent behaviors through minimizing cross-entropy loss against the distribution of logged tokens. However, because NTP models generate behaviors in an autoregressive manner, they are prone to encountering the covariate shift issue: small prediction errors accumulate during closed-loop simulation rollouts. Inspired by post-training strategies for Large Language Models (LLMs) (Ouyang et al., 2022), a Supervised Fine-Tuning (SFT) technique with Closest Among Top-K (CAT-K) rollouts (Zhang et al., 2025) has been proposed to mitigate compounding errors, significantly improving simulation realism."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                734,
+                826,
+                902
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "<sup>∗</sup>Corresponding Author."
+                    }
+                ]
+            },
+            "bbox": [
+                191,
+                910,
+                339,
+                924
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "1"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                503,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/5b1903a022dd4567d22548184f789bfd539d191728906b51b818e8336efc8f29.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 1: Training pipeline of SMART-R1. The solid square represents the agent state at the current timestep. The Open-Loop NTP predicts the next single-step state, while Closed-Loop SFT rolls out entire trajectories autoregressively to identify those closest to the ground truth. Both stages are optimized with per-token cross-entropy loss. In contrast, Closed-Loop RFT performs full rollouts but aligns trajectories with evaluation preferences through reward feedback and policy optimization."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                218,
+                99,
+                779,
+                227
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                334,
+                826,
+                420
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Despite the remarkable performance of NTP models in traffic simulation, a fundamental limitation persists: the training objectives of current imitative or Behavior Cloning (BC) models are not explicitly aligned with ultimate behavior-characterizing goals of simulators, such as reducing collisions or off-road rates. These outcome metrics are often scalar, sparse, and non-differentiable, making them unsuitable as direct trainable loss functions for gradient-based optimization. Consequently, relying solely on BC or SFT is insufficient for realistic simulation agents."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                424,
+                826,
+                510
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To bridge this gap, we draw inspiration from cutting-edge Large Reasoning Models (LRMs) such as OpenAI-o1 (Jaech et al., 2024) and DeepSeek-R1 (Guo et al., 2025), which leverage Reinforcement Learning from Human Feedback (RLHF) or Reinforcement Fine-Tuning (RFT) to align model behaviors with specific preferences. In this regard, we introduce an R1-style RFT training paradigm for traffic simulation, as demonstrated in Figure 1. Specifically, we build on SMART (Wu et al., 2024), a strong open-loop NTP foundation model, and employ CAT-K rollouts (Zhang et al., 2025) for closed-loop SFT. In the subsequent RFT stage, we refrain from directly applying the Group Relative Policy Optimization (GRPO) (Shao et al., 2024) algorithm for preference alignment. Although GRPO eliminates the necessity for explicit value function approximations by utilizing normalized relative rewards within each group, its dependence on average rewards across multiple sampled rollouts introduces inherent sampling bias and undermines the reliability of advantage estimation for policy optimization (Zheng et al., 2025). Given the relatively predictable reward expectations in our task, we instead propose a Metric-oriented Policy Optimization (MPO) strategy, which exploits this prior knowledge to guide policy updates in RFT more efficiently and effectively."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                515,
+                826,
+                712
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Moreover, the conventional practice in LRMs typically involves leveraging SFT as a warm-up stage before RFT, which poses the issue of catastrophic forgetting (Chen et al., 2025), resulting in performance degradation. To address this concern, following the training pipeline of DeepSeek-R1, which alternates multiple rounds of SFT and RFT to refine reasoning performance, we introduce an additional closed-loop SFT phase after RFT. This yields an iterative “SFT-RFT-SFT” (R1-style) post-training scheme that balances optimization for metric-specific objectives with preservation of the behavioral distribution learned during SFT, thereby further enhancing overall simulation realism."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                715,
+                826,
+                816
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In summary, the primary contributions of this paper are as follows:"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                821,
+                612,
+                837
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "(1) We introduce SMART-R1, to our knowledge the first R1-style post-training paradigm for multiagent traffic simulation, which combines SFT and RFT to better align simulated behaviors with human preferences and evaluation metrics."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                847,
+                826,
+                891
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "(2) We develop a simple yet effective Metric-oriented Policy Optimization (MPO) strategy for RFT to reinforce the model towards targeted evaluation metrics."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                895,
+                825,
+                924
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "2"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "(3) Our proposed post-fine-tuning pipeline, structured as “SFT-RFT-SFT”, empowers SMART-R1 to achieve state-of-the-art performance on the 2025 Waymo Open Sim Agents Challenge, ranking first on the leaderboard at the time of submission."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                104,
+                825,
+                147
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2 RELATED WORK"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                170,
+                346,
+                186
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Traffic Behavior Modeling. Accurately modeling the behaviors of traffic agents is a core component of autonomous driving systems. Early approaches represent behavior in a discrete and sparse decision space (e.g., lane-keeping or left-turning), but such abstractions are overly coarse to capture the diversity of real-world driving (Cunningham et al., 2015). More recent work instead models behavior as sequences of future position points (Pei et al., 2025b;a), and employs encoder–decoder architectures to generate continuous trajectories by framing the task as regression (Song et al., 2022; Shi et al., 2025). In contrast, emerging approaches characterize traffic behavior as a language modeling problem, where trajectories are discretized into motion tokens to form an action vocabulary. The resulting trajectories are then produced via next-token prediction in an autoregressive manner (Philion et al., 2024; Seff et al., 2023). This paradigm naturally captures multi-modal and interactive behaviors among agents, making it well-suited for realistic traffic simulation."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                204,
+                826,
+                358
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Multi-agent Simulation. Multi-agent traffic simulation is crucial for evaluating the robustness and safety of autonomous vehicles (Shi et al., 2026). Traditional simulators often depend on rule-based policies (Treiber et al., 2000) for traffic participants, which fail to reproduce the complexity and realism of human driving. To address this, data-driven approaches have been proposed to enable scalable and realistic simulation. Early methods repurpose trajectory prediction models for simulation (Shi et al., 2024; Zhou et al., 2023); however, they lack explicit interaction modeling and exhibit poor stability in closed-loop rollouts. Recent advances in generative modeling have mainly followed two directions: diffusion-based methods (Jiang et al., 2024; Hu et al., 2024) and autoregressive methods (Wu et al., 2024; Zhou et al., 2024; Peng et al., 2024). While diffusion models can capture multi-modality, they suffer from computational inefficiency and degrade in long-horizon scenarios. Consequently, research momentum has shifted toward autoregressive models. In line with these trends, we adopt the next-token prediction paradigm for the multi-agent traffic simulation task."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                363,
+                826,
+                532
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Reinforcement Fine-Tuning. Post-training is widely utilized in LLMs to enhance the model alignment with human preferences. Early efforts primarily concentrate on SFT, while more recent work explores RFT to improve reasoning capabilities. For example, OpenAI-o1 leverages Proximal Policy Optimization (PPO) (Schulman et al., 2017) for RLHF. Subsequently, Direct Preference Optimization (DPO) (Rafailov et al., 2023) is proposed to simplify the RLHF process by eliminating the need for training a reward model. More recently, DeepSeek-R1 introduces GRPO (Shao et al., 2024) within a multi-stage training pipeline that alternates between SFT and RFT to progressively refine reasoning performance. Building on this trend, a series of R1-style approaches have been proposed to extend RFT-based alignment to domains such as vision reasoning (Huang et al., 2025; Tan et al., 2025) and trajectory planning (Li et al., 2025; Tang et al., 2025). However, most prior works employ RFT-empowered LLMs as auxiliary components for downstream tasks, rather than integrating RFT directly into the downstream domain itself. In contrast, to the best of our knowledge, our work is the first to apply R1-style RFT directly to the domain of multi-agent traffic simulation."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                536,
+                826,
+                719
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3 METHODOLOGY"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                173,
+                741,
+                343,
+                757
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.1 PRELIMINARIES"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                173,
+                775,
+                326,
+                789
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Problem Formulation. For multi-agent traffic simulation, the problem is often framed as learning a policy "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\boldsymbol { \\theta } } \\big ( \\boldsymbol { S } _ { t } | \\boldsymbol { S } _ { < t } , \\boldsymbol { \\mathcal { C } } \\big )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\cal S } _ { t } = \\{ { \\breve { s } } _ { t } ^ { i } \\} _ { i = 1 } ^ { N }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denotes the state of N agents in the scene at time step t, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\cal S } _ { < t } = \\{ s _ { < t } ^ { i } \\} _ { i = 1 } ^ { N }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the historical states, and C represents the contextual information such as features from High-Definition (HD) maps. The trainable model parameters are denoted by θ. The objective is to learn a joint distribution of agent behaviors within the set of input information over a time horizon τ:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                803,
+                825,
+                887
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "P (S _ {1: \\tau} | S _ {0}, \\mathcal {C}) = \\prod_ {t = 1} ^ {\\tau} \\pi_ {\\theta} (S _ {t} | S _ {<   t}, \\mathcal {C}).\\tag{1}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/de4335d14fe386a5d6c7a8fbce42c2dff010a2a1bdf5df2270c7fb7d35914485.jpg"
+                }
+            },
+            "bbox": [
+                377,
+                888,
+                617,
+                928
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "3"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/56c93d67507675cb3b03b90560f1fe59001714754dc24decafbbdd7c3719d851.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 2: Framework of SMART-R1. The model first tokenizes the driving scene context into agent motion tokens and map tokens. In the BC pretraining stage, the model is optimized under the standard NTP paradigm. During the SFT stage, CAT-K rollouts are used to refine the model in a closed-loop setting. Finally, in the RFT stage, the proposed MPO algorithm aligns the policy with target evaluation metrics, further improving simulation realism."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                178,
+                99,
+                818,
+                262
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "NTP Models for Traffic Simulation. To model agent behaviors within the Next-Token Prediction (NTP) framework, we often preprocess the driving context by discretizing and clustering continuous agent trajectories into a motion token vocabulary "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { V } = \\{ m _ { k } \\} _ { k = 1 } ^ { | \\mathcal { V } | }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", comprising |V| template motion tokens "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "m _ { k }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Accordingly, the policy "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\boldsymbol { \\theta } } \\big ( \\boldsymbol { S } _ { t } | \\boldsymbol { S } _ { < t } , \\boldsymbol { \\mathcal { C } } \\big )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "can be reformulated as predicting a categorical distribution over the indices of the motion token vocabulary at each time step t, i.e.,"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                372,
+                826,
+                446
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\pi_ {\\theta} (S _ {t} | S _ {<   t}, \\mathcal {C}) = \\prod_ {i = 1} ^ {N} \\pi_ {\\theta} (k _ {t} ^ {i} | S _ {<   t} ^ {*}, \\mathcal {C} ^ {*}),\\tag{2}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/f1b82e7e2d0856d3eb29c21db219af40ce25dcbc2183ff29beefc5d59c5b1a59.jpg"
+                }
+            },
+            "bbox": [
+                374,
+                455,
+                620,
+                497
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "X ^ { \\ast }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denotes the tokenized format of the inputs "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "X"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                505,
+                544,
+                520
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Closed-Loop SFT. To further mitigate the covariate shift introduced by open-loop behavior cloning, the CAT-K rollout strategy (Zhang et al., 2025) can be leveraged for closed-loop SFT in the traffic simulation task. Specifically, after obtaining the pre-trained foundation model, we autoregressively unroll the policy to generate tokenized trajectories and construct recovery motion indices to stay close to the ground truth. This closed-loop SFT approach effectively reduces covariate shift in NTP models and leads to improved overall performance."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                526,
+                826,
+                612
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.2 FRAMEWORK OVERVIEW"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                628,
+                390,
+                643
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The overall architecture of our proposed SMART-R1 is illustrated in Figure 2. It follows a multistage training paradigm consisting of Behavior Cloning (BC) pretraining, closed-loop SFT, and RFT. Given a real-world scenario, following prior work (Wu et al., 2024; Zhang et al., 2025), we first discretize continuous trajectories and map polylines into agent motion tokens and map tokens using the K-disks clustering algorithm (Philion et al., 2024). These tokens are then processed by a stack of attention layers: a temporal self-attention layer to capture sequential dependencies in agent motions, a map-to-agent cross-attention layer to incorporate map-relevant information, and an agent-to-agent self-attention layer to model interactions among traffic participants for generating joint multi-agent behaviors. The outputs from these modules produce the next-token logits. In the BC pretraining stage, the model is optimized via token-level classification. The resulting pretrained base model is subsequently refined through closed-loop SFT, where CAT-K rollouts are employed to mitigate the covariate shift inherent in BC. Finally, in order to align the model with metric preferences, we introduce an RFT stage and develop a simple yet effective Metric-oriented Policy Optimization (MPO) algorithm for refinement, further enhancing overall simulation realism."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                655,
+                826,
+                852
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.3 METRIC-ORIENTED POLICY OPTIMIZATION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                869,
+                519,
+                883
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Considering that both the open-loop pre-trained model and the closed-loop SFT stage are trained using cross-entropy loss to learn the distribution of logged data, they lack direct optimization for task-specific evaluation metrics. To bridge this gap, we introduce RFT to explicitly align the pretrained NTP model with a designated target metric."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                895,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "4"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "algorithm",
+            "content": {
+                "algorithm_caption": [],
+                "algorithm_content": [
+                    {
+                        "type": "text",
+                        "content": "Algorithm 1 Metric-oriented Policy Optimization (MPO)\n\nInput: Initial policy   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi_{\\theta_{init}}"
+                    },
+                    {
+                        "type": "text",
+                        "content": " .\n\nOutput: Optimized RFT policy   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi_{\\theta_{rft}}"
+                    },
+                    {
+                        "type": "text",
+                        "content": " .\n\n1: Initialize the reference model   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi_{\\theta_{ref}} \\leftarrow \\pi_{\\theta_{init}}"
+                    },
+                    {
+                        "type": "text",
+                        "content": " .\n\n2: Initialize the policy model   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi_{\\theta} \\leftarrow \\pi_{\\theta_{init}}"
+                    },
+                    {
+                        "type": "text",
+                        "content": " .\n\n3: for iteration = 1, 2, ... do\n\n4: Roll out multi-agent trajectories in the scene via   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi_{\\theta}"
+                    },
+                    {
+                        "type": "text",
+                        "content": " .\n\n5: Compute the reward function r for the simulation outcomes using the Realism Meta metric.\n\n6: Compute the simplified generalized advantage estimation A via Equation 3.\n\n7: Compute the unbiased estimation of per-token KL divergence   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "D_{KL}[\\pi_{\\theta}||\\pi_{\\theta_{ref}}]"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  via Equation 4.\n\n8: Update policy   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi_{\\theta}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  by minimizing   "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "L_{MPO}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "  via Equation 5.\n\n9: end for"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                101,
+                821,
+                277
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                301,
+                825,
+                330
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We begin by formulating the behavior simulation problem as a Markov Decision Process (MDP), where each tokenized motion corresponds to an element in the action space. The policy "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "deterministically transitions each agent to its next state by selecting the associated motion token. The reward model r is defined by the Realism Meta metric computed through the official evaluation protocol."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                335,
+                825,
+                393
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Building upon the MDP formulation, we propose the Metric-oriented Policy Optimization (MPO) to maximize the cumulative Realism Meta score. As illustrated in Figure 3, for each traffic scenario,"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                398,
+                825,
+                429
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "tories for all agents and evaluate the resulting simulation using the official Realism Meta metric. This metric serves as a reward model, assigning a scalar score r to assess the quality of the generated behaviors. Note that we can also apply other preferences to reinforce the alignment. Unlike GRPO (Shao et al., 2024), which relies on generating a group of completions for comparison, our approach simplifies the estimation of the advantage function, as in our specific task, we have the expected reward value for the model to achieve. Specifically, we compute the Generalized Advantage Estimation (GAE), denoted A, as follows:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                441,
+                473,
+                636
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/30301405b3efc29bc4af2a1c72a049e64c3eb394d2690b7ce371db50d1b517f6.jpg"
+                },
+                "content": "",
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                496,
+                446,
+                815,
+                641
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {A} = r - \\alpha ,\\tag{3}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/93e75296166e6148baa93fa1a61cee0fc286849fb8ae7cd322238e1fb189c320.jpg"
+                }
+            },
+            "bbox": [
+                279,
+                638,
+                362,
+                654
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where α is an empirical threshold used to normalize the reward signal and facilitate relative evaluation for efficient policy optimization."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                657,
+                473,
+                700
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Figure 3: Pipeline of the Metric-oriented Policy Optimization (MPO)."
+                    }
+                ]
+            },
+            "bbox": [
+                482,
+                652,
+                823,
+                681
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We also incorporate a per-token KL divergence penalty between the updated policy "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and a reference model "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta _ { \\mathrm { r e f } } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "using the following unbiased estimator:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                707,
+                823,
+                736
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {D} _ {\\mathrm{KL}} [ \\pi_ {\\theta} | | \\pi_ {\\theta_ {\\mathrm{ref}}} ] = \\frac {\\pi_ {\\theta_ {\\mathrm{ref}}}}{\\pi_ {\\theta}} - \\log \\frac {\\pi_ {\\theta}}{\\pi_ {\\theta_ {\\mathrm{ref}}}} - 1.\\tag{4}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/01563394ec12900aab896ba61d314f6ea60dbea9689a537305499c26e6bd032d.jpg"
+                }
+            },
+            "bbox": [
+                370,
+                738,
+                625,
+                768
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The final training objective for MPO is then given by:"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                777,
+                527,
+                792
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {L} _ {\\mathrm{MPO}} = - \\left(\\frac {\\pi_ {\\theta}}{\\overline {{\\pi}} _ {\\theta}} \\mathcal {A} - \\beta \\mathcal {D} _ {\\mathrm{KL}} \\left[ \\pi_ {\\theta} \\right| \\left| \\pi_ {\\theta_ {\\text { ref }}} \\right]\\right),\\tag{5}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/1f567a7070d98e94a15772521c80bd7817a53f45c0c936e74640b12ccb2bcc23.jpg"
+                }
+            },
+            "bbox": [
+                374,
+                795,
+                622,
+                821
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\overline { { \\pi } } _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is a no-gradient copy of the policy, and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\beta"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is a tunable coefficient balancing the advantage term against the KL penalty. The complete pipeline of MPO is summarized in Algorithm. 1."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                825,
+                825,
+                854
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.4 R1-STYLE TRAINING PARADIGM"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                869,
+                447,
+                883
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Since models fine-tuned with RFT risk deviating from the original distribution learned during pretraining and SFT, leading to catastrophic forgetting (Chen et al., 2025), we draw inspiration from the multi-stage post-training pipeline of DeepSeek-R1 (Guo et al., 2025) and introduce an iterative “SFT–RFT–SFT” strategy. Starting from a pretrained base model, we first apply CAT-K rollouts for closed-loop SFT to mitigate covariate shift and stabilize the policy. We then employ the proposed MPO technique to further refine the model by explicitly aligning it with evaluation metrics. Finally, we conduct an additional round of closed-loop SFT to restore fidelity to the logged data distribution, thereby enhancing simulation performance."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                895,
+                825,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "5"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                826,
+                189
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Empirically, this R1-style paradigm consistently outperforms standalone SFT or RFT (see Table 3). We attribute its effectiveness to striking a balance between optimizing for metric-driven objectives and preserving generalization from real-world data, and thus mitigating forgetting and improving the realism of simulated traffic behaviors."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                194,
+                825,
+                252
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.5 TRAINING OBJECTIVES"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                268,
+                380,
+                282
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Given our proposed framework, which consists of three phases, the training process is decomposed into three stages with distinct training objectives. In the open-loop pretraining stage, we optimize the NTP task by minimizing the cross-entropy loss between the ground-truth token distribution and the prediction. Given the corresponding ground-truth index, denoted as "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\tilde { k } } ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": "the training objective for policy rollouts can be formally defined as follows:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                294,
+                826,
+                368
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {L} _ {\\mathrm{base}} = - \\sum_ {t = 1} ^ {\\tau} \\sum_ {i = 1} ^ {N} \\log \\left(\\pi_ {\\theta} (\\tilde {k} _ {t} ^ {i} | S _ {<   t} ^ {*}, \\mathcal {C} ^ {*})\\right).\\tag{6}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/904942fff56081e44c066e7474ab54f4b52ebede0e110d434b35e87cf23ca278.jpg"
+                }
+            },
+            "bbox": [
+                362,
+                375,
+                633,
+                416
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In the closed-loop SFT stage, we perform CAT-K rollouts (Zhang et al., 2025) to obtain a sequence of motion tokens and identify the motion index <sup>ˆ</sup>k that is closest to the ground-truth trajectories. The model is again optimized using cross-entropy loss, with Equation 6 applied by replacing <sup>˜</sup>k with <sup>ˆ</sup>k. Finally, in the RFT stage, we employ the "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { L } _ { \\mathrm { M P O } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", as defined in Section 3.3, to directly align the policy with target evaluation metrics."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                422,
+                825,
+                500
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4 EXPERIMENTS AND RESULTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                518,
+                450,
+                534
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.1 EXPERIMENTAL SETUP"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                550,
+                377,
+                564
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Real-World Dataset. We train our model on the large-scale Waymo Open Motion Dataset (WOMD) (Ettinger et al., 2021) and evaluate it on the Waymo Open Sim Agents Challenge (WOSAC) benchmark (Montali et al., 2023). WOMD contains approximately 487k training scenarios, 44k validation scenarios, and 45k test scenarios. Each scenario spans 9.1 seconds at 10 Hz. Given 10-step historical tracks, the current state, and the corresponding HD map, the task is targeted to simulate 32 realistic joint 8-second futures (including 80-step centroid coordinates and heading of the objects’ boxes) for all the agents (up to 128) in the scene."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                575,
+                826,
+                675
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Evaluation Metrics. We adopt the official WOSAC evaluation metrics, which frame simulation as a distribution matching problem: assessing how well the density induced by simulated rollouts assigns likelihood to real-world trajectories. The primary evaluation criterion is the Realism Meta metric, a weighted combination of three sub-metrics, including Kinematic, Interactive, and Map Adherence, each comprising several finer-grained measures (see Table 2). In addition, we report the minimum Average Displacement Error (minADE), a standard open-loop prediction metric that serves as a complementary reference for motion forecasting accuracy. More details can be found in the official WOSAC documentation (Montali et al., 2023) and Appendix A.1."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                680,
+                826,
+                794
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Implementation Details. We choose SMART (Wu et al., 2024) as our baseline NTP model. For both the open-loop NTP and closed-loop SFT training processes, we follow the official implementations of Zhang et al. (2025) to ensure fair comparison. Specifically, we pretrain the foundation autoregressive model SMART-tiny (7M parameters) for 64 epochs to obtain the base model. We then perform post-training, including SFT and RFT. Instead of conducting a 32-epoch SFT as the original implementation of Zhang et al. (2025), we split the post-training into three phases: (1) an initial SFT stage of 16 epochs, (2) RFT with our proposed MPO algorithm, and (3) a final SFT stage of 16 epochs. For MPO, we set the empirical reward threshold to "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\alpha = 0 . 7 7"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and the KL penalty coefficient to "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\beta = 0 . 0 4"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Note that no model ensembling or post-processing tricks are employed, as trajectories must be sampled autoregressively for the simulation task. In addition, no external data beyond WOMD is used during training."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                799,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "6"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/947099d23ff3d66bc7ecea04e409baee4cd31eccd00a85aad89eb1e8b82d0843.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 1: Performance comparison on the 2025 Waymo Open Sim Agents Challenge (WOSAC) leaderboard. The Realism Meta metric serves as the official ranking metric, shaded in gray. The best and second-best results are highlighted in bold and underline, respectively. “*” indicates results reproduced using the official implementation and re-evaluated under the 2025 version of metrics."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Method</td><td>Realism Meta metric ↑</td><td>Kinematic metrics ↑</td><td>Interactive metrics ↑</td><td>Map-based metrics ↑</td><td>min ADE ↓</td><td># model params</td></tr><tr><td>SMART* (Wu et al., 2024)</td><td>0.7814</td><td>0.4854</td><td>0.8089</td><td>0.9153</td><td>1.3931</td><td>7M</td></tr><tr><td>SimFormer (Wang et al., 2025)</td><td>0.7820</td><td>0.4920</td><td>0.8060</td><td>0.9167</td><td>1.3221</td><td>7M</td></tr><tr><td>UniMM (Lin et al., 2025)</td><td>0.7829</td><td>0.4914</td><td>0.8089</td><td>0.9161</td><td> $\\underline{1.2949}$ </td><td>4M</td></tr><tr><td>comBOT (Rossert et al., 2025)</td><td>0.7837</td><td>0.4899</td><td>0.8102</td><td>0.9175</td><td>1.3687</td><td>N.A.</td></tr><tr><td>RLFTSim (Ahmadi et al., 2025)</td><td>0.7844</td><td>0.4893</td><td> $\\underline{\\mathbf{0.8128}}$ </td><td>0.9164</td><td>1.3470</td><td>7M</td></tr><tr><td>CLSFT (Zhang et al., 2025)</td><td>0.7846</td><td> $\\underline{\\underline{0.4931}}$ </td><td>0.8106</td><td>0.9177</td><td>1.3065</td><td>7M</td></tr><tr><td>TrajTok (Zhang et al., 2026)</td><td> $\\underline{\\underline{0.7852}}$ </td><td>0.4887</td><td> $\\underline{\\underline{0.8116}}$ </td><td> $\\underline{\\underline{0.9207}}$ </td><td>1.3179</td><td>10M</td></tr><tr><td>SMART-R1 (Ours)</td><td> $\\underline{\\underline{0.7858}}$ </td><td> $\\underline{\\underline{0.4944}}$ </td><td>0.8110</td><td> $\\underline{\\underline{0.9201}}$ </td><td> $\\underline{1.2885}$ </td><td>7M</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                194,
+                169,
+                800,
+                315
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/84c1cd2df4e116815eb6db3dd36086e8701264b6a2f5ae5e6bd82aaf127a6140.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 2: Performance comparison among the SMART series across all sub-metrics on the test split."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\">Model</td><td colspan=\"4\">Kinematic metrics</td><td colspan=\"3\">Interactive metrics</td><td colspan=\"3\">Map-based metrics</td></tr><tr><td>Lin. Speed ↑</td><td>Lin. Acc. ↑</td><td>Ang. Speed ↑</td><td>Ang. Acc. ↑</td><td>Dist.to Obj. ↑</td><td>Collision ↑</td><td>T.T.C. ↑</td><td>Dist. to Road Edge ↑</td><td>Offroad ↑</td><td>Traf. Light Violation ↑</td></tr><tr><td>SMART-base</td><td>0.3719</td><td>0.3984</td><td>0.5156</td><td>0.6557</td><td>0.3877</td><td>0.9693</td><td>0.8290</td><td>0.6757</td><td>0.9501</td><td>0.9809</td></tr><tr><td>SMART-SFT</td><td>0.3868</td><td>0.4066</td><td>0.5203</td><td>0.6588</td><td>0.3922</td><td>0.9702</td><td>0.8302</td><td>0.6814</td><td>0.9524</td><td>0.9805</td></tr><tr><td>SMART-R1</td><td>0.3867</td><td>0.4078</td><td>0.5215</td><td>0.6614</td><td>0.3917</td><td>0.9709</td><td>0.8303</td><td>0.6820</td><td>0.9554</td><td>0.9817</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                174,
+                358,
+                821,
+                446
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                171,
+                474,
+                825,
+                503
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.2 QUANTITATIVE RESULTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                520,
+                390,
+                535
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We compare our proposed SMART-R1 against other state-of-the-art methods on the challenging 2025 WOSAC benchmark. As shown in Table 1, we report results from several top-ranking published approaches evaluated under the 2025 version of the metrics. Our SMART-R1 achieves first place on the leaderboard, attaining a Realism Meta metric of 0.7858, underscoring its ability to simulate multi-agent future behaviors that closely match real-world scenarios. Moreover, SMART-R1 achieves leading performance in both kinematic metrics and minADE, highlighting its capacity to effectively capture agent motion profiles while delivering the best open-loop prediction accuracy."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                546,
+                826,
+                645
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To further analyze its effectiveness, we provide a detailed comparison within the SMART series, including the base model SMART-base, the closed-loop fine-tuned SMART-SFT, and our proposed SMART-R1, across all sub-metrics, as listed in Table 2. The results show that RFT consistently improves performance across most evaluation aspects, with particularly notable gains on safety-critical metrics such as collisions, off-road rate, and traffic light violations, whose objectives are difficult to optimize with supervised learning, as these outcomes are often non-differentiable scalars. These findings demonstrate that incorporating RFT not only enhances behavioral interaction and safety but also improves overall simulation realism, all without introducing additional model parameters."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                650,
+                826,
+                763
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.3 ABLATION STUDIES"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                779,
+                357,
+                794
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We conduct thorough ablation studies to validate the effectiveness of key components in SMART-R1. Due to the high computational cost of evaluating on the full validation set, we follow Zhang et al. (2025) that performs efficient ablations on a 2% validation split, which has been verified to yield consistent conclusions with the full set."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                805,
+                826,
+                862
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Effect of the R1-Style Training Paradigm. We first investigate the impact of the proposed posttraining paradigm. As shown in Table 3, the post-fine-tuning strategy consistently improves the simulation quality over the BC-pretrained model. Specifically, inserting an RFT phase after the initial SFT yields clear gains in the Realism Meta metric, as RFT directly optimizes toward the evaluation objective. Notably, applying two consecutive SFT phases without RFT degrades performance, underscoring the importance of the intermediate RFT stage. In contrast, applying an additional SFT phase after RFT further boosts performance, confirming the effectiveness of our R1-style strategy. This finding aligns with Chen et al. (2025), which notes that models trained with SFT followed by RFT often suffer from catastrophic forgetting. In summary, SFT restores the logged data distribution, while RFT shifts the policy toward the metric objective; the “SFT-RFT-SFT” iterative training pipeline balances these two objectives, yielding higher overall realism."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                867,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "7"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/a79d00668f32c804b0983b59745090566451c08c1a3660d26c1fa3fc8f027268.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 3: Effect of post-fine-tuning strategies."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td> $1^{st}$  SFT</td><td>RFT</td><td> $2^{nd}$  SFT</td><td>Realism Meta metric ↑</td><td>min ADE ↓</td></tr><tr><td></td><td></td><td></td><td>0.7725</td><td>1.4335</td></tr><tr><td>✓</td><td></td><td></td><td>0.7734</td><td>1.3982</td></tr><tr><td>✓</td><td></td><td>✓</td><td>0.7730</td><td>1.4188</td></tr><tr><td>✓</td><td>✓</td><td></td><td>0.7740</td><td>1.4216</td></tr><tr><td>✓</td><td>✓</td><td>✓</td><td>0.7746</td><td>1.4194</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                191,
+                128,
+                480,
+                229
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/99d3aa094c775b1f7beb878d6640afeffb5e240e13bb2e029f94f2996f2ac2ca.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 4: Effect of different RFT policies."
+                    },
+                    {
+                        "type": "text",
+                        "content": "Table 6: Effect of KL regularization."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Method</td><td>Realism Meta metric ↑</td><td>min ADE ↓</td></tr><tr><td>SMART-SFT</td><td>0.7734</td><td>1.3982</td></tr><tr><td>w/ PPO</td><td>0.7611</td><td>1.5126</td></tr><tr><td>w/ DPO</td><td>0.7682</td><td>1.5465</td></tr><tr><td>w/ GRPO</td><td>0.7701</td><td>1.4553</td></tr><tr><td>w/ MPO</td><td>0.7740</td><td>1.4216</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                545,
+                127,
+                777,
+                229
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/2eedfcba71466f8576c5557b79a553af0fde82dacd99d3c7199517b932805e45.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 5: Effect of empirical threshold."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Threshold $\\alpha$ </td><td>RealismMeta metric ↑</td><td>minADE ↓</td></tr><tr><td>0.76</td><td>0.7735</td><td>1.4348</td></tr><tr><td>0.77</td><td>0.7740</td><td>1.4216</td></tr><tr><td>0.78</td><td>0.7727</td><td>1.4492</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                225,
+                273,
+                447,
+                351
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/87c8183f9ccd08654deefd5793ed680a33a4aff90ca251bece9059945b6323d0.jpg"
+                },
+                "table_caption": [],
+                "table_footnote": [],
+                "html": "<table><tr><td>KL coefficient $\\beta$ </td><td>RealismMeta metric ↑</td><td>minADE ↓</td></tr><tr><td>0.004</td><td>0.7732</td><td>1.4387</td></tr><tr><td>0.04</td><td>0.7740</td><td>1.4216</td></tr><tr><td>0.4</td><td>0.7724</td><td>1.4215</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                537,
+                273,
+                785,
+                351
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                382,
+                826,
+                481
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Effect of the Policy Optimization. We further compare several representative policy optimization methods, including PPO, DPO, GRPO, and our proposed MPO. Using SMART with one-stage SFT as the baseline, we observe in Table 4 that PPO, DPO, and GRPO all degrade performance. PPO suffers from unstable training due to its actor–critic structure, where the value model is often hard to optimize. DPO and GRPO avoid value approximation but rely on sampled rollouts, which can bias policy updates toward suboptimal candidate behaviors. In contrast, our metric-oriented policy directly leverages the relatively predictable reward expectation as prior knowledge, effectively guiding optimization. A key factor influencing the performance of MPO is the choice of the empirical threshold α. As shown in Table 5, both higher and lower thresholds degrade results, since higher values provide too few positive rewards, while lower values make the criterion too lenient. It illustrates that policies are encouraged when exceeding the threshold and penalized otherwise. Therefore, with the baseline reward averaging around 0.77, setting α = 0.77 yields the best simulation performance."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                486,
+                826,
+                655
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Effect of the KL Regularization. We finally study the impact of the KL regularization during RFT. Table 6 shows that when the KL penalty coefficient β is too small, the policy deviates excessively from the reference model, leading to degraded performance by discarding prior knowledge from BC pretraining and SFT. Conversely, when β is too large, the reference model dominates, limiting improvements from the reward signal and overlooking safety-critical aspects such as collision and off-road rates. A balanced choice of β preserves the reference distribution while allowing effective metric-driven optimization."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                659,
+                826,
+                758
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.4 QUALITATIVE RESULTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                777,
+                380,
+                792
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We qualitatively evaluate SMART-R1 on the WOSAC validation split, focusing on a challenging intersection scenario. As shown in Figure 4, we visualize future trajectories across multiple timesteps. Two distinct rollouts (R1 and R2) for the same scene generated by our model are presented, which, while differing from the logged data, remain realistic and highlight the diversity of SMART-R1."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                804,
+                826,
+                863
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In Rollout R1 (second row of Figure 4), the model exhibits conservative behavior. The upper ellipse shows a vehicle slowing down to yield to a pedestrian crossing the road before making a right turn, while the lower ellipse highlights both the white car and the blue ego car (performing an unprotected left turn) decelerating to negotiate passage through the intersection. By contrast, Rollout R2 (final row) demonstrates a more aggressive strategy. The upper ellipse shows the car executing a fast right turn, while the lower ellipse depicts the straight-moving car quickly passing through the intersection, with the ego car also advancing more rapidly than in the logged data."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                867,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "8"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/8cdae976fb60fa7126a69c8eb98eb15b3f47aeebdd18184e14d345991e2f0d0b.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 4: Simulation results of SMART-R1. The top row shows the ground-truth (GT) scenario, while the two rows below illustrate two representative rollouts generated by our model for the same scene. The blue box denotes the ego vehicle, and white boxes denote other traffic participants, including cars and pedestrians. Transparent boxes indicate ground-truth agent positions, whereas solid boxes represent simulated agents. Green lanes indicate traversable paths under a green light, while red lanes denote restricted paths."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                179,
+                99,
+                818,
+                508
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                638,
+                825,
+                681
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "These results demonstrate that SMART-R1 can not only imitate demonstrated behaviors but also generate diverse, plausible, and realistic traffic behaviors across different rollouts, effectively capturing both conservative and aggressive driving styles. Additional qualitative results are presented in Appendix A.3, with corresponding simulation videos available in the supplementary material."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                686,
+                825,
+                744
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5 CONCLUSION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                766,
+                321,
+                782
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this paper, we introduce SMART-R1, to our knowledge, the first R1-style reinforcement finetuning paradigm for the next-token prediction model in the domain of traffic simulation. SMART-R1 incorporates a Metric-oriented Policy Optimization (MPO) algorithm to explicitly guide the model toward desired objectives, and employs an iterative “SFT–RFT–SFT” post-training strategy to effectively leverage SFT in conjunction with RFT. Experimental results demonstrate that our approach substantially enhances the overall simulation realism and achieves state-of-the-art performance on the 2025 Waymo Open Sim Agents Challenge with a Realism Meta metric of 0.7858 and a minADE of 1.2885, highlighting the promise of RFT for advancing multi-agent traffic simulation toward more realistic and safety-critical applications."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                799,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "9"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "ACKNOWLEDGMENTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                104,
+                328,
+                118
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "This work was supported in part by the Hong Kong Ph.D. Fellowship Scheme and in part by the HKUST-DJI Joint Innovation Laboratory. The authors thank the Program Chairs for their support and assistance, as well as Lijun Yu, Shizhe Diao, Jun Cen, Xiaogang Jia, Jieqi Shi, Tin-Hing Wong, Xuesong Chen, Chen Shi, Muxin Liu, Ruixiang Li, Can Wang, and Jianfei Yang."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                128,
+                826,
+                186
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "REFERENCES"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                204,
+                289,
+                219
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Ehsan Ahmadi et al. Rlftsim: Multi-agent traffic simulation via reinforcement learning fine-tuning. In CVPR Workshop on Autonomous Driving (WAD), 2025."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                228,
+                823,
+                256
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Liang Chen, Xueting Han, Li Shen, Jing Bai, and Kam-Fai Wong. Beyond two-stage training: Cooperative sft and rl for llm reasoning. arXiv preprint arXiv:2509.06948, 2025."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                263,
+                823,
+                292
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Alexander G Cunningham, Enric Galceran, Ryan M Eustice, and Edwin Olson. Mpdm: Multipolicy decision-making in dynamic, uncertain environments for autonomous driving. In 2015 IEEE International Conference on Robotics and Automation (ICRA), pp. 1670–1677. IEEE, 2015."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                300,
+                825,
+                342
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Scott Ettinger, Shuyang Cheng, Benjamin Caine, Chenxi Liu, Hang Zhao, Sabeek Pradhan, Yuning Chai, Ben Sapp, Charles R Qi, Yin Zhou, et al. Large scale interactive motion forecasting for autonomous driving: The waymo open motion dataset. In Proceedings of the IEEE/CVF International Conference on Computer Vision, pp. 9710–9719, 2021."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                349,
+                823,
+                406
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Ruoyu Zhang, Runxin Xu, Qihao Zhu, Shirong Ma, Peiyi Wang, Xiao Bi, et al. Deepseek-r1 incentivizes reasoning in llms through reinforcement learning. Nature, pp. 633–638, 2025."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                415,
+                823,
+                457
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Yihan Hu, Siqi Chai, Zhening Yang, Jingyu Qian, Kun Li, Wenxin Shao, Haichao Zhang, Wei Xu, and Qiang Liu. Solving motion planning tasks with a scalable generative model. In European Conference on Computer Vision, pp. 386–404. Springer, 2024."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                174,
+                465,
+                823,
+                508
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Wenxuan Huang, Bohan Jia, Zijie Zhai, Shaosheng Cao, Zheyu Ye, Fei Zhao, Zhe Xu, Yao Hu, and Shaohui Lin. Vision-r1: Incentivizing reasoning capability in multimodal large language models. arXiv preprint arXiv:2503.06749, 2025."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                515,
+                825,
+                558
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Zhiyu Huang, Zixu Zhang, Ameya Vaidya, Yuxiao Chen, Chen Lv, and Jaime Fernandez´ Fisac. Versatile behavior diffusion for generalized traffic agent simulation. arXiv preprint arXiv:2404.02524, 2024."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                565,
+                825,
+                607
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Aaron Jaech, Adam Kalai, Adam Lerer, Adam Richardson, Ahmed El-Kishky, Aiden Low, Alec Helyar, Aleksander Madry, Alex Beutel, Alex Carney, et al. Openai o1 system card. arXiv preprint arXiv:2412.16720, 2024."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                616,
+                825,
+                659
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Max Jiang, Yijing Bai, Andre Cornman, Christopher Davis, Xiukun Huang, Hong Jeon, Sakshum Kulshrestha, John Lambert, Shuangyu Li, Xuanyu Zhou, et al. Scenediffuser: Efficient and controllable driving simulation initialization and rollout. Advances in Neural Information Processing Systems, 37:55729–55760, 2024."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                666,
+                825,
+                722
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Yue Li, Meng Tian, Dechang Zhu, Jiangtong Zhu, Zhenyu Lin, Zhiwei Xiong, and Xinhai Zhao. Drive-r1: Bridging reasoning and planning in vlms for autonomous driving with reinforcement learning. arXiv preprint arXiv:2506.18234, 2025."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                174,
+                729,
+                823,
+                773
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Longzhong Lin, Xuewu Lin, Kechun Xu, Haojian Lu, Lichao Huang, Rong Xiong, and Yue Wang. Revisit mixture models for multi-agent simulation: Experimental study within a unified framework. arXiv preprint arXiv:2501.17015, 2025."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                781,
+                823,
+                823
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Nico Montali, John Lambert, Paul Mougin, Alex Kuefler, Nicholas Rhinehart, Michelle Li, Cole Gulino, Tristan Emrich, Zoey Yang, Shimon Whiteson, et al. The waymo open sim agents challenge. Advances in Neural Information Processing Systems, 36:59151–59171, 2023."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                830,
+                823,
+                875
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Long Ouyang, Jeffrey Wu, Xu Jiang, Diogo Almeida, Carroll Wainwright, Pamela Mishkin, Chong Zhang, Sandhini Agarwal, et al. Training language models to follow instructions with human feedback. Advances in neural information processing systems, 35:27730–27744, 2022."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                173,
+                882,
+                825,
+                924
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "10"
+                    }
+                ]
+            },
+            "bbox": [
+                490,
+                948,
+                509,
+                960
+            ]
+        }
+    ]
+]

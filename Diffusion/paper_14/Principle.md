@@ -1,0 +1,62 @@
+**Principle 1: Theoretical and Empirical Justification of Greedy Per-Step Optimization in Multi-Timestep Diffusion Trajectories**
+
+**Definition:**
+For methods that perform step-wise local optimization of guidance parameters during the multi-step reverse diffusion process, reviewers must critically assess whether the authors provide sufficient justification—both theoretical and empirical—for substituting global trajectory optimization with greedy per-timestep decisions. The core challenge lies in the fact that diffusion sampling constitutes a sequential decision process where choices at early timesteps fundamentally constrain the final sample distribution. A greedy approach assumes either independence between timesteps or sufficiently strong evaluator signals that render temporal correlations negligible. The evaluation must determine whether the work acknowledges this limitation explicitly, provides formal or intuitive reasoning for why local optima approximate global ones, and empirically validates this approximation against more exhaustive search strategies. This principle is crucial because unjustified greedy assumptions can mask suboptimal guidance trajectories that degrade sample quality in ways not captured by aggregate metrics.
+
+**Core Evaluation Criteria:**
+- **Explicit Acknowledgment of Limitation**: Does the paper clearly state that greedy per-step selection does not guarantee global optimality, and does it articulate the specific assumptions (e.g., evaluator predictiveness, timestep independence) that justify this approximation?
+- **Empirical Validation Against Global Search**: Does the work provide experimental comparisons against computationally intensive global or semi-global alternatives (e.g., beam search over CFG trajectories, differentiable optimization across timesteps) to quantify the performance-compute trade-off of the greedy approach?
+- **Evaluator Predictiveness Analysis**: Is there evidence that the online evaluators used for greedy selection are reliable predictors of final sample quality from early denoising stages (e.g., 25% completion), thereby validating that early-step decisions are informed by meaningful signal rather than noise?
+- **Alternative Optimization Ablations**: Does the paper explore and report results for alternative optimization strategies (e.g., gradient-based CFG correction, policy-gradient methods) and explain why greedy search was ultimately selected, including stability and hyperparameter sensitivity considerations?
+
+---
+
+**Principle 2: Validation of Latent-Space Evaluator Fidelity and Predictive Consistency Under Varying Noise Conditions**
+
+**Definition:**
+When a method relies on lightweight evaluators operating directly on noisy diffusion latents to provide online feedback during inference, the validity of the entire framework hinges on whether these evaluators retain sufficient predictive power across the full spectrum of noise levels. Unlike pixel-space evaluators that operate on clean or decoded images, latent-space evaluators must interpret highly compressed, noisy representations where fine-grained attributes may be obscured or distorted. Reviewers must evaluate whether the authors systematically quantify the information loss incurred by bypassing pixel-space decoding, validate evaluator behavior at different denoising stages (from high-noise early steps to low-noise late steps), and demonstrate that the evaluators generalize across model scales and architectures. This principle is essential because latent-space efficiency gains (e.g., 1% vs. 400% computational overhead) are only meaningful if the evaluators do not systematically misrank sample quality or fail to detect emerging artifacts during critical generation phases.
+
+**Core Evaluation Criteria:**
+- **Quantified Information Loss**: Does the work provide systematic comparisons between latent-space and pixel-space evaluators (e.g., filtering experiments, correlation with final metrics) to quantify the fidelity gap, rather than assuming latent-space operation is equivalent?
+- **Noise-Level Sensitivity Analysis**: Are the evaluators' predictive capabilities explicitly benchmarked across different denoising percentages (e.g., 25%, 50%, 75%, 100%) to identify at what stage reliable signals emerge for different quality dimensions (alignment, fidelity, text rendering)?
+- **Cross-Model and Cross-Scale Consistency**: Does the evaluation demonstrate that evaluator behavior and patterns remain consistent when transferred across different model sizes (e.g., small vs. large LDM) or different model families, or does it identify specific failure modes where latent evaluation becomes unreliable?
+- **Comprehensive Evaluator Coverage**: If the framework employs multiple specialized evaluators (e.g., alignment, visual quality, human preference, text rendering), does the paper provide validation and benchmarking for each evaluator individually, rather than only reporting results for a subset (e.g., CLIP alone)?
+
+---
+
+**Principle 3: Distinguishing Framework Generality from Component Model-Specificity in Model-Agnostic Claims**
+
+**Definition:**
+Papers proposing inference-time frameworks for diffusion models often claim model-agnostic applicability, yet the components enabling these frameworks—particularly latent-space evaluators—may require model-specific training or fine-tuning on the target diffusion model's latent distribution. Reviewers must scrutinize whether the authors clearly delineate which aspects of their method are truly model-agnostic (e.g., the search algorithm, scheduling framework) and which are inherently tied to specific model properties (e.g., evaluator weights matched to a latent autoencoder). The evaluation should assess whether the authors' claims of generality are appropriately scoped, whether they demonstrate successful transfer across fundamentally different model families (e.g., from open-source LDM to proprietary Imagen 3), and whether they honestly report the retraining costs and data requirements for adapting evaluators to new models. This principle prevents misleading broad claims that conflate algorithmic generality with component portability.
+
+**Core Evaluation Criteria:**
+- **Scoped Claim Articulation**: Does the paper explicitly distinguish between the model-agnostic properties of the framework (e.g., greedy search algorithm, adaptive weighting scheme) and the model-specific requirements of its components (e.g., evaluators trained on target model latents)?
+- **Cross-Family Transfer Evidence**: Does the work provide experimental evidence of framework transfer across diverse model architectures and training regimes (e.g., from smaller open-source models to state-of-the-art proprietary models), including the specific adaptations required for each transfer?
+- **Retraining Cost Transparency**: Are the computational and data requirements for adapting evaluators to new models explicitly reported (e.g., TPU-hours, dataset size, training stability), and are these costs contextualized relative to full model fine-tuning or other baseline adaptation costs?
+- **Generalization vs. Specialization Trade-off**: Does the paper analyze whether general-purpose evaluators (trained on broad data) suffice for diverse prompts, or whether specialized evaluators (trained on curated task-specific data) are necessary for challenging capabilities, and does it discuss the practical implications of this trade-off?
+
+---
+
+**Principle 4: Comprehensive and Compute-Fair Baseline Comparison Against Inference-Time Scaling and Steering Methods**
+
+**Definition:**
+For inference-time methods that aim to improve diffusion sample quality without modifying model weights, reviewers must evaluate whether the experimental comparison includes the full spectrum of relevant contemporary baselines—particularly those that also operate at inference time but may employ different computational strategies (e.g., multi-seed search, gradient-based correction, reinforcement learning-based steering). A critical aspect of this evaluation is computational fairness: comparisons must account for differences in Number of Function Evaluations (NFEs), inference latency, and parallelizability. A method that improves quality by doubling compute via multiple seeds is not directly comparable to one that improves quality from a single seed with 1% overhead. This principle ensures that reported gains are attributable to algorithmic innovation rather than compute scaling, and that readers can make informed decisions about practical deployment trade-offs.
+
+**Core Evaluation Criteria:**
+- **Inclusion of Recent Inference-Time Methods**: Does the paper compare against strong recent baselines such as test-time optimization methods (e.g., FK steering, DAS), multi-objective RL-based diffusion approaches, and gradient-based guidance methods, rather than only comparing against static CFG schedules or default sampling?
+- **Compute-Normalized Evaluation**: Are comparisons performed under matched computational budgets (e.g., equal NFEs, equal inference time), and does the paper explicitly report the computational overhead of the proposed method relative to baselines (e.g., FLOPs, latency, memory)?
+- **Single-Seed vs. Multi-Seed Distinction**: Does the work clearly distinguish between methods that improve single-seed generation (like dynamic CFG) and methods that rely on searching over multiple initial seeds (like FK steering), and does it provide appropriate head-to-head comparisons when compute is equated?
+- **Orthogonality and Composability Analysis**: Does the paper analyze whether the proposed method is orthogonal to post-training improvements (e.g., can it be applied on top of already fine-tuned models) and whether it composes favorably with existing techniques?
+
+---
+
+**Principle 5: Design Rationale and Ablation of Adaptive Multi-Objective Weighting Across Denoising Stages**
+
+**Definition:**
+When a method combines feedback from multiple evaluators targeting distinct generation objectives (e.g., text alignment, visual fidelity, human preference, text rendering, numerical reasoning), the design of the aggregation mechanism becomes a core research contribution requiring rigorous scrutiny. Reviewers must evaluate whether the authors provide clear rationale for how and why different objectives should be emphasized at different denoising stages, whether they ablate static versus dynamic weighting schemes, and whether they demonstrate that the adaptive mechanism produces interpretable, prompt-dependent schedules rather than opaque black-box behavior. This principle is particularly important because improper weighting can cause one objective to dominate (e.g., alignment at the expense of fidelity) or can introduce instability if weights shift too abruptly. The evaluation should verify that the adaptive design is motivated by empirical observations about when specific attributes emerge during generation.
+
+**Core Evaluation Criteria:**
+- **Stage-Specific Weighting Rationale**: Does the paper provide empirical or theoretical justification for why certain evaluators should be weighted more heavily at specific denoising stages (e.g., alignment early, text rendering late), grounded in observations about attribute emergence during diffusion?
+- **Static vs. Dynamic Weighting Ablation**: Does the work include ablation studies comparing adaptive weighting against static linear weighting, uniform weighting, and single-evaluator baselines to isolate the contribution of the dynamic aggregation mechanism?
+- **Prompt-Dependent Schedule Interpretability**: Are the resulting dynamic schedules visualized and analyzed to show how they vary across prompt types (e.g., creative prompts receiving low guidance, compositional/text-rendering prompts receiving high guidance), validating that the method adapts meaningfully to content rather than converging to a universal heuristic?
+- **Multi-Objective Trade-off Control**: Does the paper demonstrate controllable trade-offs between competing objectives (e.g., alignment vs. fidelity) and show that the adaptive weighting successfully navigates these trade-offs without causing catastrophic collapse in any single dimension?

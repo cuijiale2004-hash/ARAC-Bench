@@ -1,0 +1,86 @@
+{
+  "overview": "This paper proposes an efficient LLM reasoning framework that models the reasoning process as a state-transition process, replacing the original softmax attention with a Mixed Attention Module (MAM) combining Softmax Attention and Linear Attention to reduce computational complexity from quadratic to linear while maintaining reasoning ability, along with a state-based reasoning strategy using momentum accumulation to mitigate overthinking from noisy reasoning steps.",
+  "count": 16,
+  "modules": [
+    {
+      "id": 1,
+      "name": "Long CoT Segmentation Module",
+      "description": "Segments long Chain-of-Thought thinking sequences into discrete reasoning steps by extracting high-entropy transition tokens (e.g., 'Wait', 'Hmm', 'Alternatively', 'Maybe') from the training set that occur at the start of sentences, using them as boundaries to split continuous CoT into a sequence of independent reasoning steps."
+    },
+    {
+      "id": 2,
+      "name": "Thinking Pattern Clustering Module",
+      "description": "Clusters all reasoning steps in the training set using MiniBatch K-Means with cosine similarity and a large number of clusters, where each cluster corresponds to a thinking pattern (e.g., induction, reflection, verification). Assigns thinking pattern type IDs to each reasoning step for subsequent special token insertion."
+    },
+    {
+      "id": 3,
+      "name": "Training Data Construction Module",
+      "description": "Reconstructs the training dataset by wrapping each reasoning step with special start and end tokens corresponding to its assigned thinking pattern type, producing structured long CoT samples (Q, T, A) where the thinking sequence T is annotated with thinking pattern boundaries for controllable reasoning."
+    },
+    {
+      "id": 4,
+      "name": "Linear Attention Submodule",
+      "description": "Implements the linear attention mechanism that maintains a state matrix S_t storing historical reasoning information, where the state is updated incrementally as S_t = S_{t-1} + k_t^T v_t. Each query token directly retrieves historical information via o = q * S without explicit attention to previous tokens. Supports the test-time training (TTT) perspective with gradient-descent-like state updates."
+    },
+    {
+      "id": 5,
+      "name": "Modified Softmax Attention Submodule",
+      "description": "Implements the standard softmax attention but with a restricted attention scope: each token can only attend to tokens in the query prompt and previously generated tokens within the current reasoning step. KV-cache is cleared of completed reasoning steps after each step finishes, reducing memory from O(C) to O(1) for historical steps."
+    },
+    {
+      "id": 6,
+      "name": "Mixed Attention Module (MAM)",
+      "description": "Combines the SA and LA submodules into a unified attention layer replacing the original softmax attention. The LA submodule output is gated via ȟ = σ(W_g * h) * o where o is the linear attention output and W_g is a learnable gating weight. The final output is h̃ = W_o(ȟ + ĥ) where ĥ is the SA submodule output. The LA submodule is implemented via LoRA strategy to control parameter size."
+    },
+    {
+      "id": 7,
+      "name": "Custom Attention Mask Module",
+      "description": "Generates custom mask matrices for the SA submodule to ensure that during both training and inference, each token only attends to tokens from the query prompt and its own reasoning step. This mask is applied consistently during training and testing to maintain alignment between the two phases."
+    },
+    {
+      "id": 8,
+      "name": "State-Based Reasoning Strategy Module",
+      "description": "Implements momentum-based gradient correction to mitigate noisy reasoning steps. Computes per-step reasoning directions ∇_t = S_t - S_{t-1}, accumulates a global reasoning direction ∇̄ using exponential momentum averaging, and corrects each step's direction as ∇̂_t = (1-α)∇_t + α∇̄ where α linearly increases from 0 up to α_max. Also enforces thinking pattern diversity by guiding consecutive steps toward different patterns."
+    },
+    {
+      "id": 9,
+      "name": "Loss Function Module",
+      "description": "Implements the joint training objective combining autoregressive loss L_AR and knowledge distillation loss L_KD. The autoregressive loss computes the negative log-likelihood of the thinking sequence and final answer given the query. The distillation loss computes KL divergence between the base model's predicted distribution (full attention) and the proposed model's distribution (MAM-based attention), scaled by hyperparameter β."
+    },
+    {
+      "id": 10,
+      "name": "LoRA Parameter Initialization Module",
+      "description": "Initializes the LoRA parameters for the LA submodule within MAM, setting appropriate ranks for the query, key, value projection matrices and the gating weight. Freezes all original model parameters and only trains the newly added LA submodule parameters and special token embeddings corresponding to thinking patterns."
+    },
+    {
+      "id": 11,
+      "name": "Training Loop Module",
+      "description": "Manages the full training workflow including epoch iteration, forward pass through MAM-equipped model, joint loss computation, gradient backpropagation through LoRA parameters only, learning rate scheduling with warmup and cosine decay, and checkpoint saving. Supports mixed-precision training with BF16 and FlashAttention-2."
+    },
+    {
+      "id": 12,
+      "name": "Inference Module",
+      "description": "Implements step-by-step reasoning with state transitions: generates each reasoning step autoregressively using MAM while maintaining and updating the reasoning state matrix S. After each reasoning step completes (detected by end special token), clears the step's KV-cache, applies state-based reasoning strategy corrections, and initiates the next step. Supports both greedy decoding and temperature-based sampling strategies."
+    },
+    {
+      "id": 13,
+      "name": "Evaluation Metrics Module",
+      "description": "Computes all evaluation metrics: Accuracy (percentage of correct answers), Token Number (average CoT sequence length), and Reasoning Latency (average inference time per sample measured on a single GPU with batch size 1). Also computes the repeated generation rate (RC rate) for sampling-based decoding."
+    },
+    {
+      "id": 14,
+      "name": "Benchmark Testing Module",
+      "description": "Runs comprehensive evaluations across seven benchmarks spanning three domains: mathematical reasoning (GSM8K, MATH-500, AMC23, AIME24, AIME25), scientific reasoning (GPQA Diamond), and code reasoning (HumanEval). Orchestrates comparison experiments with baselines including H2O, SepLLM, LightThinker, and INFTYTHINK, as well as CoT-shortening baselines like TAMM, SBT-D, L1-Max, and Anytime-Reasoning."
+    },
+    {
+      "id": 15,
+      "name": "Ablation and Sensitivity Analysis Module",
+      "description": "Configures and executes ablation studies by systematically removing key components: state-based reasoning strategy, thinking pattern diversity, distillation loss, model reasoning state (replaced with sliding window), and gating mechanism. Also performs hyperparameter sensitivity analysis for β (distillation loss weight) and α_max (correction coefficient), and analyzes computational/memory costs across varying CoT lengths."
+    },
+    {
+      "id": 16,
+      "name": "Process Reward Estimation and Data Efficiency Module",
+      "description": "Implements unsupervised process reward estimation by computing cosine similarity between each step's reasoning direction and the global reasoning direction. Uses these rewards for CoT compression (removing low-reward steps) and training sample quality assessment (discarding samples with low global process rewards), enabling data-efficient training."
+    }
+  ]
+}

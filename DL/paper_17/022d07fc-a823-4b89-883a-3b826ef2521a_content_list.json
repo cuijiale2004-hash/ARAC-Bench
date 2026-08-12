@@ -1,0 +1,1123 @@
+[
+    {
+        "type": "text",
+        "text": "ABSTRACT",
+        "text_level": 2,
+        "bbox": [
+            450,
+            287,
+            547,
+            304
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Existing dominant methods for audio generation include Generative Adversarial Networks (GANs) and diffusion-based methods like Flow Matching. GANs suffer from slow convergence during training, while diffusion methods require multistep inference that introduces considerable computational overhead. In this work, we introduce Flow2GAN, a two-stage framework that combines Flow Matching training for learning generative capabilities with GAN fine-tuning for efficient few-step inference. Specifically, given audio’s unique properties, we first improve Flow Matching for audio modeling through: 1) reformulating the objective as endpoint estimation, avoiding velocity estimation difficulties when involving empty regions; 2) applying spectral energy-based loss scaling to emphasize perceptually salient quieter regions. Building on these Flow Matching adaptations, we demonstrate that a further stage of lightweight GAN fine-tuning enables us to obtain fewstep (e.g., 1/2/4 steps) generators that produce high-quality audio. In addition, we develop a multi-branch network architecture that processes Fourier coefficients at different time-frequency resolutions, which improves the modeling capabilities compared to prior single-resolution designs. Experimental results indicate that our Flow2GAN delivers high-fidelity audio generation from Mel-spectrograms or discrete audio tokens, achieving highly favorable quality-efficiency trade-offs compared to existing state-of-the-art GAN-based and Flow Matching-based methods. Online demo samples are available at https://flow2gan.github.io, and the source code is released at https://github.com/k2-fsa/Flow2GAN.",
+        "bbox": [
+            230,
+            321,
+            767,
+            616
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "1 INTRODUCTION",
+        "text_level": 2,
+        "bbox": [
+            174,
+            643,
+            338,
+            657
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Audio generation, also known as neural vocoding, aims to reconstruct high-resolution waveforms from compressed representations such as Mel-spectrograms and discrete audio tokens. It serves as a crucial component in various applications, including text-to-speech (TTS) (Shen et al., 2018; Kim et al., 2021; Zhu et al., 2025) and music synthesis (Engel et al., 2017; Donahue et al., 2018; Engel et al., 2019), directly impacting the perceptual experience of end users.",
+        "bbox": [
+            169,
+            666,
+            826,
+            738
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Deep generative models have demonstrated remarkable progress in this task. Generative Adversarial Networks (GANs) (Goodfellow et al., 2014; Arjovsky et al., 2017) are the dominant approach (Kumar et al., 2019; Kong et al., 2020a; Lee et al., 2022; Siuzdak, 2023), leveraging sophisticated discriminators (Kumar et al., 2019; Kong et al., 2020a; Jang et al., 2021; Gu et al., 2024) to capture multi-grained audio details and enabling high-fidelity results with efficient one-step inference. However, adversarial optimization in GANs often leads to slow convergence and the risk of mode collapse (Thanh-Tung & Tran, 2020). Another line of research explores the use of diffusion models (Sohl-Dickstein et al., 2015; Ho et al., 2020; Song et al., 2020) for audio generation (Kong et al., 2020b; Chen et al., 2020; Lee et al., 2021; Nguyen et al., 2024), offering stable training and strong generative performance. Recent diffusion-based works that integrate multi-band waveform processing (San Roman et al., 2023; Liu et al., 2024) further boost diffusion on audio data, enabling them to generate high-quality audio. Nevertheless, the strong results of diffusion models come at the cost of multi-step sampling, resulting in high computational demands.",
+        "bbox": [
+            169,
+            743,
+            826,
+            925
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_number",
+        "text": "1",
+        "bbox": [
+            493,
+            948,
+            503,
+            959
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "In this work, we propose Flow2GAN, which follows a two-stage training strategy that combines the strengths of both GAN and diffusion paradigms. In the first stage, we train the model with a Flow Matching objective (Lipman et al., 2022; Liu et al., 2022a), a form of diffusion model (Kingma & Gao, 2023), to learn robust generative capabilities with stable training. In the second stage, we construct few-step generators from the trained model and utilize GAN fine-tuning for finer-grained generation through adversarial learning. To be specific, considering audio’s distinctive properties, we improve Flow Matching for audio modeling by: 1) reformulating the training objective as direct endpoint prediction, circumventing the challenges of velocity estimation when involving empty regions; 2) incorporating spectral energy-based loss weighting to emphasize perceptually important low-energy regions. Building upon the adapted Flow Matching, the trained model is able to generate clearly improved audio with just 2 sampling steps (Figure 2). This provides a strong foundation for the subsequent GAN fine-tuning stage, which effectively guides the initialized few-step models toward further refined audio quality. Moreover, we design a multi-branch ConvNeXt-based (Liu et al., 2022b) network structure that operates on multi-resolution Fourier coefficients, serving as a powerful backbone with enhanced modeling capabilities compared to the previous single-branch version. Our experiments show that Flow2GAN generates high-quality audio across both Mel-spectrogram and audio token conditioning, while providing highly favorable quality-efficiency trade-offs compared to state-of-the-art GAN-based and Flow Matching-based methods. Ablation studies further validate the effectiveness of each proposed component.",
+        "bbox": [
+            169,
+            104,
+            826,
+            369
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "2 RELATED WORK",
+        "text_level": 2,
+        "bbox": [
+            171,
+            380,
+            343,
+            396
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "GAN-based audio generation. GAN-based models consist of two networks: a generator that produces audio waveforms and a discriminator that classifies whether the generated audio is real or synthetic. The key to these methods is designing sophisticated discriminators to capture audio features from different perspectives, thereby guiding the generator to produce more fine-grained and realistic audio through adversarial learning. MelGAN (Kumar et al., 2019) employs a Multi-Scale Discriminator (MSD) that extracts features from waveforms at various downsampled resolutions. HiFi-GAN (Kong et al., 2020a) extends this approach by incorporating a Multi-Period Discriminator (MPD) that learns complementary structures by analyzing different periodic patterns. Univnet (Jang et al., 2021) utilizes a Multi-Resolution Discriminator (MRD) that operates in the time-frequency domain across multiple spectral resolutions. BigVGAN (Lee et al., 2022) introduces the Snake activation function to provide periodic inductive bias and incorporates low-pass filters for anti-aliasing. Unlike previous works that rely on transposed convolutions for upsampling, Vocos (Siuzdak, 2023) models spectral coefficients using ConvNeXt model (Liu et al., 2022b) and realizes upsampling to waveforms through the Inverse Short-Time Fourier Transform (ISTFT). Our network structure follows Vocos by using ConvNeXt to operate on spectral coefficients, but we extend it to multiple time-frequency resolutions for a more powerful backbone.",
+        "bbox": [
+            169,
+            404,
+            826,
+            628
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Diffusion/Flow Matching-based audio generation. Diffusion-based methods learn transition trajectories from noise distribution to data distribution, excelling at stable training and robust generation. DiffWave (Kong et al., 2020b) and WaveGrad (Chen et al., 2020) first introduce diffusion models to audio synthesis and get GAN-competitive results. PriorGrad (Lee et al., 2021) uses an adaptive prior derived from data statistics to structure the noise, thereby speeding up the diffusion sampling process. PeriodWave (Lee et al., 2024a) utilizes a multi-period Flow Matching estimator to learn different periodic features of the waveform. Multi-Band Diffusion (MBD) (San Roman et al., 2023) divides the audio into different frequency bands and processes each band with a distinct diffusion model. RFWave (Liu et al., 2024) also adopt this multi-band idea, employing Flow Matching to model each band but processing all bands in parallel with a shared model. These multi-band processing approaches employ frequency equalization to reduce the energy mismatch between the Gaussian distribution and audio data distribution in different frequency bands. While this technique is effective for high-frequency modeling, the equalization process relies on normalization statistics calculated on the dataset (San Roman et al., 2023) or accumulated during training (Liu et al., 2024), which poses a potential generalization risk when applied to distributions that differ significantly from those used to compute the original statistics. In this work, we improve Flow Matching for audio modeling by reformulating the objective to endpoint estimation and emphasizing loss in perceptually salient regions, and further combine a GAN fine-tuning stage for fast and finer-grained generation. Note that PriorGrad and RFWave also use energy-based loss scaling (Liu et al., 2024), but they operates at the per-frame level, whereas ours is based on both time and frequency dimen sions, which is validated to outperform the per-frame version in our reformulated setting (Table 3).",
+        "bbox": [
+            169,
+            633,
+            826,
+            926
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "page_number",
+        "text": "2",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "image",
+        "img_path": "images/6082efcccd7905da358fed93c360ffb7b19d137757da577365265841683ac1de.jpg",
+        "image_caption": [
+            "Figure 1: Overall framework of Flow2GAN."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            236,
+            98,
+            754,
+            305
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Accelerating Flow Matching models in audio generation. A typical way to accelerate diffusion model inference is through distillation (Salimans & Ho, 2022; Meng et al., 2023; Song et al., 2023), using multi-step outputs to guide fewer-step outputs. WaveFM (Luo et al., 2025) introduces a tailored method of consistency distillation (Song et al., 2023) and can generate audio in 1 step without significant quality degradations. Another approach is to integrate GAN objectives with adversarial learning using real data (Huang et al., 2023; Lee et al., 2024b; Zheng & Yang, 2025). A recent work in audio generation is PeriodWave-Turbo (Lee et al., 2024b), which introduces GAN fine-tuning to Flow-Matching pre-trained models. Our Flow2GAN shares a similar idea, but we build upon our enhanced Flow Matching specialized for audio modeling, providing stronger pretrained weights to initialize the GAN generators. This results in significantly superior one-step generator after GAN fine-tuning compared to building upon standard Flow Matching (Table 3). Notably, PeriodWave-Turbo (Lee et al., 2024b) does not explore one-step results. Shortcut models (Frans et al., 2024) condition on both noise level and step size, enabling better few-step generation than consistency models (Song et al., 2023). We also investigate this strategy for few-step audio generation and demonstrate that our approach surpasses it.",
+        "bbox": [
+            169,
+            328,
+            826,
+            537
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "3 PRELIMINARY: FLOW MATCHING",
+        "text_level": 2,
+        "bbox": [
+            171,
+            547,
+            485,
+            564
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "As a popular formulation of diffusion models (Sohl-Dickstein et al., 2015; Ho et al., 2020; Song et al., 2020; Rezende & Mohamed, 2015; Kingma & Gao, 2023), Flow Matching (Lipman et al., 2022; Liu et al., 2022a) addresses generative modeling by learning the velocity fields that transport the noise distribution $p _ { \\mathrm { n o i s e } } = \\mathcal { N } ( 0 , I )$ to the data distribution $p _ { \\mathrm { d a t a } }$ . Given a noise point $x _ { 0 } \\sim p _ { \\mathrm { n o i s e } } ,$ , a data point $x _ { 1 } \\sim p _ { \\mathrm { d a t a } } ,$ , and $t \\sim \\mathcal { U } [ 0 , 1 ]$ , a straight flow path can be defined by linear interpolation: $x _ { t } = ( 1 - t ) x _ { 0 } + t x _ { 1 }$ , with corresponding velocity $v _ { t } = x _ { 1 } - x _ { 0 }$ . The same intermediate point $x _ { t }$ can arise from different pairs of $( x _ { 0 } , x _ { 1 } )$ , each yielding a distinct velocity $v _ { t }$ Flow Matching thus trains a network $f _ { \\theta } ( x _ { t } , t )$ to estimate the marginal velocity field (Lipman et al., 2022), that is, the expected velocity conditioned on $x _ { t } \\colon v ( x _ { t } , t ) = \\mathbb { E } _ { x _ { 0 } , x _ { 1 } } [ v _ { t } | x _ { t } ]$ ]. In practice, this is equivalently optimized in a simpler way by fitting the empirical velocity $v _ { t }$ obtained from randomly sampled pairs $( x _ { 0 } , x _ { 1 } )$ during training (Lipman et al., 2022):",
+        "bbox": [
+            169,
+            571,
+            825,
+            726
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathcal {L} _ {\\mathrm{FM}} = \\mathbb {E} _ {t, x _ {0}, x _ {1}} \\left[ \\left\\| f _ {\\theta} (x _ {t}, t) - v _ {t} \\right\\| ^ {2} \\right].\\tag{1}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            372,
+            736,
+            622,
+            761
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "In inference, new data can be sampled by solving the ordinary differential equation (ODE) using the learned flow model: $\\begin{array} { r } { \\frac { d x _ { t } } { d t } = f _ { \\theta } ( x _ { t } , t ) } \\end{array}$ . This process is typically approximated by a numerical solver, such as Euler method, over discrete time steps:",
+        "bbox": [
+            169,
+            761,
+            825,
+            805
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\nx _ {t _ {i + 1}} = x _ {t _ {i}} + (t _ {i + 1} - t _ {i}) f _ {\\theta} (x _ {t _ {i}}, t _ {i}).\\tag{2}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            375,
+            816,
+            619,
+            833
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "4 METHOD",
+        "text_level": 2,
+        "bbox": [
+            171,
+            838,
+            284,
+            853
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "As illustrated in Figure 1, Flow2GAN follows a two-stage training strategy: the model is first trained with improved Flow Matching tailored for audio modeling (Section 4.1); then few-step generators are built with the trained model and guided by GAN fine-tuning toward fine-grained generation (Section 4.2). The model utilizes a multi-branch architecture that processes Fourier coefficients at different time-frequency resolutions (Section 4.3).",
+        "bbox": [
+            169,
+            861,
+            826,
+            931
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "page_number",
+        "text": "3",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "image",
+        "img_path": "images/0bdab174ea123af844fb3f729c3679d3de638877ee085002eae7381cfcdf630e.jpg",
+        "image_caption": [
+            "Figure 2: Example illustration of audio generation. Flow Matching estimates velocity $v _ { t } = x _ { 1 } - x _ { 0 }$ The improved Flow Matching in Flow2GAN estimates endpoint $x _ { 1 }$ , yielding cleaner result in silent regions with 2 sampling steps. GAN fine-tuning further enhances the result by filling in details."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            248,
+            101,
+            746,
+            280
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "4.1 IMPROVED FLOW MATCHING FOR AUDIO MODELING",
+        "text_level": 2,
+        "bbox": [
+            171,
+            340,
+            581,
+            356
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "When applying Flow Matching to conditional audio generation, the velocity field is parameterized as $f _ { \\theta } ( x _ { t } , t | \\mathbf { c } )$ , where c denotes the compressed acoustic representations, such as Mel-spectrograms or discrete audio tokens. However, the unique characteristics of audio data present two key challenges for Flow Matching in this context: 1) Velocity estimation difficulty. Audio signals often contain silent segments or frequency bands with zero energy (Figure 2 (a)). In these regions, the model must accurately estimate $v _ { t }$ to precisely cancel out the noise in $x _ { 0 }$ and recover the empty target $x _ { 1 }$ . This increases the learning difficulty as the model is required not only to capture the differences $v _ { t } =$ $x _ { 1 } - x _ { 0 }$ in the active regions of the audio signal, but also to approximate $- { x } _ { 0 }$ in these empty regions (Figure 2 (c)). 2) Loss-perception mismatch. The Flow Matching loss (Equation 1) uses mean squared error (MSE) criterion, treating the prediction errors uniformly across all signal regions. However, this does not align well with auditory perception principles, where errors in quieter spectral regions tend to be more perceptually noticeable than equivalent errors in louder regions.",
+        "bbox": [
+            169,
+            361,
+            826,
+            530
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Reformulation to endpoint estimation. To circumvent the difficulty of predicting the velocity $v _ { t } .$ we reformulate the Flow Matching problem so that the network predicts the endpoint $x _ { 1 }$ instead: $\\hat { x } _ { 1 } = g _ { \\theta } ( x _ { t } , t | \\mathbf { c } )$ . Specifically, as $\\begin{array} { r } { v _ { t } = \\frac { x _ { 1 } - x _ { t } } { 1 - t } } \\end{array}$ , the loss in Equation 1 can be rewritten as:",
+        "bbox": [
+            169,
+            534,
+            823,
+            578
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathcal {L} _ {\\mathrm{FM}} = \\mathbb {E} _ {t, x _ {0}, x _ {1}} \\left[ \\left\\| \\frac {g _ {\\theta} (x _ {t} , t | \\mathbf {c}) - x _ {t}}{1 - t} - \\frac {x _ {1} - x _ {t}}{1 - t} \\right\\| ^ {2} \\right] = \\mathbb {E} _ {t, x _ {0}, x _ {1}} \\left[ \\frac {\\| g _ {\\theta} (x _ {t} , t | \\mathbf {c}) - x _ {1} \\| ^ {2}}{(1 - t) ^ {2}} \\right].\\tag{3}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            209,
+            585,
+            785,
+            627
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "This reformulation can be interpreted as training the network to reconstruct the clean audio $x _ { 1 }$ from its noisy version $x _ { t }$ at varying noise levels $( 1 - t )$ This approach provides a more consistent and stable learning objective tailored to audio data, allowing the network to focus on capturing audio-relevant patterns regardless of whether the region is active or empty. Empirically, we found that removing the weighting factor $\\frac { 1 } { ( 1 - t ) ^ { 2 } }$ in Equation 3 yields slight improvements at both the Flow-Matching stage (2 steps) and after GAN fine-tuning. The reason might be that without this weighting, the model can better emphasize small t values, which aligns well with our setting. For simplicity, we therefore omit this factor, yielding:",
+        "bbox": [
+            169,
+            630,
+            826,
+            746
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathcal {L} _ {\\mathrm{FM}} ^ {\\prime} = \\mathbb {E} _ {t, x _ {0}, x _ {1}} \\left[ \\| g _ {\\theta} (x _ {t}, t | \\mathbf {c}) - x _ {1} \\| ^ {2} \\right].\\tag{4}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            364,
+            752,
+            630,
+            777
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "The sampling process in Equation 2 is consequently modified as follows:",
+        "bbox": [
+            171,
+            779,
+            653,
+            795
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\nx _ {t _ {i + 1}} = x _ {t _ {i}} + (t _ {i + 1} - t _ {i}) \\frac {g _ {\\theta} (x _ {t _ {i}} , t _ {i} | \\mathbf {c}) - x _ {t _ {i}}}{1 - t _ {i}}.\\tag{5}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            346,
+            801,
+            648,
+            834
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Spectral energy-adaptive loss scaling. To address the loss-perception mismatch, we scale the Flow Matching loss inversely proportional to the energy of the reference spectrogram, thereby encouraging the model to emphasize the perceptually salient quieter regions. Specifically, the prediction error is converted into frequency domain: $\\boldsymbol { S } ( \\boldsymbol { g } _ { \\boldsymbol { \\theta } } ( \\boldsymbol { x } _ { t } , t | \\mathbf { c } ) - \\boldsymbol { x } _ { 1 } )$ , where $\\begin{array} { r } { \\dot { S } ( \\dot { x } ) = \\mathrm { L i n } \\dot { \\mathrm { F B } } ( | \\dot { \\mathrm { S T F T } } ( x ) | ^ { 2 } ) } \\end{array}$ denotes the power STFT followed by a linear filterbank transformation for energy smoothing, and is differentiable. The obtained result is then scaled element-wise inversely by the square root of the reference spectrogram’s energy, $\\frac { 1 } { \\sqrt { S ( x _ { 1 } ) + \\epsilon } }$ , with $\\epsilon = 1 e - 7$ . Therefore, the loss in Equation 4 is redefined as: 1",
+        "bbox": [
+            169,
+            840,
+            825,
+            925
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "page_number",
+        "text": "4",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            103,
+            825,
+            138
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathcal {L} _ {\\mathrm{FM}} ^ {\\prime \\prime} = \\mathbb {E} _ {t, x _ {0}, x _ {1}} \\left[ \\sum_ {i, j} \\left(\\frac {\\mathcal {S} (g _ {\\theta} (x _ {t} , t | \\mathbf {c}) - x _ {1})}{\\sqrt {\\mathcal {S} (x _ {1}) + \\epsilon}}\\right) _ {i, j} \\right].\\tag{6}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            325,
+            135,
+            669,
+            183
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "We clamp the loss scale $\\frac { 1 } { \\sqrt { S ( x _ { 1 } ) + \\epsilon } }$ between 0.01 and 100 for training stability. See Appendix Table 10 for detailed configurations of $s ( x )$ . Note that unlike the per-frame energy-based scaling in previous works (Lee et al., 2021; Liu et al., 2024), our scaling strategy is more comprehensive as it also accounts for differences along the frequency dimension.",
+        "bbox": [
+            169,
+            183,
+            826,
+            250
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "4.2 GAN FINE-TUNING FOR REFINEMENT AND FEW-STEP INFERENCE",
+        "text_level": 2,
+        "bbox": [
+            171,
+            263,
+            674,
+            279
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Although the adaptations described in Section 4.1 improve the audio generation quality of the Flow Matching model with 2 sampling steps (see Figure 2 (d) to (e) and Table 3), the inherent complexity of audio generation still leaves room for further refinement of details, especially in the highfrequency range. Moreover, even though we can obtain higher quality results through multi-step sampling (see Table 9 in Appendix), this would require considerable computational overhead. To this end, we employ a GAN fine-tuning strategy for two purposes: enhancing the fine-grained audio details by leveraging the existing carefully designed discriminators (Kong et al., 2020a; Jang et al., 2021) that capture diverse audio patterns from multiple perspectives, and enabling high-fidelity generation with few-step (even only one-step) inference.",
+        "bbox": [
+            169,
+            290,
+            826,
+            417
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "We construct the few-step GAN generators, referred to as $G _ { \\theta } ^ { N } ( x _ { 0 } | \\mathbf { c } )$ , by forwarding the trained Flow Matching model through N steps following Equation 5. Note that generators with different steps are trained and deployed as separate models rather than a single unified model. Specifically, for $G _ { \\theta } ^ { N } ( x _ { 0 } | \\mathbf { c } )$ with $N > 1$ , gradients are backpropagated through both forward passes, enabling end-to-end optimization of the intermediate output from earlier steps. While this approach can extend to more steps, we focus on one-, two-, and four-step variants for computational efficiency. Following (Siuzdak, 2023), we adopt the multi-period discriminator (MPD) (Kong et al., 2020a) and the multi-resolution discriminator (MRD) (Jang et al., 2021) for adversarial training. The generators are fine-tuned using a combination of HingeGAN adversarial loss (Lim & Ye, 2017), L1 feature matching loss, and multi-scale L1 Mel-spectrogram reconstruction loss (Kumar et al., 2023).",
+        "bbox": [
+            169,
+            421,
+            826,
+            563
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "We found that a fast stage of GAN fine-tuning is sufficient to yield a rapid and substantial improvement in audio quality, while additional fine-tuning can provide further gains (see Table 4). Figure 2 (e) to (f) shows that the fine-grained details are recovered after GAN fine-tuning. Intuitively, this effect arises because the pre-training stage with the improved Flow Matching objective already equips the model with strong generative modeling capabilities, while subsequent fine-tuning efficiently guides the model toward high-fidelity output by iteratively refining details through adversarial learning with real audio samples. As shown in Table 3, it is worth noting that when using standard Flow Matching for pre-training like (Lee et al., 2024b), the one-step model achieves significantly lower performance after GAN fine-tuning, demonstrating the superiority of our improved Flow Matching objective. This strategy combines the strengths of both paradigms - improved Flow Matching for robust generative capability learning, and GAN for detail enhancement - ultimately enabling high-fidelity audio generation with fast inference. Notably, compared to pure GAN training, it also requires significantly lower training cost.",
+        "bbox": [
+            169,
+            566,
+            826,
+            750
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "4.3 MULTI-RESOLUTION NETWORK STRUCTURE",
+        "text_level": 2,
+        "bbox": [
+            171,
+            765,
+            522,
+            780
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Inspired by Vocos (Siuzdak, 2023), our model processes Fourier coefficients rather than waveform samples for saving computational cost and memory usage. While Vocos operates at a single timefrequency resolution, we extend to multi-resolution modeling to better capture audio complexity, providing a more powerful backbone for generative learning.",
+        "bbox": [
+            169,
+            791,
+            825,
+            849
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "As shown in Figure 3, our model comprises three branches, each processing Fourier coefficients at different resolutions. Specifically, in each branch, the input signal is first transformed via STFT to obtain complex Fourier coefficients, whose real and imaginary components are concatenated along the feature dimension and fed into a ConvNeXT model (Liu et al., 2022b) to produce output complex coefficients. These are then converted back to waveform domain via Inverse STFT (ISTFT). The final output is obtained by summing all branch outputs. Since both STFT and ISTFT operations are differentiable, the entire model is optimized end-to-end. Additionally, following (Lee et al., 2024a), we incorporate a ConvNeXt-based condition encoder to extract deeper features from input Melspectrograms or codec token embeddings, which serve as shared generation conditions across all branches. Note that for Flow Matching inference, this condition encoder requires only one forward pass, with output features reused across multiple sampling steps. To better balance performance and efficiency, we use larger embedding dimensions for the low-frame-rate branch, and smaller embedding dimensions for the two high-frame-rate branches. Detailed model configurations are provided in Appendix 10.",
+        "bbox": [
+            169,
+            854,
+            826,
+            925
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "page_number",
+        "text": "5",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "image",
+        "img_path": "images/3e2da3e34a0f06c48c5b23244b3360d6d5f5c3de67789160a672c9110741668a.jpg",
+        "image_caption": [
+            "Figure 3: Multi-resolution network structure. Our model processes spectral coefficients from STFT at three different time-frequency resolutions, using larger embedding dimensions for shorter sequences. A ConvNeXt-based encoder processes the conditional compressed representation."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            230,
+            103,
+            753,
+            289
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            343,
+            826,
+            470
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "5 EXPERIMENTS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            481,
+            328,
+            497
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "To evaluate the effectiveness of our Flow2GAN, we conduct experiments conditioned on Melspectrograms and discrete audio tokens from Encodec (Defossez et al., 2022) (Section 5.2). We ´ also perform ablation studies with Mel-spectrogram condition to investigate the effect of each proposed technique (Section 5.3) and compare inference speed with other models (Section 5.4). Finally, we evaluate performance when serving as a TTS vocoder (Section 5.5).",
+        "bbox": [
+            169,
+            502,
+            826,
+            574
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "5.1 EXPERIMENTAL SETUP",
+        "text_level": 2,
+        "bbox": [
+            171,
+            582,
+            377,
+            597
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Datasets and evaluation metrics. For Mel-spectrogram conditioning, we train models on the LibriTTS dataset (Zen et al., 2019), which contains 585 hours of English speech at 24kHz sampling rate. We report results on the test set for model comparisons and on the dev set for ablation studies. For objective evaluation, we use Perceptual Evaluation of Speech Quality (PESQ) (Rix et al., 2001), ViSQOL (Chinen et al., 2020), F1 score for voiced/unvoiced classification (V/UV F1), periodicity error (Periodicity). We also include Frechet Speech Distance (FSD) (Le et al., 2023), which´ measures the similarity between distributions of generated and real samples in a feature space from a Wav2Vec2 encoder (Baevski et al., 2020). For subjective evaluation, we use Similarity MOS (SMOS) between generated and reference audios, with scores from 1 (not at all similar) to 5 (extremely similar), and also 5-scale Mean Opinion Score (MOS) to evaluate naturalness with scores from 1 (completely unnatural) to 5 (completely natural). We compare against the following stateof-the-art models: BigVGAN (Lee et al., 2022), Vocos (Siuzdak, 2023), RFWave (Liu et al., 2024), PeriodWave-Turbo (Lee et al., 2024b), and WaveFM (Luo et al., 2025). In ablation studies, we focus on PESQ and ViSQOL. We use log-Mel spectrograms when comparing to other models and Mel spectrograms in ablation studies, with their results comparison presented in Appendix Table 11.",
+        "bbox": [
+            169,
+            602,
+            826,
+            811
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "For audio token conditioning, following (San Roman et al., 2023; Liu et al., 2024), we train on a set of universal audio datasets including: Common Voice 7.0 (Ardila et al., 2019), clean speech data from DNS Challenge 4 (Dubey et al., 2024) (speech), MTG-Jamendo (Bogdanov et al., 2019) (music), and AudioSet (Gemmeke et al., 2017) and FSD50K (Fonseca et al., 2021) (sound events). All audio files are resampled to 24kHz. Following (Liu et al., 2024), we evaluate on a unified test dataset<sup>1</sup>, which contains 900 test samples involving speech, vocals, and sound effect. For the universal audios, we report PESQ, ViSQOL and FSD as objective metrics, as well as SMOS and MOS as subjective metric. In this setting, we compare Flow2GAN against Encodec (Defossez et al.,´ 2022), MBD (San Roman et al., 2023), RFWave (Liu et al., 2024), and PeriodWave-Turbo (Lee et al., 2024b).",
+        "bbox": [
+            169,
+            816,
+            826,
+            902
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "page_footnote",
+        "text": "<sup>1</sup>https://github.com/bfs18/rfwave",
+        "bbox": [
+            192,
+            909,
+            393,
+            924
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "page_number",
+        "text": "6",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            103,
+            826,
+            161
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "To evaluate Flow2GAN as a vocoder in Mel-based TTS systems, we combine it with F5-TTS Base (Chen et al., 2025), a recent zero-shot TTS model, and compare against various state-of-the-art vocoders. Note that F5-TTS provides two official checkpoints corresponding to librosa and torchaudio mel-spectrogram implementations<sup>2</sup>. We evaluate zero-shot TTS performance on LibriSpeech-PC (Meister et al., 2023) test-clean subset. For intelligibility, we report WER between the synthesized speech transcription and the input text. Speaker similarity is measured using cosine similarity between WavLM-based (Chen et al., 2022) ECAPA-TDNN (Desplanques et al., 2020) embeddings of the prompt and synthesized speech (denoted as SIM-o (Le et al., 2023)). Naturalness is evaluated using network-based MOS (UTMOS) (Saeki et al., 2022).",
+        "bbox": [
+            169,
+            166,
+            826,
+            294
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Implementation details. Our Flow2GAN is built with ConvNeXt (Liu et al., 2022b) layers, but we replace the normalization with BiasNorm (Yao et al., 2024) and use PreLU activation (He et al., 2015). Detailed model configurations are provided in Appendix Table 10. In GAN fine-tuning stage, following (Kumar et al., 2023), we use multi-scale Mel-spectrogram reconstruction loss with window lengths of {32, 64, 128, 256, 512, 1024, 2048}, hop lengths set to window length / 4, and Mel bins of {5, 10, 20, 40, 80, 160, 320}. For Encodec audio token conditioning, during training we randomly choose a bandwidth from {12.0, 6.0, 3.0, 1.5} kbps. At inference, the unified model can support all these bandwidths. We train our models with ScaledAdam optimizer (Yao et al., 2024), which offers faster convergence. Mel-spectrogram conditioned models are trained for 92k Flow Matching iterations and 110k GAN fine-tuning iterations on 2 Nvidia H20 GPUs. Audio token conditioned models are trained for 180k Flow Matching iterations (8 H20 GPUs) and 190k GAN fine-tuning iterations (2 H20 GPUs). For the state-of-the-art models for comparison, we use their released checkpoints and recommended inference configurations.",
+        "bbox": [
+            169,
+            299,
+            826,
+            481
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "5.2 COMPARISON TO STATE-OF-THE-ART METHODS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            484,
+            545,
+            500
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Mel-spectrogram conditioning. Table 1 compares our Flow2GAN models with other state-of-theart models with Mel-spectrogram conditioning. The one-step Flow2GAN outperforms Vocos (Siuzdak, 2023), RFWave (Liu et al., 2024), and WaveFM (Luo et al., 2025) across most metrics, except PESQ. The two-step and four-step variants outperform all other models except for FSD, SMOS, and MOS. The four-step version achieves the best results in PESQ, ViSQOL, V/UV F1, and Periodicity. As BigVGAN-v2 (Lee et al., 2022) is trained on a larger dataset <sup>3</sup>, achieving results close to it demonstrates the effectiveness of our models.",
+        "bbox": [
+            169,
+            511,
+            826,
+            609
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "table",
+        "img_path": "images/47e766863dcf25b53926ad5a1be46c8904e3aa241c2021fcdb73a99c56d43f5d.jpg",
+        "table_caption": [
+            "Table 1: Comparison to state-of-the-art methods on LibriTTS test set with Mel-spectrogram conditioning. <sup>∗</sup>BigVGAN-v2 is trained on a large-scale dataset."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Model</td><td>Params (M)</td><td>PESQ↑</td><td>ViSQOL↑</td><td>V/UV F1↑</td><td>Periodicity↓</td><td>FSD↓</td><td>SMOS↑</td><td>MOS↑</td></tr><tr><td>BigVGAN</td><td>112.4</td><td>4.241</td><td>4.964</td><td>0.969</td><td>0.071</td><td>0.022</td><td>4.47 ± 0.10</td><td>4.33 ± 0.18</td></tr><tr><td>BigVGAN-v2*</td><td>112.4</td><td>4.379</td><td>4.971</td><td>0.978</td><td>0.055</td><td>0.014</td><td>4.65 ± 0.11</td><td>4.59 ± 0.10</td></tr><tr><td>Vocos</td><td>13.5</td><td>3.618</td><td>4.898</td><td>0.951</td><td>0.105</td><td>0.042</td><td>4.10 ± 0.17</td><td>4.38 ± 0.16</td></tr><tr><td>RFWave (10 steps)</td><td>18.1</td><td>4.220</td><td>4.772</td><td>0.957</td><td>0.098</td><td>0.412</td><td>4.24 ± 0.16</td><td>4.29 ± 0.13</td></tr><tr><td>PeriodWave-Turbo (4 steps)</td><td>70.2</td><td>4.434</td><td>4.965</td><td>0.958</td><td>0.096</td><td>0.020</td><td>4.20 ± 0.17</td><td>4.38 ± 0.17</td></tr><tr><td>WaveFM (1 step)</td><td>19.5</td><td>3.540</td><td>4.894</td><td>0.943</td><td>0.124</td><td>0.098</td><td>3.72 ± 0.18</td><td>3.76 ± 0.18</td></tr><tr><td>Flow2GAN, 1-step (ours)</td><td>78.9</td><td>4.189</td><td>4.957</td><td>0.975</td><td>0.063</td><td>0.028</td><td>4.44 ± 0.14</td><td>4.39 ± 0.15</td></tr><tr><td>Flow2GAN, 2-step (ours)</td><td>78.9</td><td>4.440</td><td>4.979</td><td>0.983</td><td>0.044</td><td>0.023</td><td>4.53 ± 0.13</td><td>4.56 ± 0.11</td></tr><tr><td>Flow2GAN, 4-step (ours)</td><td>78.9</td><td>4.484</td><td>4.986</td><td>0.985</td><td>0.037</td><td>0.016</td><td>4.60 ± 0.14</td><td>4.58 ± 0.14</td></tr></table>",
+        "bbox": [
+            176,
+            654,
+            820,
+            763
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Encodec audio token conditioning. Table 2 presents a comparison of Flow2GAN models with other state-of-the-art models conditioned on EnCodec audio tokens. At lower bandwidths of 1.5 and 3.0 kbps, all Flow2GAN variants outperform other models across most objective metrics, except that the one-step and two-step models underperform PeriodWave-Turbo (Lee et al., 2024b) in ViSQOL at 3.0 kbps. At higher bandwidths of 6.0 and 12.0 kbps, although PeriodWave-Turbo achieves the best results in PESQ and ViSQOL, all Flow2GAN variants outperform other models across all objective metrics, with the four-step Flow2GAN achieving notably better FSD results than PeriodWave-Turbo. With increasing bandwidth, all Flow2GAN models can consistently achieve better SMOS and MOS.",
+        "bbox": [
+            169,
+            779,
+            826,
+            891
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "page_footnote",
+        "text": "<sup>2</sup>https://github.com/SWivid/F5-TTS",
+        "bbox": [
+            192,
+            895,
+            411,
+            909
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "page_footnote",
+        "text": "<sup>3</sup>https://github.com/NVIDIA/BigVGAN",
+        "bbox": [
+            192,
+            909,
+            434,
+            924
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "page_number",
+        "text": "7",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "table",
+        "img_path": "images/d87c78b8f5389c1ca91ab179adfc6749afe5c5e53afe05de2c12a60fafbf2d2d.jpg",
+        "table_caption": [
+            "Table 2: Comparison to state-of-the-art methods on universal evaluation dataset with Encodec audio token conditioning.",
+            "Table 3: Ablation study of the improved Flow Matching on LibriTTS dev set with Mel-spectrogram conditioning."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Bandwidth (kbps)</td><td>Model</td><td>Params (M)</td><td>PESQ↑</td><td>ViSQOL↑</td><td>FSD ↓</td><td>SMOS↑</td><td>MOS↑</td></tr><tr><td rowspan=\"7\">1.5</td><td>EnCodec</td><td>56.0</td><td>1.368</td><td>3.409</td><td>1.996</td><td>1.69 ± 0.14</td><td>2.09 ± 0.27</td></tr><tr><td>MBD</td><td>411.0</td><td>1.457</td><td>3.030</td><td>7.734</td><td>2.67 ± 0.18</td><td>2.83 ± 0.28</td></tr><tr><td>RFWave (10-step)</td><td>18.1</td><td>1.600</td><td>3.272</td><td>2.986</td><td>2.87 ± 0.23</td><td>2.91 ± 0.23</td></tr><tr><td>PeriodWave-Turbo (4-step)</td><td>31.3</td><td>1.260</td><td>3.308</td><td>4.055</td><td>1.55 ± 0.16</td><td>1.47 ± 0.19</td></tr><tr><td>Flow2GAN, 1-step (ours)</td><td>78.9</td><td>1.739</td><td>3.582</td><td>1.210</td><td>2.43 ± 0.20</td><td>2.83 ± 0.21</td></tr><tr><td>Flow2GAN, 2-step (ours)</td><td>78.9</td><td>1.803</td><td>3.609</td><td>1.152</td><td>3.04 ± 0.20</td><td>3.86 ± 0.14</td></tr><tr><td>Flow2GAN, 4-step (ours)</td><td>78.9</td><td>1.925</td><td>3.662</td><td>1.069</td><td>3.17 ± 0.19</td><td>3.40 ± 0.18</td></tr><tr><td rowspan=\"7\">3.0</td><td>EnCodec</td><td>56.0</td><td>1.745</td><td>3.867</td><td>1.380</td><td>3.11 ± 0.26</td><td>3.31 ± 0.23</td></tr><tr><td>MBD</td><td>411.0</td><td>1.958</td><td>3.523</td><td>6.133</td><td>3.36 ± 0.21</td><td>4.00 ± 0.24</td></tr><tr><td>RFWave (10-step)</td><td>18.1</td><td>2.124</td><td>3.784</td><td>2.622</td><td>3.41 ± 0.21</td><td>3.86 ± 0.23</td></tr><tr><td>PeriodWave-Turbo (4-step)</td><td>31.3</td><td>2.160</td><td>4.058</td><td>1.018</td><td>3.04 ± 0.17</td><td>3.16 ± 0.23</td></tr><tr><td>Flow2GAN, 1-step (ours)</td><td>78.9</td><td>2.353</td><td>4.026</td><td>0.867</td><td>3.94 ± 0.14</td><td>4.00 ± 0.19</td></tr><tr><td>Flow2GAN, 2-step (ours)</td><td>78.9</td><td>2.442</td><td>4.049</td><td>0.843</td><td>4.19 ± 0.15</td><td>4.07 ± 0.24</td></tr><tr><td>Flow2GAN, 4-step (ours)</td><td>78.9</td><td>2.550</td><td>4.091</td><td>0.804</td><td>4.03 ± 0.16</td><td>4.08 ± 0.22</td></tr><tr><td rowspan=\"7\">6.0</td><td>EnCodec</td><td>56.0</td><td>2.259</td><td>4.156</td><td>1.239</td><td>3.77 ± 0.19</td><td>3.47 ± 0.21</td></tr><tr><td>MBD</td><td>411.0</td><td>2.094</td><td>3.690</td><td>6.177</td><td>3.15 ± 0.19</td><td>4.47 ± 0.21</td></tr><tr><td>RFWave (10-step)</td><td>18.1</td><td>2.663</td><td>4.120</td><td>2.574</td><td>3.68 ± 0.22</td><td>4.00 ± 0.22</td></tr><tr><td>PeriodWave-Turbo (4-step)</td><td>31.3</td><td>3.229</td><td>4.424</td><td>0.712</td><td>4.00 ± 0.17</td><td>4.40 ± 0.21</td></tr><tr><td>Flow2GAN, 1-step (ours)</td><td>78.9</td><td>2.904</td><td>4.300</td><td>0.696</td><td>4.46 ± 0.16</td><td>4.42 ± 0.22</td></tr><tr><td>Flow2GAN, 2-step (ours)</td><td>78.9</td><td>2.983</td><td>4.319</td><td>0.733</td><td>4.38 ± 0.14</td><td>4.31 ± 0.17</td></tr><tr><td>Flow2GAN, 4-step (ours)</td><td>78.9</td><td>3.089</td><td>4.351</td><td>0.678</td><td>4.19 ± 0.12</td><td>4.38 ± 0.13</td></tr><tr><td rowspan=\"7\">12.0</td><td>EnCodec</td><td>56.0</td><td>2.776</td><td>4.347</td><td>1.204</td><td>3.76 ± 0.15</td><td>4.15 ± 0.15</td></tr><tr><td>MBD</td><td>411.0</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr><tr><td>RFWave (10-step)</td><td>18.1</td><td>3.117</td><td>4.348</td><td>2.152</td><td>3.75 ± 0.18</td><td>4.13 ± 0.23</td></tr><tr><td>PeriodWave-Turbo (4-step)</td><td>31.3</td><td>3.579</td><td>4.544</td><td>0.776</td><td>4.32 ± 0.16</td><td>4.56 ± 0.16</td></tr><tr><td>Flow2GAN, 1-step (ours)</td><td>78.9</td><td>3.389</td><td>4.489</td><td>0.632</td><td>4.52 ± 0.13</td><td>4.53 ± 0.23</td></tr><tr><td>Flow2GAN, 2-step (ours)</td><td>78.9</td><td>3.457</td><td>4.505</td><td>0.600</td><td>4.39 ± 0.14</td><td>4.44 ± 0.28</td></tr><tr><td>Flow2GAN, 4-step (ours)</td><td>78.9</td><td>3.538</td><td>4.531</td><td>0.557</td><td>4.22 ± 0.19</td><td>4.50 ± 0.15</td></tr></table>",
+        "bbox": [
+            174,
+            133,
+            821,
+            467
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "5.3 ABLATION STUDIES",
+        "text_level": 2,
+        "bbox": [
+            171,
+            486,
+            354,
+            500
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Ablation of the improved Flow Matching. Table 3 presents ablation results for the Flow Matching stage in Flow2GAN with Mel-spectrogram conditioning. Since we aim for few-step generation after GAN fine-tuning, we focus on the 2-step sampling results for the Flow Matching model. We don’t compare one-step Flow Matching results as they tend to converge toward the dataset mean (Frans et al., 2024). The results indicate that reformulating the standard Flow Matching objective to endpoint prediction improves PESQ by 0.455 and also yields better results after GAN fine-tuning (from Equation 1 to Equation 4). Additionally, the proposed spectral energy-adaptive loss scaling (Equation 6) further improves PESQ and ViSQOL substantially and consistently in both stages. Per-frame energy-based scaling, as in (Lee et al., 2021; Liu et al., 2024), leads to clear performance drops in both stages, demonstrating the advantages of our energy-based scaling strategy across time and frequency dimensions. Maintaining the factor $\\frac { 1 } { ( 1 - t ) ^ { 2 } }$ in Equation 3 yields worse results, as it emphasizes larger t values, which is not suitable for our few-step goal. The consistent improvements across both stages confirm that our Flow Matching enhancements contribute to the final performance gains, distinguishing our approach from PeriodWave-Turbo (Lee et al., 2024b), which uses standard Flow Matching for pre-training.",
+        "bbox": [
+            169,
+            505,
+            826,
+            719
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "table",
+        "img_path": "images/322253e90cec05b1414c96843191989d262973a2816066fad0b276cfb90ad6d0.jpg",
+        "table_caption": [],
+        "table_footnote": [],
+        "table_body": "<table><tr><td rowspan=\"3\">Method</td><td colspan=\"2\">Flow Matching trained(2 steps)</td><td colspan=\"4\">GAN fine-tuned</td></tr><tr><td rowspan=\"2\">PESQ↑</td><td rowspan=\"2\">ViSQOL↑</td><td colspan=\"2\">1-step</td><td colspan=\"2\">2-step</td></tr><tr><td>PESQ↑</td><td>ViSQOL↑</td><td>PESQ↑</td><td>ViSQOL↑</td></tr><tr><td>Standard Flow Matching</td><td>2.351</td><td>3.691</td><td>3.730</td><td>4.853</td><td>4.257</td><td>4.933</td></tr><tr><td>Predict  $x_{1}$ , w/o loss scaling</td><td>2.806</td><td>3.691</td><td>4.173</td><td>4.912</td><td>4.332</td><td>4.937</td></tr><tr><td>Predict  $x_{1}$ , w/ per-frame loss scaling</td><td>3.140</td><td>3.667</td><td>4.201</td><td>4.910</td><td>4.388</td><td>4.942</td></tr><tr><td>Predict  $x_{1}$ , w/ loss scaling, w/ loss factor  $\\frac{1}{(1-t)^{2}}$ </td><td>3.226</td><td>3.726</td><td>4.195</td><td>4.932</td><td>4.430</td><td>4.962</td></tr><tr><td>Predict  $x_{1}$ , w/ loss scaling (final)</td><td>3.469</td><td>3.749</td><td>4.303</td><td>4.942</td><td>4.471</td><td>4.969</td></tr></table>",
+        "bbox": [
+            176,
+            762,
+            818,
+            872
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Comparison to pure GAN training. Table 4 demonstrates the effectiveness of our two-stage training paradigm. Pure GAN training converges slowly, whereas Flow2GAN achieves significantly better results with lower training costs by combining Flow Matching training with subsequent GAN fine-tuning. Notably, even a fast GAN fine-tuning with 11k iterations yields high-quality generations for both the one-step and two-step generators, validating the benefits of this training strategy.",
+        "bbox": [
+            169,
+            882,
+            826,
+            925
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "page_number",
+        "text": "8",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            104,
+            825,
+            133
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "table",
+        "img_path": "images/e3ebd4341ba8db4a74d6a9b7c79525e516cda6f21125d8ccbb66bd6b0feaeab9.jpg",
+        "table_caption": [
+            "Table 4: Comparison to pure GAN training on LibriTTS dev set with Mel-spectrogram conditioning."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Method</td><td>Training iterations</td><td>Training hours</td><td>PESQ↑</td><td>ViSQOL↑</td></tr><tr><td rowspan=\"4\">Pure GAN</td><td>110k</td><td>26</td><td>3.587</td><td>4.823</td></tr><tr><td>220k</td><td>53</td><td>3.770</td><td>4.838</td></tr><tr><td>330k</td><td>78</td><td>3.838</td><td>4.861</td></tr><tr><td>660k</td><td>156</td><td>3.919</td><td>4.888</td></tr><tr><td>Flow Matching trained (2 steps)</td><td>92k</td><td>50</td><td>3.469</td><td>3.749</td></tr><tr><td rowspan=\"3\">+ GAN fine-tuned, 1-step</td><td>+11k</td><td>+2.6</td><td>4.195</td><td>4.887</td></tr><tr><td>+55k</td><td>+13</td><td>4.286</td><td>4.933</td></tr><tr><td>+110k</td><td>+26</td><td>4.303</td><td>4.942</td></tr><tr><td rowspan=\"3\">+ GAN fine-tuned, 2-step</td><td>+11k</td><td>+3.2</td><td>4.375</td><td>4.917</td></tr><tr><td>+55k</td><td>+16</td><td>4.457</td><td>4.961</td></tr><tr><td>+110k</td><td>+32</td><td>4.471</td><td>4.969</td></tr></table>",
+        "bbox": [
+            238,
+            167,
+            754,
+            330
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Comparison to Shortcut Models. We also investigate Shortcut models (Frans et al., 2024) for fewstep audio generation. Specifically, we allocate 75% of each batch to Flow Matching loss and 25% to self-consistency loss. See Algorithms 1, 2 in (Frans et al., 2024) for training and sampling details. As shown in Table 5, Shortcut models improve few-step results over standard Flow Matching in both PESQ and ViSQOL. Our Flow2GAN achieves further performance improvements, demonstrating clear advantages.",
+        "bbox": [
+            169,
+            342,
+            825,
+            428
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "table",
+        "img_path": "images/019cd01a432d4592ec8317d39b3439cd9fca403a34d41bd69d9d0779f39589bb.jpg",
+        "table_caption": [
+            "Table 5: Comparison to Shortcut models on LibriTTS dev set with Mel-spectrogram conditioning."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Method</td><td>Steps</td><td>PESQ↑</td><td>ViSQOL↑</td></tr><tr><td rowspan=\"3\">Standard Flow Matching</td><td>1</td><td>1.132</td><td>1.801</td></tr><tr><td>2</td><td>2.351</td><td>3.691</td></tr><tr><td>4</td><td>3.220</td><td>4.173</td></tr><tr><td rowspan=\"3\">Shortcut Models</td><td>1</td><td>3.181</td><td>4.426</td></tr><tr><td>2</td><td>3.841</td><td>4.660</td></tr><tr><td>4</td><td>4.122</td><td>4.781</td></tr><tr><td rowspan=\"3\">Flow2GAN</td><td>1</td><td>4.303</td><td>4.942</td></tr><tr><td>2</td><td>4.471</td><td>4.969</td></tr><tr><td>4</td><td>4.498</td><td>4.967</td></tr></table>",
+        "bbox": [
+            336,
+            462,
+            656,
+            598
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Ablation of the multi-resolution network. As shown in Table 6, our multi-resolution network structure outperforms the single-resolution baseline (Siuzdak, 2023) with comparable parameters in the final two-step system, demonstrating the benefits of modeling multi-resolution spectral features. Removing the condition encoder in Flow2GAN causes a performance drop, indicating that learning higher-level conditional features is helpful.",
+        "bbox": [
+            169,
+            609,
+            826,
+            680
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "table",
+        "img_path": "images/0033b7649a0ee7cf0b49edb4eeb3913306f1f75312ec25832f5703b63d38d80e.jpg",
+        "table_caption": [
+            "Table 6: Ablation study of model structure on LibriTTS dev set with Mel-spectrogram conditioning."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Method (2-step)</td><td>Params (M)</td><td>PESQ↑</td><td>ViSQOL↑</td></tr><tr><td>Single-resolution, double layers</td><td>79.9</td><td>4.442</td><td>4.920</td></tr><tr><td>Multi-resolution, w/o condition encoder</td><td>62.4</td><td>4.417</td><td>4.966</td></tr><tr><td>Multi-resolution (final)</td><td>78.9</td><td>4.471</td><td>4.969</td></tr></table>",
+        "bbox": [
+            272,
+            715,
+            720,
+            773
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "5.4 INFERENCE SPEED",
+        "text_level": 2,
+        "bbox": [
+            171,
+            799,
+            344,
+            814
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "In table 7, we compare Flow2GAN with state-of-the-art models under Mel-spectrogram conditioning in terms of inference speed, measured by the speed factor relative to real time (xRT). Experiments are conducted on an Intel Xeon Platinum 8457C CPU and an NVIDIA H20 GPU with batch size of 16 and segment length of 1 second. Except for Vocos, all versions of Flow2GAN achieve significantly faster inference than other models on both CPU and GPU, while even running faster than real time on CPU. This demonstrates that Flow2GAN excels not only in quality but also in efficiency.",
+        "bbox": [
+            169,
+            825,
+            826,
+            925
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "page_number",
+        "text": "9",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "table",
+        "img_path": "images/fad4dfd6fcbed4a53a83ec4b10fe4e29d2b99f95967e0e36f568cd1c9a7a9b34.jpg",
+        "table_caption": [
+            "Table 7: Model generation speed comparison with batch size of 16 and length of 1 second. BigVGAN-v2<sup>∗</sup> use the specialized CUDA kernel."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td rowspan=\"2\">Model</td><td rowspan=\"2\">Params (M)</td><td colspan=\"2\"> $\\mathbf{xRT} \\uparrow$ </td></tr><tr><td>CPU</td><td>GPU</td></tr><tr><td>BigVGAN</td><td>112.4</td><td>0.214</td><td>69.8</td></tr><tr><td>BigVGAN-v2</td><td>112.4</td><td>0.214</td><td>69.8</td></tr><tr><td>BigVGAN-v2*</td><td>112.4</td><td>-</td><td>121.9</td></tr><tr><td>Vocos</td><td>13.5</td><td>387.57</td><td>6440.80</td></tr><tr><td>RFWave (10-step)</td><td>18.1</td><td>0.37</td><td>158.8</td></tr><tr><td>PeriodWave-Turbo (4-step)</td><td>70.24</td><td>0.12</td><td>43.70</td></tr><tr><td>WaveFM (1-step)</td><td>19.5</td><td>0.64</td><td>226.31</td></tr><tr><td>Flow2GAN, 1-step (ours)</td><td>78.9</td><td>4.85</td><td>851.67</td></tr><tr><td>Flow2GAN, 2-step (ours)</td><td>78.9</td><td>2.46</td><td>449.26</td></tr><tr><td>Flow2GAN, 4-step (ours)</td><td>78.9</td><td>1.35</td><td>228.48</td></tr></table>",
+        "bbox": [
+            323,
+            136,
+            671,
+            281
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "5.5 ZERO-SHOT TTS PERFORMANCE COMPARISON",
+        "text_level": 2,
+        "bbox": [
+            171,
+            301,
+            544,
+            316
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "As shown in Table 8, our 4-step Flow2GAN achieves the same SIM-o and slightly better UTMOS than PeriodWave-Turbo (Lee et al., 2024b) with significantly faster inference (Table 7), though with higher WER. Notably, BigVGAN-v2 performs worse than BigVGAN (Lee et al., 2022), suggesting potential overfitting to ground-truth Mel-spectrograms. We also find that adding small Gaussian noise $0 . 2 \\times \\mathrm { r a n d ( ) } ^ { - } \\times \\bar { \\mathcal { N } } ( 0 , 1 )$ to the conditioning log-Mel during GAN fine-tuning improves both WER and UTMOS, possibly because it makes the model more robust to the imperfect spectrograms from the TTS diffusion model.",
+        "bbox": [
+            169,
+            325,
+            826,
+            426
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "table",
+        "img_path": "images/aa35476d781aeacb3c90ce43b965df2657afe42f58f326425752bc030ccbe19d.jpg",
+        "table_caption": [
+            "Table 8: Zero-shot TTS results on LibriSpeech-PC test-clean with F5-TTS Base models (librosa/torchaudio Mels) and various vocoders. <sup>∗</sup>BigVGAN-v2 is trained on a large-scale dataset. <sup>†</sup> denotes adding noise to log-Mel during GAN fine-tuning."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Model</td><td>Params (M)</td><td>Mel-type</td><td>WER(%)↓</td><td>SIM-o↑</td><td>UTMOS↑</td></tr><tr><td>BigVGAN</td><td>112.4</td><td>librosa</td><td>1.78</td><td>0.67</td><td>4.05</td></tr><tr><td>BigVGAN-v2*</td><td>112.4</td><td></td><td>1.82</td><td>0.66</td><td>3.70</td></tr><tr><td>PeriodWave-Turbo (4 steps)</td><td>70.2</td><td></td><td>1.8</td><td>0.67</td><td>4.17</td></tr><tr><td>Vocos</td><td>13.5</td><td>torchaudio</td><td>1.91</td><td>0.65</td><td>3.90</td></tr><tr><td>RFWave (10 steps)</td><td>18.1</td><td></td><td>1.87</td><td>0.66</td><td>3.63</td></tr><tr><td>WaveFM (1 step)</td><td>19.5</td><td></td><td>2.01</td><td>0.65</td><td>3.15</td></tr><tr><td>Flow2GAN, 1-step (ours)</td><td>78.9</td><td></td><td>1.94</td><td>0.67</td><td>3.75</td></tr><tr><td>Flow2GAN, 2-step (ours)</td><td>78.9</td><td></td><td>1.91</td><td>0.67</td><td>4.11</td></tr><tr><td>Flow2GAN, 4-step (ours)</td><td>78.9</td><td></td><td>1.89</td><td>0.67</td><td>4.18</td></tr><tr><td>Flow2GAN, 1-step† (ours)</td><td>78.9</td><td></td><td>1.88</td><td>0.67</td><td>3.83</td></tr><tr><td>Flow2GAN, 2-step† (ours)</td><td>78.9</td><td></td><td>1.88</td><td>0.67</td><td>4.21</td></tr><tr><td>Flow2GAN, 4-step† (ours)</td><td>78.9</td><td></td><td>1.87</td><td>0.67</td><td>4.26</td></tr></table>",
+        "bbox": [
+            256,
+            482,
+            736,
+            637
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "6 CONCLUSION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            648,
+            321,
+            664
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "In this work, we propose Flow2GAN, a two-stage training framework. In the first stage, Flow Matching is used to learn the generative capability, while in the second stage, GAN fine-tuning refines the details, ultimately enabling few-step generation. Specifically, we improve Flow Matching by reformulating to endpoint estimation to mitigate the difficulties of velocity prediction in empty regions, and by introducing spectral energy–adaptive loss scaling to emphasize perceptually salient quieter regions. Based on this, we construct few-step generators from the trained model, and demonstrate that incorporating an additional GAN stage can efficiently enhance the results. Our backbone adopts a multi-branch network that processes spectral coefficients at different time–frequency resolutions, providing powerful modeling capabilities. Experimental results demonstrate that Flow2GAN achieves efficient high-quality audio generation within few steps (e.g., 1, 2, and 4 steps), delivering highly favorable quality-speed trade-offs in few-step generation compared to existing methods.",
+        "bbox": [
+            169,
+            670,
+            826,
+            839
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "REPRODUCIBILITY STATEMENT",
+        "text_level": 2,
+        "bbox": [
+            171,
+            847,
+            437,
+            863
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "The datasets used in our experiments are publicly available. Implementation details are provided in Section 5.1, and model configurations are described in Appendix Section A.3. To facilitate the reproduction of our results, the source code and pretrained checkpoints are publicly available at https://github.com/k2-fsa/Flow2GAN.",
+        "bbox": [
+            169,
+            867,
+            826,
+            925
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "page_number",
+        "text": "10",
+        "bbox": [
+            490,
+            948,
+            509,
+            960
+        ],
+        "page_idx": 9
+    }
+]

@@ -1,0 +1,76 @@
+{
+  "overview": "This paper proposes a meta-learning approach for post-training quantization of diffusion models that jointly optimizes calibration sample weights and frequency component weights at each denoising timestep, using bi-level optimization with DWT-based frequency decomposition and a regularization term encouraging the quantized model to follow the full-precision model's frequency evolution pattern (low-frequency recovery in early stages, high-frequency in later stages).",
+  "count": 14,
+  "modules": [
+    {
+      "id": 1,
+      "name": "Configuration Management Module",
+      "description": "Manages all experiment configurations including dataset paths, model architectures, quantization bit-widths (W4A32, W4A8, W8A8), hyperparameters (γ, β, ηQ, ηα, ηλ, Nf, Ns, NQ), denoising timestep settings, and sampler configurations. Supports YAML/JSON parsing and experiment configuration inheritance for reproducible experiments across CIFAR-10, LSUN-Bedrooms, FFHQ, and ImageNet datasets."
+    },
+    {
+      "id": 2,
+      "name": "Calibration and Validation Data Generation Module",
+      "description": "Generates calibration dataset Sc and validation dataset Sv from the full-precision diffusion model following Q-Diffusion's approach: selecting generated images at fixed step intervals across all denoising timesteps. Each calibration sample is a tuple (xi, ti). Also supports constructing validation sets from real images by adding Gaussian noise following the forward diffusion process. Manages the temporal pairing of samples with their corresponding timesteps."
+    },
+    {
+      "id": 3,
+      "name": "DWT Frequency Decomposition Module",
+      "description": "Implements Discrete Wavelet Transform using Haar wavelet to decompose tensors into four frequency subbands: low-frequency component (a_ll) reflecting basic object structure, and three high-frequency components (a_lh, a_hl, a_hh) capturing texture details. Provides forward decomposition and the corresponding inverse transform. Serves as the foundation for frequency-weighted loss computation throughout the framework."
+    },
+    {
+      "id": 4,
+      "name": "Quantization Infrastructure Module",
+      "description": "Implements the core quantization utilities: LAPQ-based initialization of the quantized model from the full-precision counterpart, AdaRound-based weight quantization with learnable rounding, EMA-based activation range estimation for activation quantization, and block-wise reconstruction support. Handles separate quantization pipelines for weights (first) and activations (second), managing quantizer parameter storage and clipping range computation."
+    },
+    {
+      "id": 5,
+      "name": "Loss Functions Module",
+      "description": "Implements all loss functions defined in the paper: (1) LQ - output reconstruction loss between the l-th block outputs of full-precision and quantized models; (2) Lf - weighted frequency difference loss using DWT-decomposed subbands with a frequency weight vector; (3) LF - frequency loss combining Lf for noise estimator outputs; (4) Lval - validation loss combining reconstruction loss between full model outputs and the regularization term; (5) LReg - regularization loss on frequency weights encouraging low-frequency weight decrease and high-frequency weight increase as timestep decreases; (6) LFINAL - combined weighted loss for final quantization optimization."
+    },
+    {
+      "id": 6,
+      "name": "Sample Weight Optimization Module",
+      "description": "Implements the meta-learning mechanism for optimizing calibration sample weights ω = {ω_i}. For each calibration sample (xi, ti), learns a weight representing its contribution to quantized model performance. Updates sample weights by computing gradients of the validation loss Lval with respect to ω through the quantized model θ̂_Q(ω), using the higher library for implicit differentiation. Employs Adam optimizer with configurable learning rate ηα."
+    },
+    {
+      "id": 7,
+      "name": "Frequency Weight Optimization Module",
+      "description": "Implements the meta-learning mechanism for optimizing the frequency weight matrix λ of size T×4, where each row λ_ti = {λ_ti,0, λ_ti,1, λ_ti,2, λ_ti,3} corresponds to the four DWT subband weights at timestep ti. Enforces the constraint that frequency weights sum to 1 at each timestep. Updates frequency weights by computing gradients of the validation loss Lval (including the regularization term LReg with coefficient β) with respect to λ through θ̂_Q(λ). Employs Adam optimizer with configurable learning rate ηλ."
+    },
+    {
+      "id": 8,
+      "name": "Bi-level Optimization Controller",
+      "description": "Orchestrates the alternating bi-level optimization process. At each iteration for a given block: (1) fixes sample weights ω and updates frequency weights λ for Nf iterations; (2) fixes frequency weights λ and updates sample weights ω for Ns iterations. The inner optimization approximates θ̂_Q using a single gradient step. Manages the alternating update schedule and convergence checking, coordinating between the sample weight and frequency weight optimization modules."
+    },
+    {
+      "id": 9,
+      "name": "Block-wise Quantization Pipeline Module",
+      "description": "Manages the sequential quantization of model blocks/layers. For each block l: (1) initializes sample weights uniformly and frequency weight matrix; (2) runs the bi-level optimization controller to learn optimal ω and λ; (3) performs final quantization of the block by minimizing LFINAL over the calibration set using the learned weights. Handles the layer-by-layer processing of the noise estimation network architecture (DDPM or LDM) with NQ iterations per block."
+    },
+    {
+      "id": 10,
+      "name": "Diffusion Model Wrapper Module",
+      "description": "Wraps the full-precision and quantized diffusion models (DDPM and LDM architectures), providing interfaces for: extracting intermediate block outputs ϵ_FP^(l) and ϵ_Q^(l), obtaining final model outputs ϵ_FP and ϵ_Q, and running the denoising process with DDIM sampler. Manages model forward passes for both unconditional (CIFAR-10, LSUN-Bedrooms, FFHQ) and class-conditional (ImageNet) generation settings with appropriate timestep configurations."
+    },
+    {
+      "id": 11,
+      "name": "Evaluation Metrics Module",
+      "description": "Computes FID (Fréchet Inception Distance) and sFID (spatial FID) metrics using the torch-fidelity library. FID quantifies the difference between Inception image features of synthetic and real images, while sFID uses mid-level Inception features for spatial distribution similarity. Supports evaluation with 50,000 generated samples, consistent with previous work settings. Includes precomputed statistics for all benchmark datasets."
+    },
+    {
+      "id": 12,
+      "name": "Visualization and Analysis Module",
+      "description": "Provides visualization of: (1) learned frequency weight vectors λ across denoising timesteps showing the evolution of low-frequency vs. high-frequency component weights; (2) learned sample weights ω as box plots across timesteps showing weight distribution and outliers; (3) generated image comparisons between full-precision, Q-Diffusion, TFMQ-DM, and the proposed method; (4) calibration dataset visualization at early, middle, and late denoising stages showing frequency evolution."
+    },
+    {
+      "id": 13,
+      "name": "Ablation and Sensitivity Analysis Framework",
+      "description": "Implements controlled ablation experiments to evaluate: (1) individual contribution of sample weighting alone; (2) individual contribution of frequency weighting alone; (3) combined effect of both weighting mechanisms; (4) impact of regularization term LReg; (5) sensitivity analysis for hyperparameters γ and β across multiple values; (6) comparison of DWT vs. FFT frequency transformation methods; (7) comparison of generated vs. real image validation sets; (8) comparison of intermediate output frequency loss vs. approximated final sample frequency loss. Produces structured result tables."
+    },
+    {
+      "id": 14,
+      "name": "Experiment Runner and Reporting Module",
+      "description": "Orchestrates the complete experimental pipeline: running all dataset and bit-width configurations (CIFAR-10 with DDPM, LSUN-Bedrooms/FFHQ/ImageNet with LDM-4), comparing against baseline methods (PTQ4DM, Q-Diffusion, PTQD, TFMQ-DM, APQ-DM, TCAQ-DM), managing GPU resource allocation, logging training progress, saving and loading checkpoints, and generating automated LaTeX result tables and performance comparison charts for the paper."
+    }
+  ]
+}

@@ -1,0 +1,1296 @@
+[
+    {
+        "type": "text",
+        "text": "ABSTRACT",
+        "text_level": 2,
+        "bbox": [
+            450,
+            262,
+            547,
+            277
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Retrieval-Augmented Generation (RAG) improves the factuality of large language models (LLMs) by grounding outputs in retrieved evidence, but faithfulness failures, where generations contradict or extend beyond the provided sources, remain a critical challenge. Existing hallucination detection methods for RAG often rely either on large-scale detector training, which requires substantial annotated data, or on querying external LLM judges, which leads to high inference costs. Although some approaches attempt to leverage internal representations of LLMs for hallucination detection, their accuracy remains limited. Motivated by recent advances in mechanistic interpretability, we employ sparse autoencoders (SAEs) to disentangle internal activations, successfully identifying features that are specifically triggered during RAG hallucinations. Building on a systematic pipeline of information-based feature selection and additive feature modeling, we introduce RAGLens, a lightweight hallucination detector that accurately flags unfaithful RAG outputs using LLM internal representations. RAGLens not only achieves superior detection performance compared to existing methods, but also provides interpretable rationales for its decisions, enabling effective post-hoc mitigation of unfaithful RAG. Finally, we justify our design choices and reveal new insights into the distribution of hallucination-related signals within LLMs. The code is available at https://github.com/Teddy-XiongGZ/RAGLens.",
+        "bbox": [
+            230,
+            295,
+            767,
+            561
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "1 INTRODUCTION",
+        "text_level": 2,
+        "bbox": [
+            174,
+            592,
+            336,
+            607
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Retrieval-Augmented Generation (RAG) has emerged as a promising paradigm for improving the factuality of large language models (LLMs) (Lewis et al., 2020). By conditioning generation on passages retrieved from external corpora, RAG systems aim to ground model outputs in verifiable evidence. However, in practice, grounding does not eliminate unfaithfulness (Magesh et al., 2025; Gao et al., 2023). Models may still contradict the retrieved content, introduce unsupported details, or extrapolate beyond what the evidence justifies (Maynez et al., 2020; Rahman et al., 2026). These faithfulness failures, commonly referred to as hallucinations in the RAG setting, undermine user trust and limit deployment in domains where faithfulness to source information is critical (Huang et al., 2025; Zakka et al., 2024).",
+        "bbox": [
+            169,
+            625,
+            826,
+            751
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Various approaches have been proposed to address this challenge. One direction is to fine-tune specialized detectors to distinguish faithful from unfaithful generations (Bao et al., 2024; Tang et al., 2024a). While this method provides direct supervision, its effectiveness is often constrained by the need for large amounts of high-quality annotated training data. Another line of work employs LLMs as judges, where an auxiliary LLM is prompted to assess faithfulness given the retrieved passages and generated answers (Zheng et al., 2023; Li et al., 2024). However, these approaches struggle to detect hallucinations produced by the same model and introduce significant computational overhead when relying on large-scale external LLMs. More recently, researchers have explored the use of the LLM's internal representations, such as hidden states or attention scores, to capture hallucinations directly (Han et al., 2024; Sun et al., 2025; Zhou et al., 2025). While these methods show promise, the extraction of reliable hallucination-related signals remains challenging, and detection performance is often insufficient for practical deployment.",
+        "bbox": [
+            169,
+            758,
+            826,
+            925
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_number",
+        "text": "1",
+        "bbox": [
+            493,
+            948,
+            503,
+            959
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Meanwhile, recent advances in mechanistic interpretability have shown that sparse autoencoders (SAEs) can disentangle specific, semantically meaningful features from the hidden states of LLMs (Huben et al., 2024). By enforcing sparsity, SAEs identify features that correspond to concrete concepts, as evidenced by their consistent activation across similar cases (Bricken et al., 2023; Shu et al., 2025). This property, known as monosemanticity, provides a transparent link between internal activations and model behaviors. While recent work has explored the use of SAEs to detect signals associated with generic LLM hallucinations (Ferrando et al., 2025; Suresh et al., 2025; Abdaljalil et al., 2025; Tillman & Mossing, 2025; Xin et al., 2025), hallucinations in RAG settings pose unique challenges due to the complex interplay between retrieved evidence and generated content. It remains unclear whether SAE features can effectively capture these dynamics. In this work, we directly investigate whether SAEs can identify interpretable features that are predictive of hallucinations in RAG, enabling both accurate detection and deeper insight into failure cases.",
+        "bbox": [
+            169,
+            104,
+            826,
+            272
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "We present RAGLens, a lightweight SAE-based detector that flags unfaithful RAG outputs by leveraging LLM internal activations through a systematic pipeline of information-based feature selection and additive feature modeling. Experimental results show that RAGLens identifies features highly relevant to RAG hallucinations and achieves superior detection performance compared to existing methods when evaluated on the same LLM. We further demonstrate the interpretability of RAGLens, enabled by its additive model structure and transparent input features, and highlight how these interpretations facilitate effective post-hoc mitigation of unfaithfulness. Finally, our analyses examine the design choices underlying RAGLens, revealing that mid-layer SAE features with high mutual information about the labels are most informative for detecting RAG hallucinations, and that generalized additive models (GAMs) are particularly well-suited for mapping SAE features to hallucination predictions. To our knowledge, RAGLens is the first approach to systematically demonstrate the effectiveness of SAE features for detecting hallucinations in RAG, and to comprehensively investigate design principles for building accurate and interpretable detectors. Here is a summary of our contributions:",
+        "bbox": [
+            169,
+            277,
+            826,
+            474
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "\\- We demonstrate that SAEs capture nuanced features specifically activated during RAG hallucinations, establishing a strong foundation for detecting RAG unfaithfulness from LLM internal representations.",
+        "bbox": [
+            215,
+            483,
+            825,
+            525
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "\\- Building on these SAE features, we introduce RAGLens, a lightweight hallucination detector that outperforms existing methods in detection accuracy while providing transparent and interpretable feedback to aid in hallucination mitigation.",
+        "bbox": [
+            215,
+            527,
+            825,
+            571
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "\\- Through detailed analyses, we justify the key design choices in RAGLens and offer new insights into the distribution of hallucination-related signals within LLMs.",
+        "bbox": [
+            215,
+            574,
+            825,
+            604
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "2 RELATED WORK",
+        "text_level": 2,
+        "bbox": [
+            171,
+            622,
+            346,
+            638
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Retrieval-Augmented Generation (RAG) integrates retrieval modules with large language models (LLMs) to ground responses in external knowledge sources (Lewis et al., 2020; Guu et al., 2020). This design has improved factual accuracy in tasks such as open-domain question answering, knowledge-intensive dialogue, and domain-specific search (Shuster et al., 2021; Siriwardhana et al., 2023; Xiong et al., 2024; Oche et al., 2025; Wei et al., 2025). However, RAG systems remain vulnerable to faithfulness errors: even when relevant passages are retrieved, models may contradict evidence, invent unsupported details, or extrapolate beyond the source (Niu et al., 2024; Sun et al., 2025). These failures have been studied under terms such as hallucination, ungrounded generation, or source inconsistency, and are increasingly recognized as a central obstacle to deploying RAG in real-world applications (Zhang et al., 2025; Gao et al., 2023; Elchafei & Abu-Elkheir, 2025).",
+        "bbox": [
+            169,
+            652,
+            826,
+            794
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "To address this challenge, a growing body of work has developed detectors to judge whether a generated response is faithful to the retrieved evidence (Manakul et al., 2023; Sriramanan et al., 2024). Early approaches focused on fine-tuning specialized detectors, which can be effective but require large amounts of high-quality training data, particularly when adapting large models (Bao et al., 2024; Tang et al., 2024a). With the rise of foundation models, researchers have begun using LLMs as evaluators, prompting an auxiliary LLM to compare generated answers against source passages and determine whether hallucination occurs (Zheng et al., 2023; Bui et al., 2024). However, this often necessitates the use of larger LLMs, leading to high computational costs, sensitivity to prompt design (Wang et al., 2024), and explanations that may be plausible but do not faithfully reflect the underlying decision process (Turpin et al., 2023). More recent studies have explored leveraging LLM internal representations for hallucination detection, but challenges such as the polysemanticity of neurons and the opacity of hidden states have limited the extraction of high-quality features, resulting in insufficient detection performance (Elchafei & Abu-Elkheir, 2025; Sun et al., 2025).",
+        "bbox": [
+            169,
+            799,
+            826,
+            925
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "page_number",
+        "text": "2",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            104,
+            825,
+            161
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Recent research has shown that sparse autoencoders (SAEs) can expose semantically meaningful features within the hidden representations of LLMs (Huben et al., 2024; Shu et al., 2025). By constraining activations through a sparsity-inducing bottleneck, SAEs learn dictionaries of features that often correspond to human-interpretable concepts such as syntactic roles, entities, or factual attributes (Bricken et al., 2023; Gujral et al., 2025). This capability has facilitated analysis of model internals, enhanced interpretability, and even enabled targeted control of generative behavior (Shi et al., 2025). The interpretability of SAE-derived features makes them attractive for tasks where transparency is critical, such as hallucination detection.",
+        "bbox": [
+            169,
+            166,
+            826,
+            280
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "3 RAGLENS: FAITHFUL RETRIEVAL-AUGMENTED GENERATION VIA SPARSE REPRESENTATION PROBING",
+        "text_level": 2,
+        "bbox": [
+            171,
+            297,
+            763,
+            332
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "3.1 PROBLEM SETTING",
+        "text_level": 2,
+        "bbox": [
+            171,
+            347,
+            351,
+            362
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Following prior work (Niu et al., 2024; Song et al., 2024; Sun et al., 2025), we use “RAG” to denote any context-conditioned generation process in which an LLM produces an answer based on both a user query/instruction and a provided context. The faithfulness detection task is to determine whether the generated answer is consistent with the given context. In such tasks, each annotated instance consists of: (1) a user query or instruction q; (2) a set of retrieved passages C; (3) an answer sequence $y_{1:T}$ generated by an LLM, where T is the sequence length and $y_{1:t}$ denotes the prefix up to position t; and (4) a binary label $\\ell \\in \\{0, 1\\}$ indicating whether the answer contains hallucination relative to C. We assume access to a frozen LLM $\\Phi$ and a corresponding SAE with encoder E trained on the hidden states in the L-th layer of $\\Phi$ . We denote by $\\Phi_{L}(\\cdot)$ the mapping that returns layer-L hidden states. Given a generation $y_{1:T}$ , we obtain",
+        "bbox": [
+            169,
+            373,
+            826,
+            513
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\nh _ {t} = \\Phi_ {L} (y _ {1: t}, q, \\mathcal {C}), \\quad t = 1, \\dots , T,\\tag{1}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            362,
+            518,
+            633,
+            535
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "and transform these via the SAE encoder into sparse features",
+        "bbox": [
+            171,
+            542,
+            575,
+            556
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\nz _ {t} = \\mathcal {E} (h _ {t}), \\qquad z _ {t} \\in \\mathbb {R} ^ {K},\\tag{2}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            403,
+            563,
+            593,
+            580
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "where K is the size of the dictionary and only a small number of features are active at each position.",
+        "bbox": [
+            169,
+            588,
+            823,
+            603
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Our goal is to examine whether the SAE features contain signals that help detect hallucinations related to RAG. Section 3.2 presents our detection method, and Section 3.3 shows how the results support explanation and mitigation. An overview is shown in Figure 1.",
+        "bbox": [
+            169,
+            609,
+            825,
+            652
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "3.2 HALLUCINATION DETECTION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            667,
+            421,
+            683
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Instance-level Feature Summary. Because target labels are instance-level, we summarize token-level activations into an instance representation via channel-wise max pooling:",
+        "bbox": [
+            169,
+            694,
+            823,
+            723
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\bar {z} _ {k} = \\max _ {1 \\leq t \\leq T} z _ {t, k}, \\quad k = 1, \\dots , K,\\tag{3}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            370,
+            729,
+            625,
+            753
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "where $z_{t,k}$ is the $k$ -th element of $z_t \\in \\mathbb{R}^K$ and collect $\\bar{\\mathbf{z}} = (\\bar{z}_1, \\ldots, \\bar{z}_K) \\in \\mathbb{R}^K$ .",
+        "bbox": [
+            171,
+            760,
+            689,
+            777
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Information-based Feature Selection. We quantify the information of each pooled feature $\\bar{z}_{k}$ ( $k = 1, \\cdots, K$ ) about the hallucination label $\\ell$ using mutual information (MI):",
+        "bbox": [
+            169,
+            791,
+            823,
+            819
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\nI (\\bar {z} _ {k}; \\ell) = \\int_ {\\mathbb {R}} \\sum_ {\\ell \\in \\{0, 1 \\}} p (\\bar {z} _ {k}, \\ell) \\log_ {2} \\frac {p (\\bar {z} _ {k} , \\ell)}{p (\\bar {z} _ {k}) p (\\ell)} d \\bar {z} _ {k}.\\tag{4}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            323,
+            825,
+            671,
+            864
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "We rank features by MI and select the top $K'$ dimensions:",
+        "bbox": [
+            171,
+            873,
+            555,
+            888
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathcal {S} = \\underset {| \\mathcal {S} | = K ^ {\\prime}} {\\arg \\max} \\sum_ {k \\in \\mathcal {S}} I (\\bar {z} _ {k}; \\ell),\\tag{5}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            398,
+            895,
+            594,
+            926
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "page_number",
+        "text": "3",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "image",
+        "img_path": "images/34a4bd26c95e5a13f1ec957c2c3ccd3eaaa5389bc42ca8b8b9cde7bafce9f7ae.jpg",
+        "image_caption": [
+            "Figure 1: Overview of RAGLens for detecting, explaining, and mitigating hallucinations in retrieval-augmented generation using interpretable sparse features."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            174,
+            107,
+            821,
+            358
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "yielding $\\tilde{\\bar{z}}\\in R^{K^{\\prime}}$ as the subvector of $\\bar{z}$ restricted to indices S. In our experiments, MI is estimated with a binning-based method applied to the pooled activations. While we do not explicitly utilize the hidden states of the retrieved passages C, our encoding of the model output y in Equation 1 is conditioned on C. This allows the SAE features to implicitly capture interactions between the generated answer and the retrieved content. Empirical results in Appendix I show that the selected SAE features encode knowledge relevant to the retrieved passages, and their activations are dynamically influenced by counterfactual interventions on C.",
+        "bbox": [
+            169,
+            420,
+            826,
+            520
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Transparent Prediction with Generalized Additive Models. After selecting informative SAE features, we model the instance label from the pooled representation using a generalized additive model (GAM) (Lou et al., 2012; Caruana et al., 2015; Hastie, 2017):",
+        "bbox": [
+            169,
+            532,
+            825,
+            575
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\ng (\\mathbb {E} [ \\ell \\mid \\tilde {\\bar {\\mathbf {z}}} ]) = \\beta_ {0} + \\sum_ {j = 1} ^ {K ^ {\\prime}} f _ {j} (\\tilde {\\bar {z}} _ {j}),\\tag{6}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            390,
+            578,
+            604,
+            619
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "where g is the link function (e.g., logit for binary classification) and each univariate shape function $f_{j}$ is learned using bagged gradient boosting (Nori et al., 2019). By selecting only $K'$ features ( $K' \\ll K$ ), the fitted GAM serves as a lightweight detector, requiring the encoding of only a small subset of SAE features. Our analysis in Section 5 further validates that GAM is well-suited for modeling hallucination signals from SAE features, outperforming more complex predictors such as MLP (Popescu et al., 2009) and XGBoost (Chen & Guestrin, 2016).",
+        "bbox": [
+            169,
+            622,
+            826,
+            708
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Justification of Max Pooling on Sparse Activations. Beyond the practical advantage of storage efficiency, we provide a theoretical justification for using max pooling: in the sparse activation regime, it can help distinguish hallucination-related features from random noise by amplifying signals associated with relevant targets. To facilitate the analysis, for any fixed feature index k, suppressing the respective notation for clarity, we model the token-level activation $z_{t} \\geq 0$ as conditionally independent across tokens given the label $\\ell \\in \\{0, 1\\}$ , with a rare activation mechanism:",
+        "bbox": [
+            169,
+            720,
+            825,
+            806
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\nz _ {t}   =   \\left\\{ \\begin{array}{l l} 0, & \\text { with   probability }   1 - p _ {\\ell}, \\\\ V _ {t}, & \\text { with   probability }   p _ {\\ell}, \\end{array} \\right. \\qquad t = 1, \\ldots , T,\\tag{7}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            307,
+            809,
+            687,
+            840
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "where the “active-value” random variable $V_{t}$ has a distribution F supported on $(0, \\infty)$ that is independent of $\\ell$ and i.i.d. across tokens. Let $\\bar{z} = \\max_{1 \\leq t \\leq T} z_{t}$ and $\\pi = \\Pr(\\ell = 1)$ .",
+        "bbox": [
+            169,
+            844,
+            823,
+            875
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Theorem 1 (Max pooling in the sparse-activation regime). If $T \\times \\bar{p} \\ll 1$ with $\\bar{p} = \\frac{1}{2}(p_{1} + p_{0})$ , then",
+        "bbox": [
+            171,
+            876,
+            823,
+            893
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\nI (\\bar {z}; \\ell) = \\frac {\\pi (1 - \\pi)}{2 \\ln 2} \\frac {T (\\Delta p) ^ {2}}{\\bar {p}} + O ((T \\bar {p}) ^ {2}), \\quad \\Delta p = p _ {1} - p _ {0},\\tag{8}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            274,
+            895,
+            720,
+            928
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "page_number",
+        "text": "4",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "where $I(\\bar{z};\\ell) > 0$ iff $p_1 \\neq p_0$ . The leading dependence is linear in $T$ and quadratic in $\\Delta p$ .",
+        "bbox": [
+            169,
+            104,
+            766,
+            119
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Proof sketch. Let $A = \\mathbf{1}\\{\\bar{z} > 0\\}$ . Independence across tokens implies $\\Pr(A=1 \\mid \\ell) = q_{\\ell} = 1 - (1 - p_{\\ell})^T$ , so $I(A; \\ell) = h(\\pi q_1 + (1 - \\pi)q_0) - [\\pi h(q_1) + (1 - \\pi)h(q_0)]$ . For $p_{\\ell} \\ll 1, q_{\\ell} \\approx Tp_{\\ell}$ and a second-order expansion of $h$ gives",
+        "bbox": [
+            171,
+            126,
+            823,
+            170
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\nI (A; \\ell) = \\frac {\\pi (1 - \\pi)}{2 \\ln 2} \\frac {T (\\Delta p) ^ {2}}{\\bar {p}} + O ((T \\bar {p}) ^ {2}).\\tag{9}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            349,
+            172,
+            643,
+            204
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Since A is a deterministic function of $\\bar{z}$ , $I(A;\\ell) \\leq I(\\bar{z};\\ell)$ . In the single-hit regime $(T\\bar{p} \\ll 1)$ , the extra information in $\\bar{z}$ beyond A occurs only on rare multi-activation events, contributing $O((T\\bar{p})^{2})$ . Combining yields the claim. A full proof is in Appendix G. ☐",
+        "bbox": [
+            169,
+            205,
+            825,
+            250
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "3.3 HALLUCINATION EXPLANATION AND MITIGATION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            263,
+            566,
+            279
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Since the detection results are computed from SAE features within an additive modeling framework, our approach naturally supports interpretability at both the local (instance-specific) and global (instance-invariant) levels, which can then be leveraged to improve faithful RAG generation.",
+        "bbox": [
+            169,
+            290,
+            825,
+            334
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Local Explanations via Sparse Feature Attribution. Because our GAM operates additively on a small set of selected SAE features, each prediction can be decomposed into a sum of feature contributions. For any given example, we can attribute the hallucination prediction to the specific sparse features that are most strongly activated. By aligning these activations with token positions, we obtain token-level feedback that highlights which parts of the generation are likely ungrounded relative to the retrieved passages. This fine-grained attribution enables users to directly pinpoint fabricated factual inserts such as numbers, dates, or named entities.",
+        "bbox": [
+            169,
+            339,
+            826,
+            439
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Global Explanations via Intrinsic Model Interpretability. Beyond instance-specific attributions, RAGLens also provides global, instance-invariant explanations. With the dictionary learning property of SAEs, each SAE feature corresponds to a semantically coherent concept that can be summarized as human-understandable knowledge. Furthermore, our use of GAMs in RAGLens enables visualization of the learned shape function for each feature, offering a stable explanation of the mapping from feature magnitude to predicted hallucination risk. Practitioners can therefore inspect how changes in a given feature systematically increase or decrease the prediction, enabling consistent feature-level auditing.",
+        "bbox": [
+            169,
+            444,
+            826,
+            556
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Mitigation through Multi-level Feedback. The interpretability of our framework enables explanation signals to be directly incorporated into mitigation strategies at inference time. Specifically, detection results can be provided to LLMs as instance-level warnings, prompting the model to reconsider and revise potentially hallucinated content. By aligning sparse activations with text spans identified by local explanations, we can further highlight problematic tokens that may require editing, thereby guiding the model to refine its output.",
+        "bbox": [
+            169,
+            561,
+            826,
+            648
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "4 EXPERIMENTS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            665,
+            328,
+            681
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "4.1 EXPERIMENTAL SETTINGS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            696,
+            401,
+            710
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "We conduct experiments on two RAG hallucination benchmarks with Llama2 backbones: RAGTruth (Niu et al., 2024) and Dolly (Accurate Context) (Hu et al., 2024), both of which include human annotations for outputs generated by Llama2-7B/13B. To further evaluate generalizability across architectures, we also test our method on Llama3.2-1B, Llama3.1-8B, and Qwen3-0.6B/4B using two additional datasets, AggreFact (Tang et al., 2023) and TofuEval (Tang et al., 2024b), which contain hallucinations produced by a variety of LLMs. For consistency with prior work (Sun et al., 2025; Tamber et al., 2025), we report balanced accuracy (Acc) and macro $F_{1}$ ( $F_{1}$ ).",
+        "bbox": [
+            169,
+            722,
+            826,
+            821
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "We compare RAGLens with representative detectors based on (i) prompt engineering (e.g., Friel & Sanyal, 2023), (ii) model uncertainty (e.g., Manakul et al., 2023), or (iii) LLM internal representations (e.g., Sun et al., 2025). We also include a fine-tuning baseline, “Llama2-13B(LR)”, following existing work (Sun et al., 2025). For a fair comparison with methods that analyze internal signals during LLM generation, we evaluate all detectors on Llama2-7B and Llama2-13B using the corresponding samples generated by these models in RAGTruth and Dolly. Table 1 lists the specific baselines, with details in Appendix A. Implementation details are provided in Appendix B.",
+        "bbox": [
+            169,
+            825,
+            826,
+            925
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "page_number",
+        "text": "5",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "4.2 PERFORMANCE ON RAG HALLUCINATION DETECTION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            104,
+            598,
+            119
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Table 1 summarizes the performance of RAGLens on RAGTruth and Dolly, with comparisons to previous methods using the same backbones. As the table shows, the SAE features of both Llama2-7B and Llama2-13B contain sufficient information to accurately detect hallucinations, achieving AUC scores greater than 80% on both datasets. More importantly, RAGLens consistently outperforms existing baselines, demonstrating its effectiveness in identifying and leveraging internal knowledge for RAG hallucination detection. These results highlight the strong potential of SAEs to serve as powerful detectors by using knowledge already embedded within LLMs to identify hallucinations.",
+        "bbox": [
+            169,
+            130,
+            826,
+            229
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "table",
+        "img_path": "images/2144efc79d261dbddad6ac90bea12becde37e61e5ea44410ec16cc3dda1e0334.jpg",
+        "table_caption": [
+            "Table 1: Performance comparison of different hallucination detection methods on RAGTruth and Dolly. The best results are highlighted in bold."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td rowspan=\"2\">Method</td><td colspan=\"3\">RAGTruth (Llama2-7B)</td><td colspan=\"3\">Dolly (Llama2-7B)</td><td colspan=\"3\">RAGTruth (Llama2-13B)</td><td colspan=\"3\">Dolly (Llama2-13B)</td></tr><tr><td>AUC</td><td>Acc</td><td> $F_1$ </td><td>AUC</td><td>Acc</td><td> $F_1$ </td><td>AUC</td><td>Acc</td><td> $F_1$ </td><td>AUC</td><td>Acc</td><td> $F_1$ </td></tr><tr><td>Prompt</td><td>-</td><td>0.6700</td><td>0.6720</td><td>-</td><td>0.6200</td><td>0.5476</td><td>-</td><td>0.7300</td><td>0.6899</td><td>-</td><td>0.6700</td><td>0.5823</td></tr><tr><td>Llama2-13B(LR)</td><td>-</td><td>0.6350</td><td>0.6572</td><td>-</td><td>0.6043</td><td>0.6616</td><td>-</td><td>0.7044</td><td>0.6725</td><td>-</td><td>0.5545</td><td>0.6664</td></tr><tr><td>LwMLM</td><td>-</td><td>0.6940</td><td>0.7365</td><td>-</td><td>0.6550</td><td>0.7702</td><td>-</td><td>0.5956</td><td>0.7684</td><td>-</td><td>0.6800</td><td>0.7000</td></tr><tr><td>FACTScore</td><td>0.5428</td><td>0.5333</td><td>0.6719</td><td>0.4813</td><td>0.5354</td><td>0.6849</td><td>0.5294</td><td>0.4533</td><td>0.6239</td><td>0.4389</td><td>0.4646</td><td>0.5954</td></tr><tr><td>FactCC</td><td>0.4976</td><td>0.5022</td><td>0.4589</td><td>0.6169</td><td>0.5758</td><td>0.5882</td><td>0.4753</td><td>0.4800</td><td>0.4121</td><td>0.6496</td><td>0.6162</td><td>0.5250</td></tr><tr><td>ChainPoll</td><td>0.6738</td><td>0.6841</td><td>0.7006</td><td>0.6593</td><td>0.6200</td><td>0.5581</td><td>0.7414</td><td>0.7378</td><td>0.7370</td><td>0.7070</td><td>0.6800</td><td>0.6004</td></tr><tr><td>RAGAS</td><td>0.7290</td><td>0.6822</td><td>0.6667</td><td>0.6648</td><td>0.6560</td><td>0.6392</td><td>0.7541</td><td>0.7080</td><td>0.6987</td><td>0.6412</td><td>0.6480</td><td>0.5306</td></tr><tr><td>TurLens</td><td>0.6510</td><td>0.6821</td><td>0.6658</td><td>0.6264</td><td>0.6800</td><td>0.6567</td><td>0.7073</td><td>0.6756</td><td>0.7063</td><td>0.6622</td><td>0.5700</td><td>0.3944</td></tr><tr><td>RefCheck</td><td>0.6912</td><td>0.6467</td><td>0.6736</td><td>0.6494</td><td>0.6100</td><td>0.5412</td><td>0.7897</td><td>0.7200</td><td>0.7823</td><td>0.6621</td><td>0.5700</td><td>0.3944</td></tr><tr><td>P(True)</td><td>0.7093</td><td>0.5648</td><td>0.6549</td><td>0.6191</td><td>0.5344</td><td>0.5095</td><td>0.8496</td><td>0.6266</td><td>0.7038</td><td>0.6422</td><td>0.5260</td><td>0.5240</td></tr><tr><td>SelfCheckGPT</td><td>-</td><td>0.5844</td><td>0.4642</td><td>-</td><td>0.5300</td><td>0.3188</td><td>-</td><td>0.5844</td><td>0.4642</td><td>-</td><td>0.5300</td><td>0.3188</td></tr><tr><td>LN-Entropy</td><td>0.5912</td><td>0.5620</td><td>0.6850</td><td>0.6074</td><td>0.5656</td><td>0.6261</td><td>0.5912</td><td>0.5620</td><td>0.6850</td><td>0.6074</td><td>0.5656</td><td>0.6261</td></tr><tr><td>Energy</td><td>0.5619</td><td>0.5088</td><td>0.6657</td><td>0.6074</td><td>0.5656</td><td>0.6261</td><td>0.5619</td><td>0.5088</td><td>0.6657</td><td>0.6074</td><td>0.5656</td><td>0.6261</td></tr><tr><td>Focus</td><td>0.6233</td><td>0.5533</td><td>0.6522</td><td>0.6783</td><td>0.6212</td><td>0.6545</td><td>0.7888</td><td>0.6000</td><td>0.6758</td><td>0.7067</td><td>0.6500</td><td>0.6567</td></tr><tr><td>Perplexity</td><td>0.5091</td><td>0.5333</td><td>0.6749</td><td>0.6825</td><td>0.6363</td><td>0.7097</td><td>0.5091</td><td>0.5333</td><td>0.6749</td><td>0.6825</td><td>0.6363</td><td>0.7097</td></tr><tr><td>EigenScore</td><td>0.6045</td><td>0.5422</td><td>0.6682</td><td>0.6786</td><td>0.6596</td><td>0.7241</td><td>0.6640</td><td>0.5267</td><td>0.6637</td><td>0.7214</td><td>0.6211</td><td>0.7200</td></tr><tr><td>SEP</td><td>0.7143</td><td>0.6187</td><td>0.7048</td><td>0.6067</td><td>0.6060</td><td>0.7023</td><td>0.8098</td><td>0.7288</td><td>0.7799</td><td>0.7093</td><td>0.6800</td><td>0.6923</td></tr><tr><td>SAPLMA</td><td>0.7107</td><td>0.5155</td><td>0.6502</td><td>0.6500</td><td>0.6084</td><td>0.6653</td><td>0.8029</td><td>0.5488</td><td>0.6923</td><td>0.7088</td><td>0.6100</td><td>0.6605</td></tr><tr><td>ITI</td><td>0.6714</td><td>0.5667</td><td>0.6496</td><td>0.5494</td><td>0.5800</td><td>0.6281</td><td>0.8501</td><td>0.6177</td><td>0.6850</td><td>0.6530</td><td>0.5583</td><td>0.6712</td></tr><tr><td>ReDeEP</td><td>0.7458</td><td>0.6822</td><td>0.7190</td><td>0.7949</td><td>0.7373</td><td>0.7833</td><td>0.8244</td><td>0.7889</td><td>0.7587</td><td>0.8420</td><td>0.7070</td><td>0.7603</td></tr><tr><td>RAGLens (Ours)</td><td>0.8413</td><td>0.7576</td><td>0.7636</td><td>0.8764</td><td>0.7778</td><td>0.8070</td><td>0.8964</td><td>0.8333</td><td>0.8148</td><td>0.8568</td><td>0.7576</td><td>0.7895</td></tr></table>",
+        "bbox": [
+            176,
+            277,
+            818,
+            515
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "4.3 CROSS-MODEL APPLICATION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            540,
+            419,
+            555
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "While SAE features are not transferable across different LLMs, the RAGLens detector trained on one LLM can be flexibly applied to text outputs generated by other LLMs. To examine whether LLMs contain sufficient internal knowledge to detect hallucinations produced by other LLMs, we conduct cross-model evaluations by training a series of RAGLens detectors based on SAEs of multiple open-source LLMs, and test their performance on RAG outputs from various LLMs in RAGTruth, AggreFact, and TofuEval. Specifically, we prompt each LLM to assess the faithfulness of the RAG output in a chain-of-thought (CoT) style (Wei et al., 2022), using the template from Luo et al. (2023), and compare these results to those of the same model's SAE-based detector via RAGLens.",
+        "bbox": [
+            169,
+            566,
+            826,
+            679
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Figure 2 shows the performance of all evaluated LLMs across different datasets. The SAE-based detector consistently outperforms each model's own CoT-style self-judgments. Larger LLMs exhibit stronger internal knowledge, achieving higher detection performance with SAE-based detectors. While earlier generation models such as Llama2-7B and Llama2-13B have lower CoT judgments on certain datasets, their SAE-based detectors perform comparably to newer models of similar size (e.g., Llama3.1-8B). Meanwhile, although Qwen3-0.6B achieves competitive CoT performance on AggreFact and TofuEval, its SAE-based detector lags behind those of larger LLMs, suggesting that the informativeness of internal knowledge correlates more with model size than with training pipeline. Overall, these results indicate that models “know more than they tell” and that SAEs can reveal latent faithfulness signals that are not consistently captured by CoT reasoning.",
+        "bbox": [
+            169,
+            684,
+            826,
+            825
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "4.4 GENERALIZATION ACROSS DOMAINS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            840,
+            473,
+            856
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Beyond cross-model applications, we further assess whether the internal signals captured by RAGLens generalize across domains. Specifically, we train the RAGLens predictor on one domain and evaluate its performance on other domains. Table 2 reports the generalization performance (AUC) of RAGLens across different datasets and tasks.",
+        "bbox": [
+            169,
+            867,
+            826,
+            924
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "page_number",
+        "text": "6",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "chart",
+        "img_path": "images/f1a0812bfdb6a5bf1b91c19cbe7fbaf36dca27e52035e633669c2b203763efad.jpg",
+        "content": "",
+        "chart_caption": [
+            "Figure 2: Comparison of LLM CoT-style self-judgment versus internal knowledge revealed by SAE features for hallucination detection across datasets."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            174,
+            99,
+            818,
+            313
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "The left part of Table 2 presents cross-dataset results, showing that RAGLens generalizability depends on the diversity of its training data. For example, a detector trained on RAGTruth significantly outperforms the CoT baseline on AggreFact and TofuEval without retraining. In contrast, predictors trained on AggreFact and TofuEval, while still outperforming CoT in most cases, do not generalize as well as those trained on RAGTruth. This can be attributed to dataset differences: RAGTruth covers multiple subtasks, whereas AggreFact and TofuEval focus on single tasks. The results indicate that RAGLens trained with diverse samples is more robust and generalizable to domain shifts.",
+        "bbox": [
+            169,
+            381,
+            826,
+            479
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "table",
+        "img_path": "images/e045921dbbd489d0e3c53f68eb0fa2938df9a1b988f70d90f601ca420addf061.jpg",
+        "table_caption": [
+            "Table 2: Generalization across datasets and subtasks. Left: RAGLens trained on a single dataset and evaluated on others. Right: RAGLens trained on one RAGTruth subtask and evaluated on other subtasks. “None” indicates zero-shot performance with CoT prompting. All scores are AUROC."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Train\\Test</td><td>RAGTruth</td><td>AggreFact</td><td>TofuEval</td></tr><tr><td colspan=\"4\">Llama2-7B</td></tr><tr><td>None</td><td>0.4842</td><td>0.5741</td><td>0.5562</td></tr><tr><td>RAGTruth</td><td>0.8806</td><td>0.8019</td><td>0.7637</td></tr><tr><td>AggreFact</td><td>0.5330</td><td>0.8330</td><td>0.6123</td></tr><tr><td>TofuEval</td><td>0.7747</td><td>0.6161</td><td>0.7846</td></tr><tr><td colspan=\"4\">Llama2-13B</td></tr><tr><td>None</td><td>0.4959</td><td>0.5285</td><td>0.5583</td></tr><tr><td>RAGTruth</td><td>0.8674</td><td>0.7831</td><td>0.7319</td></tr><tr><td>AggreFact</td><td>0.4669</td><td>0.8285</td><td>0.6239</td></tr><tr><td>TofuEval</td><td>0.7342</td><td>0.5727</td><td>0.7883</td></tr></table>",
+        "bbox": [
+            176,
+            544,
+            501,
+            709
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "table",
+        "img_path": "images/4ca0f3fbd259f530a1ad20dba340f5655cdf442ea3bd6e55ddc13b7e5207fa57.jpg",
+        "table_caption": [],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>Train\\Test</td><td>Summary</td><td>QA</td><td>Data2txt</td></tr><tr><td colspan=\"4\">Llama2-7B</td></tr><tr><td>None</td><td>0.4924</td><td>0.4845</td><td>0.4949</td></tr><tr><td>Summary</td><td>0.8191</td><td>0.8253</td><td>0.6443</td></tr><tr><td>QA</td><td>0.7081</td><td>0.8835</td><td>0.6609</td></tr><tr><td>Data2txt</td><td>0.5386</td><td>0.6616</td><td>0.8454</td></tr><tr><td colspan=\"4\">Llama2-13B</td></tr><tr><td>None</td><td>0.5196</td><td>0.5088</td><td>0.4765</td></tr><tr><td>Summary</td><td>0.7539</td><td>0.8330</td><td>0.6627</td></tr><tr><td>QA</td><td>0.6619</td><td>0.8769</td><td>0.6669</td></tr><tr><td>Data2txt</td><td>0.5653</td><td>0.7373</td><td>0.8491</td></tr></table>",
+        "bbox": [
+            527,
+            542,
+            820,
+            709
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Generalization across task types is shown in the right part of Table 2. RAGLens, when trained on one task, consistently transfers its learned knowledge to other tasks and outperforms the CoT baseline. Among the three subtasks, the predictor trained on summarization (Summary) exhibits the strongest generalizability, surpassing those trained on question answering (QA) or data-to-text generation (Data2txt). Additionally, knowledge transfer between Summary and QA is more effective than between Data2txt and the other tasks. These results suggest that RAGLens can capture common signals shared across different RAG tasks, while also revealing the presence of task-specific signals that limit generalization.",
+        "bbox": [
+            169,
+            724,
+            826,
+            838
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "4.5 INTERPRETABILITY OF RAGLENS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            854,
+            452,
+            869
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "In addition to strong performance, RAGLens provides interpretability for the hallucination detection process. Since RAGLens uses SAE features that are disentangled and correspond to specific concepts, we can analyze which features are most indicative of hallucinations and what they represent.",
+        "bbox": [
+            169,
+            882,
+            826,
+            925
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "page_number",
+        "text": "7",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "With the deployment of the GAM classifier, RAGLens can transparently illustrate how each feature contributes to the final prediction through learned shape functions. Table 3 presents two representative SAE features from Llama3.1-8B that are most predictive of hallucinations, as identified by the GAM classifier trained on RAGTruth. For each feature, we show two example activations from RAGTruth outputs, accompanied by a semantic explanation distilled by GPT-5 from 24 activation cases. We also visualize the learned shape function for each feature, where the y-axis (feature effect on hallucination prediction) is zero-centered, illustrating how the feature value (x-axis) influences the likelihood of hallucination.",
+        "bbox": [
+            169,
+            104,
+            826,
+            215
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "table",
+        "img_path": "images/151fcfa72ae349cbf5fc8eac1f329cd9dadb024a8546233b0fc808668ce67f4f.jpg",
+        "table_caption": [
+            "Table 3: Interpretation of two SAE features in Llama3.1-8B. Each row shows the feature ID, a brief explanation of its semantic role, and example text spans where the feature is activated. Top activated tokens in each example are shown in bold, while the hallucinated tokens are highlighted in red. The shape functions learned by the GAM are visualized in the rightmost column, illustrating each feature's impact on hallucination prediction."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td>ID</td><td>Explanation</td><td>Examples</td><td>Shape Plot</td></tr><tr><td rowspan=\"2\">22790</td><td rowspan=\"2\">unsupported numeric/timespecifics</td><td>Context: no mention of ageOutput: [...] at the age of 34 [...]</td><td rowspan=\"2\"></td></tr><tr><td>Context: no mention of release scheduleOutput: [...] to be released in August [...]</td></tr><tr><td rowspan=\"2\">17721</td><td rowspan=\"2\">grounded, high-salience tokens</td><td>Context: [...] could be arrested on the spot [...]Output: [...] could be arrested on the spot [...]</td><td rowspan=\"2\"></td></tr><tr><td>Context: [...] software can be licensed as a [...]Output: [...] software can be licensed as a [...]</td></tr></table>",
+        "bbox": [
+            184,
+            316,
+            810,
+            474
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "As shown in the table, Llama3.1-8B contains various types of features that help detect hallucinations from different perspectives. For example, feature 22790 indicates potential hallucinations that are related to unsupported numeric/time specifics. Its corresponding shape function (learned by GAM) exhibits a monotonic increase in hallucination likelihood as activation strength rises. RAGLens also uncovers SAE features that are negatively correlated with hallucinations, such as feature 17721, which captures signals associated with grounded, high-salience tokens. This interpretability not only clarifies how RAGLens works, but also provides insights into the internal knowledge of LLMs. Additional examples from other LLMs are provided in Appendix H, and Appendix I presents case studies using counterfactual perturbations to validate that these features are specifically sensitive to hallucination patterns unique to RAG scenarios.",
+        "bbox": [
+            169,
+            503,
+            826,
+            645
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "4.6 MITIGATION OF UNFAITHFULNESS WITH RAGLENS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            676,
+            576,
+            691
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Leveraging its detection and interpretation capabilities, RAGLens can provide post-hoc feedback to LLMs to mitigate hallucinations. We evaluate this by applying Llama2-7B-based RAGLens to 450 Llama2-7B-generated outputs from RAGTruth, and prompting the same model to revise its original output using RAGLens feedback. Specifically, we compare the effectiveness of instance-level feedback (detection results only) and token-level feedback (which includes additional explanations from RAGLens interpretation) for hallucination mitigation.",
+        "bbox": [
+            169,
+            708,
+            826,
+            794
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Table 4 reports the resulting hallucination rates (lower is better) as judged by multiple automatic LLM judges. In addition, two human annotators evaluated a subset of 45 outputs, with an inter-annotator agreement of 78.3%. Although hallucination rates vary among different types of annotators, the results consistently show that both types of RAGLens feedback effectively reduce hallucinations in the revised output. Notably, the more nuanced token-level feedback enabled by RAGLens interpretability leads to further reductions compared to instance-level feedback. We further applied a trained RAGLens detector (Llama3.1-8B based) to all 450 examples and found that instance-level feedback converted 29 outputs from hallucination to non-hallucination, while token-level feedback achieved 36 such conversions, confirming the advantage of token-level feedback.",
+        "bbox": [
+            169,
+            799,
+            826,
+            925
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "page_number",
+        "text": "8",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "table",
+        "img_path": "images/fe0b9df08d1f6a4ba1feae8081720e9a7106518504c53fd259cea4cf7c394149.jpg",
+        "table_caption": [
+            "Table 4: Mitigation of Llama2-7B hallucinations using SAE-based internal knowledge. Hallucination rates (lower is better) are reported for original outputs and after applying instance- and token-level feedback, as judged by Llama3.3-70B, GPT-4o, GPT-o3, and human annotators."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td></td><td>Llama3.3-70B</td><td>GPT-4o</td><td>GPT-o3</td><td>Human</td></tr><tr><td>Original</td><td>43.78%</td><td>37.78%</td><td>64.44%</td><td>71.11%</td></tr><tr><td>+ Instance-level Feedback</td><td>42.22%</td><td>36.44%</td><td>60.44%</td><td>62.22%</td></tr><tr><td>+ Token-level Feedback</td><td>39.11%</td><td>34.22%</td><td>58.88%</td><td>55.56%</td></tr></table>",
+        "bbox": [
+            235,
+            150,
+            761,
+            220
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "5 DISCUSSIONS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            241,
+            323,
+            258
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Beyond the main results on hallucination detection, interpretation, and mitigation using SAE features, we further analyze several key SAE-specific design choices in RAGLens, including the selection of the LLM layer, the feature extractor, the number of selected features, and the predictor architecture.",
+        "bbox": [
+            169,
+            272,
+            826,
+            329
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "LLM Layer Selection. We first vary the layer from which SAE features are extracted, covering the full depth of several LLMs (Llama3.2-1B, Llama3-8B, Qwen3-0.6B, and Qwen3-4B). Figure 3 presents the heatmaps of LLM performance on various subtasks in RAGTruth (RAGTruth-Summary, RAGTruth-QA, and RAGTruth-Data2txt), where layer depths are normalized for direct comparison. The results show that the performance trend in layers is consistent among LLMs but varies by task. In the Summary and QA tasks of RAGTruth, the performance peaks around the middle layers, whereas the Data2txt task exhibits a comparatively flat performance pattern across layers.",
+        "bbox": [
+            169,
+            343,
+            826,
+            443
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "chart",
+        "img_path": "images/107753da1e5efd33c808bf6704cfeb816b60c5eacbb607e112563c1f666cd599.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            174,
+            453,
+            387,
+            571
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "chart",
+        "img_path": "images/7e0b70f08147d717567d0ade217ac1c8f959f40bc52c79a0f884d8a85cf40a39.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            390,
+            453,
+            606,
+            571
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "chart",
+        "img_path": "images/f729efafa2196d1a801eb6f667ae37fa389a3b43c49b888dc23d40e446b14470.jpg",
+        "content": "",
+        "chart_caption": [
+            "Figure 3: Layer-wise analysis of Llama3.2-1B, Llama3-8B, Qwen3-0.6B, and Qwen3-4B on subtasks in RAGTruth (RAGTruth-Summary, RAGTruth-QA, and RAGTruth-Data2txt)."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            609,
+            454,
+            825,
+            570
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Feature Extractor Comparison. We further compare different feature extractors, specifically SAE and Transcoder (Dunefsky et al., 2024), as well as pre-activation versus post-activation signals (i.e., features extracted before or after applying the activation function). Table 5 shows that pre-activation features consistently outperform post-activation features for both extractors. Transcoder and SAE achieve similar accuracy, indicating no clear advantage for either architecture. These results suggest that while both extractors are effective, the choice of activation point is more critical, with pre-activations retaining more informative signals about RAG hallucinations.",
+        "bbox": [
+            169,
+            628,
+            826,
+            728
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "table",
+        "img_path": "images/b7939a7f972fd8e3b48447b4c2feeadebf48ae0a3ff1aee4d058a87650462a0d.jpg",
+        "table_caption": [
+            "Table 5: Comparison of SAE and Transcoder feature extractors, using pre- and post-activation signals, for hallucination detection with Llama3.2-1B across three datasets."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td rowspan=\"2\">Architecture</td><td rowspan=\"2\">Activation</td><td colspan=\"2\">RAGTruth</td><td colspan=\"2\">AggreFact</td><td colspan=\"2\">TofuEval</td></tr><tr><td>Acc</td><td> $F_1$ </td><td>Acc</td><td> $F_1$ </td><td>Acc</td><td> $F_1$ </td></tr><tr><td rowspan=\"2\">SAE</td><td>Pre-activation</td><td>0.7810</td><td>0.7892</td><td>0.7308</td><td>0.7388</td><td>0.6865</td><td>0.6876</td></tr><tr><td>Post-activation</td><td>0.7606</td><td>0.7700</td><td>0.6939</td><td>0.7091</td><td>0.5637</td><td>0.5642</td></tr><tr><td rowspan=\"2\">Transcoder</td><td>Pre-activation</td><td>0.7778</td><td>0.7830</td><td>0.7468</td><td>0.7586</td><td>0.6652</td><td>0.6666</td></tr><tr><td>Post-activation</td><td>0.7594</td><td>0.7684</td><td>0.7373</td><td>0.7525</td><td>0.6195</td><td>0.6178</td></tr></table>",
+        "bbox": [
+            217,
+            773,
+            779,
+            876
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Analysis of Feature Count. We also examine how varying the number of selected features ( $K'$ ) affects performance, using mutual information (MI) ranking to identify the most informative features. Figure 4 shows the performance of Llama2-7B-based RAGLens as $K'$ decreases from 1024 to 1, comparing MI-based selection to random selection (Rand.) starting with the same set of features. As expected, performance drops as fewer features are used, but the decline is much more gradual with MI-based selection, demonstrating that MI effectively prioritizes informative features for hallucination detection. Differences in trends between datasets further highlight the varying complexity of hallucination detection tasks.",
+        "bbox": [
+            169,
+            895,
+            826,
+            925
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "page_number",
+        "text": "9",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "chart",
+        "img_path": "images/c9fd86d64f2505d384c04baf5cfc74a5ac753b74237b76ca1b25be96ccf9c86a.jpg",
+        "content": "",
+        "chart_caption": [
+            "Figure 4: Effect of varying the number of selected features ( $K'$ ) on hallucination detection performance, comparing mutual information (MI) ranking and random selection (Rand.)."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            173,
+            200,
+            825,
+            287
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            103,
+            826,
+            189
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "Predictor Ablation. Lastly, we compare logistic regression (LR), generalized additive model (GAM), multilayer perceptron (MLP), and eXtreme Gradient Boosting (XGBoost) as predictors for hallucination detection using the selected SAE features. Figure 5 shows that GAM consistently outperforms LR and also surpasses more complex models such as MLP and XGBoost, despite its additive structure. This suggests that while the effect of individual features on the output is often nonlinear, the overall contribution of SAE features can be effectively captured in an additive manner. Consequently, GAM is particularly well-suited for leveraging SAE features, offering both strong performance and interpretability.",
+        "bbox": [
+            169,
+            357,
+            826,
+            470
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "image",
+        "img_path": "images/292f700e0de3a9e0215feecdd73af7297787d55edc5fcee56a514f1c0402f85c.jpg",
+        "image_caption": [
+            "Figure 5: Comparison of logistic regression (LR) and generalized additive model (GAM), multilayer perceptron (MLP), and eXtreme Gradient Boosting (XGBoost) as predictors for RAGLens, evaluated across multiple models and datasets."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            174,
+            484,
+            821,
+            672
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "6 CONCLUSION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            765,
+            321,
+            780
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "In summary, this work demonstrates that SAEs can serve as powerful and interpretable tools for detecting RAG hallucinations. By leveraging internal representations of LLMs, our proposed RAGLens framework not only achieves state-of-the-art performance across multiple benchmarks, but also provides transparent explanations at both local and global levels. Beyond detection, the interpretability of RAGLens enables actionable feedback to mitigate hallucinations, improving the reliability of RAG systems in practice. These findings highlight the broader potential of sparse representation probing for enhancing model faithfulness and open up future directions for integrating lightweight, interpretable SAE-based detectors into real-world applications where trust and accuracy are critical.",
+        "bbox": [
+            169,
+            799,
+            826,
+            924
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "page_number",
+        "text": "10",
+        "bbox": [
+            490,
+            948,
+            509,
+            960
+        ],
+        "page_idx": 9
+    }
+]

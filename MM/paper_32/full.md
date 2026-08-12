@@ -1,0 +1,251 @@
+## ABSTRACT
+
+Reinforcement learning with verifiable rewards (RLVR) has recently catalyzed a wave of “MLLM-r1” approaches that bring RL to vision language models. Most representative paradigms begin with a cold start, typically employing supervised fine-tuning (SFT), to initialize the policy before RL. However, SFT-based cold start adopts the reasoning paradigm intertwined with task solution and output format, which may induce instruction-style overfitting, weakens out-of-distribution generalization, and ultimately affects downstream RL. We revisit the cold start along two views, its training method and data construction, and introduce the Generalization Factor (GF) coefficient to quantify the generalization capability under different methods. Our empirical study finds that preference–based training methods (e.g. DPO) generalizes better than SFT-based methods in cold start. Motivated by this, we propose SPECS—a Self-distilled, Preference-based Cold Start framework that decouples multimodal learning: (1) generates introspective preference data pairs via self-distillation, avoiding reliance on larger teachers or manual annotation; (2) performs preference–based training to learn, focusing on shallow, transferable surface-form criteria (format, structure, style) rather than memorizing content; and (3) hands off to RLVR for deep reasoning results. Experimental results across multiple multimodal benchmarks show that our decoupling learning framework yields consistent performance gains over strong baselines, improving MEGA-BENCH by 4.1% and MATHVISTA by 12.2%. Additional experiments indicate that SPECS contributes to reducing in-distribution “stuckness,” improving exploration, stabilizing training, and raising the performance ceiling.
+
+Project Page: https://kwen-chen.github.io/SPECS-VL/
+
+## 1 INTRODUCTION
+
+Recently, inspired by the success of DeepSeek-R1 (Guo et al., 2025), in effectively enhancing the reasoning capabilities of large models through reinforcement learning (RL) with verifiable reward (Lambert et al., 2024; Guo et al., 2025), a growing body of work has begun to apply RL directly to vision language models (VLMs). This has led to a wave of exciting “MLLM-r1” research (Meng et al., 2025; Shen et al., 2025; Peng et al., 2025; Zhou et al., 2025; Zhang et al., 2025b; Wang et al., 2025b;a; Zheng et al., 2025; Ma et al., 2025; Lan et al., 2025; Qiu et al., 2025), which leverage similar principles to advance multimodal reasoning.
+
+Previous research has indicated that prior to RL, employing a pre-training or warm-up phase (which is termed “cold start”), can significantly improve the readability, stability, and even the final performance of RL training (Guo et al., 2025). Currently, the most commonly used cold start strategy is supervised fine-tuning (SFT) , where the model is first fine-tuned on a set of high-quality reasoning data to provide a better initial policy for the subsequent RL phase (Wei et al., 2025; Yang et al.,
+
+2025b; Huang et al., 2025; Deng et al., 2025b). This strategy enables the model to be trained on complex reasoning data during the cold start phase, thereby acquiring reasoning ability.
+
+The common understanding behind SFT-based cold start is that reasoning abilities, reasoning format and other learning objectives can be jointly learned during the cold start phase. However, such an SFT-based joint learning paradigm may largely affect the model’s generalization capability (Wu et al., 2025; Chu et al., 2025), and consequently degrade subsequent RL (Chen et al., 2025a). This raises an important research issue of quantifying and improving the model’s generalization capability during cold start and working in concert with subsequent RL.
+
+To address the above limitations, we consider an alternative learning paradigm, which separates the learning process into hierarchical stages based on the idea that cold start phase focused more on shallow learning to avoid prematurely getting stuck in in-distribution problem solving, while subsequent RL focuses on the deep-level learning of a solution to boost the overall performance (Bengio et al., 2009). Thus, the intuition of our adopting decoupling learning for multimodal reasoning is that the selection of pre-training methods in cold start needs to better support the subsequent RL, both in terms of generalization and by having separate objectives to facilitate better final results.
+
+Another important issue is the generation of cold start data. Previously, the prohibitive cost of human annotation has motivated a growing body of research to explore the use of synthetic data. This often involves using a more capable large model as a “teacher” to distill data for a smaller “student” model. (Zhang et al., 2025c; Yao et al., 2024; Xu et al., 2024; Huang et al., 2025). However, when the capability gap between the teacher model and the student model is too large, it can lead to a decline in model performance (Zhang et al., 2023). Alternatively, the DeepSeek-R1-Zero paradigm (Guo et al., 2025) first directly applies RL to the base model for obtaining R1-Zero and then generates cold start data by zero model itself. This paradigm has achieved very remarkable performance; yet it still has the limitation of reliance on the SFT cold start and the constraints between SFT and subsequent RL, thereby leaving room for further improvement.
+
+In this paper, to examine the suitable cold start training method, we propose the Generalization Factor (GF) coefficient in Section 2 to quantify the generalization capability of the model and conduct an empirical study to evaluate different training methods. We identify that Direct Preference Optimization (DPO) (Rafailov et al., 2023) based on preference data is a cold start approach that enables the model to have better performance. On this basis, we present the Self-distilled Preference-based Cold-Start (SPECS) framework in Section 3. By decoupling the learning objectives during DPO to focus on output format, we create a pre-aligned model that serves as a superior starting point for the final RL fine-tuning. Our experiments show that this method leads to more stable, efficient training, and a higher performance ceiling compared to the advanced and strong baseline.
+
+The main contributions of this paper can be summarized as follows.
+
+1. We present the SPECS framework, a three-stage cold start strategy. It generates preference data through self-distillation, uses DPO for cold start training, and separates training objectives so that the model first aligns with output formats, providing a stronger starting point for RL.
+
+2. We propose Generalization Factor as a metric to evaluate a model’s generalization capability under different cold start training methods by comparing its performance on in-distribution and out-of-distribution tasks.
+
+3. We reveal the importance of Decoupling Learning between the cold-start and RL phases. This separation improves exploration and reduces the risk of the model getting stuck on indistribution solutions.
+
+4. Our experiments prove that a DPO cold start gives the model stronger generalization ability. In terms of the model’s final results, it achieves consistent performance gains across benchmarks, improving MEGA-Bench by 4.1% and MathVista by 12.2% over strong baselines.
+
+## 2 EMPIRICAL INVESTIGATION
+
+## 2.1 EVALUATING DEGREE OF GENERALIZATION
+
+To evaluate the impact of preference-based versus supervised data on a model’s generalization capabilities under a fixed sample size, we introduce the metric of Generalization Factor (GF).
+
+Setup. We define an evaluation function $\psi ( f _ { n } , P ) \in \mathbb { R }$ that measures the performance of a model $f$ on a data distribution $P$ and n refers to the size of the training data samples. A higher value of $\psi$ indicates better performance.
+
+Generalization Factor. To accurately evaluate the generalization ability of a model, we first need to test the model’s performance on in-distribution (ID) and out-of-distribution (OOD) tasks. Among them, ID tasks require the same as the task requirements during training, while OOD tasks require different from the task requirements during training.
+
+• ID Performance: $\Psi _ { \mathrm { I D } } ( n )$ , is evaluated on a hold-out set from the same distribution $P _ { t r a i n }$
+
+$$
+\Psi_ {\mathrm{ID}} (n) = \psi (f _ {n}, P _ {t r a i n})
+$$
+
+• OOD Performance: $\Psi _ { \mathrm { O O D } } ( n )$ , is the weighted average performance across a set of m distinct OOD distributions, $Q = \{ Q _ { 1 } , \dots , Q _ { m } \}$ , with weights defined by a distribution α.
+
+$$
+\Psi_ {\mathrm{OOD}} (n) = \mathbb {E} _ {Q \sim \alpha} [ \psi (f _ {n}, Q) ]
+$$
+
+We establish a baseline model, $f _ { 0 } ,$ which serves as a reference point. The performance gains over this baseline are calculated as:
+
+$$
+\begin{array}{c} {G _ {\mathrm{ID}} (n) = \Psi_ {\mathrm{ID}} (n) - \Psi_ {\mathrm{ID}} (0)} \\ {G _ {\mathrm{OOD}} (n) = \Psi_ {\mathrm{OOD}} (n) - \Psi_ {\mathrm{OOD}} (0)} \end{array}
+$$
+
+We define GF, Γ(n) as the $F _ { \beta } { \mathrm { - s c o r e } }$ of the model with respect to OOD performance gains and ID performance gains. The reason for adopting this metric is that the $F _ { \beta }$ -score is particularly suitable for average ratios. Its most prominent feature is that the result tends to lean toward the smaller number. This perfectly aligns with our needs: as long as either the ID or OOD performance is very poor, the final score will be very low. We can also control the size of $\beta$ to reflect the degree of importance we attach to OOD performance gains during the training process.
+
+$$
+\Gamma (n) = (1 + \beta^ {2}) \frac {G _ {\mathrm{ID}} (n) G _ {\mathrm{OOD}} (n)}{\beta^ {2} \cdot G _ {\mathrm{ID}} (n) + G _ {\mathrm{OOD}} (n)}
+$$
+
+where the weighting coefficient $\beta$ is generally set to 2 to reflect the importance of the OOD performance gain in the generalization capabilities of the model. To ensure that the metric behaves well and is dimensionless, the evaluation function ψ should be normalized to a consistent range.
+
+## 2.2 EXPERIMENTAL FINDINGS
+
+![](images/687215a78b4738e931d2e3398e08e8324ffbc7ee659ea2a66de5620c109632a7.jpg)
+
+![](images/370e50e22b790d3bab351569c784d4cea12328644a2210a2ed1744b1270009cf.jpg)
+
+![](images/0be46649e7d275fe84337b3428548ea907740c632274814a53f43c71c6b868ca.jpg)  
+Figure 1: Performance Comparison: DPO vs. SFT on In-Distribution and Out-of-Distribution Task
+
+To preliminarily examine how preference data and supervised data affect model generalization, we construct a preference dataset $\mathbf { \dot { \mathcal { D } } } _ { \mathrm { p r e f } } = \{ ( x _ { i } , y _ { i } ^ { + } , y _ { i } ^ { - } ) \} _ { i = 1 } ^ { N }$ , where $y _ { i } ^ { + }$ is the chosen response and $y _ { i } ^ { - }$ is the rejected response, and a supervised dataset $\mathcal { D } _ { \mathrm { S F T } } = \{ ( x _ { i } , y _ { i } ) \} _ { i = 1 } ^ { N }$ with $y _ { i } = y _ { i } ^ { + }$ around reasoning tasks defined by a specific answer format. Under equal data budgets, we evaluate two settings: (i) an in-distribution setting in which the required reasoning format matches that used in training, and (ii) an out-of-distribution setting in which the required reasoning format differs <sup>1</sup>. We compare DPO training, SFT training, and DPO training augmented with SFT loss (see Section 3.3). The resulting $\Psi _ { \mathrm { I D } } ( n ) \bar { , } \Psi _ { \mathrm { O O D } } ( n )$ , and the Γ(n) are reported in Figure 1.
+
+From the experimental results, it can be observed that SFT achieves the fastest convergence on ID tasks. However, due to its reliance on a single cross-entropy loss that maximizes the log-likelihood of the correct answer, it demonstrates poor OOD performance. By contrast, DPO converges more slowly at the beginning of ID tasks but yields better OOD performance. Remarkably, the model trained with a combination of DPO with SFT loss achieves the strongest generalization capability overall. As the number of training steps increases, the GF gap between the SFT training method and the DPO training method also increases.
+
+## 3 METHODOLOGY: THE SPECS FRAMEWORK
+
+## 3.1 SELF-DISTILLED PREFERENCE COLD-START
+
+A model with superior generalization capabilities provides a more effective starting point for RL. Inspired by the discussion in Section 2, we employ self-distillation to construct preference data focusing format learning. This data is then used in place of standard SFT data to enhance the model’s generalization performance during the cold-start phase.
+
+To implement this, we propose SPECS, illustrated in Figure 2, a three-stage training optimization strategy consisting of 1) Self-Distillation for Preference Data Generation, 2) DPO-based Pre-Alignment for Cold-Start, and 3) Final GRPO Fine-tuning.
+
+![](images/cbc59b94d0463507f2740327f91d049bf34063bf040c1d65361f8977d9b9fcf7.jpg)  
+Figure 2: Method Overview. We propose the SPECS cold-start strategy, a three-stage pipeline to enhance final RL fine-tuning. Firstly, where we generate a preference dataset focused on teaching the correct output format by self distillation. Next, The base model is pre-aligned on this data using DPO to create a format-aware “Warmup Model”. Finally, this pre-aligned model undergoes Final RL tuning with GRPO, allowing the optimization process to focus on enhancing reasoning.
+
+## 3.2 SELF-DISTILLATION FOR PREFERENCE DATA GENERATION
+
+Objective: The foundational stage of our framework aims to achieve two interconnected goals: first, to cultivate a preliminary “seed model” with enhanced reasoning capabilities, and second, to leverage this model to autonomously generate a high-quality preference dataset through a process we term self-distillation.
+
+Methodology: A critical initial challenge is that a standard base VLM often lacks the capability to generate outputs of sufficient reasoning ability. To address this, we first conduct a brief, initial phase of RL fine-tuning on the base model using GRPO. This step aims not at achieving the final performance, but at creating an initial policy, denoted $\pi _ { G R P O - z e r o } ,$ which is more adept at exploring the solution space.
+
+With the exploratory $\pi _ { G R P O - z e r o }$ model, we proceed to generate the preference dataset. The data construction process involves four key steps:
+
+• Response Generation. We prompt two models, our exploratory $\pi _ { G R P O - z e r o }$ and $\pi _ { b a s e } .$ , with specific format instructions $( < \mathrm { t h i n k } > . . . < / \mathrm { t h i }$ nk><answer>...</answer> ) to create a dataset, which is designed to contain pairs of responses that are both correct in their final answer, but differ in their reasoning paradigm and answer format.
+
+![](images/7649f4a5208f7cb213fbe7e511671c6af7d620160093f2d9075b1bd046f25ac0.jpg)  
+Figure 3: Example of a self-distilled preference data pair.
+
+• Chosen Response Filtration. For the chosen response $( y _ { i } ^ { + } )$ , we use Gemini-2.5 flash (Comanici et al., 2025) as an evaluator. Assesses whether the reasoning path in the π<sub>GRPO−zero</sub> response aligns correctly with its final answer. Only responses in which the reasoning and the answer are consistent are retained, forming a high-quality pool of candidates. For more analysis of this content, please refer to Appendix E.
+
+• Rejected Response Pollution. For the rejected response $( y _ { i } ^ { - } )$ , we select responses that also contain the correct answer, but deviate from the required format. Recognizing that some generated responses might incidentally have the correct format, We randomly apply one of the following five types of format corruption to these responses to ensure a clear learning signal.
+
+1. Remove all tags (<think>, </think>, <answer>, </answer>).
+
+2. Remove the <answer> and </answer> tags.
+
+3. Remove the <think> and </think> tags.
+
+4. Remove the <answer> and </answer> tags and move the closing </think> tag to the end of the response.
+
+5. Replace the <answer> tags with the string Answer: and remove </answer> tags.
+
+• Preference Pair Construction via Self-Distillation. We construct the chosen response and the rejected response into pairs of self-distilled preference data $( y ^ { + } , y ^ { - } )$ . As shown in Figure 3. Both Chosen Responses $( y _ { i } ^ { + } )$ and Rejected Responses $( y _ { i } ^ { - } )$ are selected from the filtered pool and contain the correct final answer. This data set is designed to facilitate decoupled learning, separating the learning of reasoning paradigms and answer formats from the core logical reasoning ability. This approach serves as a more effective cold-start method for the final alignment stage.
+
+## 3.3 DPO-BASED PRE-ALIGNMENT FOR COLD-START
+
+Objective: The primary goal of this stage is to leverage the self-distilled preference dataset generated in the Stage 1 (Section 3.2) to pre-align the base VLM. This process yields a “cold-start” model that serves as a significantly improved starting point for the final RL fine-tuning. We conceptualize this phase as a “warm-up,” which shifts the model’s policy into a more advantageous region of the policy landscape before the intensive final training.
+
+Methodology: To achieve this pre-alignment, we employ DPO (Rafailov et al., 2023), a powerful technique that directly optimizes the language model on preference data without the need for an explicit reward model. The standard DPO loss function is defined as:
+
+$$
+\mathcal {L} _ {D P O} (\pi_ {\theta}; \pi_ {\mathrm{ref}}) = - \mathbb {E} _ {(x, y _ {w}, y _ {l}) \sim D} \left[ \log \sigma \left(\beta \log \frac {\pi_ {\theta} (y _ {w} | x)}{\pi_ {\mathrm{ref}} (y _ {w} | x)} - \beta \log \frac {\pi_ {\theta} (y _ {l} | x)}{\pi_ {\mathrm{ref}} (y _ {l} | x)}\right) \right]
+$$
+
+where $\pi _ { \theta }$ is the policy being optimized, $\pi _ { r e f }$ is the reference policy (the initial base model), $\beta$ is a temperature parameter, and $( x , y _ { w } , y _ { l } )$ represents a triplet of prompt, chosen response, and rejected response from our self-distilled dataset D.
+
+To augment this process, we incorporate an SFT loss computed on the “chosen” samples, which serves as a form of regularization. It ensures that while the model learns the directional preference signal from DPO, it does not drift far from the core distribution of high-quality text embodied by the chosen responses (Rao et al., 2025). The combined loss function is thus:
+
+$$
+\mathcal {L} _ {h y b r i d} = \mathcal {L} _ {D P O} + \lambda \mathcal {L} _ {S F T}
+$$
+
+where $\mathcal { L } _ { S F T }$ is the conventional negative log-likelihood loss on the chosen responses, and λ is a weighting coefficient to balance the two objectives. For a discussion for λ, see Appendix C.
+
+## 3.4 FINAL GRPO FINE-TUNING
+
+Objective: To achieve peak performance by fine-tuning the pre-aligned cold-start model, focusing computational resources on enhancing complex reasoning capabilities.
+
+Methodology: This final stage leverages the cold-start model obtained from Stage 2 as the initialization point for RL, rather than starting from the base model or a conventional SFT model. The pre-alignment from the DPO phase ensures that the model has already mastered the output format. Consequently, the model is not required to expend resources on learning basic structural compliance. Instead, credit assignment during RL training can be more accurately attributed to the core challenge: improving the quality and precision of its reasoning process. This targeted optimization explains the observed stable convergence in our experiments and the model’s ability to achieve a higher performance ceiling.
+
+For the final stage of fine-tuning, we employ the GRPO algorithm (Shao et al., 2024). This process is guided by a composite reward function that combines format and accuracy components to evaluate the model’s output, o, for a given question, q.
+
+The total reward $R _ { t o t a l }$ , is the sum of a format reward $R _ { f o r m a t }$ , and an accuracy reward $R _ { a c c } \mathrm { : }$
+
+$$
+R _ {t o t a l} (o, q) = R _ {f o r m a t} (o) + R _ {a c c} (o, q)
+$$
+
+The format reward $\mathbf { R } _ { \mathbf { f o r m a t } } ( \mathbf { o } )$ , assigns a fixed value of 0.5 for structurally correct outputs, reinforcing the policy’s formatting discipline.
+
+The accuracy reward $\mathbf { R } _ { \mathbf { a c c } } ( \mathbf { o } , \mathbf { q } )$ , provides a binary signal: 1.0 for a correct answer and 0 otherwise. We use a hybrid mechanism to determine correctness based on the question type, $T ( q ) { \mathrm { ; } }$
+
+$$
+R _ {a c c} (o, q) = \left\{ \begin{array}{l l} R _ {\text { rule }} (o, q) & \text { if } T (q) \in \{\text { Multiple - Choice }, \text { Numerical } \} \\ R _ {\text { llm }} (o, q) & \text { if } T (q) = \text { Short - Answer } \end{array} \right.
+$$
+
+For objective types like multiple-choice and numerical questions, a rule-based function assesses correctness. For subjective short-answer questions, we employ GPT-4o as an external judge.
+
+## 4 EXPERIMENTS
+
+## 4.1 EXPERIMENT SETTINGS
+
+Dataset and Benchmark: The data utilized for training $\pi _ { G R P O - z e r o }$ model in Stage 1 and for the final GRPO fine-tuning of the cold-started model in Stage 3 is composed of the Orsta47K (Ma et al., 2025) and virl39K (Wang et al., 2025a) datasets. In Stage 2 of cold start training, we used 9K self-distilled data. This composition is designed to enhance the model’s general and mathematical reasoning capabilities. We conduct evaluations on multiple benchmark datasets, including MEGA-Bench (Chen et al., 2025b), MMMU (Yue et al., 2024), MathVista (Lu et al., 2024b), MATH-Vision (Wang et al., 2024a), and MathVerse (Zhang et al., 2024).
+
+Baseline: Our comparative analysis is grounded on two primary categories of models. The first category comprises open-source general VLMs, including QwenVL-2-7B (Wang et al., 2024b), QwenVL-2.5-7B (Bai et al., 2025), InternVL2-8B (Chen et al., 2024), InternVL2.5-8B (Chen et al., 2024), Kimi-VL-A3B (Team et al., 2025), and DeepSeek-VL-7B (Lu et al., 2024a). The second category focuses on models specifically engineered for advanced reasoning tasks. This group includes Kimi-VL-A3B-Thinking (Team et al., 2025), R1-Onevision (Yang et al., 2025b), VLAA-Thinking (Chen et al., 2025a), MM-Eureka-7B (Meng et al., 2025), VL-Rethinker-7B (Wang et al., 2025a), and Orsta-7B (Ma et al., 2025).
+
+Table 1: Model performance comparison on MEGA-Bench Core.
+
+<table><tr><td rowspan="2">Model</td><td colspan="8">MEGA-Bench</td><td rowspan="2">MEGA-BenchCore</td></tr><tr><td>Knowledge</td><td>Mathematics</td><td>Perception</td><td>Coding</td><td>Info. Ex.</td><td>Planning</td><td>Science</td><td>Metrics</td></tr><tr><td colspan="10">Open-Source General Models</td></tr><tr><td>QwenVL-2-7B</td><td>39.96</td><td>25.95</td><td>39.99</td><td>31.49</td><td>40.29</td><td>16.64</td><td>28.59</td><td>43.61</td><td>34.47</td></tr><tr><td>QwenVL-2.5-7B</td><td>38.84</td><td>27.67</td><td>41.24</td><td>28.93</td><td>50.23</td><td>16.32</td><td>36.75</td><td>41.64</td><td>35.07</td></tr><tr><td>InternVL2-8B</td><td>33.94</td><td>22.08</td><td>32.15</td><td>24.7</td><td>29.13</td><td>12.17</td><td>24.61</td><td>39.96</td><td>25.96</td></tr><tr><td>InternVL2.5-8B</td><td>34.78</td><td>25.86</td><td>33.27</td><td>25.45</td><td>35.10</td><td>15.97</td><td>28.83</td><td>44.96</td><td>28.34</td></tr><tr><td>InternVL3-8B</td><td>42.76</td><td>34.85</td><td>42.76</td><td>34.05</td><td>44.84</td><td>17.10</td><td>35.21</td><td>49.60</td><td>36.02</td></tr><tr><td>Llava-OV-7B</td><td>31.37</td><td>22.11</td><td>27.64</td><td>13.9</td><td>17.07</td><td>9.16</td><td>24.38</td><td>37.31</td><td>21.36</td></tr><tr><td>Kimi-VL-A3B</td><td>37.63</td><td>27.07</td><td>39.50</td><td>22.30</td><td>40.99</td><td>22.17</td><td>33.94</td><td>46.65</td><td>34.40</td></tr><tr><td colspan="10">Open-Source Reasoning Models</td></tr><tr><td>R1-Onevision†</td><td>29.47</td><td>20.94</td><td>28.65</td><td>23.38</td><td>43.04</td><td>12.67</td><td>26.84</td><td>42.19</td><td>27.18</td></tr><tr><td>VLAA-Thinking†</td><td>38.23</td><td>28.83</td><td>40.73</td><td>28.84</td><td>44.58</td><td>17.05</td><td>36.69</td><td>45.57</td><td>34.86</td></tr><tr><td>Kimi-VL-A3B-Thinking</td><td>33.45</td><td>17.76</td><td>28.11</td><td>14.69</td><td>41.14</td><td>12.64</td><td>28.60</td><td>43.97</td><td>27.08</td></tr><tr><td>MM-Eureka-7B</td><td>40.12</td><td>31.59</td><td>39.71</td><td>28.75</td><td>49.32</td><td>16.64</td><td>37.25</td><td>46.39</td><td>35.96</td></tr><tr><td>VL-Rethinker-7B</td><td>40.65</td><td>30.08</td><td>42.02</td><td>29.87</td><td>52.03</td><td>17.83</td><td>36.82</td><td>46.90</td><td>37.25</td></tr><tr><td>Orsta-7B</td><td>41.65</td><td>31.48</td><td>43.84</td><td>32.82</td><td>54.07</td><td>17.83</td><td>36.91</td><td>41.66</td><td>38.31</td></tr><tr><td>Ours-zero</td><td>42.44</td><td>29.87</td><td>43.77</td><td>32.80</td><td>49.59</td><td>17.76</td><td>37.39</td><td>47.32</td><td>37.96</td></tr><tr><td>Ours-7B</td><td>42.64</td><td>31.71</td><td>44.58</td><td>34.14</td><td>51.68</td><td>18.76</td><td>38.73</td><td>51.87</td><td>39.17</td></tr><tr><td>Δ (Ours - Backbone)</td><td>+3.8</td><td>+4.0</td><td>+3.3</td><td>+5.2</td><td>+1.4</td><td>+2.4</td><td>+2.0</td><td>+10.2</td><td>+4.1</td></tr></table>
+
+<sup>1</sup> The †symbol indicates that the results were evaluated with VLMEvalKit<sup>2</sup>.  
+<sup>2</sup> The remaining results are from the MEGA-Bench Leaderboard and Ma et al. (2025).
+
+Table 2: Model Performance Comparison On Other Benchmarks
+
+<table><tr><td>Model</td><td>MMMU val</td><td>MathVision</td><td>MathVisita</td><td>MathVerse vision only</td><td>Overall</td></tr><tr><td colspan="6">Backbone</td></tr><tr><td>QwenVL-2.5-7B</td><td>54.2†</td><td>25.40</td><td>63.70</td><td>38.20</td><td>45.38</td></tr><tr><td colspan="6">QwenVL-2.5-7B based Reasoning Models</td></tr><tr><td>R1-Onevision</td><td>49.67†</td><td>29.90</td><td>64.1</td><td>40.0</td><td>45.92</td></tr><tr><td>VLAA-Thinking</td><td>52.67†</td><td>26.40</td><td>68.00</td><td>48.20</td><td>48.82</td></tr><tr><td>MM-Eureka-7B</td><td>55.55†</td><td>26.90</td><td>73.00</td><td>47.58†</td><td>50.76</td></tr><tr><td>VL-Rethinker-7B</td><td>56.7</td><td>29.70</td><td>73.60</td><td>48.98†</td><td>52.25</td></tr><tr><td>Orsta-7B†</td><td>54.33</td><td>25.76</td><td>70.20</td><td>32.10</td><td>45.60</td></tr><tr><td>Ours-zero</td><td>54.3</td><td>26.88</td><td>72.90</td><td>47.33</td><td>50.35</td></tr><tr><td>Ours-7B</td><td>56.78</td><td>29.50</td><td>75.90</td><td>48.73</td><td>52.73</td></tr><tr><td> $\Delta$  (Ours - Backbone)</td><td>+2.5</td><td>+4.1</td><td>+12.2</td><td>+10.5</td><td>+7.3</td></tr></table>
+
+The †symbol indicates that the results were evaluated with VLMEvalKit<sup>3</sup>.
+
+Implementation Details: We utilize the open-source Multimodal Large Language Model, Qwen2.5-VL-7B (Bai et al., 2025), as our base model. For the GRPO training in Stage 1 and Stage 3, we employ the MM-EUREKA <sup>4</sup> framework. The training batch sizes are both set to 128, with 8 rollouts generated per sample. For the DPO training in Stage 2, as well as for the comparative SFT experiments, we leverage the LlamaFactory <sup>5</sup> framework. In this configuration, the training batch size is set to 64, and the hyperparameter λ for the hybrid loss function is set to 1. The prompt used during training is shown in Appendix B. Some more detailed settings can be found in Appendix F.
+
+## 4.2 MAIN RESULTS
+
+Table 1 presents the overall performance of our model on MEGA-Bench Core, in comparison with other baseline models. Table 2 reports the performance of various inference models built on the QwenVL-2.5-7B backbone across additional benchmarks. Our model has improvements in general task benchmarks (MEGA-BENCH core, MMMU) and mathematical reasoning benchmarks (Math-Vision, MathVisita, MathVerse), and some benchmarks are in a leading position among models of the same size, demonstrating the effectiveness of our approach.
+
+## 4.3 ABLATION ON SELF-DISTILLATION AND DECOUPLED DATA STRATEGY
+
+Self-distillation proves more effective than external teacher models. First, we evaluate the effectiveness of the self-distillation mechanism by substituting it with preference data generated from powerful external teacher models, specifically QwenVL-2.5-32B and QwenVL-2.5-72B. The results shown in Tabel 4 clearly indicate that our our approach outperforms both teacher-based alternatives. We also observe that performance degradation is more pronounced when using the QwenVL-2.5- 32B model, whose output distribution diverges more significantly from base model. This finding suggests that preference data closely aligned with the model’s intrinsic capability distribution is more effective for alignment than guidance from a more capable but dissimilar external model.
+
+Distilling from GRPO-zero instead of the base model. We directly perform RL on the base model to obtain GRPO-zero, and then distill the chosen response through the GRPO-zero model. This choice of scheme is based on considerations of data utilization and training data quality. As shown in Table 3 below, we have conducted statistics on some indicators of the responses of the original model and the GRPO-zero model to the training data questions. Obviously, the GRPO-zero model has higher data utilization in the collection of chosen responses due to its higher format accuracy and answer accuracy. At the same time, we counted the number of reasoning words (including transition words, causal words, sequential words, etc.) per 1000 characters for both models. We also used the same data collection method to collect responses with correct formatting and correct answers distilled from the base model as chosen responses. The experimental results shown in Table 4. The
+
+Table 3: Statistical indicators of response in training data for the base model and GRPO-Zero model
+
+<table><tr><td>Model</td><td>Format Acc. (%)</td><td>Answer Acc. (%)</td><td>Reasoning Words / 1k Chars</td></tr><tr><td>Qwen2.5-7B-Instruct</td><td>41.62</td><td>30.42</td><td>4.26</td></tr><tr><td>Ours-GRPO-zero</td><td>96.74</td><td>52.82</td><td>4.99</td></tr></table>
+
+decoupled data strategy outperforms the coupled approach for DPO cold-starting. Next, we investigate the impact of our decoupled data strategy for DPO cold-starting. We compare it against a “coupled” DPO approach, where preference data is mixed, containing pairs that differ in both answer correctness and reasoning format. The experimental results shown in Table 4 demonstrate the clear superiority of the decoupled approach. We found that while coupled data helps initially, decoupled data provides a better foundation for the main RL phase. We attribute this to decoupled data’s sharp focus: it trains only the reasoning paradigms during the cold start, which ultimately leads to better performance after RL, even if the initial cold-start performance is lower.
+
+Table 4: Ablation Results to show the impact of Self Distillation and Decoupled Data
+
+<table><tr><td>Model</td><td>Megabench</td><td>MMMU</td><td>MathVista</td><td>MathVision</td><td>MathVerse</td><td>AVG</td></tr><tr><td>Qwen-VL-2.5-7B</td><td>35.07</td><td>54.2</td><td>63.70</td><td>25.40</td><td>38.20</td><td>43.31</td></tr><tr><td>- Qwen32b Distillation</td><td>27.04 / 29.87</td><td>51.44 / 56.67</td><td>66.90 / 71.50</td><td>25.53 / 28.03</td><td>43.53 / 46.07</td><td>42.89 / 46.43</td></tr><tr><td>- Qwen72b Distillation</td><td>34.00 / 37.30</td><td>53.89 / 58.56</td><td>67.50 / 73.30</td><td>25.62 / 28.91</td><td>43.53 / 46.83</td><td>44.90 / 48.98</td></tr><tr><td>- Base model Distillation</td><td>35.37 / 37.92</td><td>53.11 / 56.11</td><td>67.90 / 74.40</td><td>25.55 / 28.68</td><td>43.40 / 46.82</td><td>45.07 / 48.79</td></tr><tr><td>- Self Distillation</td><td>37.52 / 39.17</td><td>54.89 / 56.78</td><td>72.00 / 75.90</td><td>25.75 / 29.50</td><td>46.19 / 48.73</td><td>47.27 / 50.02</td></tr><tr><td>- Coupled Data</td><td>37.02 / 38.76</td><td>55.44 / 55.44</td><td>71.10 / 73.10</td><td>27.37 / 28.65</td><td>47.46 / 47.46</td><td>47.67 / 48.68</td></tr><tr><td>- Decoupled Data</td><td>37.52 / 39.17</td><td>54.89 / 56.78</td><td>72.00 / 75.90</td><td>25.75 / 29.50</td><td>46.19 / 48.73</td><td>47.27 / 50.02</td></tr></table>
+
+The value on the left side of the slash ’/’ represents the score after cold-start training, and the value on the right side of the slash represents the score after cold start + RL.
+
+## 4.4 ANALYSIS OF THE IMPACT OF DPO-BASED COLD START AND SFT-BASED COLD START
+
+We examine the downstream effects of our DPO cold-start strategy, assessing its impact on the efficiency and stability of the final RL phase.
+
+Performance and Training Efficiency. To evaluate performance and training efficiency, we tracked MEGA-Bench scores throughout the GRPO training process. As illustrated in Figure 4, the DPObased GRPO model begins with a substantially higher initial score, demonstrating the immediate benefit of preference-based pre-alignment. Furthermore, it maintains a clear advantage throughout training, converging more rapidly and ultimately achieving a higher performance ceiling than its SFT-based GRPO counterpart. The final performance comparison of other benchmarks is shown in Table 5 below. For more analysis on this content, please refer to Appendix D.
+
+![](images/602dbe61951bb3b9555f83cbcb9beb7b84049eec735cbcdf05e1a0d57a91d1cf.jpg)
+
+![](images/8bba0cef36c3ca0098e63de02067264adc54ab9fd0b740d9103e5289d1967573.jpg)  
+Figure 4: Impact on RL Training Efficiency and stability.
+
+![](images/4f235898738e3a6812274dedfc8c18c99c08ea52f2d4120e97f5873536eb6a98.jpg)
+
+Table 5: Performance Comparison of SFT-based, and DPO-based Models on Various Benchmarks
+
+<table><tr><td>Model</td><td>Megabench</td><td>MMMU</td><td>MathVista</td><td>MathVision</td><td>MathVerse</td><td>AVG</td></tr><tr><td>Qwen2.5-7B-Instruct</td><td>35.07</td><td>54.20</td><td>63.70</td><td>25.40</td><td>38.20</td><td>43.31</td></tr><tr><td>SFT-based GRPO</td><td>37.52</td><td>54.44</td><td>74.10</td><td>28.61</td><td>43.60</td><td>47.65</td></tr><tr><td>DPO-based GRPO</td><td>39.17</td><td>56.78</td><td>75.90</td><td>29.50</td><td>48.73</td><td>50.02</td></tr></table>
+
+Training Stability. Beyond performance metrics, we analyzed training stability by comparing the policy loss curves, presented in Figure 4. The curve for DPO-based GRPO is visibly smoother and more stable, indicating a more consistent and reliable optimization trajectory. In contrast, the SFTbased GRPO policy exhibits greater volatility, suggesting that the RL algorithm make more drastic and potentially erratic updates. In terms of format rewards, RL based on SFT cold start is also weaker than RL based on DPO cold start in terms of the stability of format rewards. Regarding the impact of different cold-start training methods on the stability of model training, we believe this is related to the training objectives of the cold-start phase and the RL phase. The SFT training objective is to maximize log likelihood, which is a form of imitation learning, while the loss function of DPO can be seen as directly optimizing an implicit reward model consistent with preference data, which is more aligned with the subsequent reward-driven GRPO optimization objective. Therefore, using a DPO-based model as a starting point also brings more stable training for subsequent RL.
+
+## 4.5 ANALYSIS OF THE RELATIONSHIP BETWEEN GF AND FINAL PERFORMANCE
+
+We evaluate the correlation between the model’s GF value during the cold-start phase and its final performance (represented here by the average score on MEGA-Bench, MMMU, and MathVerse Vision Only). By comparing three cold-start methods with different GF values, presented in Figure 5, we can see that GF and the model’s final performance are correlated to a certain extent. This also confirms that the stronger the model’s generalization ability in the cold-start phase, the more it will contribute to the model’s improvement in the RL phase.
+
+In addition, we can also prove that the cold-start method based on preference data has higher generalization ability compared with the tradi-
+
+![](images/f584a88478ad895c7009b365f15ca92a5553462f9d35cbaef7cee60c5dab31be.jpg)  
+Figure 5: GF vs. Final Performance
+
+tional SFT cold-start paradigm, thus bringing greater potential for improvement to subsequent RL.
+
+## 5 RELATED WORK
+
+The application of RL has emerged as a highly effective method for enhancing the reasoning capabilities of large language models, with notable successes in the text-only domain such as DeepSeek-R1 (Guo et al., 2025), which leverages RLVR (Lambert et al., 2024; Guo et al., 2025). Inspired by these advancements, a substantial and rapidly growing body of research has begun adapting RL techniques for VLMs. This has catalyzed a wave of “MLLM-r1” studies, all aiming to harness similar principles to unlock more advanced multimodal reasoning abilities. For instance, MM-Eureka (Meng et al., 2025) explores the enhancement of multimodal reasoning abilities through rule-based RL by constructing high-quality multimodal reasoning datasets. VL-Rethinker (Wang et al., 2025a) stimulates the slow thinking and self-reflection abilities of VLMs through RL. Orsta (Ma et al., 2025) establishes a unified RL system that supports VLMs in jointly learning visual reasoning and perception tasks. VLM-R1 (Shen et al., 2025) extends R1-style RL to VLMs for visual understanding tasks to improve their visual reasoning abilities. LMM-R1 (Peng et al., 2025) enhances the model’s basic reasoning ability and multimodal generalization ability through a two-stage training strategy of basic reasoning enhancement and multimodal generalization training. R1-VL (Zhang et al., 2025b) realizes the self-improvement of MLLMs’ reasoning ability by solving the sparse reward problem through Step-wise GRPO. DeepEyes (Zheng et al., 2025) motivates the model’s “Thinking with Images” ability through RL. PEARL(Zhang et al., 2025a) strengthens multimodal reasoning by explicitly anchoring it to verified visual evidence. VisualThinker-R1-Zero (Zhou et al., 2025) performs RL directly without any supervised fine-tuning of the model to reproduce the “aha moment”.
+
+A crucial precursor to effective RL is the “cold-start” phase, which initializes the model’s policy before the RL stage begins. The conventional strategy for this phase is SFT, a foundational step adopted by many leading models to establish a strong baseline performance (Wei et al., 2025; Yang et al., 2025b; Huang et al., 2025; Deng et al., 2025b). In parallel with refining cold-start methods, the prohibitive cost of human annotation has driven the field towards synthetic data generation. This approach often involves using powerful teacher models to distill vast amounts of data for training smaller student models (Zhang et al., 2025c; Xu et al., 2024; Huang et al., 2025). Vision-R1 (Huang et al., 2025) cold-starts the model before applying RL by synthesizing 100K high-quality long CoT instructions. LLaVA-CoT (Xu et al., 2024) integrates multiple mainstream visual question answering datasets and uses advanced large models to synthesize 99K valid image-question-answer pairs. Yang et al. (2025a) explicitly decouple the two abilities of “abstract reasoning” and “strategy awareness” through two curriculum-style stages: SFT cold start and RL. R1-Onevision (Yang et al., 2025b) adopts a two-stage training strategy of SFT + RL by synthesizing a 155K instruction set.
+
+## 6 CONCLUSIONS
+
+In this study, we introduced the Self-Distilled Preference-based Cold-Start framework, a novel threestage methodology. By leveraging a self-distillation process to generate preference data, we decouple the learning of shallow objectives, such as output format, from the deep, logical reasoning skills targeted during the final RL phase. Our method utilizes DPO to pre-align the model, providing a superior initial policy for RL. The creative insight of decoupling learning objectives solves the practical problem of SFT-induced overfitting, which often constrains exploration and leads to suboptimal performance. Our results demonstrate the practical value of this approach. The introduction of the Generalization Factor also provides a valuable new metric for quantifying model generalization. This work shows considerable application prospects for developing more robust and capable multimodal reasoning systems.
+
+Despite these promising results, this study has certain limitations that suggest avenues for future research. Our experiments were focused on the multimodal domain; further studies should be conducted to validate the efficacy of the SPECS framework in text-only reasoning tasks. The generalization of our findings could also be strengthened through more extensive testing across a more diverse set of out-of-distribution benchmarks. Such investigations would continue to refine our understanding of how to most effectively structure learning pipelines for complex AI systems.

@@ -1,0 +1,9 @@
+Given Topic: Unified multimodal modeling aims to integrate visual understanding and generation within a single framework, yet current approaches exhibit a severe capability trade-off: enhancing generative capacity substantially degrades understanding performance, especially on text-intensive tasks. The root cause traces to incompatible visual tokenization requirements—understanding relies on continuous semantic embeddings, while autoregressive generation necessitates discrete tokens. Prevailing solutions either adopt separate tokenizers, compelling the language backbone to process heterogeneous visual representations and inducing task conflicts, or decouple generation entirely, forfeiting mutual enhancement between modalities. The central challenge is to unify visual perception and generation within a homogeneous semantic space, eliminating cross-task interference to enable scalable joint learning without sacrificing perceptual precision or generative fidelity.
+
+Given Inspiration:
+1. Visual understanding and generation need not occupy divergent representational spaces; a shared semantic origin can reduce cross-modal friction.
+2. Semantic reasoning and pixel-level synthesis impose distinct computational demands, motivating a division of labor between concept modeling and detail rendering.
+3. Task interference in unified architectures may originate from representational heterogeneity rather than from the multimodal objectives themselves.
+4. Early alignment of visual features to the language model’s feature space can ease subsequent joint optimization across diverse tasks.
+5. A unified autoregressive objective can govern semantic content across text and visual modalities provided that representation conflicts are minimized.
+6. Architectural decoupling of high-level semantic prediction from low-level image reconstruction supports independent scaling of reasoning and synthesis capacities.

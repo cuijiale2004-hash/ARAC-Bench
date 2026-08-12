@@ -1,0 +1,86 @@
+{
+  "overview": "RFC leverages the strong correlation between input and output features of DiT modules to improve feature caching accuracy via Relational Feature Estimation (RFE) for magnitude prediction and Relational Cache Scheduling (RCS) for dynamic full-compute scheduling, achieving state-of-the-art acceleration across class-conditional image, text-to-image, and text-to-video generation tasks.",
+  "count": 16,
+  "modules": [
+    {
+      "id": 1,
+      "name": "DiT Model Wrapper with Feature Exposure",
+      "description": "Wraps existing DiT model architectures (DiT-XL/2, FLUX.1, HunyuanVideo) to expose intermediate input and output features of individual modules (attention blocks, MLP blocks) at each layer, enabling hook-based or forward-pass-integrated feature extraction without modifying the original model weights."
+    },
+    {
+      "id": 2,
+      "name": "Feature Caching Infrastructure",
+      "description": "Core caching mechanism that stores fully computed output features and input features at designated full-compute timesteps, manages cache lifecycle (store, retrieve, invalidate), and supports configurable caching intervals including dynamic non-uniform scheduling driven by external signals."
+    },
+    {
+      "id": 3,
+      "name": "Finite Difference Operator Computation",
+      "description": "Implements the finite difference operators (first-order and higher-order) with configurable stride N, computing Δ_N O(t) and Δ_N I(t) between consecutive full-compute steps to capture temporal feature dynamics needed by both Taylor-based prediction and RFE."
+    },
+    {
+      "id": 4,
+      "name": "Taylor Expansion Feature Prediction",
+      "description": "Implements m-th order Taylor expansion for both output and input feature prediction at non-full-compute timesteps, computing O_Taylor(t-k) and I_Taylor(t-k) using cached feature histories and finite differences, supporting configurable approximation order."
+    },
+    {
+      "id": 5,
+      "name": "Relational Feature Estimation (RFE)",
+      "description": "Core innovation module that estimates the magnitude of output feature changes by exploiting the input-output ratio s_k(t-k) ≈ s_N(t). Given a Taylor-predicted direction and the input feature difference magnitude, it rescales the prediction via ORFE(t-k) = O(t) + (s_N(t) · ||Δ_k I(t-k)||_2) · g(Σ), where g is L2 normalization, producing more accurate output feature estimates than pure temporal extrapolation."
+    },
+    {
+      "id": 6,
+      "name": "Input Feature Lightweight Computation",
+      "description": "Efficiently computes input features of DiT modules (attention, MLP) using only lightweight operations (LayerNorm, scaling, shifting) without executing the expensive module forward pass, enabling low-cost input feature access for RFE magnitude estimation and RCS error tracking."
+    },
+    {
+      "id": 7,
+      "name": "Relational Cache Scheduling (RCS)",
+      "description": "Dynamic scheduling strategy that determines when to trigger full computations by tracking the accumulated relative L1 error of input feature predictions across the first module. Compares accumulated error Σ E_I(t-j) against threshold τ, performing full computation when the threshold is exceeded, thereby adapting the cache interval to timestep-specific prediction difficulty."
+    },
+    {
+      "id": 8,
+      "name": "RFC Inference Pipeline",
+      "description": "Orchestrates the complete accelerated inference workflow combining RCS scheduling decisions, RFE feature prediction, full-compute steps, and cache updates. At each denoising timestep: checks RCS scheduling condition, either performs full computation with caching or predicts features via RFE, and manages the transition between modes across the entire reverse diffusion process."
+    },
+    {
+      "id": 9,
+      "name": "Diffusion Sampler Integration",
+      "description": "Integrates RFC with different diffusion samplers: DDIM for DiT-XL/2 (noise schedule α_t, Eq.1-2) and Rectified Flow for FLUX.1/HunyuanVideo, ensuring compatibility of feature caching with the underlying sampling ODE/SDE solver across 50-step configurations."
+    },
+    {
+      "id": 10,
+      "name": "Data Loading and Preprocessing",
+      "description": "Handles dataset-specific loading and preprocessing for ImageNet (class-conditional, 256×256 images, class labels), DrawBench (text prompts for text-to-image generation), and VBench (text prompts for text-to-video generation), including appropriate image/video transforms and prompt tokenization for each model."
+    },
+    {
+      "id": 11,
+      "name": "Evaluation Metrics Suite",
+      "description": "Computes all paper metrics: FID and sFID for distribution-level quality, FID2FC and sFID2FC for caching fidelity (comparing cached vs. full-compute outputs), IS for class-conditional diversity, PSNR/SSIM/LPIPS for pixel/structural/perceptual similarity, ImageReward and CLIP score for text-image alignment, and VBench score for video quality assessment."
+    },
+    {
+      "id": 12,
+      "name": "Computational Efficiency Profiling",
+      "description": "Measures and reports FLOPs (using model-specific profiling), inference latency (wall-clock time), GPU peak memory usage, and NFC (number of full computations) for each method configuration, enabling fair quality-efficiency trade-off comparison across caching strategies."
+    },
+    {
+      "id": 13,
+      "name": "Baseline Method Implementations",
+      "description": "Implements or wraps prior feature caching methods for comparison: FORA (direct cache reuse with uniform intervals), ToCa (token-wise caching), DuCa (dual feature caching), TaylorSeer (Taylor expansion-based prediction), FasterCache (linear extrapolation), and GOC (gradient-optimized cache), ensuring consistent evaluation under identical conditions."
+    },
+    {
+      "id": 14,
+      "name": "Ablation Study Framework",
+      "description": "Provides controlled ablation experiments isolating RFE and RCS contributions: TaylorSeer-only baseline, TaylorSeer+RFE, TaylorSeer+RCS, and full RFC (RFE+RCS), with configurable NFC targets. Also includes ablations on scaling factor strategies (linear, fixed w values vs. RFE), scheduling strategies (input distance vs. all-module error vs. RCS), and layer-wise caching variants (shallow/deep skip)."
+    },
+    {
+      "id": 15,
+      "name": "RCS Threshold Calibration",
+      "description": "Implements the grid-search procedure for tuning τ per model and NFC target: generates calibration samples across candidate τ values, measures resulting NFC, and selects the τ yielding the desired NFC. Also produces quality-efficiency trade-off curves (sFID2FC vs. τ with FLOPs annotation) for analysis."
+    },
+    {
+      "id": 16,
+      "name": "Visualization and Qualitative Analysis",
+      "description": "Generates side-by-side qualitative comparisons of generated images/videos across methods (Full-Compute, FORA, TaylorSeer, RFC) with acceleration factor annotations; produces feature analysis plots (L2 distances, RSD of s_k, relative L1 errors EO vs EI, linearity R² scores, cosine similarity of directional consistency); and visualizes non-uniform interval distributions from RCS scheduling."
+    }
+  ]
+}

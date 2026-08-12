@@ -1,0 +1,86 @@
+{
+  "overview": "DUPA proposes an unsupervised dual-path condition alignment framework for diffusion transformers that independently noises a single image multiple times, processes each noisy latent through a decoupled encoder-decoder transformer, and aligns the extracted low-frequency semantic conditions across paths—eliminating the need for external visual encoders while achieving comparable performance to supervised representation alignment (REPA).",
+  "count": 16,
+  "modules": [
+    {
+      "id": 1,
+      "name": "Data Preprocessing & Loading Module",
+      "description": "Handles ImageNet image loading, standard resizing/cropping to 256×256, pixel normalization, and class label management. Implements a custom Dataset that yields (image, class_label) pairs, and a DataLoader with the specified batch size strategy for distributed training."
+    },
+    {
+      "id": 2,
+      "name": "VAE Latent Encoding Module",
+      "description": "Integrates the off-the-shelf Stable Diffusion VAE to encode preprocessed images from pixel space into latent space (z ∈ R^{32×32×4}). Manages the frozen VAE inference pipeline and latent normalization, serving as a preprocessing step or on-the-fly encoding during training."
+    },
+    {
+      "id": 3,
+      "name": "Flow Interpolant & Noise Sampling Module",
+      "description": "Implements the stochastic interpolant framework: computing α_t, σ_t, their derivatives α̇_t and σ̇_t for the linear interpolation schedule (α_t=1-t, σ_t=t). Handles dual-path independent sampling of timestamps t_k and noise vectors ε_k from Gaussian distribution, generating distinct noisy latents x_{t_k} = α_{t_k}·x + σ_{t_k}·ε_k for K=2 paths from the same clean image."
+    },
+    {
+      "id": 4,
+      "name": "Condition Encoder Architecture Module",
+      "description": "Implements the dedicated condition encoder in the DDT framework that takes (noisy latent, timestamp, class label) as input and extracts low-frequency semantic condition features z_t. Configurable encoder depth (default 8 layers for DUPA-XL) following the SiT-based transformer block design with adaptive layer normalization for timestamp and class conditioning."
+    },
+    {
+      "id": 5,
+      "name": "Velocity Decoder Architecture Module",
+      "description": "Implements the velocity decoder that takes (noisy latent, timestamp, condition features z_t) and predicts the velocity field v_t. Uses cross-attention or concatenation to inject condition features from the encoder into the decoder, with the remaining transformer layers handling high-frequency detail decoding."
+    },
+    {
+      "id": 6,
+      "name": "Decoupled Diffusion Transformer (DDT) Module",
+      "description": "Integrates the condition encoder and velocity decoder into the complete DDT architecture. Manages the forward pass that sequentially produces condition features and velocity predictions. Supports multiple model configurations (S/B/L/XL) with corresponding layer counts, hidden dimensions, and head counts. Handles class label embedding and timestamp positional encoding."
+    },
+    {
+      "id": 7,
+      "name": "Projector & Initialization Module",
+      "description": "Implements the trainable MLP projector z_φ that maps condition features to the alignment space. Applies Kaiming initialization for the first layer to preserve forward propagation variance, and reduced-gain Xavier initialization for subsequent layers to prevent gradient explosion or overfitting. Explicitly avoids zero initialization to prevent shortcut learning."
+    },
+    {
+      "id": 8,
+      "name": "DUPA Alignment Loss Module",
+      "description": "Computes the unsupervised condition alignment loss L_DUPA by measuring pairwise cosine similarity between projected condition features from different noisy paths of the same image. Aggregates over all pairs (i,j) where i<j among K paths, normalized by patch count and pair count. Implements the negative similarity objective that encourages convergence of different-path conditions toward a shared semantic cluster center."
+    },
+    {
+      "id": 9,
+      "name": "Diffusion Velocity Loss Module",
+      "description": "Computes the velocity prediction loss L_velocity by averaging the MSE between predicted and ground-truth velocities across all K independent noise samplings. The ground-truth velocity is computed as v = α̇_t·x + σ̇_t·ε for each path, unifying ODE and SDE-based generation approaches."
+    },
+    {
+      "id": 10,
+      "name": "Combined Loss & Training Step Module",
+      "description": "Aggregates the diffusion velocity loss and DUPA alignment loss with the tradeoff hyperparameter λ: L = L_velocity + λ·L_DUPA. Manages the complete single training step: dual-path sampling, dual forward passes through shared-weight DDT, projector projection, loss computation, and gradient backpropagation for both DDT parameters θ and projector parameters φ."
+    },
+    {
+      "id": 11,
+      "name": "Training Loop & Optimization Module",
+      "description": "Orchestrates the full training workflow: epoch/iteration management (up to 400 epochs / 2M iterations), AdamW optimizer with specified learning rate and betas, distributed training on multi-GPU (8×A100) with gradient synchronization, mixed-precision training support, gradient accumulation if needed, and learning rate scheduling. Tracks alignment similarity over training for monitoring convergence."
+    },
+    {
+      "id": 12,
+      "name": "SDE Sampling & Inference Module",
+      "description": "Implements the reverse SDE Euler-Maruyama sampler (with w_t=σ_t) for stochastic sampling and the probability flow ODE sampler for deterministic generation. Supports configurable NFE (default 250 steps), classifier-free guidance with interval guidance on [0, 0.7], and different guidance scales w. Produces images from noise by iteratively denoising through the trained DDT."
+    },
+    {
+      "id": 13,
+      "name": "Evaluation Metrics Module",
+      "description": "Implements all quantitative metrics: Fréchet Inception Distance (FID), spatial FID (sFID), Inception Score (IS), Precision, and Recall. Generates 50K sample images for evaluation, extracts InceptionV3 features, computes statistical distances and scores. Supports evaluation both with and without classifier-free guidance across different guidance scales."
+    },
+    {
+      "id": 14,
+      "name": "Ablation Study Framework Module",
+      "description": "Provides controlled experimental configurations for component-wise analysis: (1) resampling strategy ablation (resampling t only, ε only, or both), (2) condition encoder depth sweep (4-16 layers), (3) alignment objective comparison (cosine similarity vs NT-Xent), (4) tradeoff parameter λ sensitivity analysis (0.25-1.0), (5) noise sampling times K comparison (2-4). Also implements the three-way ablation: DDT baseline → +Dual-Path Sampling → +Condition Alignment."
+    },
+    {
+      "id": 15,
+      "name": "Discriminative Semantics Analysis Module",
+      "description": "Implements the discriminative evaluation: (1) linear probing with a logistic regression head on frozen intermediate features to measure validation accuracy across layers, comparing against SiT and DINOv2-g baselines; (2) CKNNA score computation at different timesteps (t=0.0, 0.25, 0.5) to measure feature complexity and discriminative power; (3) alignment similarity tracking during training to visualize the learning dynamics of invariant semantic representations."
+    },
+    {
+      "id": 16,
+      "name": "Configuration & Infrastructure Module",
+      "description": "Manages experiment configurations (model size, training hyperparameters, λ, K, encoder depth) via YAML/JSON with inheritance for different model scales (S/B/L/XL). Handles logging (training loss, alignment similarity, FID curves) with TensorBoard/Wandb integration, model checkpoint saving/loading for both DDT and projector weights, computational cost profiling (training speed sec/step, GPU memory usage, inference time), and automated result table generation matching the paper's format."
+    }
+  ]
+}

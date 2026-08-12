@@ -1,0 +1,7 @@
+Given Topic: Research in privacy-preserving deep learning focuses on differentially private fine-tuning of pretrained models. Mainstream practice employs static hyperparameters across diverse privacy regimes, model capabilities, and computational budgets, leading to suboptimal performance. Existing theoretical frameworks recommend aggressive gradient clipping under strong privacy, yet empirical evidence suggests the contrary. The core scientific issue is to understand how learning-problem difficulty—governed by privacy budget tightness, model quality, and compute constraints—modulates the optimal choice of gradient clipping bounds and batch sizes, and to develop principled guidance that aligns theory with empirical behavior under fixed computational budgets.
+
+Given Inspiration:
+1. The empirical mismatch between theoretical clipping prescriptions and observed performance under strong privacy suggests that gradient distributions are non-stationary with respect to privacy noise levels.
+2. Viewing gradient clipping as a re-weighting operator over examples reveals that hard examples suffer disproportionate signal loss, particularly as task difficulty increases.
+3. The fixed-epochs computational setting creates a tension between update frequency and per-step noise accumulation, motivating an analysis of cumulative privacy noise rather than per-step variance.
+4. The interplay between pretrained model capability and privacy-induced noise implies that optimization geometry shifts with representation quality, requiring task-adaptive hyperparameter scaling.

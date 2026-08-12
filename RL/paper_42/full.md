@@ -1,0 +1,236 @@
+## ABSTRACT
+
+Reinforcement Learning, particularly through policy gradient methods, has played a central role in enabling reasoning capabilities of Large Language Models. However, the optimization stability of policy gradients in this setting remains understudied. As a result, existing implementations often resort to conservative hyperparameter choices to ensure stability, which requires more training samples and increases computational costs. Hence, developing models for reliably tracking the underlying optimization dynamics and leveraging them into training enables more sample-efficient regimes and further unleashes scalable post-training. We address this gap by formalizing the stochastic optimization problem of policy gradients with explicit consideration of second-order geometry. We propose a tractable computational framework that tracks and leverages curvature information during policy updates. We further employ this framework to design interventions in the optimization process through data selection. The resultant algorithm, Curvature-Aware Policy Optimization (CAPO), identifies samples that contribute to unstable updates and masks them out. Theoretically, we establish monotonic improvement guarantees under realistic assumptions. On standard math reasoning benchmarks, we empirically show that CAPO ensures stable updates under aggressive learning regimes where baselines catastrophically fail. With minimal intervention (rejecting fewer than 8% of tokens), CAPO achieves up to 30× improvement in sample efficiency over standard GRPO for LLM reasoning.
+
+## 1 INTRODUCTION
+
+The emergence of reasoning capabilities in Large Language Models (LLMs) represents a major shift in AI research. Beyond language understanding, reasoning has become a core ingredient of widely deployed systems (OpenAI et al., 2024; Gemini, 2025), enabling applications such as mathematical problem solving (Shao et al., 2024), code generation (Shojaee et al., 2023), and agentic workflows (Yao et al., 2023). This progress is primarily attributed to advances in scaling Reinforcement Learning (RL) techniques for LLM post-training, particularly policy gradient methods such as PPO (Schulman et al., 2017), GRPO (Shao et al., 2024), and variants (Yu et al., 2025; Liu et al., 2025b). These methods enabled LLMs to develop behaviors for autonomous chain-ofthought reasoning (Gandhi et al., 2025) and to effectively scale test-time compute (Setlur et al., 2025).
+
+![](images/1bc117e3d6945e5ae98d21fb79afeceefb2d76e1bc7e5d8245e9ad8e4e6bcd80.jpg)  
+Figure 1: Accuracy on MATH dataset from different RL methods. CAPO (ours) achieves 30× greater sample efficiency under an aggressive (A) update regime (higher learning rate, smaller batch size), whereas GRPO suffers policy collapse.
+
+Despite its success in LLM fine-tuning and other decision-making tasks (Bellemare et al., 2020; Mnih et al., 2015), RL still faces fundamental challenges that limit its broader practicality and scalability. In particular, policy gradients suffer from optimization instabilities driven by the nonstationary nature of the RL objective and the high variance of estimates (Castanyer et al., 2025). These problems are further compounded by the known pathologies of training deep networks (Pascanu et al., 2013; Pennington et al., 2017). These factors lead to several undesired consequences, such as catastrophic updates and policy collapse (Dohare et al., 2023), plasticity loss (Juliani & Ash, 2024), sample inefficiency (Kaiser et al., 2020), and hyperparameter sensitivity (Henderson et al., 2018). As a result, the optimization dynamics of RL remain an active area of research from both theoretical and empirical standpoints (Mei et al., 2022; Lyle et al., 2022; Vaswani et al., 2022) .
+
+Perhaps due to the recency of the topic, the optimization dynamics of RL in the context of LLMs remains underexplored. These challenges persist in the LLM setting and may be even more pronounced, since training involves billion-parameter models with very deep architectures and sampling horizons that can extend arbitrarily. In practice, current implementations of RL for LLMs typically rely on conservative hyperparameters to ensure stability, such as low learning rates (e.g., $\mathrm { j ~ \times ~ 1 0 ^ { - 6 } }$ or less) and large batch sizes (e.g. thousands of generations per policy update) (Sheng et al., 2024; Hugging Face, 2025; Guo et al., 2025). These choices substantially increase the number of LLM generations required for learning, raising computational costs. Therefore, stabilizing these algorithms in sample-efficient regimes is crucial to further scale RL for LLM reasoning.
+
+One promising direction is to design algorithms that explicitly model second-order geometry in the optimization landscape and incorporate this information into policy updates. In this work, we formalize the RL optimization problem accounting for curvature terms, namely the Hessian of the objective and the Fisher Information Matrix of the policy distribution. Building on this formulation, we introduce a computationally and numerically tractable model of optimization dynamics that approximates this curvature information. This model enables continuous monitoring of gradient and curvature estimates during policy updates, scales to billion-parameter models and provides analytical expressions for these quantities, which facilitate a systematic analysis of the learning dynamics.
+
+We further leverage this optimization model to plan the next policy gradient step<sup>1</sup>. It allows anticipating policy updates that potentially induce sudden shifts in the objective or policy distribution – often associated with unstable optimization behavior – and intervening before taking the actual step in the LLM. We propose a simple data selection mechanism as intervention: we identify particular samples that heavily contribute to these abrupt shifts and mask them out of the policy gradient estimation. We refer to this method as Curvature-Aware Policy Optimization (CAPO).
+
+We theoretically establish monotonic policy improvement guarantees under CAPO with practical assumptions. We then empirically validate CAPO on standard math reasoning benchmarks, showing that it yields stable optimization even in regimes with aggressive updates, where standard RL algorithms suffer catastrophic updates and policy collapse. As a result, CAPO achieves up to 30× improvement in sample efficiency compared to GRPO in the standard regime, as presented in Figure 1. Lastly, we show that its interventions are minimal, typically rejecting fewer than 8% of the tokens, with negligible computational overhead.
+
+## 2 RELATED WORK
+
+RL & LLMs. The use of RL techniques to optimize LLMs has been an active area of research in recent years. Early work focused on RL from Human Feedback (RLHF), which optimizes policies toward modeled human preferences (Ziegler et al., 2019; Stiennon et al., 2020; Ouyang et al., 2022). More recently, RL for LLM reasoning has gained significant attention for its effectiveness in enabling autonomous chain-of-thought reasoning (Gandhi et al., 2025) and in scaling test-time compute (Setlur et al., 2025). This breakthrough was initially driven by the seminal works of the OpenAI o-series (OpenAI et al., 2024) and DeepSeek-R1 (Guo et al., 2025), which popularized GRPO (Shao et al., 2024). Since then, the research community has studied several aspects of the training pipeline (Zhang et al., 2025), including alternative objectives (Roux et al., 2025; Hu et al., 2025), sampling mechanisms (Yu et al., 2025), reward shapings (Yang et al., 2024), and different training configurations (Liu et al., 2025b; Team et al., 2025). Our work fits within this line of research by investigating RL for LLMs from an optimization dynamics perspective, proposing a model of the optimization landscape and using it to design stable policy gradient updates.
+
+Optimization Dynamics in RL. The non-convex and non-stationary nature of RL training has motivated a large body of work on understanding and stabilizing optimization dynamics in RL agents. In the context of policy gradients, prior research has investigated the role of baselines (Mei et al., 2022), variance reduction techniques (Greensmith et al., 2001), and emergent pathologies such as plasticity or capacity loss (Sokar et al., 2023; Klein et al., 2024) and policy collapse (Dohare et al., 2023). Beyond these analyses, past literature has also developed conservative policy optimization methods (Schulman et al., 2015; 2017; Achiam et al., 2017). While this line of work is extensive and evolving, we primarily highlight the recent contribution of Castanyer et al., which, like ours, examines the stabilization of policy gradients through curvature-informed interventions. Their methodology, however, differs: they apply natural gradients with K-FAC (Eschenhagen et al., 2023) in general deep RL environments, whereas our work develops a new approximation of curvature that is tractable at the scale of LLMs and is incorporates it into optimization through data selection.
+
+Improving RL for LLM Reasoning. In the context of LLM research, a nascent but growing literature explores improvements to RL training for reasoning. These works typically propose heuristics that target specific problems observed during training—for example, noisy gradient estimates, limited output diversity, or large policy updates. Common approaches include rethinking advantage estimation (Liu et al., 2025a; Ahmadian et al., 2024), controlling policy entropy (Yu et al., 2025; Cui et al., 2025), and bounding advantage estimates or log-likelihoods Yang et al. (2025a;b). In contrast, our work takes a more principled approach. Rather than introducing heuristics to address isolated issues, we develop a framework based on second-order stochastic optimization that fundamentally explains these instabilities and addresses them in a unified manner.
+
+## 3 PRELIMINARIES
+
+Problem Statement. We formulate the problem of next-token generation as a Markov Decision Process (MDP), defined by the tuple $\mathcal { M } \overset { \cdot } { = } ( \mathcal { S } , \mathcal { A } , \mathcal { P } , R , \rho _ { 0 } , \gamma , T )$ , in which S is a state space, A is an action space, $\mathcal { P } : \mathcal { S } \times \mathcal { A }  \Delta ( \mathcal { S } )$ a transition function, R : $S \times \mathcal { A }  [ - r _ { \mathrm { b o u n d } } , + r _ { \mathrm { b o u n d } } ]$ a bounded reward function, $\rho _ { 0 } : { \mathcal { S } } \to \Delta ( { \mathcal { S } } )$ an initial state distribution, $\gamma \in [ 0 , \bar { 1 } ]$ a discount factor, and T the length of the horizon. In the LLM setting, let V be a token vocabulary and $L \in \mathbb { N }$ a maximum sequence length, including both prompt and generated tokens. $\textstyle S = \bigcup _ { n = 0 } ^ { L } \mathcal { V } ^ { n }$ is the set of all finite sequences, with each state $s _ { t } ~ \in ~ S$ representing the concatenation of the prompt and the tokens generated up to time t, with total length at most L. A is the space spanned by V: at each step, the policy selects a token $a _ { t } \in \mathcal { V } . \ \mathcal { P }$ is governed by autoregressive sampling and takes the form of a trivial deterministic function $s _ { t + 1 } = s _ { t } \circ a _ { t }$ , where ◦ denotes concatenation. The initial state distribution $\rho _ { 0 }$ specifies a distribution over prompts. During policy optimization, one typically optimizes a parameterized LLM $\pi _ { \pmb \theta } : \mathcal { S } \times \mathcal { A } \overset { \cdot } {  } \Delta ( \overset { \cdot } { \mathcal { A } } )$ , with the objective of maximizing the expected cumulative reward over the generated sequence:
+
+$$
+J (\pmb {\theta}) = \mathbb {E} _ {\tau \sim \pi_ {\pmb {\theta}}} \Big [ \sum_ {t = 0} ^ {T} \gamma^ {t} R (s _ {t}, a _ {t}) \Big ],\tag{1}
+$$
+
+where $\tau$ denotes a trajectory, $s _ { 0 } \sim \rho _ { 0 } ( s _ { 0 } ) , a _ { t } \sim \pi _ { \pmb { \theta } } ( a _ { t } \mid s _ { t } )$ , and $s _ { t + 1 } = s _ { t } \circ a _ { t }$
+
+Policy Gradient (PG) methods optimize a stochastic policy by differentiating J(θ) with respect to the policy parameters (Williams, 1992) and can be written as (Sutton et al., 1999):
+
+$$
+\nabla_ {\boldsymbol {\theta}} J (\boldsymbol {\theta}) = \mathbb {E} _ {\tau \sim \pi_ {\boldsymbol {\theta}}} \left[ \sum_ {t = 0} ^ {T} \gamma^ {t} \nabla_ {\boldsymbol {\theta}} \log \pi_ {\boldsymbol {\theta}} (a _ {t} \mid s _ {t}) R (s _ {t}, a _ {t}) \right].\tag{2}
+$$
+
+This expectation can be estimated via Monte Carlo sampling under the current policy $\pi _ { \pmb { \theta } }$ . However, such estimates often have high variance. A standard remedy is to subtract a baseline $b ( s _ { t } )$ which leaves the gradient unbiased while reducing variance. In practice, this is typically done by replacing the reward with an estimate of the advantage function $\bar { A ( s _ { t } , a _ { t } ) }$ . For the rest of this work, we will assume the advantage version of this objective.
+
+Group Relative Policy Optimization (Shao et al., 2024) is a widely used method for RL in LLMs. Akin to PPO (Schulman et al., 2017), it optimizes a surrogate objective that employs off-policy correction Kakade & Langford (2002) with a clipping strategy to prevent large deviations:
+
+$$
+\begin{array}{c} J _ {\mathrm{GRPO}} (\boldsymbol {\theta}) = \mathbb {E} _ {\tau \sim \pi_ {\beta}} \Big [ \frac {1}{| \tau_ {i} |} \sum_ {t = 0} ^ {| \tau_ {i} |} \min \Big (r _ {\boldsymbol {\theta}} (s _ {t}, a _ {t}), \mathrm{clip} (r _ {\boldsymbol {\theta}} (s _ {t}, a _ {t}), 1 - \epsilon , 1 + \epsilon) \Big) A ^ {\mathrm{GRPO}} (s _ {t}, a _ {t}) \\ - \beta \mathcal {D} _ {\mathrm{KL}} (\pi_ {\boldsymbol {\theta}} (\cdot | s _ {t}) \| \pi_ {\mathrm{base}} (\cdot | s _ {t})) \Big ], \end{array}\tag{3}
+$$
+
+where $\begin{array} { r } { r _ { \pmb { \theta } } ( s _ { t } , a _ { t } ) = \frac { \pi _ { \pmb { \theta } } ( a _ { t } | s _ { t } ) } { \pi _ { \beta } ( a _ { t } | s _ { t } ) } } \end{array}$ and $\pi _ { \beta }$ is the sampling policy. The KL divergence term acts as a regularizer that penalizes deviation from $\pi _ { \mathrm { b a s e } }$ , the initial LLM. In contrast to standard PG methods, GRPO draws samples in groups: for each prompt $s _ { 0 } \sim \rho _ { 0 } ( s _ { 0 } )$ , it generates a group of trajectories $\{ \tau _ { i } \} _ { i = 1 } ^ { G } \sim \pi _ { \beta }$ . Contributions from all state-action pairs of a trajectory are averaged (rather than discounted), which effectively assume $\gamma = 1$ with per-trajectory normalization. Finally, the advantage estimator is defined as:
+
+$$
+\hat {A} ^ {\mathrm{GRPO}} (s _ {t}, a _ {t}) = \frac {\hat {R} (\tau) - \bar {R}}{\hat {\sigma} _ {R} + \varepsilon}, \quad \bar {R} = \frac {1}{G} \sum_ {i = 1} ^ {G} \hat {R} (\tau_ {i}), \quad \hat {\sigma} _ {R} = \sqrt {\frac {1}{G} \sum_ {i = 1} ^ {G} \left(\hat {R} (\tau_ {i}) - \bar {R}\right) ^ {2}},\tag{4}
+$$
+
+where $\hat { R } ( \tau )$ is the return for trajectory τ and ε is a small constant for numerical stability.
+
+## 4 MODELING THE OPTIMIZATION LANDSCAPE WITH SECOND-ORDER GEOMETRY
+
+In this section, we develop a model of the optimization landscape. We formulate the reinforcement learning (RL) optimization problem with policy gradients by explicitly incorporating second-order geometric information. Building on this formulation, we introduce a tractable computational model that approximates the role of curvature during learning. Our hypothesis is that by providing a simple but effective approximation of second-order gradients, one could track sudden shifts in the objective or policy and anticipate potentially unstable updates.
+
+The Higher-Order Objective. Consider the objective function $J ( \pmb \theta )$ as in Equation 1. After an update step $\Delta \theta .$ , the new objective $J ( \pmb { \theta } + \Delta \pmb { \theta } )$ is given by the following Taylor expansion:
+
+$$
+J (\pmb {\theta} + \Delta \pmb {\theta}) = J (\pmb {\theta}) + \underbrace {\nabla_ {\pmb {\theta}} J (\pmb {\theta}) ^ {\top} \Delta \pmb {\theta} + \frac {1}{2} \Delta \pmb {\theta} ^ {\top} H (\pmb {\theta}) \Delta \pmb {\theta}} _ {m _ {H} (\Delta \pmb {\theta})} + \mathcal {O} (\| \Delta \pmb {\theta} \| ^ {3}),\tag{5}
+$$
+
+where $H ( \pmb \theta )$ denotes the Hessian of the objective. Equation 5 holds under a Lipschitz continuous Hessian (see Assumption $\mathbf { A . } 1 )$ , with a detailed proof in Appendix A. As the cubic term may be negative, we can establish a guaranteed lower bound $J ( \pmb \theta + \Delta \pmb \theta ) \geq J ( \pmb \theta ) + m _ { H } ( \Delta \pmb \theta ) - \mathcal O ( \| \Delta \pmb \theta \| ^ { 3 } )$ In practice, the cubic term is often negligible, and we approximate the objective change by $m _ { H } ( \Delta \pmb { \theta } )$ Crucially, standard gradient ascent ignores the Hessian contribution, which can lead to a decrease in the objective for non-convex problems (such as RL) when this contribution is sufficiently negative.
+
+The Fisher Information Matrix. The Hessian captures the local curvature of the objective function. In RL, however, the objective is non-stationary, and what ultimately matters is how updates change the policy distribution. For instance, an update may produce only a small change in the objective while inducing a large shift in the policy. This alters how future trajectories are sampled and may destabilize learning. Therefore, it is necessary to track the geometry of the policy distribution directly, which is what the Fisher Information Matrix (FIM) enables. One can show that the directional curvature under the Fisher geometry approximates the average KL divergence between a policy and before and after a small step ∆θ:
+
+$$
+\bar {D} _ {\mathrm{KL}} (\pi_ {\boldsymbol {\theta}} \parallel \pi_ {\boldsymbol {\theta} + \Delta \boldsymbol {\theta}}) = \underbrace {\frac {1}{2} \Delta \boldsymbol {\theta} ^ {\top} F (\boldsymbol {\theta}) \Delta \boldsymbol {\theta}} _ {m _ {F} (\Delta \boldsymbol {\theta})} + \mathcal {O} (\| \Delta \boldsymbol {\theta} \| ^ {3}),\tag{6}
+$$
+
+where $\begin{array} { r l r l r } { \bar { D } _ { \mathrm { K L } } ( \pi _ { \theta } \parallel \pi _ { \theta + \Delta \theta } ) } & { { } : = } & { \mathbb { E } _ { s \sim d _ { \pi } } \big [ \mathrm { K L } \big ( \pi _ { \theta } ( \cdot \mid s ) \big \| \pi _ { \theta + \Delta \theta } ( \cdot \mid s ) \big ) \big ] , } & { \mathrm { a n d } } & { F ( \theta ) } & { { } : = \frac { \pi _ { \theta } ^ { 2 } } { 2 \pi _ { \theta } ^ { 2 } } , } \end{array}$ $\begin{array} { r } { \mathbb { E } _ { s \sim d _ { \pi } , \ a \sim \pi _ { \theta } ( \cdot | s ) } \left[ \nabla _ { \theta } \log \pi _ { \theta } ( a ~ \vert ~ s ) \nabla _ { \theta } \log \pi _ { \theta } ( a ~ \vert ~ s ) ^ { \top } \right] } \end{array}$ is the FIM. The proof is in Appendix
+
+B. Similarly to the Hessian case, the cubic term is often negligible and we focus on $m _ { F } ( \Delta \pmb { \theta } )$ . One can further show that enforcing a trust region $\bar { D } _ { \mathrm { K L } } ( \pi _ { \pmb \theta } \| \pi _ { \pmb \theta + \Delta \pmb \theta } ) \leq \delta$ during policy updates leads to monotonic improvement of the true objective, given sufficiently small δ (Schulman et al., 2015).
+
+Ultimately, we aim to design a model that approximates $m _ { H } ( \Delta \pmb { \theta } )$ and $m _ { F } ( \Delta \pmb { \theta } )$ without explicitly computing gradients or curvature terms in the high-dimensional parameter space of the LLM. This approach can be viewed as a form of model-based $\mathtt { R L }$ , but from a different perspective: whereas prior work typically models components of the MDP, such as the dynamics or reward function, we instead model the optimization process itself, which allows us to plan gradient estimates.
+
+## 4.1 COMPUTATIONAL MODEL
+
+For an LLM with d parameters, both Hessian and FIM are $d \times d$ matrices, which is intractable for billion-size parameter spaces. Even approximations such as K-FAC (Eschenhagen et al., 2023) would incur unfeasible memory cost. Therefore, we need to devise a computational model that is scalable and effectively provides curvature information to stabilize policy gradients. Next, we describe our methodology.
+
+Last-Layer Model. Since modeling the full Hessian or Fisher Information Matrix (FIM) is infeasible, we restrict attention to curvature in a parameter subspace. To this end, we adopt a simple last-layer approach. An LLM is a softmax policy over the token vocabulary $ \pi _ { \pmb { \theta } } ( a \ \mid \ s ) \ =$ $\frac { \exp ( f _ { \theta } ( s , a ) ) } { \sum _ { a ^ { \prime } } \exp ( f _ { \theta } ( s , a ^ { \prime } ) ) }$ , where $f _ { \theta } ( s , a ) \in \mathbb { R }$ are the logits produced by the network. Letting $f _ { \pmb { \theta } } ( s _ { t } )$ denote the full logits vector, with $\theta = ( \bar { \theta } , \psi )$ , we represent the pre-softmax layer as $f _ { \pmb \theta } ( s _ { t } ) = W h _ { \pmb \bar { \theta } } ( s _ { t } )$ where $W \in \mathbb { R } ^ { K \times d _ { i } }$ is the last-layer weight matrix, $K = \dim ( \mathcal { V } )$ , and $h _ { \bar { \pmb { \theta } } } ( s _ { t } ) \in \mathbb { R } ^ { d _ { i } }$ <sup>i</sup>. We then define $\psi = \mathrm { v e c } ( W ) \in \mathbb { R } ^ { K \cdot d _ { i } }$ . In Appendix $\mathrm { C } ,$ we show that the last-layer model gradient $\tilde { g } ( \psi )$ of the objective in Equation 1 is:
+
+$$
+\tilde {g} (\boldsymbol {\psi}) = \mathbb {E} _ {\tau \sim \pi_ {\boldsymbol {\theta}}} \left[ \sum_ {t = 0} ^ {T} \gamma^ {t} A (s _ {t}, a _ {t}) (e _ {a} - \pi_ {\boldsymbol {\theta}} (s _ {t})) \otimes h _ {\bar {\boldsymbol {\theta}}} (s _ {t}) \right],\tag{7}
+$$
+
+where ⊗ denotes a Kronecker product, $\boldsymbol { e } _ { a _ { t } } \in \mathcal { V }$ is the one-hot action vector $e _ { a _ { t } } = \mathbf { 1 } \{ a = a _ { t } \}$ and $\pi _ { \pmb { \theta } } ( s _ { t } ) )$ the policy distribution vector. We use the vectorization operation vec(·) only for convenience and it does not introduce new assumptions. In this work, we use a tilde superscript to denote model-based gradients and curvatures, in contrast to the actual policy gradient $g ( \mathbf { \bar { \theta } } ) : = \operatorname { \bar { V } } _ { \theta } J ( \theta )$
+
+Under the last-layer model, the Hessian of the objective takes the following form:
+
+$$
+\tilde {H} (\boldsymbol {\psi}) = \mathbb {E} _ {\tau \sim \pi_ {\boldsymbol {\theta}}} \left[ \sum_ {t = 0} ^ {T} \gamma^ {t} A (s, a) \Big ((e _ {a} - \pi_ {\boldsymbol {\theta}} (s _ {t})) (e _ {a} - \pi_ {\boldsymbol {\theta}} (s _ {t})) ^ {\top} - F (s _ {t}) \Big) \otimes h _ {\bar {\boldsymbol {\theta}}} (s _ {t}) h _ {\bar {\boldsymbol {\theta}}} (s _ {t}) ^ {\top} \right],\tag{8}
+$$
+
+where $F ( s _ { t } )$ is the FIM for state $s _ { t }$ . In Lemma C.1, we show that this expression can be estimated via samples. Similarly, the last-layer approximation of the FIM is:
+
+$$
+\tilde {F} (\boldsymbol {\psi}) = \mathbb {E} _ {\tau \sim \pi_ {\boldsymbol {\theta}}} \left[ \left(\left(e _ {a _ {t}} - \pi_ {\boldsymbol {\theta}} (s _ {t})\right) \left(e _ {a _ {t}} - \pi_ {\boldsymbol {\theta}} (s _ {t})\right) ^ {\top}\right) \otimes h _ {\bar {\boldsymbol {\theta}}} (s _ {t}) h _ {\bar {\boldsymbol {\theta}}} (s _ {t}) ^ {\top} \right].\tag{9}
+$$
+
+Computing Directional Curvatures. Even with the approximated model, the curvature matrices have dimension $K d _ { i } \times K d _ { i }$ . For current LLMs, where $\dot { K } > 1 0 ^ { 5 }$ and $d _ { i } > 1 0 ^ { 3 }$ , fully materializing these matrices is computationally infeasible. Fortunately, our goal is to approximate the shifts in the objective and policy, $m _ { H } ( \Delta \pmb { \theta } )$ and $m _ { F } ( \Delta \pmb { \theta } )$ . Thus, we only need to approximate the directional curvatures $\Delta \bar { { \pmb { \theta } } ^ { \top } } C \bar { ( \pmb { \theta } ) } \Delta \pmb { \theta }$ , without explicitly materializing the full Hessian or FIM. In Appendix D, we present a mechanism that enables this computation without constructing large tensors. Our method requires storing only $\mathcal { O } ( K d _ { i } )$ tensors per state–action sample, instead of the $\mathcal { O } ( ( K d _ { i } ) ^ { 2 } )$ entries of the full curvature matrices.
+
+Exploiting Gradient Sparsity. We further reduce complexity by exploiting the structure of gradients arising from LLM generation. Standard LLM decoding relies on selective sampling methods (e.g., top-k, nucleus sampling) Wolf et al. (2020) to improve generation quality, as most of the probability mass is concentrated on a small subset k of the vocabulary (Fan et al., 2018; Holtzman et al., 2020), typically with $k < 1 0 0$ . Consequently, only k tokens have non-zero probability at each generation step, which implies that only the $k * d _ { i }$ parameters of the last-layer weight matrix W associated with these logits yield non-zero gradients. We therefore store and operate these gradients in sparse form. This sparsity also applies to the computation of directional curvatures in Equations 58 and 63, as these reduce to dot products involving sparse vectors $( \mathrm { e . g . } , ( e _ { a _ { t } } - \pi _ { \pmb { \theta } } ( s _ { t } )$ and the model-based update step $\Delta \theta )$ ). Naturally, as we estimate gradients with more samples, the representation expands to cover all $\tilde { k }$ tokens generated, but typically $\tilde { k } < < K$ . For instance, our experiments presented $\tilde { k } < 1 0 ^ { 4 }$ . Overall, the memory and dot product complexity reduce to $\mathcal { O } ( \tilde { k } \cdot d _ { i } )$ .
+
+Modeling the Step ∆θ. A final design choice concerns how to model the planned update steps, $\Delta \pmb { \theta } .$ . Under the last-layer model, these steps take the form $\Delta \psi .$ . This choice essentially determines how we represent the optimizer. A simple option is to model the update as a stochastic gradient descent (SGD) step, $\Delta \psi = \alpha \tilde { g }$ , where α is the learning rate. Alternatively, we can match the LLM optimizer, which in our case is Adam (Kingma & Ba, 2015), i.e., $\begin{array} { r } { \Delta { \psi } = \alpha \frac { \hat { p } _ { t } } { \sqrt { \hat { q } _ { t } } + \epsilon } } \end{array}$ , where $\hat { p } _ { t }$ and $\hat { q } _ { t }$ are the bias-corrected first and second moment estimates of the gradient.
+
+## 5 CURVATURE-AWARE POLICY OPTIMIZATION
+
+We may now compute the objective and policy shifts under our model as:
+
+$$
+m _ {H} (\boldsymbol {\psi}) = \tilde {g} (\boldsymbol {\psi}) ^ {\top} \Delta \boldsymbol {\psi} + \frac {1}{2} \Delta \boldsymbol {\psi} ^ {\top} \tilde {H} (\boldsymbol {\psi}) \Delta \boldsymbol {\psi}, \quad m _ {F} (\boldsymbol {\psi}) = \frac {1}{2} \Delta \boldsymbol {\psi} ^ {\top} \tilde {F} (\boldsymbol {\psi}) \Delta \boldsymbol {\psi},\tag{10}
+$$
+
+and estimate $m _ { H }$ and $m _ { F }$ via samples following the methodology described in the subsection 4.1. We now design an algorithm that intervenes in the optimization of the underlying LLM policy using the model-based updates. Since our objective is to stabilize policy gradients in sample-efficient regimes, a natural choice is to construct an algorithm that follows the principles of trust-region methods (Murphy, 2022). We implement this idea through a rejection sampling mechanism.
+
+Given a batch B of collected trajectories, we partition it into disjoint subsets $b _ { i } ~ \subset ~ B$ . For each subset, we compute a proposed step $\Delta \psi _ { i }$ and evaluate the shifts defined in Equation 10. We then accept a subset if it satisfies the (local) trust-region constraints $\delta _ { F } , \delta _ { H }$ , and $\delta _ { H } ^ { h i \bar { g h } }$
+
+$$
+\delta_ {H} \leq m _ {H} (\Delta \psi_ {i}) \leq \delta_ {H} ^ {h i g h}, \qquad m _ {F} (\Delta \psi_ {i}) \leq \delta_ {F}.\tag{11}
+$$
+
+The accepted subsets are subsequently used to compute the gradient update of the LLM policy. Conceptually, this mechanism is analogous to token masking. Overall, this data selection mechanism is simple, computationally inexpensive, and flexible, as it can be applied at different granularities, including tokens, sentences, groups, or full batches. The formal pseudocode is provided in Algorithm 1. Next, we establish theoretical results for monotonic policy improvement under CAPO.
+
+Theorem 5.1 (Monotonic improvement under CAPO). Fix thresholds $\delta _ { H } > 0$ and $\delta _ { F } > 0 .$ . Let B be a batch of sampled trajectories. Split B into disjoint N subsets $b _ { i } \subset B ,$ , and propose candidate subset updates $\{ \bar { \Delta \theta _ { i } } \} _ { i : N }$ . Retain those satisfying:
+
+$$
+m _ {H} (\Delta \theta_ {i}) \geq \delta_ {H} = \omega + \frac {1}{2} M r ^ {2}, \quad m _ {F} (\Delta \theta_ {i}) \leq \delta_ {F},\tag{12}
+$$
+
+with $\omega > 0$ and M, r defined as in Assumption E.1. Let $B _ { a c c }$ denote the superset of the B accepted subsets, and define the aggregated update: $\begin{array} { r } { \Delta \theta \ = \ \frac { 1 } { B } \sum _ { i \in B _ { a c c } } \Delta \theta _ { i } } \end{array}$ . Then, for two policies $\pi _ { \pmb { \theta } }$ and $\pi _ { \pm \Delta \theta }$ , with $| A ^ { \pi } ( s , a ) | \leq \epsilon ,$ , we obtain:
+
+$$
+J (\pi_ {\theta + \Delta \theta}) - J (\pi_ {\theta}) \geq \omega - C \sqrt {\delta_ {F}}, \quad C = \frac {2 \gamma}{(1 - \gamma) ^ {2}} \epsilon \sqrt {2}.\tag{13}
+$$
+
+Thus choosing $\omega \geq C \sqrt { \delta _ { F } }$ guarantees monotonic improvement: $J ( \pi _ { \theta + \Delta \theta } ) \geq J ( \pi _ { \theta } )$
+
+The proof is provided in Appendix E. Observe that $\delta _ { H } ^ { h i g h }$ is not required to establish monotonic improvement. Nonetheless, it serves as a safeguard against overly aggressive steps. In practice, introducing this upper cap reduces the observed M and r, which allows the use of smaller $\delta _ { H }$ Finally, we note that Theorem 5.1 relies on the true objective and policy shifts, whereas in practice these quantities are approximated using our model.
+
+## 6 EXPERIMENTS AND DISCUSSION
+
+In this section, we evaluate (i) how the proposed computational model captures the optimization landscape, and (ii) how this information can be used to stabilize RL optimization dynamics through
+
+![](images/b40c98c963eee7a28c7255959966cb71b43267f29d2fbd26a126efbd02662de8.jpg)
+
+![](images/0a958f8b501df204a06bb6e0aebc332dff345b00301e6e25d283beef6f406b6d.jpg)  
+Figure 2: Comparison with baseline methods on policy gradient stability. While the setup with more aggressive updates makes all methods more sample-efficient, it also leads the baselines to policy collapse. In contrast, CAPO prevents collapse and achieves up to 30× greater sample efficiency than GRPO under aggressive updates.
+
+CAPO. Our central hypothesis is that an inexpensive yet effective approximation of second-order geometry can track unstable shifts in the objective and policy, and that this information can in turn be used to stabilize aggressive update regimes, leading to more sample-efficient RL in LLMs.
+
+Experimental Setup. We consider a standard RL setup for finetuning LLMs on reasoning tasks. Our implementation builds on the Open-R1 open-source project (Hugging Face, 2025), and we maximize an accuracy-based reward. Following prior work, we fine-tune a Qwen2.5-Math-7B LLM (Qwen et al., 2025) on mathematical reasoning questions. Our primary evaluation metric is accuracy, but we also track optimization-related quantities such as gradient and curvature statistics and token rejection rates. Since our goal is to evaluate sample efficiency, we report all metrics as a function of the number of training completions (i.e., LLM trajectories generated). Appendix G provides additional details regarding implementation, hyperparameters, and compute resources<sup>2</sup>.
+
+Datasets & Benchmarks. We train our policies on the MATH dataset (Hendrycks et al., 2021). For evaluation, we consider eight benchmarks: GSM8K (Cobbe et al., 2021), MATH500 (Lightman et al., 2023), OlympiadBench (He et al., 2024), MinervaMath (Lewkowycz et al., 2022), GPQA:Diamond (Rein et al., 2023), AMC23, AIME24, and AIME25. Most of these benchmarks contain mathematical questions at varying levels (high school, graduate, and olympiad), while GPQA focuses on general STEM-related problems. For simplicity, we report the average performance across all eight benchmarks, which we refer to as “TEST” in the results.
+
+Comparison Methods. We evaluate our approach against two GRPO variants. The first corresponds to the standard “conservative” update regime implemented in the Open-R1 codebase. The second, which we denote “GRPO (A),” adopts a more aggressive regime intended to improve sample efficiency, with a learning rate 5× higher and a batch size 12× smaller. This matches the configuration used by CAPO. We also evaluate Dr.GRPO (Liu et al., 2025a) and REINFORCE (Williams, 1992), both under the same aggressive regime.
+
+CAPO operationalization. CAPO optimizes the same objective as GRPO, but leverages the data selection mechanism introduced in Section 5. For a fair comparison, we use the same hyperparameters as GRPO (A). We implement CAPO with token-level selection, i.e., proposing steps $\Delta \psi _ { i }$ and rejecting samples on a per-token basis. Finally, we model optimization steps using Adam.
+
+## 6.1 EXPERIMENTS
+
+We highlight and analyze the following questions to evaluate our hypothesis and proposed method:
+
+![](images/d6e30b7dfb5ec81e3d9cb080423629141346a33996f34da5197bebcd95df5fb3.jpg)
+
+![](images/326e5a15662fa362cae8efb5eb7acf2f71dfd49f14905821413547a0ef23d03c.jpg)
+
+![](images/85556ef7853e2f7b7adc9d666c968286166529a378be4a273ce7101211448d1e.jpg)
+
+![](images/d9cd7201a5dc0460303fd271db9a1aadff70002e9d2229bb5c1c7eb2bc06c10f.jpg)  
+Figure 3: Evaluation of policy and objective shifts estimates from the proposed computational model during training. Unstable methods exhibit large and abrupt directional curvatures, while stable ones maintain much smaller and smoother shifts. CAPO, by applying token-level bounds, also ensures well-behaved shifts at the global (batch) level, supporting the rationale of Theorem 5.1.
+
+Does CAPO prevent instability in LLM policy gradients? Does it lead to better sample efficiency? Figure 2 reports accuracy for all methods on MATH and on the TEST benchmark set. First, we observe that the more aggressive setup does lead to more sample-efficient learning than the conservative one across all methods. However, for the baselines, this improvement comes at the cost of stability. Under the aggressive regime, all baseline methods suffer from policy collapse, with performance dropping well below that of the base model and therefore losing the ability to learn further. In contrast, CAPO maintains stable performance throughout training, remaining effective long after all other methods have collapsed. This demonstrates that CAPO effectively prevents instability under aggressive updates. As a result, CAPO requires 30× fewer completions on MATH and 9× fewer completions on TEST compared to standard conservative GRPO.
+
+What does the proposed computational model reveal about the optimization landscape? To analyze this question, we examine the policy shift $m _ { F }$ and the objective shift $m _ { H }$ at both the token level and the global (batch) level over the course of training, presented in Figure 3. For $m _ { F } ,$ we find that unstable methods (GRPO (A), DrGRPO, REINFORCE) exhibit very high global directional curvatures during training, whereas stable methods (CAPO, standard GRPO) maintain much smaller shifts. In particular, the global $m _ { F }$ correlates closely with the instability observed in Figure 1, showing that the model, despite its simplicity, remains informative about optimization dynamics.
+
+For $m _ { H } .$ , we observe similar trends: unstable methods show abrupt shifts, while stable ones produce smoother, better-behaved curves. Note that, while a higher $m _ { F }$ directly signals instability since it tracks policy shifts, a higher $m _ { H }$ does not necessarily directly imply instability. This is because m<sub>H</sub> depends on the adopted advantage function (Equation 37) and the normalization strategy of each method. Still, sharp peaks in the m<sub>H</sub> curves also correlate with training instabilities. Lastly, we highlight that CAPO, by applying a local bound per token, also ensures well-behaved shifts at the global level, which supports the rationale of Theorem 5.1. Overall, these results highlight that the computational model provides meaningful information about the optimization landscape, and that CAPO effectively leverages this information to stabilize training.
+
+## Can we extend curvature-aware selection to other RL
+
+methods? To test this, we extend Dr.GRPO and REIN-FORCE by incorporating our proposed curvature-aware selection, resulting in Dr.CAPO and ReinCAPO, respectively. Figure 4 reports the evaluation results for these methods. In all cases, incorporating the selection strategy improves upon the base method and prevents policy collapse. These findings suggest that the proposed computational model and intervention mechanism are broadly applicable across different policy optimization objectives.
+
+How aggressive is CAPO’s intervention to ensure stability? We analyze the extent of token rejection required by CAPO to maintain stable gradients, measured by the token rejection rate during training (Figure 5). The rejection rate peaks at about 8% in the early stages of optimization, when higher learning rates produce more aggressive updates, but quickly decreases and remains below 2% for the remainder of training. Overall, this shows that CAPO guides optimization toward stable curvature regions while keeping its intervention minimal, allowing the LLM to continue leveraging the vast majority of samples.
+
+![](images/467b098fb94561a54e02efb631ede25973e9c9c464a40d6e08c8efdca6429ac8.jpg)  
+Figure 5: Token rejection rate under CAPO. It maintains a low rejection rate over training, stabilizing learning with minimal intervention.
+
+![](images/ea761118c6e14f6cf7253ae0af8a5c6bc8321cece308402345678410c8e2d375.jpg)  
+Figure 4: Evaluation of extended versions of RL methods with curvature-aware selection. Incorporating curvature-aware selection consistently improves the base methods, preventing policy collapse and demonstrating the broader applicability of our approach across different policy optimization objectives.
+
+Additional Experiments. We provide a computational cost analysis of CAPO in Appendix H, where we show that the additional components incur minor overhead. Additionally, we present further experiments in Appendix I, including an ablation study on the optimizer model and a detailed evaluation of other heuristics traditionally used to ensure stability (e.g., PPO clipping and KL regularization), highlighting their limitations in the LLM setup.
+
+## 7 FINAL REMARKS
+
+In this work, we propose a computational framework that models curvature information and integrates it into policy updates through CAPO. We provide theoretical guarantees for CAPO and show that it is effective at identifying samples that contribute to unstable updates, preventing policy collapse in aggressive training regimes where standard RL methods for LLM reasoning fail. As a result, CAPO achieves up to a 30× improvement in sample efficiency compared to widely used training setups, while requiring only minimal intervention and computational overhead. Overall, it enables more sample-efficient learning regimes, supporting further scalability post-training scalability.
+
+Limitations. Despite the encouraging results, we acknowledge some limitations of our work. First, due to compute budget constraints, we focused on experiments at a smaller, academic scale. While we demonstrated the effectiveness of CAPO against commonly used RL methods, future work could extend these results to distinct problem settings and longer training schedules. Second, the choice of CAPO thresholds depends on the problem setting (MDP, objective function, base policy) and may require tuning across different scenarios. Nonetheless, this is not a major concern, as the thresholds can be tuned solely on the training distribution.
+
+Future Work. Beyond scalability, future research may explore different parametrizations of the computational model (for instance, by extending it to deeper layers) and investigate their impact on computational tractability and curvature estimates. In addition, future work may evaluate CAPO extensions to other intervention mechanisms, such as soft masking or regularization methods.
+
+## ACKNOWLEDGMENTS
+
+We thank Shreshth Malik, Clare Lyle, and Yoav Gelberg for the insightful discussions in the early stages of this project. Luckeciano C. Melo acknowledges funding from the Air Force Office of Scientific Research (AFOSR) European Office of Aerospace Research & Development (EOARD) under grant number FA8655-21-1-7017. Yarin Gal is supported by a Turing AI Fellowship financed by the UK government’s Office for Artificial Intelligence, through UK Research and Innovation (grant reference EP/V030302/1) and delivered by the Alan Turing Institute. We gratefully acknowledge compute resources provided by the Alan Turing Institute. This work was also funded under the Horizon Europe grant 101213369 DVPS.
+
+## REFERENCES
+
+Joshua Achiam, David Held, Aviv Tamar, and Pieter Abbeel. Constrained policy optimization. In Doina Precup and Yee Whye Teh (eds.), Proceedings of the 34th International Conference on Machine Learning, volume 70 of Proceedings of Machine Learning Research, pp. 22–31. PMLR, 06–11 Aug 2017. URL https://proceedings.mlr.press/v70/achiam17a.html.
+
+Arash Ahmadian, Chris Cremer, Matthias Galle, Marzieh Fadaee, Julia Kreutzer, Olivier Pietquin,´ Ahmet Ust<sup>¨</sup> un, and Sara Hooker. Back to basics: Revisiting REINFORCE-style optimiza-¨ tion for learning from human feedback in LLMs. In Lun-Wei Ku, Andre Martins, and Vivek Srikumar (eds.), Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers), pp. 12248–12267, Bangkok, Thailand, August 2024. Association for Computational Linguistics. doi: 10.18653/v1/2024.acl-long.662. URL https://aclanthology.org/2024.acl-long.662/.
+
+S. Amari, A. Cichocki, and H. H. Yang. A new learning algorithm for blind signal separation. In Proceedings of the 9th International Conference on Neural Information Processing Systems, NIPS’95, pp. 757–763, Cambridge, MA, USA, 1995. MIT Press.
+
+Shun-ichi Amari. Natural gradient works efficiently in learning. Neural Computation, 10(2):251– 276, 1998. doi: 10.1162/089976698300017746.
+
+Marc Bellemare, Salvatore Candido, Pablo Castro, Jun Gong, Marlos Machado, Subhodeep Moitra, Sameera Ponda, and Ziyu Wang. Autonomous navigation of stratospheric balloons using reinforcement learning. Nature, 588:77–82, 12 2020. doi: 10.1038/s41586-020-2939-8.
+
+Lukas Biewald. Experiment tracking with weights and biases, 2020. URL https://www. wandb.com/. Software available from wandb.com.
+
+Roger Creus Castanyer, Johan Obando-Ceron, Lu Li, Pierre-Luc Bacon, Glen Berseth, Aaron Courville, and Pablo Samuel Castro. Stable gradients for stable learning at scale in deep reinforcement learning, 2025. URL https://arxiv.org/abs/2506.15544.
+
+Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias Plappert, Jerry Tworek, Jacob Hilton, Reiichiro Nakano, Christopher Hesse, and John Schulman. Training verifiers to solve math word problems. arXiv preprint arXiv:2110.14168, 2021.
+
+Ganqu Cui, Yuchen Zhang, Jiacheng Chen, Lifan Yuan, Zhi Wang, Yuxin Zuo, Haozhan Li, Yuchen Fan, Huayu Chen, Weize Chen, Zhiyuan Liu, Hao Peng, Lei Bai, Wanli Ouyang, Yu Cheng, Bowen Zhou, and Ning Ding. The entropy mechanism of reinforcement learning for reasoning language models, 2025. URL https://arxiv.org/abs/2505.22617.
+
+Shibhansh Dohare, Qingfeng Lan, and A. Rupam Mahmood. Overcoming policy collapse in deep reinforcement learning. In Sixteenth European Workshop on Reinforcement Learning, 2023. URL https://openreview.net/forum?id=m9Jfdz4ymO.
+
+Runa Eschenhagen, Alexander Immer, Richard Turner, Frank Schneider, and Philipp Hennig. Kronecker-factored approximate curvature for modern neural network architectures. In A. Oh, T. Naumann, A. Globerson, K. Saenko, M. Hardt, and S. Levine (eds.), Advances in Neural Information Processing Systems, volume 36, pp. 33624–33655. Curran Associates, Inc.,

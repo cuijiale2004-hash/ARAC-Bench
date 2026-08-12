@@ -1,0 +1,101 @@
+{
+  "overview": "VideoJudge introduces a bootstrapped generator-evaluator pipeline to synthesize rating-aligned training data for fine-tuning MLLM-based evaluators specialized in video understanding, enabling small models (3B/7B) to match or surpass much larger judges in both pointwise rating and pairwise preference tasks while also generating instance-specific evaluation rubrics at inference time.",
+  "count": 19,
+  "modules": [
+    {
+      "id": 1,
+      "name": "Seed Data Merging and Deduplication",
+      "description": "Load seed corpora from multiple video instruction-response sources, merge them, and deduplicate at the instruction level per video using locality-sensitive hashing (MinHash/LSH) with configurable permutation count and Jaccard threshold, then sample a subset for bootstrapping."
+    },
+    {
+      "id": 2,
+      "name": "Dense Video Description Generation",
+      "description": "Generate dense textual descriptions from raw video frames using vision-language models as semantic proxies, sampling frames at a specified FPS with a maximum frame cap, to provide grounded context for the generator and evaluator without repeated video inference."
+    },
+    {
+      "id": 3,
+      "name": "Bootstrapped Candidate Response Generation",
+      "description": "Prompt a generator model to produce candidate responses conditioned on a target quality rating (1 through N-1), given the video description, instruction, and gold-standard response, with explicit rating degradation guidelines to simulate progressively lower-quality outputs."
+    },
+    {
+      "id": 4,
+      "name": "Bootstrapped Response Evaluation",
+      "description": "Prompt an evaluator model to assess each candidate response by assigning a predicted rating and providing textual reasoning feedback, computing the deviation between the intended rating and the evaluator-assigned rating to determine acceptance or need for refinement."
+    },
+    {
+      "id": 5,
+      "name": "Feedback-Based Iterative Refinement",
+      "description": "For candidate responses whose evaluator rating deviates beyond a threshold from the intended rating, re-prompt the generator with the evaluator's feedback and the original context to produce a revised response, iterating until the acceptance criterion is met or a maximum iteration count is reached."
+    },
+    {
+      "id": 6,
+      "name": "Pairwise Training Data Construction",
+      "description": "Construct preference pairs from the bootstrapped pointwise data by pairing responses with different ratings for the same instruction, treating the higher-rated response as preferred, and optionally sampling a subset of all possible pairs with randomized ordering to avoid positional bias."
+    },
+    {
+      "id": 7,
+      "name": "Instruction-Specific Rubric Synthesis",
+      "description": "Use an LLM to generate evaluation rubrics on a 1-5 scale tailored to each video-instruction pair, anchored by the gold-standard response defining the top rating, producing self-contained rubrics that specify concrete, context-specific criteria at each level for later rubric-augmented training."
+    },
+    {
+      "id": 8,
+      "name": "Custom Dataset and DataLoader Implementation",
+      "description": "Implement dataset classes for pointwise (video, instruction, response, rating) and pairwise (video, instruction, response pair, preference label) settings, handling video frame extraction, text tokenization, and batch collation with configurable maximum sequence length and frame counts."
+    },
+    {
+      "id": 9,
+      "name": "VideoJudge Model Initialization and Forward Pass",
+      "description": "Initialize the VideoJudge model from a video-language backbone with full fine-tuning enabled on vision MLP and language model components, implementing the autoregressive forward pass that conditions on video frames, instruction, and candidate response(s) to generate target sequences."
+    },
+    {
+      "id": 10,
+      "name": "Pointwise Judge Training Pipeline",
+      "description": "Train the model to predict a scalar rating on a 1-5 scale with intermediate reasoning, using standard negative log-likelihood loss over tokens, where the target output format encloses reasoning and score in designated tag pairs, with configurable epoch count, learning rate scheduling, and gradient clipping."
+    },
+    {
+      "id": 11,
+      "name": "Pairwise Judge Training Pipeline",
+      "description": "Train the model to compare two candidate responses and output a preference decision with optional reasoning, using the same autoregressive NLL loss, with randomization of response order during training to mitigate positional bias."
+    },
+    {
+      "id": 12,
+      "name": "Rubric-Augmented Judge Training",
+      "description": "Train the model to first generate an instance-specific evaluation rubric before producing reasoning and a score, using rubric-supervised data so that at inference time the model produces both the rubric and the rating, enabling interpretable and context-anchored evaluation."
+    },
+    {
+      "id": 13,
+      "name": "Pointwise Meta-Evaluation with Correlation and Error Metrics",
+      "description": "Evaluate pointwise judge outputs by computing RMSE, MAE, Spearman correlation, Pearson correlation, and Expected Calibration Error against ground-truth ratings, plus preference-based metrics (pairwise superiority and score gap between correct/distractor responses) on multiple benchmarks."
+    },
+    {
+      "id": 14,
+      "name": "Pairwise Meta-Evaluation with Accuracy Scoring",
+      "description": "Evaluate pairwise judge outputs by computing accuracy against ground-truth preference labels across benchmarks including automated arenas and human-annotated preference datasets, with separate configurations for standard and hard-discrimination (adjacent rating) settings."
+    },
+    {
+      "id": 15,
+      "name": "Meta-Evaluation Benchmark Construction",
+      "description": "Construct held-out pointwise and pairwise meta-evaluation benchmarks by sourcing seed instructions from datasets disjoint from training, running the bootstrapping pipeline with a zero acceptance threshold to generate response-rating pairs, and formatting them for standardized model comparison."
+    },
+    {
+      "id": 16,
+      "name": "Temporal Context Ablation Study",
+      "description": "Systematically vary the maximum frame count during training and separately during evaluation to analyze its effect on judgment performance, reporting correlation and error metrics across a range of frame counts to identify the point of diminishing returns for temporal coverage."
+    },
+    {
+      "id": 17,
+      "name": "Decoding Temperature Robustness Analysis",
+      "description": "Evaluate model performance across a range of decoding temperatures to assess judgment reliability under stochastic decoding, comparing the base model against the trained judge model on correlation and error metrics to demonstrate robustness gains from rubric-guided training."
+    },
+    {
+      "id": 18,
+      "name": "Rubric Quality Evaluation (LLM-as-Judge and Human)",
+      "description": "Assess the quality of generated rubrics through pairwise comparison using an LLM judge with deterministic decoding and through human annotation with multiple annotators and aggregation by majority or unanimous vote, computing win rates against baselines of varying scale."
+    },
+    {
+      "id": 19,
+      "name": "Error Analysis and Calibration Diagnostics",
+      "description": "Analyze systematic biases in judge predictions by computing overestimation and underestimation rates at different rating margins, examining per-rating calibration accuracy, and identifying the proportion of responses incorrectly inflated to the maximum score to guide future hard-negative curation."
+    }
+  ]
+}

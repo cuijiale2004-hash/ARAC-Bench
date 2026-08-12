@@ -1,0 +1,298 @@
+## ABSTRACT
+
+Diffusion models have recently demonstrated significant robustness in medical image segmentation, effectively accommodating variations across different imaging styles. However, their applications remain limited due to: (i) current successes being primarily confined to 2D segmentation tasks—we observe that diffusion models tend to collapse at the early stage when applied to 3D medical tasks; and (ii) the inherently isolated iteration along timesteps during training and inference. To tackle these limitations, we propose a novel framework named Cross-Timestep, which incorporates two key innovations: an Adaptive Priori Decoding Strategy (APDS) and a trans-temporal memory LSTM (tLSTM) mechanism. (i) The APDS provides prior guidance during the diffusion process by employing a Priori Decoder(PD) that focuses solely on the conditional branch, successfully stabilizing the reverse diffusion process. (ii) The tLSTM integrates convolution and linear layers into the LSTM gating structure, and enhances the memory cell mechanism to retain temporal state, explicitly preserving and propagating continuous temporal states across timesteps. Experimental results demonstrate that Cross-Timestep performs favorably on heterogeneous 3D medical datasets. Three experiments further analyze the collapse phenomenon in 3D medical diffusion models and validate that APDS effectively prevents initial-stage collapse without excessively constraining the model, while tLSTM facilitates the performance and scalability of diffusion models.
+
+## 1 INTRODUCTION
+
+Medical image segmentation—the precise delineation of anatomical structures—is essential for diagnosis and treatment planning (Zhang et al., 2025b; Luo et al., 2021a; 2022). Building robust models usually requires aggregating images across hospitals and scanners, which introduces large appearance variability and degrades the performance of conventional networks (Zaman et al., 2024; Luo et al., 2021b). Denoising Diffusion Probabilistic Models (DDPMs) are an attractive alternative because their coarse-to-fine denoising process encourages recovery of global structure before fine details, suggesting greater robustness to style variation (Salsi et al., 2025; Zhang et al., 2025a; Ding et al., 2024; Wu et al., 2025; Shuai et al., 2024).
+
+Despite this promise, applying diffusion models to 3D volumetric segmentation remains challenging. We identify a failure mode we call “initial-stage collapse”: when reverse sampling is started from very high-noise timesteps (near pure Gaussian noise), models adapted from 2D often produce incoherent outputs and fail to recover the target structure (see Fig. 1), additional details and visualizations are provided in Appendix A. The difficulty stems from the enlarged manifold of 3D volumes and the vanishingly weak structural cues present at extreme noise levels, while standard diffusion samplers lack mechanisms to accumulate evidence across timesteps.
+
+To address these issues, we propose Cross-Timestep, a 3D diffusion framework that (i) uses an Adaptive Priori Decoding Strategy (APDS) to supply time-weighted structural priors from the conditional image, and (ii) equips the denoiser with an explicit cross-timestep memory via a transtemporal memory LSTM (tLSTM). APDS provides a coarse, image-driven scaffold that is strongest at early denoising steps and decays as the learned denoiser gains confidence; tLSTM persistently carries low-frequency structure, residual statistics, and uncertainty-aware saliency across steps so later timesteps refine rather than re-discover structure. We implement two concrete tLSTM instantiations (Conv-tLSTM and Linear-tGRU) and two extensions (SC-tLSTM and FFT-tLSTM) to demonstrate the approach’s flexibility. Experiments on multi-center 3D datasets show Cross-Timestep prevents initial-stage collapse and improves segmentation robustness under severe domain shift. In summary, the contributions of this study are as follows:
+
+• We introduce Cross-Timestep, pioneering the use of diffusion models for 3D medical segmentation tasks. This framework establishes a foundational strategy for diffusion-based approaches, offering a possible universal solution for future research and achieving robust performance on heterogeneous datasets.
+
+• We propose the APDS to specifically address ‘initial-stage collapse’, providing stable structural guidance during high-noise stages without interfering with later refinement stages.
+
+• We develop the tLSTM module, introducing a recurrent controller that carries crosstimestep state, turning local, myopic denoising into a temporally coherent trajectory.
+
+• Implement tLSTM as a modular controller (Conv-tLSTM, Linear-tGRU) and demonstrate extensions (SC-tLSTM, FFT-tLSTM) that demonstrate substantial scalability and potential for further enhancements of diffusion models via these units.
+
+## 2 RELATED WORK
+
+Diffusion models have been adapted for discriminative tasks including image segmentation, with many 2D methods integrating conditional guidance, uncertainty modeling, or transformer-based context modules to improve boundaries and global consistency (Zaman et al., 2026; Ji & Chung, 2024; Wu et al., 2024; Tang et al., 2024). Work on 3D volumetric diffusion has focused mainly on generative synthesis and on engineering memory/efficiency solutions to handle large 3D tensors (Nie et al., 2025; Liu et al., 2025; Wang et al., 2024a; Chen et al., 2024), while some recent methods (e.g., Diff-UNet) fuse multistep outputs to reduce variance (Xing et al., 2025).
+
+These prior approaches either (i) concentrate on generation and computational feasibility in 3D, or (ii) apply post-hoc fusion of independent per-step predictions. In contrast, Cross-Timestep targets two complementary problems simultaneously: reliable initialization from high-noise timesteps (via APDS) and explicit temporal features accumulation during sampling (via tLSTM). By integrating structured priors with a stateful denoiser, our framework addresses the root causes of initial-stage collapse rather than relying on post-hoc output fusion.
+
+![](images/b1e8821da536c6bdd0255821cd70aeb1e725419cad43bd164c1340350a4353ec.jpg)  
+Figure 1: “Initial-stage collapse”. For 3D medical data, the diffusion model will crash when sampling starts from the high-noise stage (equivalent to random noise), but it can correctly sample from the middle and low time steps. Introducing APDS enables correct sampling starting from random noise.
+
+## 3 METHODOLOGY
+
+In this section, we introduce our proposed Cross-Timestep method for stable 3D medical image segmentation using diffusion models (Fig. 2). We aim to make the reverse diffusion process both reliably initiable under extreme noise (via APDS) and temporally coherent across steps (via tLSTM).
+
+![](images/615d5f3b26c22132e8a2825c7af70b34a40aaa0069923a4c96a2b2c9fd0397e7.jpg)  
+Figure 2: (a) The framework of the Cross-Timestep, we propose APDS and tLSTM to construct a stable diffusion architecture. (b) Time-weighted control RA, using the prior mask obtained from the PD to guide the main branch. (c) Detailed design of Conv-tLSTM, using convolution to improve the gating mechanism of LSTM and enhance its memory cell to remember the temporal state. (d) Detailed design of Linear-tGRU, using Linear combined with GRU to reduce resource requirements, compared with Conv-tLSTM. (e) Structure of SC-tLSTM, improving the traditional SC attention to adapt to the diffusion model. (f) Structure of FFT-tLSTM, transforming the time domain into the frequency domain for denoising.
+
+APDS provides structural priors from the clean conditional image and injects them with a decaying time weight. tLSTM explicitly carries cross-timestep memory so evidence accumulates instead of being re-discovered.
+
+## 3.1 ADAPTIVE PRIORI DECODING STRATEGY
+
+As illustrated in Fig. 2a,b, the APDS mechanism operates exclusively on the conditional branch of the network. It takes the conditional image $X _ { c } ,$ which is embedded with the current timestep information t. The deepest features from this are passed through a series of bottleneck blocks before entering a Prior Decoder (PD). The PD fuses these bottleneck features with multi-scale skip connections from the conditional encoder’s path. This process yields a preliminary segmentation mask, $F _ { p r i o r } $ , which serves as a robust approximation of the target structure $x _ { 0 }$ . According to the Reverse Addition(RA)(Fig. 2b) concept, $\dot { F } _ { p r i o r }$ is reversed to guide the main branch $F _ { m a i n }$ , thereby generating the refined feature map, $F _ { r e f i n e d } ^ { \star }$
+
+$$
+F _ {r e f i n e d} = F _ {m a i n} \odot (1 - \sigma (F _ {p r i o r})),\tag{1}
+$$
+
+Although there was no explicitly shown embedded time t during this process, $X _ { c }$ already incorporates the time embedding information, as it allows the APDS to be aware of the current diffusion stage, enabling it to provide more global, structural guidance during high-noise timesteps and more detailed, refined guidance as the noise level decreases.
+
+Further still, to prevent this strong prior from overly interfering with the main model’s predictions, especially during the later, low-noise stages of diffusion, we introduce a time-weighted mechanism. The RA module is integrated at each upsampling stage of the main branch, and fuses them using a time-dependent weight, ω . The fused feature map, $\breve { F _ { f u s e d } } .$ , is computed as:
+
+$$
+F _ {f u s e d} = \left(1 - \omega_ {t}\right) \odot F _ {r e f i n e d} + \omega_ {t} \odot F _ {p r i o r}.\tag{2}
+$$
+
+The weight $\omega _ { t }$ is designed to be high for large values of t (initial high-noise stages) and diminish as t approaches 0. This ensures that the guidance from the prior is strongest when the main branch is most unstable and gracefully recedes as the model’s own predictive capabilities become more reliable, for details, please refer to Appendix B. The above design constitutes APDS, which can be seamlessly integrated into any 3D diffusion model to form a stable infrastructure.
+
+## 3.2 CONV-TLSTM
+
+The Conv-tLSTM module, illustrated in Fig. 2c, extends the classical LSTM to 3D volumetric data by replacing matrix multiplications with 3D convolutions in all gating operations. Unlike conventional LSTMs that only store abstract vector states, Conv-tLSTM maintains both the hidden state $h _ { t }$ and the memory cell $\dot { C } _ { t }$ as full 3D tensors, thereby preserving spatial correlations across voxels.
+
+To align with our cross-timestep memory design, we modify the hidden state update with a timeaware modulation. Specifically, the previous hidden state $h _ { t - 1 }$ is first modulated by a timestep embedding $E _ { t }$ , producing $h _ { t } ^ { \prime } .$ , which allows the recurrent unit to remain aware of the denoising stage.
+
+All three gates—input gate $i _ { t }$ , forget gate $f _ { t }$ , and output gate $o _ { t }$ —are computed using 3D convolutions:
+
+$$
+i _ {t} = C o n v (W _ {x i} * X _ {t} + W _ {h i} * h _ {t} ^ {\prime} + b _ {i}), f _ {t} = \sigma (W _ {x f} * X _ {t} + W _ {h f} * h _ {t} ^ {\prime} + b _ {f}),\tag{3}
+$$
+
+$$
+o _ {t} = \sigma (W _ {x o} * X _ {t} + W _ {h o} * h _ {t} ^ {\prime} + b _ {o}),\tag{4}
+$$
+
+where $X _ { t }$ is the noisy input at timestep $t ,$ and ∗ denotes 3D convolution.
+
+Based on these gates, the candidate memory $\tilde { C } t$ is computed as:
+
+$$
+\tilde {C} t = \tanh (W _ {x c} * X _ {t} + W _ {h c} * h _ {t} ^ {\prime} + b _ {c}),\tag{5}
+$$
+
+and the cell state is updated as:
+
+$$
+C _ {t} = f _ {t} \odot C _ {t - 1} + i _ {t} \odot \tilde {C} _ {t}.\tag{6}
+$$
+
+Finally, the hidden state is updated as:
+
+$$
+h _ {t} = o _ {t} \odot \tanh (C _ {t}).\tag{7}
+$$
+
+Intuitively, the cell state $C _ { t }$ serves as the cross-timestep memory carrier, explicitly retaining: Lowfrequency structural sketches $( \tilde { C } _ { t }$ contributions), Residual noise statistics (filtered through $f _ { t } )$ Uncertainty-aware saliency cues (modulated by $i _ { t }$ and $o _ { t } )$ . Thus, Conv-tLSTM transforms the reverse diffusion process into a memory-guided trajectory where each denoising step refines, rather than re-discovers, structural evidence.
+
+## 3.3 LINEAR-TGRU
+
+While Conv-tLSTM excels at capturing spatial dependencies, its reliance on 3D convolutions incurs significant computational cost. To achieve a more lightweight yet effective recurrent design, we propose Linear-tGRU (Fig. 2d), which builds upon the Gated Recurrent Unit (GRU) architecture. Compared to LSTM, GRU merges the cell and hidden states into a single hidden representation, and fuses the forget and input gates into an update gate, reducing redundancy.
+
+Similar to Conv-tLSTM, Linear-tGRU introduces timestep-aware modulation by embedding the current step t into the hidden state $h _ { t - 1 }$ , yielding $h _ { t } ^ { \prime } .$ . Two gates are then computed:
+
+$$
+r _ {t} = \sigma (W _ {x r} X _ {t} + W _ {h r} h _ {t} ^ {\prime} + b _ {r}), z _ {t} = \sigma (W _ {x z} X _ {t} + W _ {h z} h _ {t} ^ {\prime} + b _ {z}).\tag{8}
+$$
+
+The reset gate $r _ { t }$ controls how much past information is forgotten, while the update gate $z _ { t }$ balances between retaining history and incorporating new evidence. The update of the candidate hidden state is provided in Appendix C.
+
+By design, Linear-tGRU primarily retains global descriptors of the diffusion trajectory. Specifically, $z _ { t }$ ensures persistent memory of coarse structures and residual statistics across timesteps, while $r _ { t }$ selectively refreshes saliency regions when strong new evidence emerges. Compared with ConvtLSTM, it sacrifices fine-grained spatial encoding for computational efficiency, making it suitable for long-horizon denoising.
+
+## 3.4 SC-TLSTM
+
+Building upon our foundational Conv-tLSTM and Linear-tGRU units, the Spatial-Channel Transtemporal Memory LSTM (SC-tLSTM) module(Fig. 2e) adapts the conventional spatial-channel attention mechanism to be stateful and temporally aware.This module processes an input feature map through two recurrent branches—a spatial attention branch and a channel attention branch.The $\mathrm { { s c } . }$ tLSTM module creates a dynamic, stateful version of spatial-channel attention, using our recurrent units to learn what and where to focus throughout the entire reconstruction process.
+
+## 3.4.1 SPATIAL ATTENTION BRANCH
+
+we first generate compact feature descriptors from the input feature map $F \in \mathbb { R } ^ { C \times D \times H \times W }$ . This is achieved by applying average pooling independently along the X, Y, and Z axes, thereby creating three distinct spatial summaries, $P _ { x y z }$ . These summaries are concatenated and fed into a recurrent block, primarily composed of ‘Conv-tLSTM’, which maintains a memory of spatial patterns across diffusion timesteps. The output is a 3D spatial attention map, $M _ { s } ,$ , computed as:
+
+$$
+\begin{array}{r} P _ {x y z} = C o n c a t (P o o l _ {x} (F), P o o l _ {y} (F), P o o l _ {z} (F)), \\ M _ {s} = t L S T M (P _ {x y z}), \end{array}\tag{9}
+$$
+
+(10)
+
+## 3.4.2 CHANNEL ATTENTION BRANCH
+
+Concurrently, to model the temporal evolution of inter-channel relationships, the module aggregates spatial information using both average-pooling and max-pooling operations across the spatial dimensions of the input feature map F. The resulting channel descriptors $P _ { c h a n n e l }$ are then processed by another recurrent block, which predominantly uses ‘Linear-tGRU’ . This branch tracks the evolution of channel importance over time, producing a channel attention map, $M _ { c } \mathbf { . }$
+
+$$
+P _ {c h a n n e l} = C o n c a t (A v g P o o l (F), M a x P o o l (F)),
+$$
+
+$$
+M _ {c} = t G R U (P _ {c h a n n e l}).\tag{11}
+$$
+
+(12)
+
+## 3.4.3 FEATURE REFINEMENT
+
+The two attention maps are applied sequentially to the input feature map $F$ to adaptively refine it, the channel attention is applied first, followed by the spatial attention, yielding the final refined output, $F _ { o u t }$
+
+$$
+F ^ {\prime} = M _ {c} \odot F,\tag{13}
+$$
+
+$$
+F _ {o u t} = M _ {s} \odot F ^ {\prime}.\tag{14}
+$$
+
+## 3.5 FFT-TLSTM
+
+The core principle of FFT-tLSTM, shown in Fig. 2f, is to leverage the frequency domain, where structural information and noise components are often more separable. The mechanism involves a sequence of transformations and stateful modulations. First, both the noisy input image $X _ { t }$ and the conditional image $X _ { c }$ are transformed from the spatial domain to the frequency domain using a 3D Fast Fourier Transform (FFT), $\mathcal { F } _ { t }$ and $\mathcal { F } _ { c } \mathrm { : }$
+
+$$
+\mathcal {F} _ {t} = F F T (X _ {t}), \quad \mathcal {F} _ {c} = F F T (X _ {c}),\tag{15}
+$$
+
+The noisy and conditional spectra are then combined and filtered. This fused representation is processed by a stateful recurrent block. Similarly, the memory of time steps enables it to better grasp the scale of frequencies that belong to noise in the frequency domain space. The output is subsequently modulated by the conditional spectrum $\mathcal { F } _ { c } .$ , which acts as a gate to amplify relevant structural frequencies, obtained $\tilde { \mathcal { F } }$ . This modulated spectrum is then transformed back to the spatial domain via an inverse FFT (iFFT), obtain the noisy image after frequency-domain denoising. Finally, the result is combined with the original noisy input through a residual connection, yielding final output, $X _ { o u t }$ .The entire process can be formulated as follows:
+
+$$
+\tilde {\mathcal {F}} = t L S T M \left(F i l t e r \left(\mathcal {F} _ {t} + \mathcal {F} _ {c}\right)\right) \odot \mathcal {F} _ {c},\tag{16}
+$$
+
+$$
+X _ {o u t} = i F F T (\tilde {\mathcal {F}}) + X _ {t}.\tag{17}
+$$
+
+## 3.6 DIFFUSION PROCESS
+
+The diffusion process, whose overall network structure is depicted in Fig. 2a, consists of two primary stages: a fixed forward diffusion process and a learned reverse denoising process.The forward process progressively corrupts the ground truth segmentation mask $x _ { 0 }$ over a sequence of $T$ timesteps by adding Gaussian noise. This is a fixed Markov chain defined as:
+
+$$
+q (x _ {t} | x _ {t - 1}) = \mathcal {N} (x _ {t}; \sqrt {1 - \beta_ {t}} x _ {t - 1}, \beta_ {t} \mathbf {I}).\tag{18}
+$$
+
+where $\{ \beta _ { t } \} _ { t = 1 } ^ { T }$ is a predefined variance schedule. $\mathbf { A s } \ t  T$ , the distribution of $x _ { T }$ approaches a standard isotropic Gaussian distribution, $x _ { T } \sim \mathcal { N } ( 0 , \mathbf { I } )$
+
+The reverse process is where our neural network learns to denoise these corrupted inputs. It is a learned Markov chain that begins with pure Gaussian noise $x _ { T }$ and iteratively refines it to generate the final segmentation mask $x _ { 0 }$ . To achieve image-conditional segmentation, the reverse process is guided by the clean medical image, $X _ { c }$ . Our network, denoted as $\mathcal { \bar { M } } _ { \theta } .$ is trained to predict the noise component ϵ from the noisy mask $x _ { t }$ at a given timestep $t ,$ conditioned on $X _ { c } .$ The training objective follows the simplified loss function common in DDPMs:
+
+$$
+\mathcal {L} _ {s i m p l e} = \mathbb {E} _ {t, x _ {0}, \epsilon} \left[ | | \epsilon - \mathcal {M} _ {\theta} (x _ {t}, X _ {c}, t) | | ^ {2} \right].\tag{19}
+$$
+
+where $x _ { t } = \sqrt { \bar { \alpha } _ { t } } x _ { 0 } + \sqrt { 1 - \bar { \alpha } _ { t } } \epsilon \mathrm { a n d } \epsilon \sim \mathcal { N } ( 0 , \mathbf { I } )$
+
+At inference time, the segmentation process starts by sampling a tensor of pure Gaussian noise, $x _ { T }$ The model then iteratively applies the learned denoising function for $t \doteq T , \ldots , 1$ to produce a progressively cleaner sample $x _ { t - 1 }$ from $x _ { t }$ . This iterative refinement, guided at each step by the innovations within our architecture, can be formally expressed as:
+
+$$
+\epsilon_ {\theta} = \mathcal {D} _ {\mathrm{SC,APDS}} (\mathcal {E} _ {\mathrm{SC,FFT}} (x _ {t}, t), X _ {c}, t),\tag{20}
+$$
+
+$$
+x _ {t - 1} = \frac {1}{\sqrt {\alpha_ {t}}} \left(x _ {t} - \frac {1 - \alpha_ {t}}{\sqrt {1 - \bar {\alpha} _ {t}}} \epsilon_ {\theta}\right) + \sigma_ {t} z.\tag{21}
+$$
+
+Here, the sampling step utilizes the predicted noise $\epsilon _ { \theta } .$ , which is generated by our complete network. The term E<sub>SC,FFT</sub> represents the encoder, which leverages ‘FFT-tLSTM’ for noise resilience and ‘SC-tLSTM’ for stateful feature extraction. The term $\breve { \mathcal { D } _ { \mathrm { S C , A P D S } } }$ represents the decoder, which uses ‘SC-tLSTM‘ blocks for reconstruction and is critically stabilized by the ‘APDS’ mechanism using the conditional image $X _ { c } .$ . This process is repeated until the final, high-fidelity segmentation mask x<sub>0</sub> is produced. At each step we update a cross-timestep state $S _ { t }$ and condition the denoiser on $S _ { t }$ enabling evidence accumulation across steps:
+
+$$
+\mathcal {S} _ {t} = \mathrm{tLSTM} (\mathcal {S} _ {t + 1}, \phi (x _ {t}, X _ {c}, t))\tag{22}
+$$
+
+## 4 EXPERIMENTS
+
+## 4.1 EXPERIMENTAL SETUP
+
+## 4.1.1 DATASETS
+
+To rigorously evaluate the robustness and generalization of our proposed model under domain shift, we utilized two multi-center nasopharyngeal carcinoma (NPC) segmentation datasets: LNCTVSeg (Luo et al., 2024; 2025) and OAseg (Wang et al., 2024b). LNCTVSeg comprises 440 computed tomography (CT) images from 262 patients across four medical institutions, focusing on lymph node clinical target volume (CTV) delineation. OAseg includes T1-weighted MRI scans for Gross Tumor Volume (GTV) segmentation collected from three distinct institutions: Center A (50 cases), Center B (50 cases), and Center C (60 cases). t-SNE visualization (Appendix D) confirmed significant stylistic variability across these datasets, providing an ideal testbed for assessing model performance under substantial domain shifts.
+
+## 4.1.2 BASELINE METHODS
+
+We compared our method against several state-of-the-art (SOTA) segmentation models, including TransBTS (Wang et al., 2021), SwinUNETR (Hatamizadeh et al.), UNETR (Hatamizadeh et al., 2022), 3DUXNET (Lee et al., 2022), nnFormer (Zhou et al., 2023), and Perspective+ (Hu et al., 2024). Detailed training parameters are described in Appendix E.
+
+## 4.2 ADDRESSING ‘INITIAL-STAGE COLLAPSE
+
+To empirically demonstrate the phenomenon of ‘initial-stage collapse’, we assessed the model’s segmentation capability by initiating the reverse diffusion process from varying initial noise levels (timesteps ranging from low-noise (t=100) to high-noise (t=1000)). The average Dice scores were subsequently calculated as a function of these starting timesteps.
+
+![](images/1741dbb55f3611b0dd5c0c9931d6b86d436fc2985350b1aa383b44087f4e8136.jpg)
+
+![](images/6e5e7bafdd13854b4dcfa9d672165aab45c8ea8dce2bd9781ec30cc85533ea8a.jpg)  
+Figure 3: The average dice value obtained by performing reverse diffusion starting from noisy images at different time steps.
+
+The results, depicted in Fig. 3 for both the LNCTVSeg and OAseg datasets, clearly illustrate this collapse. The baseline diffusion model (‘Diff’) and the variant enhanced solely with our temporal consistency module (‘Diff + tLSTM’) exhibited robust segmentation accuracy at low-to-moderate noise levels (t <600). However, their performance dramatically deteriorated as noise increased, collapsing entirely at timesteps beyond 700, where the input images were equivalent to random noise, resulting in incoherent predictions.
+
+Conversely, models incorporating APDS (‘Diff + APDS’ and the full ‘Diff + tLSTM + APDS’ variant) exhibited remarkable stability across all noise levels. Although their performance slightly declined with increased noise, these models consistently maintained effective segmentation capabilities, even in high-noise regimes where conventional models failed. This result conclusively indicates that APDS provides essential structural guidance, preventing ‘initial-stage collapse’ and ensuring the reverse diffusion process remains on a viable solution trajectory from the outset. Consequently, APDS emerges as a universally applicable framework for enhancing stability in future 3D diffusion-based medical segmentation models.
+
+## 4.3 MITIGATING APDS OVER-INTERFERENCE
+
+A potential concern regarding the introduction of the Adaptive Priori Decoding Strategy (APDS) is its strong structural prior, which might inadvertently cause the model to overly depend on this guidance. Such dependence could degrade the model into a simpler refinement mechanism resembling a conventional U-Net. To investigate potential over-interference by APDS, we conducted an experiment to compare the performance between the main diffusion output (‘Diff Out’) and the APDS-generated prior (‘APDS Out’) throughout the reverse diffusion process.
+
+Specifically, the reverse diffusion process commenced from timestep t=1000, and Dice scores were recorded for both ‘Diff Out’ and ‘APDS Out’ at each subsequent timestep. The results, depicted in Fig. 4, indicate that at initial high-noise stages, the ‘Diff Out’ initially struggles, relying heavily on the stable structural prior provided by APDS. However, as the timesteps decrease, the performance of ‘Diff Out’ rapidly improves, eventually surpassing ‘APDS Out’ and achieving significantly higher accuracy. This trend confirms that APDS effectively functions as intended—a supportive structural scaffold during unstable early stages—without constraining the model’s learning capacity. Consequently, our approach maintains the progressive refinement characteristic inherent to diffusion models, successfully mitigating concerns about APDS over-interference.
+
+![](images/436df737c94a73e42663e5a117a954100ffcc1acf3dcaf069fc0ab54172ddc23.jpg)  
+a) LNCTVSeg
+
+![](images/e5e2a7adde7407febb327ff9c89de438eea519cec4cf2ab15ebfc1b2eed60288.jpg)  
+b) OASeg  
+Figure 4: During a complete reverse diffusion process, the changes in the predicted results by the main denoising network (‘Diff Out’) and the Prior Decoder within APDS (‘APDS Out’).
+
+Table 1: Ablation study on tLSTM components.
+
+<table><tr><td colspan="4">Modules</td><td colspan="3">LNCTVSeg</td><td colspan="3">OASeg</td></tr><tr><td>LSTM</td><td>Conv-LSTM</td><td>Linear-GRU</td><td>t-cell</td><td>Dice ↑</td><td>IoU ↑</td><td>HD95 ↓</td><td>Dice ↑</td><td>IoU ↑</td><td>HD95 ↓</td></tr><tr><td>√</td><td></td><td></td><td></td><td>79.5</td><td>66.6</td><td>6.93</td><td>69.8</td><td>53.7</td><td>8.94</td></tr><tr><td>√</td><td>√</td><td></td><td></td><td>81.1</td><td>68.2</td><td>5.48</td><td>70.6</td><td>54.6</td><td>8.89</td></tr><tr><td>√</td><td></td><td>√</td><td></td><td>79.2</td><td>65.6</td><td>7.12</td><td>69.1</td><td>52.8</td><td>10.11</td></tr><tr><td>√</td><td>√</td><td>√</td><td></td><td>82.5</td><td>70.2</td><td>3.81</td><td>71.7</td><td>56.0</td><td>7.49</td></tr><tr><td>√</td><td>√</td><td>√</td><td>√</td><td>83.7</td><td>74.2</td><td>2.44</td><td>72.8</td><td>65.4</td><td>6.24</td></tr></table>
+
+## 4.4 TRANS-TEMPORAL MEMORY
+
+The tLSTM module aims to ensure temporal consistency within the reverse diffusion process by preserving stateful memory across timesteps. To qualitatively validate this capability, we visualized the model’s feature heatmap across different stages of the denoising trajectory for a representative sample, as illustrated in Fig. 5 (details provided in Appendix F). Initially, at the high-noise stage (t=999), the model’s attention is diffuse, emphasizing broad structural reconstruction. As denoising progresses, the tLSTM leverages its temporal memory, refining attention patterns and increasingly focusing on the target structure. By timestep t=799, the model starts developing a more defined target-region focus, which progressively sharpens at timesteps t=399 and t=100. This visualization clearly demonstrates the evolving stateful attention driven by tLSTM’s temporal memory.
+
+![](images/67ae09844e8344a26873becd883064eb2955a7c5d3b4978c4a28e4eb1d6b3072.jpg)  
+Figure 5: An example of the heat map during the reverse diffusion.
+
+To evaluate the efficacy of the tLSTM module, we conducted a comprehensive ablation study quantifying its performance contributions (Table 1). Beginning with a baseline model devoid of temporal modules, the introduction of a standard LSTM yielded notable performance improvements. Replacing standard LSTM with our specialized ‘Conv-LSTM’,which integrates 3D convolutional operations with LSTM gates, and ‘Linear-GRU’, which combines linear layers with the GRU structure, specifically designed for 3D imaging, further enhanced performance. The optimal performance was attained by integrating our proposed ‘t-cell’ innovation. These findings underscore the importance of explicit temporal awareness in achieving maximum stability and accuracy.
+
+Moreover, this analysis validates the versatility of ‘Conv-tLSTM’ and ‘Linear-tGRU’ units, demonstrating their fundamental role as adaptable attention modules within diffusion models. Their recombination potential offers extensive opportunities for future architectural innovations and advancements.
+
+## 4.5 COMPARISON WITH STATE-OF-THE-ART METHODS
+
+We conducted a comprehensive comparison between our proposed model and several stateof-the-art (SOTA) segmentation methods on the LNCTVSeg and OAseg datasets. As detailed in Table 2, our model consistently outperformed existing approaches across all evaluated metrics. Specifically, our method achieved the highest Dice and IoU scores, demonstrating superior accuracy in volumetric overlap with ground truth segmentations. Additionally, our model exhibited the lowest HD95 scores, reflecting enhanced precision in segmentation boundary delineation compared to other leading methods. Visual comparisons provided in Appendix G further illustrate these advantages. These results underscore the robustness and effectiveness of our proposed architecture, particularly when addressing significant stylistic variability across multi-center medical imaging datasets.
+
+Table 2: Comparison with state-of-the-art methods.
+
+<table><tr><td rowspan="2">Method</td><td colspan="3">LNCTVSeg</td><td colspan="3">OASeg</td></tr><tr><td>Dice↑</td><td>IoU↑</td><td>HD95↓</td><td>Dice↑</td><td>IoU↑</td><td>HD95↓</td></tr><tr><td>TransBTS</td><td>78.6</td><td>68.7</td><td>5.14</td><td>66.3</td><td>55.4</td><td>12.7</td></tr><tr><td>SwinUNETR</td><td>80.7</td><td>71.1</td><td>4.14</td><td>65.9</td><td>58.3</td><td>9.50</td></tr><tr><td>UNETR</td><td>78.1</td><td>69.1</td><td>6.87</td><td>67.1</td><td>59.2</td><td>9.04</td></tr><tr><td>nnFormer</td><td>80.3</td><td>71.5</td><td>4.31</td><td>68.4</td><td>62.4</td><td>7.76</td></tr><tr><td>3DUXNET</td><td>81.6</td><td>72.9</td><td>3.52</td><td>68.9</td><td>61.3</td><td>7.93</td></tr><tr><td>Perspective+</td><td>82.4</td><td>73.6</td><td>3.27</td><td>69.6</td><td>62.8</td><td>7.09</td></tr><tr><td>Diff-UNet</td><td>81.7</td><td>72.2</td><td>3.91</td><td>71.5</td><td>64.2</td><td>6.88</td></tr><tr><td>Ours</td><td>83.7</td><td>74.2</td><td>2.44</td><td>72.8</td><td>65.4</td><td>6.24</td></tr></table>
+
+## 4.6 QUANTITATIVE COMPARISON OF COMPUTATIONAL COST
+
+To more rigorously quantify the computational efficiency of the proposed Cross-Timestep framework, we conducted a comparative analysis against several representative 3D segmentation architectures—namely UX-Net, Swin-UNETR, nnFormer, and the diffusion-based Diff-UNet—on the LNCTVSeg dataset. Four complementary indicators were assessed to capture overall computational cost: training time, inference latency, GFLOPS, and GPU memory consumption. All models were evaluated under consistent experimental conditions, and the complete protocol is documented in Appendix H.
+
+Table 3: Ablation study on APDS, SC, and FFT modules.
+
+<table><tr><td colspan="3">Modules</td><td colspan="3">LNCTVSeg</td><td colspan="3">OASeg</td></tr><tr><td>APDS</td><td>SC</td><td>FFT</td><td>Dice↑</td><td>IoU↑</td><td>HD95↓</td><td>Dice↑</td><td>IoU↑</td><td>HD95↓</td></tr><tr><td>√</td><td></td><td></td><td>77.3</td><td>63.0</td><td>8.51</td><td>67.5</td><td>50.9</td><td>11.53</td></tr><tr><td>√</td><td>√</td><td></td><td>82.1</td><td>69.6</td><td>4.32</td><td>71.3</td><td>55.4</td><td>7.83</td></tr><tr><td>√</td><td></td><td>√</td><td>81.8</td><td>69.2</td><td>4.85</td><td>70.9</td><td>54.9</td><td>8.14</td></tr><tr><td>√</td><td>√</td><td>√</td><td>83.7</td><td>74.2</td><td>2.44</td><td>72.8</td><td>65.4</td><td>6.24</td></tr></table>
+
+As summarized in Table 4, the proposed method exhibits a balanced efficiency profile in comparison with both transformer-based and diffusion-based baselines. Notably, Cross-Timestep requires substantially less training time than large transformer architectures such as SwinUNETR and nnFormer, while maintaining a moderate memory footprint and competitive runtime. Moreover, relative to the diffusion-based Diff-UNet—which is optimized for lightweight computation—our method demonstrates comparable resource usage while offering markedly improved segmentation accuracy. These results collectively indicate that Cross-Timestep achieves a favorable trade-off between computational efficiency and predictive performance, strengthening its practicality for real-world clinical deployment.
+
+## 4.7 ABLATION STUDY
+
+To quantify the contribution of individual modules within our architecture, we performed an ablation study, as summarized in Table 3. The baseline model included the core diffusion framework and the essential Adaptive Priori Decoding Strategy (APDS) to address ‘initial-stage collapse’. Introducing either the SC-tLSTM (SC) or FFT-tLSTM (FFT) modules individually significantly improved performance on both datasets, demonstrating the efficacy of spatio-channel temporal memory and frequency-domain noise resilience enhancements. These findings highlight the versatility and potential of Conv-tLSTM and Linear-tGRU modules as foundational components that can be effectively leveraged to further extend and refine diffusion-based segmentation models.
+
+Table 4: Detailed computational cost including training/inference time, GPU memory usage, and GFLOPS
+
+<table><tr><td>Method</td><td>Training Time (h)</td><td>Inference Time (s)</td><td>GFLOPS</td><td>GPU Mem (MiB)</td></tr><tr><td>UX-Net</td><td>33.6</td><td>0.11</td><td>631.9</td><td>14722</td></tr><tr><td>SwinUNETR</td><td>45.3</td><td>0.09</td><td>328.8</td><td>16364</td></tr><tr><td>nnFormer</td><td>80.4</td><td>0.03</td><td>235.3</td><td>11626</td></tr><tr><td>Diff-UNet</td><td>29.2</td><td>0.12</td><td>981.1</td><td>10834</td></tr><tr><td>Ours</td><td>33.4</td><td>0.17</td><td>453.5</td><td>15152</td></tr></table>
+
+## 5 CONCLUSION
+
+In this study, we identified and addressed a critical challenge—‘initial-stage collapse’—that significantly constrains the applicability of diffusion models in 3D medical segmentation tasks. We introduced Cross-Timestep, a versatile 3D diffusion framework integrating APDS and tLSTM. These components collectively provide structural stability during early diffusion phases and maintain temporal consistency across timesteps. Experiments conducted on multi-center datasets demonstrated that Cross-Timestep effectively resolves ‘initial-stage collapse’ and achieves state-of-the-art segmentation performance. Our framework provides a robust foundation for advancing 3D diffusionbased medical segmentation methodologies and illustrates considerable potential for integration with other sophisticated architectures.
+
+REPRODUCIBILITY Our code and data are made publicly available at https://github.com/Wushangqian404/Cross-Timestep
+
+ACKNOWLEDGMENTS. This research was supported by the National Natural Science Foundation of China (Grant Nos. U23A20321 and 62272490); the Natural Science Foundation of Hunan Province of China (Grant No. 2025JJ20062); the National Natural Science Foundation of China (Grant No. 82471964).
+
+## REFERENCES
+
+Tao Chen, Chenhui Wang, Zhihao Chen, Yiming Lei, and Hongming Shan. Hidiff: Hybrid diffusion framework for medical image segmentation. IEEE Transactions on Medical Imaging, 43(10): 3570–3583, 2024.
+
+Weiping Ding, Sheng Geng, Haipeng Wang, Jiashuang Huang, and Tianyi Zhou. Fdiff-fusion: Denoising diffusion fusion network based on fuzzy learning for 3d medical image segmentation. Information Fusion, 112:102540, 2024.
+
+A Hatamizadeh, V Nath, Y Tang, D Yang, HR Roth, and D Xu. Swin transformers for semantic segmentation of brain tumors in mri images. Brainlesion: Glioma, Multiple Sclerosis, Stroke and Traumatic Brain Injuries, pp. 272–284.
+
+Ali Hatamizadeh, Yucheng Tang, Vishwesh Nath, Dong Yang, Andriy Myronenko, Bennett Landman, Holger R Roth, and Daguang Xu. Unetr: Transformers for 3d medical image segmentation. In Proceedings ofthe IEEE/CVF winter conference on applications ofcomputer vision, pp. 574– 584, 2022.
+
+Jintong Hu, Siyan Chen, Zhiyi Pan, Sen Zeng, and Wenming Yang. Perspective+ unet: Enhancing segmentation with bi-path fusion and efficient non-local attention for superior receptive fields. In International conference on medical image computing and computer-assisted intervention, pp. 499–509. Springer, 2024.

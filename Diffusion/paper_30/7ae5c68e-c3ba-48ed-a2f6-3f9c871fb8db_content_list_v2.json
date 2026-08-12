@@ -1,0 +1,3798 @@
+[
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "ABSTRACT"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                450,
+                308,
+                547,
+                323
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We study inference-time scaling for diffusion models, where the goal is to adapt a pre-trained model to new target distributions without retraining. Existing guidance-based methods are simple but introduce bias, while particle-based corrections suffer from weight degeneracy and high computational cost. We introduce DriftLite, a lightweight, training-free particle-based approach that steers the inference dynamics on the fly with provably optimal stability control. DriftLite exploits a fundamental degree of freedom in the Fokker-Planck equation between the drift and particle potential, and yields two practical instantiations: Variance- and Energy-Controlling Guidance (VCG/ECG) for approximating the optimal drift with modest and scalable overhead. Across Gaussian mixture models, particle systems, and large-scale protein-ligand co-folding problems, DriftLite consistently reduces variance and improves sample quality over pure guidance and sequential Monte Carlo baselines. These results highlight a principled, efficient route toward scalable inference-time adaptation of diffusion models. Our source code is publicly available at https://github.com/yinuoren/DriftLite."
+                    }
+                ]
+            },
+            "bbox": [
+                230,
+                339,
+                767,
+                551
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "1 INTRODUCTION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                174,
+                579,
+                338,
+                594
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Diffusion- (Sohl-Dickstein et al., 2015; Ho et al., 2020; Song & Ermon, 2019; Song et al., 2020) and flow-based (Zhang et al., 2018; Lipman et al., 2022; Albergo & Vanden-Eijnden, 2022; Liu et al., 2022; Ren et al., 2025b) models have revolutionized generative modeling, achieving state-ofthe-art performance in domains ranging from creative media synthesis (Rombach et al., 2022; Le et al., 2023; Ho et al., 2022; Austin et al., 2021) to fundamental scientific discovery (Xu et al., 2022; Watson et al., 2023; Duan et al., 2023; Gao et al., 2024; Zhu et al., 2024; Zeni et al., 2025; Duan et al., 2025). They typically rely on a neural network to approximate a time-dependent vector field, which guides a stochastic process from noises to a complex target. However, training is resource-intensive, making it impractical to retrain from scratch for every new setting. This renders a lightweight adaptation of pre-trained models to target distributions that is both compelling and essential."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                611,
+                826,
+                751
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To this end, a spectrum of adaptation methods has emerged. At one end are guidance-based techniques, the most popular and straightforward inference-time techniques, which inject new information into the drift term, such as classifier (Dhariwal & Nichol, 2021) or classifier-free guidance (Ho & Salimans, 2022) and its many variants (Chung et al., 2022; Trippe et al., 2022; Bansal et al., 2023; Song et al., 2023a;b; He et al., 2023; Guo et al., 2024; Zheng et al., 2024; Rojas et al., 2025). While simple and effective for many tasks, these methods are often heuristic and introduce uncontrolled bias (Chidambaram et al., 2024; Wu et al., 2024a), a significant drawback for scientific applications where sampling accuracy is paramount. On the opposite are methods that resort to extra training, such as fine-tuning (Fan & Lee, 2023; Fan et al., 2023; Black et al., 2023; Clark et al., 2023; Wallace et al., 2024) as in the LLM context (Ouyang et al., 2022; Rafailov et al., 2023), learning within a stochastic control framework (Domingo-Enrich et al., 2024a; Uehara et al., 2024; Thornton et al., 2025), similar to learning-based samplers (Zhang & Chen, 2021; Vargas et al., 2023a;b;"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                758,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "1"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                503,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Domingo-Enrich et al., 2024b; Richter & Berner, 2023; Zhu et al., 2025), or adding additional training objectives (Venkatraman et al., 2024; Thornton et al., 2025), but this shifts the computational burden back to retraining, forfeiting the efficiency of inference-time approaches."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                104,
+                825,
+                147
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Between these ends lies a middle ground of training-free but more sophisticated inference-time approaches. A promising direction formulates the problem in Bayesian and Monte Carlo sampling frameworks (Du et al., 2023; Xu & Chi, 2024; Wu et al., 2024b; Coeurdoux et al., 2024; Bruna & Han, 2024; Zheng et al., 2025). In particular, Sequential Monte Carlo (SMC) methods (Del Moral et al., 2006; Doucet et al., 2000) have been recently introduced to correct for the bias of guidance by simulating the target dynamics with weighted particles (Wu et al., 2023; Cardoso et al., 2023; Skreta et al., 2025; Chen et al., 2025; Singhal et al., 2025; Lee et al., 2025). Despite their strong theoretical grounding and asymptotic guarantees, these particle-based methods face a critical practical bottleneck: weight degeneracy. As the simulation progresses, the weights of a few particles grow exponentially while the rest decay, causing the effective sample size to collapse. To mitigate this, one may increase the number of particles, raising computational cost, or use fewer particles, resulting in instability and degraded sample quality."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                152,
+                826,
+                321
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Our work introduces DriftLite, a lightweight, training-free inference-time scaling approach that resolves the inherent instability of particle-based methods without sacrificing mathematical rigor. By exploiting a fundamental degree of freedom in the Fokker-Planck equation, we actively control particle drift on the fly. This proactive steering mechanism absorbs sources of weight variation, preventing the weight collapse common in passive reweighting schemes and dramatically improving stability. The method’s modest and scalable computational overhead requiring only the solution of a small linear system per step, makes it fundamentally lightweight, especailly compared with methods that require retraining or extra training of additional control networks. Unlike learning-based control (Vargas et al., 2023b; Richter & Berner, 2023) or heuristic control frameworks (He et al., 2025), DriftLite is a training-free solution derived directly from the principle of variance reduction. Comparing with computationally intensive PDE solvers (Albergo & Vanden-Eijnden, 2024) and trajectory balance-based GFlowNet methods (Bengio et al., 2023; Sendera et al., 2024; Venkatraman et al., 2024), our method is applied on the fly without any parameter updating or backpropagating through the diffusion model. It is designed to scalably match an entire target distribution in highdimensional, continuous systems, more rigorous than targeting sample-focused metrics (Ma et al., 2025) or solving problems in simpler discrete settings (Chertkov et al., 2025)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                325,
+                826,
+                550
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "Our Contributions. Building on this insight, our work makes the following contributions:"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                559,
+                779,
+                574
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• We formulate and exploit a fundamental degree of freedom in the Feynman-Kac-type Fokker-Planck equation (2.5), establishing a principled trade-off between the particle drift and reweighting potential, and exploit it directly to actively minimize particle weight variance."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                580,
+                825,
+                623
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• We introduce DriftLite, a lightweight and training-free framework that computes a control drift on-the-fly to stabilize the sampling dynamics. We derive two practical instantiations, Variance-Controlling Guidance (VCG) and Energy-Controlling Guidance (ECG), which are computationally efficient and require solving only a small additional linear system at each time step."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                625,
+                825,
+                681
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• We conduct extensive experiments on challenging benchmarks, including high-dimensional Gaussian mixture models, molecular particle systems, and large-scale protein-ligand co-folding. Our results demonstrate that DriftLite substantially reduces weight variance, stabilizes the Effective Sample Size (ESS), and improves final sample quality over current baselines."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                684,
+                826,
+                741
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2 PRELIMINARIES"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                753,
+                341,
+                770
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this section, we establish the problem setting, including the fundamentals of diffusion models and the inference-time scaling tasks central to our study."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                787,
+                825,
+                815
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2.1 DIFFUSION MODELS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                827,
+                359,
+                840
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We begin with a pre-trained diffusion or flow-matching model, to which we refer as the base model. This model defines both a forward process "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( \\pmb { x } _ { s } ) _ { s \\in [ 0 , T ] }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "governed by the following stochastic differential equation (SDE) and Fokker-Planck (FP) equation:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                854,
+                823,
+                896
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathrm{d} \\boldsymbol {x} _ {s} = \\boldsymbol {u} _ {s} (\\boldsymbol {x} _ {s}) \\mathrm{d} s + U _ {s} \\mathrm{d} \\boldsymbol {w} _ {s} (\\text {SDE}), \\quad \\partial_ {s} p _ {s} (\\boldsymbol {x}) = - \\nabla \\cdot [ p _ {s} (\\boldsymbol {x}) \\boldsymbol {u} _ {s} (\\boldsymbol {x}) ] + \\frac {U _ {s} ^ {2}}{2} \\Delta p _ {s} (\\boldsymbol {x}) (\\text {FP}),\\tag{2.1}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/c86d6d25d3328ab5de5512ba88430a2885e556c1215658b140b1488d70bd461a.jpg"
+                }
+            },
+            "bbox": [
+                184,
+                906,
+                777,
+                926
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "2"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { \\Delta } \\pmb { u } _ { s }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the forward drift, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { s }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the marginal distribution at time "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "s ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( { \\pmb w } _ { s } ) _ { s \\geq 0 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is a Wiener process. "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { 0 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "represents the data distribution, and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { T }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is a simple prior, typically a standard Gaussian."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                104,
+                825,
+                133
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Generative modeling is performed using the backward process. Letting "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "t = T - s"
+                    },
+                    {
+                        "type": "text",
+                        "content": "be the reverse time and denote "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\stackrel {  } { * } _ { t } = * _ { T - t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", the backward process "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( \\overleftarrow { \\mathbf { x } } _ { t } ) _ { t \\in [ 0 , T ] }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is then described by:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                138,
+                823,
+                169
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathrm{d} \\overleftarrow {\\boldsymbol {x}} _ {t} = \\boldsymbol {v} _ {t} (\\overleftarrow {\\boldsymbol {x}} _ {t}) \\mathrm{d} t + V _ {t} \\mathrm{d} \\boldsymbol {w} _ {t} (\\text { SDE }), \\quad \\partial_ {t} \\overleftarrow {p} _ {t} (\\boldsymbol {x}) = - \\nabla \\cdot [ \\overleftarrow {p} _ {t} (\\boldsymbol {x}) \\boldsymbol {v} _ {t} (\\boldsymbol {x}) ] + \\frac {V _ {t} ^ {2}}{2} \\Delta \\overleftarrow {p} _ {t} (\\boldsymbol {x}) (\\text { FP }),",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/1866750b772061bb77e0ecd7a7306784da92393cedf71078f5c67f3c76468789.jpg"
+                }
+            },
+            "bbox": [
+                210,
+                176,
+                784,
+                195
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\mathbf { } } v _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the backward drift. The process starts from the noise distribution "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\stackrel {  } { p _ { 0 } } \\approx p _ { T }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and recovers the data distribution "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\overleftarrow { p } _ { T } = p _ { 0 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". In traditional diffusion models, the backward drift "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\mathbf { } } v _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is related to the forward drift "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\pmb u } _ { s } ( { \\pmb x } _ { s } ) = - F _ { s } { \\pmb x } _ { s }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "<sub>s</sub> via the score function ∇ log p<sub>t</sub>:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                198,
+                823,
+                242
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\pmb {v} _ {t} (\\pmb {x}) = - \\overleftarrow {\\pmb {u}} _ {t} (\\pmb {x}) + \\frac {\\overleftarrow {U} _ {t} ^ {2} + V _ {t} ^ {2}}{2} \\nabla \\log \\overleftarrow {p} _ {t} (\\pmb {x}).\\tag{2.2}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/55c840daeb7c919eb96ee497186b32d7882a16e3ed26bee43751027df0538d10.jpg"
+                }
+            },
+            "bbox": [
+                354,
+                244,
+                640,
+                279
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The word “pre-trained” signifies that we have access to the forward drift "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pmb { u } _ { s }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and a reliable NN approximation of the score "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\scriptstyle { \\overleftarrow { \\nabla } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "log "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\scriptstyle { \\mathrm { \\overleftarrow { p } } } _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", which in turn defines the backward drift "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\mathbf { } } v _ { t }"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                281,
+                825,
+                311
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2.2 INFERENCE-TIME SCALING"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                320,
+                408,
+                335
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Our goal is to adapt the generative process of a pre-trained model to new, related tasks at inference time. This approach avoids the significant computational cost and data requirements of retraining from scratch, making it desirable to leverage existing models. We focus on two primary scenarios:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                345,
+                825,
+                390
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• Annealing: Given a factor "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\gamma _ { \\mathrm { : } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", the goal is to sample from "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "q _ { T } \\propto p _ { 0 } ^ { \\gamma }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". This is common in physics for generating low-temperature samples concentrated around primary modes of a distribution (Karczewski et al., 2024), using a model trained on easier-to-obtain high-temperature data."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                395,
+                825,
+                438
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• Reward-Tilting: Given a reward function "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "r ( { \\pmb x } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", the goal is to sample from "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "q _ { T } \\propto p _ { 0 } \\exp ( r )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". This can be interpreted as posterior sampling with "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { 0 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "being the prior and the reward r being the posterior likelihood. It is widely used in applications, such as inverse design (Chung et al., 2022), where the reward function encodes the desired properties of the generated samples."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                439,
+                825,
+                496
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this work, we mainly focus on the settings where the reward "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "r"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is twice-differentiable. In scientific applications, it is typically a physics-based energy with analytic gradients "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( e . g ."
+                    },
+                    {
+                        "type": "text",
+                        "content": ", Passaro et al. (2025)), which guarantees cheap access to derivatives at inference time. For black-box rewards, one could in principle approximate derivatives using stochastic estimators."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                502,
+                825,
+                559
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Distribution Path Selection. We can unify both scenarios by defining the target compactly as"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                566,
+                803,
+                582
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "q _ {T} (\\boldsymbol {x}) \\propto \\overleftarrow {p} _ {T} (\\boldsymbol {x}) ^ {\\gamma} \\exp (r (\\boldsymbol {x})) = p _ {0} (\\boldsymbol {x}) ^ {\\gamma} \\exp (r (\\boldsymbol {x})).",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/eac5bbb52b81401794053f78a167c9046aa99b3c0fe0925d0c88923fd0e1e3e0.jpg"
+                }
+            },
+            "bbox": [
+                330,
+                585,
+                663,
+                602
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To sample from "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "q _ { T }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", we define a modified backward process that evolves along a path of distributions "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( q _ { t } ) _ { t \\in [ 0 , T ] }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "that smoothly connects from initial noise to our target "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "q _ { T }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Following recent works (Skreta et al., 2025; Chen et al., 2025), we adopt a both conceptually and computationally simple path:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                606,
+                825,
+                650
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "q _ {t} (\\pmb {x}) \\propto \\overleftarrow {p} _ {t} (\\pmb {x}) ^ {\\gamma} \\exp \\left(r _ {t} (\\pmb {x})\\right),",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/4e95fc43b29a84767879f459fca8e96cc47a5e599dbd3a022db7096de8c8b29b.jpg"
+                }
+            },
+            "bbox": [
+                400,
+                652,
+                596,
+                669
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where the reward "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "r _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "interpolates from an initial state "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "r _ { 0 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "chosen such that "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "q _ { 0 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is easy to sample from, to the final reward "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "r _ { T } = r"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". While more complex paths can be learned via optimal control (Liu et al., 2025), we focus on such pre-defined paths to maintain a training-free framework."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                672,
+                825,
+                715
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Guidance-Based Dynamics. A common and intuitive approach, to which we refer as pure guidance (Nichol et al., 2021; Ho & Salimans, 2022), is to inject the new information directly into the drift term by replacing the original score "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\nabla \\log \\stackrel {  } { p _ { t } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "with a heuristic score ∇ log "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "q _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "corresponding to the marginal "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "q _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", leading to the following Fokker-Planck equation:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                724,
+                825,
+                781
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\partial_ {t} q _ {t} (\\pmb {x}) = - \\nabla \\cdot [ \\widetilde {\\pmb {v}} _ {t} (\\pmb {x}) q _ {t} (\\pmb {x}) ] + \\frac {V _ {t} ^ {2}}{2} \\Delta q _ {t} (\\pmb {x}),\\tag{2.3}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/1e42772f54788e236436a5d8b6960cc85b1dc98d416204055a37fffe114b6cda.jpg"
+                }
+            },
+            "bbox": [
+                348,
+                785,
+                647,
+                815
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where the modified drift "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\widetilde { \\pmb { v } } _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is defined below (cf., Eqn. (2.2)):"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                819,
+                573,
+                834
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\widetilde {\\boldsymbol {v}} _ {t} (\\boldsymbol {x}) = - \\overleftarrow {\\boldsymbol {u}} _ {t} (\\boldsymbol {x}) + \\frac {\\overleftarrow {U} _ {t} ^ {2} + V _ {t} ^ {2}}{2} (\\gamma \\nabla \\log \\overleftarrow {p} _ {t} (\\boldsymbol {x}) + \\nabla r _ {t} (\\boldsymbol {x})).\\tag{2.4}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/3c4de885a234e5d824bac80e3055b5f28707d26e42bfaf5792d5cf3c6bd1c56c.jpg"
+                }
+            },
+            "bbox": [
+                308,
+                838,
+                684,
+                871
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "However, this method is known to be intrinsically biased because it fails to account for the changing normalization constant of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "q _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "over time (Chidambaram et al., 2024). To correct this bias, the true dynamics must include a self-normalizing reweighting term, as formalized below."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                882,
+                825,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "3"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Proposition 2.1 (Guidance-Based Dynamics). The exact time evolution of the density "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( q _ { t } ) _ { t \\in [ 0 , T ] }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "follows the following Feynman-Kac-type Fokker-Planck equation:"
+                    }
+                ]
+            },
+            "bbox": [
+                189,
+                106,
+                807,
+                137
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\partial_ {t} q _ {t} (\\pmb {x}) = - \\nabla \\cdot [ \\widetilde {\\pmb {v}} _ {t} (\\pmb {x}) q _ {t} (\\pmb {x}) ] + \\frac {V _ {t} ^ {2}}{2} \\Delta q _ {t} (\\pmb {x}) + q _ {t} (\\pmb {x}) g _ {t} (\\pmb {x}),\\tag{2.5}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/9daaacde58fc62ba27ea6cec21af7cdab2ca1ee5989a83e5d261cada8197ad12.jpg"
+                }
+            },
+            "bbox": [
+                300,
+                138,
+                694,
+                169
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\widetilde { \\pmb { v } } _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the same drift as in pure guidance (2.4), and the reweighting potential "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "g _ { t } ( { \\pmb x } ) ="
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "G _ { t } ( \\pmb { x } ) - \\mathbb { E } _ { q _ { t } } [ G _ { t } ( \\cdot ) ]"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is given by:"
+                    }
+                ]
+            },
+            "bbox": [
+                189,
+                169,
+                805,
+                198
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "G _ {t} = \\dot {r} _ {t} - (1 - \\gamma) \\nabla \\cdot \\overleftarrow {\\boldsymbol {u}} _ {t} + \\frac {\\stackrel {\\leftarrow} {U} _ {t} ^ {2}}{2} \\left(\\Delta r _ {t} - \\gamma (1 - \\gamma) \\| \\nabla \\log \\stackrel {\\leftarrow} {p} _ {t} \\| ^ {2}\\right) + \\nabla r _ {t} ^ {\\top} \\left(- \\overleftarrow {\\boldsymbol {u}} _ {t} + \\gamma \\stackrel {\\leftarrow} {U} _ {t} ^ {2} \\nabla \\log \\stackrel {\\leftarrow} {p} _ {t} + \\frac {\\stackrel {\\leftarrow} {U} _ {t} ^ {2}}{2} \\nabla r _ {t}\\right).",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/baad99779ae735a582a697c86d6b2c8d5be870a2d51892a6d15034048b17f102.jpg"
+                }
+            },
+            "bbox": [
+                189,
+                199,
+                803,
+                232
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We refer readers to App. A.1 for the proof. The PDE describes dynamics that diffuse with the guidance drift "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\widetilde { \\boldsymbol { v } } _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", while densities continuously reweight according to the centered potential "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "g _ { t }"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                242,
+                823,
+                273
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Weighted Particle Method. The corrected PDE (2.5) can be simulated using Sequential Monte Carlo (SMC) (Doucet et al., 2000; Del Moral et al., 2006), where the density q is approximated by an empirical distribution formed by an ensemble of N weighted particles "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{ \\mathbf { x } _ { t } ^ { ( i ) } , w _ { t } ^ { ( i ) } \\} _ { i \\in [ N ] } \\colon"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                279,
+                825,
+                328
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\left\\{ \\begin{array}{l l} \\mathrm{d} \\boldsymbol {x} _ {t} ^ {(i)} = \\widetilde {\\boldsymbol {v}} _ {t} (\\boldsymbol {x} _ {t} ^ {(i)}) \\mathrm{d} t + V _ {t} \\mathrm{d} \\boldsymbol {w} _ {t} ^ {(i)}, & i \\in [ N ], \\\\ \\mathrm{d} \\log w _ {t} ^ {(i)} = \\widehat {g} _ {t} (\\boldsymbol {x} _ {t} ^ {(i)}) := G _ {t} (\\boldsymbol {x} _ {t} ^ {(i)}) - \\sum_ {j = 1} ^ {N} w _ {t} ^ {(j)} G _ {t} (\\boldsymbol {x} _ {t} ^ {(j)}), & i \\in [ N ]. \\end{array} \\right.\\tag{2.6}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/c367284813f6d8dccf7989909ef8a76b8dc280172b1af26d832422add7735411.jpg"
+                }
+            },
+            "bbox": [
+                264,
+                333,
+                730,
+                373
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We refer to this baseline as Guidance-SMC (G-SMC) (Skreta et al., 2025; Chen et al., 2025). This method is provably convergent, with the KL divergence to the target scaling as "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { O } ( N ^ { - 1 } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "in the diffusion context (Andrieu et al., 2018; Huggins & Roy, 2019; Domingo-Enrich et al., 2020; Cardoso et al., 2023; Chen et al., 2025). A brief justification of this method is given in App. A.2."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                378,
+                825,
+                436
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3 METHOD: LIGHTWEIGHT DRIFT CONTROL"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                448,
+                563,
+                464
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "While the principled dynamics outlined in Prop. 2.1 offer a path to unbiased sampling, their reliance on weighted particles introduces the critical vulnerability of weight degeneracy. As the simulation progresses, the exponential dependency of the weights w on the potential "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "g _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "leads to rapid weight degeneracy and collapse of the effective sample size. This instability makes the standard Guidance-SMC approach computationally inefficient, especially with a limited number of particles."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                479,
+                825,
+                551
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "This section introduces our solution: DriftLite, a lightweight, training-free framework that actively controls the drift to stabilize the weights. We develop in three steps: (1) we formulate a fundamental degree of freedom in the governing Fokker-Planck equation (2.5), (2) we exploit this freedom to formulate an objective for minimizing the variance of the reweighting potential "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "g _ { t } ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and (3) we derive two practical, computationally efficient algorithms (VCG and ECG) for achieving this control."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                556,
+                826,
+                628
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.1 DEGREE OF FREEDOM IN THE FOKKER-PLANCK EQUATION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                636,
+                629,
+                651
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Our key insight is that we can dynamically modify the particle SDE to counteract the sources of weight variance. Instead of passively reweighting particles, we can proactively steer them by "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { ^ { 6 6 } o f { - } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "floading” the problematic parts of the potential g<sub>t</sub> into a new, corrective drift term. This is enabled by a degree of freedom within the Fokker-Planck equation, which we formalize below."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                662,
+                826,
+                720
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Proposition 3.1 (Degree of Freedom). For any control drift "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ b } _ { t } ( \\pmb { x } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", the Feynman-Kac-type Fokker-Planck equation (2.5) is equivalent to:"
+                    }
+                ]
+            },
+            "bbox": [
+                189,
+                731,
+                807,
+                758
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\partial_ {t} q _ {t} (\\boldsymbol {x}) = - \\nabla \\cdot \\left[ \\left(\\widetilde {\\boldsymbol {v}} _ {t} (\\boldsymbol {x}) + \\boldsymbol {b} _ {t} (\\boldsymbol {x})\\right) q _ {t} (\\boldsymbol {x}) \\right] + \\frac {V _ {t} ^ {2}}{2} \\Delta q _ {t} (\\boldsymbol {x}) + q _ {t} (\\boldsymbol {x}) \\phi_ {t} (\\boldsymbol {x}),\\tag{3.1}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/e0c12ab8dd2c32a833e68d610b903e299c8eedfaeb5f19fb06c9bbcd36bbf0fc.jpg"
+                }
+            },
+            "bbox": [
+                259,
+                761,
+                735,
+                790
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where the residual potential is "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\phi _ { t } ( \\pmb { x } ) = g _ { t } ( \\pmb { x } ) + h _ { t } ( \\pmb { x } ; \\pmb { b } _ { t } ( \\pmb { x } ) )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "with control potential h<sub>t</sub> being:"
+                    }
+                ]
+            },
+            "bbox": [
+                189,
+                792,
+                805,
+                808
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "h _ {t} (\\boldsymbol {x}; \\boldsymbol {b} _ {t}) = (\\gamma \\nabla \\log \\stackrel {\\leftarrow} {p} _ {t} (\\boldsymbol {x}) + \\nabla r _ {t} (\\boldsymbol {x})) \\cdot \\boldsymbol {b} _ {t} (\\boldsymbol {x}) + \\nabla \\cdot \\boldsymbol {b} _ {t} (\\boldsymbol {x}).",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/66bf14af02e4b7f04df6ea69aebab368fab03f102dac391b2c4c41d33453372e.jpg"
+                }
+            },
+            "bbox": [
+                300,
+                814,
+                694,
+                830
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Proof Sketch. The core of the proof is detailed in App. A.3. Briefly, we have "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "- \\nabla \\cdot ( b _ { t } ( { \\pmb x } ) q _ { t } ( { \\pmb x } ) ) +"
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "q _ { t } ( \\pmb { x } ) h _ { t } ( \\pmb { x } ; \\pmb { b } _ { t } ) = 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", since "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "h _ { t } ( \\pmb { x } ; \\pmb { b } _ { t } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is constructed using ∇ log "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "q _ { t } = \\gamma \\nabla"
+                    },
+                    {
+                        "type": "text",
+                        "content": "log "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\_ { \\overline { { p } } _ { t } + \\nabla r _ { t } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". An important property is that the correction term has zero expectation under "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "q _ { t } , i . e . , \\mathbb { E } _ { q _ { t } } [ h _ { t } ( \\cdot ; b _ { t } ) ] = 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": "□"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                844,
+                825,
+                888
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "This proposition provides a powerful tool: we can introduce any control drift "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\boldsymbol { b } _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to alter the dynamics, as long as it is compensated by an extra control potential "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\left( { { h _ { t } } ( \\cdot ; { b _ { t } } ) } \\right)"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Since a large variance in the potential "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "g _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the direct cause of weight degeneracy, our goal is to choose "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\boldsymbol { b } _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "strategically to minimize the variance of the new residual potential "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\phi _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". An ideal control would make "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\phi _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "constant, completely stabilizing the particle weights. In fact, a perfect, variance-eliminating control always exists for any base potential "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "g _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", as shown in the following proposition:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                895,
+                825,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "4"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                825,
+                162
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Proposition 3.2 (Optimal Control, Informal Version). There exists a unique curl-free control "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { \\delta } \\mathbf { b } _ { t } ^ { * } ( \\bar { \\mathbf { x } } ) = \\nabla A _ { t } ^ { * } ( \\mathbf { \\delta } \\mathbf { x } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "such that "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\phi _ { t } ^ { * } ( { \\pmb x } ) = g _ { t } ( { \\pmb x } ) + h _ { t } ( { \\pmb x } ; { \\pmb b } _ { t } ^ { * } ) = 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for all x, where the optimal scalar potential "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "A _ { t } ^ { * } ( x )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the solution to the following Poisson equation:"
+                    }
+                ]
+            },
+            "bbox": [
+                189,
+                174,
+                808,
+                218
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\nabla \\cdot (q _ {t} (\\boldsymbol {x}) \\nabla A _ {t} ^ {*} (\\boldsymbol {x})) = - q _ {t} (\\boldsymbol {x}) g _ {t} (\\boldsymbol {x}).\\tag{3.2}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/fd1485c41a730ba2f2afb226a81afb14a1bb20ca995044ab88b35eea22c52fae.jpg"
+                }
+            },
+            "bbox": [
+                374,
+                218,
+                620,
+                234
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The proof and further discussion are provided in App. A.4. Intuitively, Eqn. (3.2) follows by noticing that the control potential satisfies "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ q _ { t } } ( \\pmb { x } ) h _ { t } ( \\pmb { x } ; b _ { t } ) = \\nabla \\cdot ( q _ { t } ( \\pmb { x } ) b _ { t } ( \\pmb { x } ) )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "from its definition."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                248,
+                823,
+                277
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "This mechanism is closely related to twisted proposals in SMC (Briers et al., 2010; Whiteley & Lee, 2014; Heng et al., 2020) and its recent applications (Lawson et al., 2022; Zhao et al., 2024; Lu & Wang, 2024) and Prop. 3.1 can be viewed as a diffusion formulation of this degree of freedom."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                284,
+                823,
+                327
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.2 IN SEARCH OF OPTIMAL CONTROL"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                339,
+                460,
+                354
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "While Prop. 3.2 guarantees a perfect solution, solving the high-dimensional PDE in (3.2) at every time step is computationally intractable. In contrast to learning-based methods that uses neural networks to approximate the optimal control via backpropagation (Albergo & Vanden-Eijnden, 2024; Vargas et al., 2023b) , we propose two training-free, practical methods that approximate this optimal control by balancing effectiveness with efficiency. Both methods share a core strategy: restricting the search for the control drift "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { } _ { b _ { t } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to a finite-dimensional subspace. This simplification is key, as it transforms the complex problem of minimizing the residual potential "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\phi _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "into solving a small linear system. This reduction from an intractable PDE to a tractable linear solve makes the control truly lightweight, hence the name DriftLite."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                366,
+                825,
+                494
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Variance-Controlling Guidance (VCG). The most direct approach is to find a control "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\boldsymbol { b } _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "that explicitly minimizes the variance of the residual potential:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                503,
+                823,
+                532
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\min _ {\\boldsymbol {b} _ {t}} \\operatorname{Var} _ {\\boldsymbol {x} \\sim q _ {t}} \\left[ \\phi_ {t} (\\boldsymbol {x}) \\right] = \\operatorname{Var} _ {\\boldsymbol {x} \\sim q _ {t}} \\left[ g _ {t} (\\boldsymbol {x}) + h _ {t} (\\boldsymbol {x}; \\boldsymbol {b} _ {t}) \\right].\\tag{3.3}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/de655a4baa783b7df4fb17753e046478d40065e111e5fa8f4d7d12cd097b42b9.jpg"
+                }
+            },
+            "bbox": [
+                320,
+                535,
+                674,
+                558
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Instead of parameterizing "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { } _ { b _ { t } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "with a neural network (Albergo & Vanden-Eijnden, 2024), we seek a lightweight solution by approximating it as a linear combination of basis functions."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                561,
+                825,
+                592
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Ansatz 3.3 (Linear Control Drift). The optimal control drift "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ b } _ { t } ^ { * } ( x )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is approximated as "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pmb { b } _ { t } ( \\pmb { x } ) ="
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\begin{array} { r } { \\sum _ { i = 1 } ^ { n } \\theta _ { t } ^ { i } { \\pmb { s } } _ { i } ( { \\pmb { x } } ) } \\end{array}"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{ s _ { i } ( { \\pmb x } ) \\} _ { i \\in [ n ] }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "are pre-defined vector bases and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { \\bar { \\theta } } _ { t } = ( \\theta _ { t } ^ { 1 } , \\cdots , \\theta _ { t } ^ { n } ) ^ { \\top }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "are the coefficients to be found."
+                    }
+                ]
+            },
+            "bbox": [
+                189,
+                604,
+                810,
+                648
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Under this ansatz, the residual potential becomes "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\begin{array} { r } { \\phi _ { t } ( \\pmb { x } ) = g _ { t } ( \\pmb { x } ) + \\sum _ { i = 1 } ^ { n } \\theta _ { t } ^ { i } h _ { t } ^ { i } ( \\pmb { x } ) } \\end{array}"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "h _ { t } ^ { i } ( { \\pmb x } ) ="
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "h _ { t } ( \\pmb { x } ; \\pmb { s } _ { i } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". The objective (3.3) corresponds to a standard least-square problem, whose solution is obtained by solving an "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "n \\times n"
+                    },
+                    {
+                        "type": "text",
+                        "content": "linear system "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pmb { A } _ { t } \\pmb { \\theta } _ { t } = \\pmb { c } _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "A _ { i j } = \\mathbb { E } _ { q _ { t } } [ h _ { t } ^ { i } h _ { t } ^ { j } ]"
+                    },
+                    {
+                        "type": "text",
+                        "content": "] and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pmb { c } _ { i } = - \\mathbb { E } _ { q _ { t } } [ g _ { t } h _ { t } ^ { i } ]"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                662,
+                823,
+                712
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Energy-Controlling Guidance (ECG). An alternative approach directly targets the curl-free optimal control "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "b _ { t } ^ { * }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "in Prop. 3.2 by variationally solving the Poisson equation (3.2). As shown by Yu & E (2018), this equation is the Euler-Lagrange equation for the following energy functional:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                720,
+                823,
+                763
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\min _ {A _ {t}} \\mathcal {E} _ {t} [ A _ {t} ] = \\int \\left(\\frac {1}{2} q _ {t} (\\boldsymbol {x}) \\| \\nabla A _ {t} (\\boldsymbol {x}) \\| ^ {2} - q _ {t} (\\boldsymbol {x}) g _ {t} (\\boldsymbol {x}) A _ {t} (\\boldsymbol {x})\\right) \\mathrm{d} \\boldsymbol {x}.\\tag{3.4}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/b573f36a22687d611ce68d8986985b8f95c1308ae3e6dea4ac8d896d9790c2e3.jpg"
+                }
+            },
+            "bbox": [
+                282,
+                768,
+                712,
+                800
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We can efficiently find an approximate minimizer using the Ritz method for the scalar potential "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "A _ { t }"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                803,
+                821,
+                819
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Ansatz 3.4 (Linear Control Potential). The optimal scalar potential "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "A _ { t } ^ { * } ( x )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is approximated as "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\begin{array} { r } { A _ { t } ( \\pmb { x } ) = \\sum _ { i = 1 } ^ { n } \\theta _ { t } ^ { i } s _ { t } ^ { i } ( \\pmb { x } ) } \\end{array}"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{ s _ { t } ^ { i } ( \\pmb { x } ) \\} _ { i \\in [ n ] }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "are scalar bases. The control drift is then given by "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\begin{array} { r } { \\pmb { b } _ { t } ( \\pmb { x } ) = \\nabla A _ { t } ( \\pmb { x } ) = \\sum _ { i = 1 } ^ { n } \\theta _ { t } ^ { i } \\nabla s _ { t } ^ { i } ( \\pmb { x } ) } \\end{array}"
+                    }
+                ]
+            },
+            "bbox": [
+                189,
+                832,
+                807,
+                880
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Substituting into the energy functional (3.4) again yields a linear system of equations "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { } A _ { t } \\pmb { \\theta } _ { t } = \\pmb { c } _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\begin{array} { r } { \\pmb { A } _ { i j } = \\mathbb { E } _ { q _ { t } } [ \\nabla s _ { t } ^ { i \\top } \\nabla s _ { t } ^ { j } ] } \\end{array}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pmb { c } _ { i } = \\mathbb { E } _ { q _ { t } } [ g _ { t } s _ { t } ^ { i } ]"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                893,
+                821,
+                926
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "5"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.3 PRACTICAL IMPLEMENTATION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                104,
+                428,
+                118
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Choice of Bases. The effectiveness of VCG and ECG depends on the choice of suitable basis functions. While the formal solution for the optimal control "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\boldsymbol { b } _ { t } ^ { * }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is intractable (cf., App. A.4), its structure reveals that the ideal control is a function of temporally locally available quantities like the score ∇ log "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\overleftarrow { p } _ { t } ."
+                    },
+                    {
+                        "type": "text",
+                        "content": ", the reward gradient "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\nabla r _ { t } ."
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and the potential "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "g _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "(containing the forward drift "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\overleftarrow { \\boldsymbol { u } } _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and higher-order terms). This suggests that a natural low-rank approximation is obtained by projecting the optimal control onto the span of locally available vector fields, as defined in the following."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                128,
+                826,
+                215
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• Variance-Controlling Guidance (VCG): We use the following vector basis functions:"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                220,
+                743,
+                236
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\boldsymbol {s} _ {1} (\\boldsymbol {x}) = \\nabla r _ {t} (\\boldsymbol {x}), \\quad \\boldsymbol {s} _ {2} (\\boldsymbol {x}) = \\nabla \\log \\stackrel {\\leftarrow} {p} _ {t} (\\boldsymbol {x}), \\quad \\boldsymbol {s} _ {3} (\\boldsymbol {x}) = \\stackrel {\\leftarrow} {\\boldsymbol {u}} _ {t} (\\boldsymbol {x}).",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/73f7a8110a3c50b96cb4d4ed87628ff0ec2fbf1cccc3073b41428e61332417ee.jpg"
+                }
+            },
+            "bbox": [
+                299,
+                239,
+                707,
+                253
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Note that using "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "s _ { 2 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "requires computing the Laplacian "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\Delta \\log \\overleftarrow { p } _ { t } ( { \\pmb x } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", which can be approximated efficiently with Hutchinson’s trace estimator (Hutchinson, 1989) in high dimensions."
+                    }
+                ]
+            },
+            "bbox": [
+                183,
+                255,
+                825,
+                284
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• Energy-Controlling Guidance (ECG): We use the corresponding scalar potentials:"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                285,
+                725,
+                300
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "s _ {1} (\\pmb {x}) = r _ {t} (\\pmb {x}), \\quad s _ {2} (\\pmb {x}) = \\log \\overleftarrow {p} _ {t} (\\pmb {x}), \\quad s _ {3} (\\pmb {x}) = \\overleftarrow {U} _ {t} (\\pmb {x}),",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/8f76c26d2226a09b4beecc4cb0892d83a208b626431c086c42b34d7586a91496.jpg"
+                }
+            },
+            "bbox": [
+                316,
+                304,
+                692,
+                321
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\overleftarrow { U } _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is a potential such that "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\nabla \\overleftarrow { U } _ { t } = \\overleftarrow { \\mathbf { u } } _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". This method is especially convenient when the loglikelihood log "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\scriptstyle \\overleftarrow { p } _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is readily available from upstream training tasks (Akhound-Sadegh et al., 2025; Guth et "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { a l . , } 2 0 2 5 ;"
+                    },
+                    {
+                        "type": "text",
+                        "content": "Thornton et al., 2025). If not, approximations or alternative bases may be used, such as the score norm "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\| \\nabla \\log \\overleftarrow { p } _ { t } \\| ^ { 2 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "or random projections of the score "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\nabla \\log \\overleftarrow { p } _ { t } \\cdot \\boldsymbol { \\xi }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for random "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\xi ."
+                    }
+                ]
+            },
+            "bbox": [
+                183,
+                324,
+                823,
+                383
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "For annealing tasks, reward-based bases "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( s _ { 1 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "s _ { 1 } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "are automatically dismissed."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                388,
+                705,
+                404
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Weighted Particle Simulation. As discussed in Sec. 2.2, we simulate the Feynman-Kac-type Fokker-Planck equation (3.1) using the SMC/weighted particle method detailed in "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { A l g . ~ 1 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". The key difference from G-SMC Eqn. (2.6) is the use of the controlled drift "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\widetilde { \\boldsymbol { v } } _ { t } + \\boldsymbol { b } _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and the residual potential "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\phi _ { t } = g _ { t } + h _ { t } ( \\cdot ; b _ { t } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". To prevent weight collapse, particles are resampled when the Effective Sample Size (ESS) drops below a threshold "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\tau ."
+                    },
+                    {
+                        "type": "text",
+                        "content": "These principled versions with resampling are denoted VCG-SMC/ECG-SMC. For high-dimensional problems where resampling introduces additional stochastic instability, we also consider simpler variants, denoted VCG/ECG, which use the low-variance residual potential "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\phi _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", retain continuous path-level weights, but omit resampling steps."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                411,
+                825,
+                525
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Our method adds modest computational overhead. The linear solve itself is negligible, while the dominant additional cost comes from evaluating basis functions and building a small "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "n \\times n"
+                    },
+                    {
+                        "type": "text",
+                        "content": "linear system at each time step, where n is the number of bases, typically "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "n \\leq 3"
+                    },
+                    {
+                        "type": "text",
+                        "content": "in our experiments. The components of this system "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( A _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\boldsymbol { c } _ { t } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "are computed as expectations over the current weighted particles, reusing terms like the score "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\nabla \\log \\stackrel {  } { p _ { t } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and the reward gradient "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\nabla r _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "that are already computed for the base guidance drift. While accurate evaluation of the score Laplacian "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\Delta \\log \\stackrel {  } { p _ { t } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "can improve control quality, efficiency is preserved with stochastic approximations, and thus the per-step overhead remains constant in dimension and fully parallelizable across particles, resulting in moderate runtime increase compared to the pure guidance baseline "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( c f ."
+                    },
+                    {
+                        "type": "text",
+                        "content": ", empirical results in Tabs. 5 and 8)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                529,
+                826,
+                657
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4 EXPERIMENTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                660,
+                328,
+                675
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this section, we empirically test the performance of DriftLite by designing a series of challenging annealing and reward-tilting tasks, comparing our DriftLite methods (VCG and ECG with and without SMC) against two key baselines: Pure Guidance (PG) (2.3) (Ho & Salimans, 2022), Guidance-SMC (G-SMC) (2.5) (Skreta et al., 2025; Chen et al., 2025). Our implementation uses JAX (Bradbury et al., 2018) to ensure efficient, parallelized computation on GPUs. Our source code is publicly available at "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\scriptstyle \\mathtt { h t t p s : / / g i t h u b . c o m / y i n u o r e n / D r i f t L i t e }"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                686,
+                825,
+                772
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.1 GAUSSIAN MIXTURE MODEL"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                780,
+                419,
+                794
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We begin with a 30-dimensional Gaussian Mixture Model (GMM) (cf., App. B.1 for detailed settings), a controlled environment where the exact score ∇ log "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and the potential log "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "are known analytically, allowing us to isolate and evaluate the performance of the sampling algorithms themselves, free from any confounding errors of a learned score network. We evaluate the methods with multiple metrics, including the Negative Log-Likelihood difference (∆NLL), Maximum Mean Discrepancy (MMD), and Sliced Wasserstein Distance (SWD) (cf., App. B.5)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                803,
+                826,
+                888
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Annealing. We first test the ability to sharpen the GMM’s modes by annealing, which tests each method’s ability to maintain the correct relative mode weights. As shown in Fig. 1, the pure guidance (PG) method produces visibly biased samples, while G-SMC suffers from mode collapse, a direct consequence of the weight degeneracy that our work aims to solve. In contrast, our methods (VCG and ECG) accurately sample from the correct modes, also corroborated with quantitative comparisons in Tab. 3. A closer look at the ESS and potential variance evolution during the inference dynamics Fig. 2 reveals why DriftLite succeeds. Our control mechanism reduces the variance of the reweighting potential by several orders of magnitude compared to G-SMC. This directly prevents weight degeneracy, leading to a stable Effective Sample Size (ESS) throughout the simulation and superior final sample quality. Notably, ECG, while not directly minimizing variance, achieves a similar stabilizing effect, validating the energy-based control perspective. Fig. 3 shows the performance of all methods as the number of particles varies. It indicates that our methods not only outperform the baselines but also converge more efficiently, achieving better results with fewer particles."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                895,
+                825,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "6"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "algorithm",
+            "content": {
+                "algorithm_caption": [],
+                "algorithm_content": [
+                    {
+                        "type": "text",
+                        "content": "Algorithm 1: DriftLite-VCG/ECG-SMC Implementation\n\nInput: Guidance drift path  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\widetilde{\\boldsymbol{v}}_t"
+                    },
+                    {
+                        "type": "text",
+                        "content": " from (2.4), uncentered potential path  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "G_t"
+                    },
+                    {
+                        "type": "text",
+                        "content": " from Prop. 2.1, time steps  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{t_k\\}_{k=0}^M"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", reward  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "r(\\boldsymbol{x})"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", schedule  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\beta_t"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", basis functions, number of particles  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "N"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", ESS threshold  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\tau"
+                    },
+                    {
+                        "type": "text",
+                        "content": ".\n\n1 Initialize particles  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\boldsymbol{x}_0^{(i)} \\sim \\overleftarrow{p}_0"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", log-weights  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\ell_0^{(i)} \\leftarrow 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and weights  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "w_0^{(i)} \\leftarrow \\frac{1}{N}"
+                    },
+                    {
+                        "type": "text",
+                        "content": " for  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "i = 1, \\ldots, N"
+                    },
+                    {
+                        "type": "text",
+                        "content": ";\n\n2 for  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "k \\leftarrow 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": " to  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "M - 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": " do\n\n3 Set  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\Delta t_k \\leftarrow t_{k+1} - t_k"
+                    },
+                    {
+                        "type": "text",
+                        "content": " and form estimates of  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\boldsymbol{A}_{t_k}"
+                    },
+                    {
+                        "type": "text",
+                        "content": " and  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\boldsymbol{c}_{t_k}"
+                    },
+                    {
+                        "type": "text",
+                        "content": " using  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{(\\boldsymbol{x}_{t_k}^{(i)}, w_{t_k}^{(i)})\\}_{i \\in [N]}"
+                    },
+                    {
+                        "type": "text",
+                        "content": ";\n\n4 Solve  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\boldsymbol{A}_{t_k} \\boldsymbol{\\theta}_{t_k} = \\boldsymbol{c}_{t_k}"
+                    },
+                    {
+                        "type": "text",
+                        "content": " to obtain the control drift  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\boldsymbol{b}_{t_k}(\\cdot)"
+                    },
+                    {
+                        "type": "text",
+                        "content": ";\n\n5  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\boldsymbol{v}_{t_k}^{\\text{eff}}(\\cdot) \\leftarrow \\widetilde{\\boldsymbol{v}}_{t_k}(\\cdot) + \\boldsymbol{b}_{t_k}(\\cdot)"
+                    },
+                    {
+                        "type": "text",
+                        "content": ",  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "H_{t_k}^{\\text{eff}}(\\cdot) \\leftarrow G_{t_k}(\\cdot) + h_{t_k}(\\cdot; \\boldsymbol{b}_{t_k})"
+                    },
+                    {
+                        "type": "text",
+                        "content": ";\n\n6  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\widehat{g}_{t_k}^{\\text{eff}}(\\boldsymbol{x}_{t_k}^{(i)}) \\leftarrow H_{t_k}^{\\text{eff}}(\\boldsymbol{x}_{t_k}^{(i)}) - \\sum_{j=1}^N w_{t_k}^{(j)} H_{t_k}^{\\text{eff}}(\\boldsymbol{x}_{t_k}^{(j)})"
+                    },
+                    {
+                        "type": "text",
+                        "content": ";\n\n7  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\ell_{t_{k+1}}^{(i)} \\leftarrow \\ell_{t_k}^{(i)} + \\widehat{g}_{t_k}^{\\text{eff}}(\\boldsymbol{x}_{t_k}^{(i)}) \\Delta t_k"
+                    },
+                    {
+                        "type": "text",
+                        "content": ",  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\boldsymbol{w}_{t_{k+1}} \\leftarrow \\text{softmax}(\\ell_{t_{k+1}})"
+                    },
+                    {
+                        "type": "text",
+                        "content": ";\n\n8  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\boldsymbol{x}_{t_{k+1}}^{(i)} \\leftarrow \\boldsymbol{x}_{t_k}^{(i)} + \\boldsymbol{v}_{t_k}^{\\text{eff}}(\\boldsymbol{x}_{t_k}^{(i)}) \\Delta t_k + V_{t_k} \\sqrt{\\Delta t_k} z^{(i)}"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", where  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "z^{(i)} \\sim \\mathcal{N}(0, I)"
+                    },
+                    {
+                        "type": "text",
+                        "content": ";\n\n9 if  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "ESS(w_{t_{k+1}}) < \\tau"
+                    },
+                    {
+                        "type": "text",
+                        "content": " or periodically then\n\n10 Resample  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{\\boldsymbol{x}_{t_{k+1}}^{(i)}\\}_{i \\in [N]}"
+                    },
+                    {
+                        "type": "text",
+                        "content": " according to  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{w_{t_{k+1}}^{(i)}\\}_{i \\in [N]}"
+                    },
+                    {
+                        "type": "text",
+                        "content": " and reset  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\ell_{t_{k+1}}^{(i)} \\leftarrow 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": ",\n\n "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "w_{t_{k+1}}^{(i)} \\leftarrow \\frac{1}{N}"
+                    },
+                    {
+                        "type": "text",
+                        "content": " for all  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "i"
+                    },
+                    {
+                        "type": "text",
+                        "content": ";\n\nOutput: Final samples  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{\\boldsymbol{x}_T^{(i)}, w_T^{(i)}\\}_{i \\in [N]}"
+                    },
+                    {
+                        "type": "text",
+                        "content": " from the last completed pass."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                104,
+                823,
+                405
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/772968dd45c957ed8f789efe050e2cb071692602eb0562c328f3198366874918.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 1: Qualitative comparison of sampling methods on the GMM annealing task (γ = 2.5)."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                178,
+                426,
+                820,
+                526
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                577,
+                826,
+                732
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Reward-Tilting. The results of the reward-tilting task where the distribution is shifted towards a region defined by a quadratic reward (Figs. 4, 9 and 10 and Tab. 4) confirm our findings from the annealing task. We refer to App. C.1 for further experimental results."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                742,
+                825,
+                787
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Learning-Based Baseline. To contrast DriftLite’s training-free inference-time control with amortized drift-learning, we additionally implement a training-based baseline, Neural Controlling Guidance (NCG), which parameterizes the control drift by a neural network and optimizes the variance objective (3.3) via backpropagation. See App. C.1 for full setup details and quantitative results."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                797,
+                825,
+                856
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Iterative Refinement. Furthermore, we introduce an iterative refinement procedure, where the learned control drift "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\widetilde { \\pmb { v } } _ { t } + \\pmb { b } _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and potential "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\phi _ { t } = g _ { t } + h _ { t } ( \\cdot ; b _ { t } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "from one full pass are used as the base dynamics for the next. As further discussed in App. C.4, this process progressively reduces variance and stabilizes ESS over multiple rounds "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( c f ."
+                    },
+                    {
+                        "type": "text",
+                        "content": ", Figs. 17 and 18), further enhancing sample quality "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( c f ."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                868,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "7"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                946,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/ac4fcaa964c4de8308e5b83ffe62e408b26493a1fe64b45bbd182af707005737.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 2: Evolution of ESS and potential variance during inference on the GMM annealing task "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( \\gamma = 2 . 2 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Our methods (VCG/ECG) sub stantially reduce variance and stabilize ESS."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                176,
+                95,
+                485,
+                239
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/1a0a1315a9a638683bace63c7f1d8caa1e40952f4c88193cd3ce0be8a565da88.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 3: Performance metrics versus number of particles for the GMM annealing task "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( \\gamma = 2 . 0 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "Our methods consistently outperform baselines and show strong scaling."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                504,
+                94,
+                825,
+                237
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/9ea49cba66f4e395bb8cba51f862c489b70fef0234cec55f1fad4a377984d985.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 4: Qualitative comparison of sampling methods on the GMM reward-tilting task (σ = 200.0)."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                174,
+                311,
+                821,
+                411
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Tabs. 15 and 16). The monotonic decrease in variance across rounds also acts as a proxy for the reduction of approximation error in the linear control ansatz (Thms. 3.3 and 3.4)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                462,
+                825,
+                492
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.2 PARTICLE SYSTEMS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                506,
+                356,
+                521
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Next, we move to more realistic scientific benchmarks where the score is approximated by an NN trained on finite data. We evaluate on two standard systems with complex, multimodal energy landscapes: a 2D 4-particle Double-Well (DW-4) and a 3D 13-particle Leonard-Jones system (LJ-13), both widely used as benchmarks (Klein et al., 2023; Akhound-Sadegh et al., 2024; 2025; Liu et al., 2025; Skreta et al., 2025; Zhang et al., 2025)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                534,
+                826,
+                604
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The score is obtained by training an "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "E ( n )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "-Equivariant Graph Neural Network (EGNN) (Satorras et al., 2021b) (cf., App. B.2). For all particle systems, ground-truth reference is obtained from underdamped Langevin dynamics simulations with BAOAB splitting scheme (Leimkuhler & Matthews, 2013) (cf., App. B.3). The EDM framework (Karras et al., 2022) is adopted for both training and inference (cf., App. B.4). We measure performance using additional metrics that capture physical correctness, including the Radial Distribution Function (RDF) for structure and the energy distribution for thermodynamics (cf., App. B.5). Based on the GMM results showing VCG’s superior performance over ECG and the lack of pre-trained log-likelihood, we proceed with only the VCG variants of DriftLite in the following experiments."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                609,
+                826,
+                738
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Double-Well-4 (DW-4). We first consider the DW-4 system (cf., App. B.1). This system features two energy minima separated by a barrier. Annealing requires the sampler to correctly populate both modes, even when sharpened at low temperatures. As shown in Fig. 13, VCG-SMC achieves a nearly perfect match with the ground-truth RDF and energy distribution. This demonstrates that by reducing variance to maintain an ensemble of high-quality particles, DriftLite effectively leverages global information to navigate challenging energy landscapes where baselines fail to do so."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                750,
+                826,
+                835
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Motivated by Schebek et al. (2024), we consider applying an additional harmonic potential as a reward, and the reward-tilted distribution corresponds to another DW-4 system with a different configuration. The quantitative results in Tab. 1 confirm that our methods consistently outperform baselines by a large margin across all metrics. The ESS/potential variance plot in Fig. 11 confirms the stabilizing effect of our method on ESS. An ablation study in Fig. 12 demonstrates that our method converges as the number of particles increases across metrics."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                840,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "8"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/85b4de7524faf0f8126d10230bba47c2b4d809661b49bb0b7fe9bad304f5bab3.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 1: Performance comparison on Particle Systems (DW-4 and LJ-13). Results are "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { m e a n } _ { \\pm \\mathrm { s t d } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "over 5 runs. Best results per column are in bold."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\">Method</td><td colspan=\"5\">DW-4, Annealing ( $T = 2.0$ ,  $\\gamma = 2.0$ )</td><td colspan=\"5\">DW-4, Reward-Tilting ( $T = 2.0$ ,  $\\lambda' = 0.5$ )</td></tr><tr><td> $\\Delta NLL$ </td><td>MMD</td><td>SWD</td><td> $W_1^{RDF}$ </td><td> $W_1^{\\mathcal{E}}$ </td><td> $\\Delta NLL$ </td><td>MMD</td><td>SWD</td><td> $W_1^{RDF}$ </td><td> $W_1^{\\mathcal{E}}$ </td></tr><tr><td>PG</td><td> $0.159_{\\pm 1.232}$ </td><td> $0.400_{\\pm 0.168}$ </td><td> $1.088_{\\pm 0.384}$ </td><td> $0.208_{\\pm 0.008}$ </td><td> $0.551_{\\pm 0.009}$ </td><td> $0.867_{\\pm 1.437}$ </td><td> $0.771_{\\pm 0.085}$ </td><td> $1.714_{\\pm 0.232}$ </td><td> $0.627_{\\pm 0.003}$ </td><td> $1.837_{\\pm 0.013}$ </td></tr><tr><td>G-SMC</td><td> $0.038_{\\pm 0.338}$ </td><td> $0.365_{\\pm 0.058}$ </td><td> $1.012_{\\pm 0.253}$ </td><td> $0.208_{\\pm 0.146}$ </td><td> $0.190_{\\pm 0.080}$ </td><td> $0.329_{\\pm 0.016}$ </td><td> $0.087_{\\pm 0.039}$ </td><td> $0.194_{\\pm 0.082}$ </td><td> $0.118_{\\pm 0.004}$ </td><td> $0.330_{\\pm 0.016}$ </td></tr><tr><td>VCG</td><td> $-0.043_{\\pm 0.022}$ </td><td> $0.014_{\\pm 0.001}$ </td><td> $0.037_{\\pm 0.008}$ </td><td> $\\textbf{0.043}_{\\pm 0.002}$ </td><td> $0.663_{\\pm 0.015}$ </td><td> $0.699_{\\pm 1.905}$ </td><td> $0.614_{\\pm 0.139}$ </td><td> $1.692_{\\pm 0.438}$ </td><td> $0.161_{\\pm 0.033}$ </td><td> $0.461_{\\pm 0.094}$ </td></tr><tr><td>VCG-SMC</td><td> $-0.032_{\\pm 0.009}$ </td><td> $\\textbf{0.014}_{\\pm 0.001}$ </td><td> $\\textbf{0.035}_{\\pm 0.002}$ </td><td> $0.060_{\\pm 0.006}$ </td><td> $\\textbf{0.031}_{\\pm 0.007}$ </td><td> $\\textbf{0.296}_{\\pm 0.016}$ </td><td> $\\textbf{0.021}_{\\pm 0.001}$ </td><td> $\\textbf{0.048}_{\\pm 0.002}$ </td><td> $\\textbf{0.107}_{\\pm 0.005}$ </td><td> $\\textbf{0.296}_{\\pm 0.016}$ </td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                173,
+                136,
+                823,
+                219
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/20281509fc12e0deba6c36c604b540be5e6d9ff149afcc29b9f02900b836b214.jpg"
+                },
+                "table_caption": [],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\">Method</td><td colspan=\"5\">LJ-13, Annealing ( $T = 2.0$ ,  $\\gamma = 2.5$ )</td><td colspan=\"5\">LJ-13, Reward-Tilting ( $T = 2.0$ ,  $\\lambda' = 0.8$ )</td></tr><tr><td> $\\Delta NLL$ </td><td>MMD</td><td>SWD</td><td> $W_1^{RDF}$ </td><td> $W_1^{\\mathcal{E}}$ </td><td> $\\Delta NLL$ </td><td>MMD</td><td>SWD</td><td> $W_1^{RDF}$ </td><td> $W_1^{\\mathcal{E}}$ </td></tr><tr><td>PG</td><td> $13.58_{\\pm 16.73}$ </td><td> $0.603_{\\pm 0.095}$ </td><td> $0.598_{\\pm 0.087}$ </td><td> $0.037_{\\pm 0.000}$ </td><td> $11.40_{\\pm 0.129}$ </td><td> $4.975_{\\pm 5.159}$ </td><td> $0.719_{\\pm 0.021}$ </td><td> $0.797_{\\pm 0.058}$ </td><td> $0.070_{\\pm 0.001}$ </td><td> $5.430_{\\pm 0.074}$ </td></tr><tr><td>G-SMC</td><td> $13.64_{\\pm 9.949}$ </td><td> $0.616_{\\pm 0.012}$ </td><td> $0.523_{\\pm 0.060}$ </td><td> $0.040_{\\pm 0.030}$ </td><td> $13.48_{\\pm 9.626}$ </td><td> $1.783_{\\pm 0.202}$ </td><td> $0.081_{\\pm 0.019}$ </td><td> $0.084_{\\pm 0.032}$ </td><td> $0.023_{\\pm 0.002}$ </td><td> $1.784_{\\pm 0.202}$ </td></tr><tr><td>VCG</td><td> $-1.084_{\\pm 0.931}$ </td><td> $0.136_{\\pm 0.032}$ </td><td> $0.144_{\\pm 0.044}$ </td><td> $0.069_{\\pm 0.001}$ </td><td> $22.86_{\\pm 0.177}$ </td><td> $7.629_{\\pm 12.37}$ </td><td> $0.695_{\\pm 0.127}$ </td><td> $0.702_{\\pm 0.174}$ </td><td> $0.036_{\\pm 0.020}$ </td><td> $2.790_{\\pm 1.531}$ </td></tr><tr><td>VCG-SMC</td><td> $-0.699_{\\pm 0.189}$ </td><td> $0.102_{\\pm 0.050}$ </td><td> $0.098_{\\pm 0.044}$ </td><td> $0.002_{\\pm 0.000}$ </td><td> $0.286_{\\pm 0.100}$ </td><td> $1.734_{\\pm 0.106}$ </td><td> $0.015_{\\pm 0.001}$ </td><td> $0.015_{\\pm 0.001}$ </td><td> $0.022_{\\pm 0.001}$ </td><td> $1.735_{\\pm 0.106}$ </td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                171,
+                224,
+                825,
+                309
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/2a2360c01e79f18c35d8588627fa6295a82b58926db4545313a7490100a002a0.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "(a) Radial Distribution Function."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                184,
+                318,
+                496,
+                464
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/8e1f631f5f9f4ae7ccce5c0b29659cc93fd79ad76523c20785ca47a6acd47b87.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "(b) Energy Distribution."
+                    },
+                    {
+                        "type": "text",
+                        "content": "Figure 5: Comparison of generated distributions for the LJ-13 annealing task "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( \\gamma = 2 . 5 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". VCG-SMC is the only method that successfully recovers all three peaks in the (a) RDF and closely matches the (b) Energy Distribution. Insets provide a zoomed-in view."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                501,
+                316,
+                810,
+                464
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Lennard-Jones-13 (LJ-13). We conclude with a highly challenging annealing task on the LJ-13 system (cf., App. B.1), a complex benchmark known for its rugged energy landscape and singular behaviors at short distances. Fig. 5 presents the result of a demanding inference-time annealing task from "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T = 1 . 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to 0.4 with "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\gamma = 2 . 5"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". The target distribution exhibits a third peak in its RDF corresponding to a structural feature almost absent at the initial temperature (Fig. 8). In a powerful demonstration of its capabilities, VCG-SMC is the only method that successfully discovers and samples from all modes, matching both the RDF and energy distribution with high precision. Metrics in Tab. 1 further confirm a significant performance gap over the baselines in this complex setting."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                554,
+                826,
+                667
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We refer readers to App. C.2 for additional results and visualization on DW-4 and LJ-13, with varying base temperatures T, annealing factor γ, constraint strength λ<sup>′</sup>, and number of particles N."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                672,
+                825,
+                704
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.3 PROTEIN-LIGAND CO-FOLDING"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                712,
+                434,
+                727
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Lastly, we apply DriftLite to the protein-ligand co-folding problem (Abramson et al., 2024; Bryant et al., 2024), a central task of structural biology and drug discovery. The goal is to generate 3D protein structures and their binding partners (ligands, particularly small molecules) simultaneously and in a mutually dependent manner, given the protein sequence and the ligand identity. This problem extends the classical protein folding problem (Jumper et al., 2021; Baek et al., 2021) and is crucial for elucidating protein-ligand interactions. Despite the recent progress achieved by diffusion models, notably AlphaFold3 (Abramson et al., 2024), Protenix (Team et al., 2025), and Boltz-2 (Passaro et al., 2025), a persistent challenge is that purely data-driven generative approaches tend to overemphasize global structural similarity while often producing conformations that violate basic physical constraints (Buttenschoen et al., 2024; Masters et al., 2024). Recent studies demonstrated that incorporating physics-based steering potentials can help mitigate this limitation (Passaro et al., 2025)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                734,
+                826,
+                891
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We adopt the experimental setup of Boltz-2 (Passaro et al., 2025), an open-weight diffusion model, as base, and apply VCG-SMC to steer the generation of protein-ligand structures toward physically valid conformations using a physics-based potential as reward. We compare our method with two additional baselines: the unsteered model (Base) and Feynman-Kac Steering (FKS) (Singhal et al., 2025). We assess physical validity using the widely adopted PoseBuster V2 benchmark (Buttenschoen et al., 2024). Results are summarized in Tab. 2. In this task, evaluating the reward and its gradient adds relatively little overhead. VCG-SMC exhibits the strongest performance with fewer or without rule violations, improving the quality of partially valid structures, and increasing the proportion of fully valid ones. This underscores its effectiveness in a complex real-world setting. An example highlighting these improvements is shown in Fig. 6. Details are provided in App. B. Additional experimental results on the ESS evolution and runtime comparisons are provided in App. C.3."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                895,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "9"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/a8dab72d0e44b197afae7b4e6fc4d7dbb2711e7efc543a03d1931d844baa4d87.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 2: Performance comparison on steering the physical validity of protein-ligand co-folding. Results are "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { \\ m e a n _ { \\pm s t d } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "over 3 runs. Best results per column are in bold."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Method</td><td>Valid Fraction ↑</td><td>Clash Free Fraction ↑</td><td>Bond Length ↓</td><td>Bond Angle ↓</td><td>Internal Clash ↓</td><td>Chiral Atom ↓</td><td>Chain Clashes ↓</td></tr><tr><td>Base</td><td> $0.374 \\pm 0.003$ </td><td> $0.490 \\pm 0.007$ </td><td> $55.00 \\pm 3.61$ </td><td> $133.00 \\pm 7.00$ </td><td> $138.67 \\pm 4.04$ </td><td> $118.33 \\pm 12.74$ </td><td> $398.67 \\pm 4.16$ </td></tr><tr><td>FKS</td><td> $0.379 \\pm 0.014$ </td><td> $0.490 \\pm 0.007$ </td><td> $52.67 \\pm 2.89$ </td><td> $127.33 \\pm 5.69$ </td><td> $140.33 \\pm 2.08$ </td><td> $126.33 \\pm 5.51$ </td><td> $377.00 \\pm 20.30$ </td></tr><tr><td>G-SMC</td><td> $0.838 \\pm 0.008$ </td><td> $0.945 \\pm 0.005$ </td><td> $42.33 \\pm 13.05$ </td><td> $98.00 \\pm 23.07$ </td><td> $31.33 \\pm 4.93$ </td><td> $2.33 \\pm 0.58$ </td><td> $31.67 \\pm 1.53$ </td></tr><tr><td>VCG-SMC</td><td> $0.856 \\pm 0.008$ </td><td> $0.950 \\pm 0.003$ </td><td> $24.33 \\pm 9.29$ </td><td> $61.00 \\pm 19.08$ </td><td> $32.33 \\pm 4.16$ </td><td> $1.00 \\pm 1.00$ </td><td> $30.00 \\pm 1.00$ </td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                181,
+                137,
+                815,
+                200
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/86162b7edd3c0dec4eeca44d39139b0a654eb8e5c0cedf8aa979909da6a2cea2.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Reference"
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                184,
+                207,
+                339,
+                296
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/acb5d5b3bcff20f47f63e4e21749ec7bc0712c3e9b19dc1e4b7de518ea380c70.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Base"
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                344,
+                208,
+                501,
+                297
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/1eadec718bafd69456a0c5090269af96c13a82c36b442443e32fb07cc45f1b3e.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "G-SMC"
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                508,
+                207,
+                661,
+                296
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/b8f6efad8703af3bebc37178990bc1323020dfe99685fbb2ecfbbafbc098a5fc.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "VCG-SMC"
+                    },
+                    {
+                        "type": "text",
+                        "content": "Figure 6: The reference and predicted complex structure of Hst2 bound to 2’-O-benzoyl ADP ribose. The reference corresponds to the experimentally determined crystal structure (PDB ID: 7F51). The unsteered base prediction inverted a chiral center in the ligand (highlighted with a red box). G-SMC failed to correct this issue and even broke the bonding, whereas VCG-SMC successfully guided the generation toward the correct chirality and preserved a chemically meaningful structure."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                668,
+                207,
+                823,
+                294
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                406,
+                826,
+                534
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5 CONCLUSION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                545,
+                321,
+                561
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We introduce DriftLite, a lightweight, training-free framework that resolves a critical trade-off in the inference-time scaling of pre-trained diffusion models. By identifying and exploiting a fundamental degree of freedom in the Fokker-Planck equation, DriftLite actively controls the sampling drift, thereby mitigating the weight degeneracy that plagues previous particle-based methods. Our practical instantiations, VCG and ECG, impose modest and scalable overhead while dramatically improving the stability and accuracy of inference-time scaling. Experiments further confirm their effectiveness and strong scaling with the number of particles, and we observe that the VCG variant is generally more robust, while the ECG holds promise in several specific scenarios. Across particle and protein systems, our approach consistently produces higher-quality samples and handles complex distributions more robustly compared to existing inference-time scaling baselines."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                574,
+                826,
+                715
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "While DriftLite proves effective, its reliance on a fixed set of linear basis functions presents a potential limitation. Future work could explore more expressive yet still efficient representations for the control drift, such as compact neural networks or adaptive basis sets, including those involving the posterior mean (Chung et al., 2022). Our current instantiations also assume twice-differentiability of the reward r and extending DriftLite to less smooth rewards is an open direction. We anticipate that future work will extend DriftLite to more complex physical systems, including LJ-55, ALDP, by pairing our inference-time scaling framework with continued advances in generative modeling. Furthermore, we have focused on annealing and reward-tilting tasks with non-heuristic targets and accuracy demands, but the DriftLite framework is broadly applicable beyond these tasks. Extending it to other generative problems, such as product-of-experts models or conditional generation, is a promising direction for future research. It is also interesting to study the inference-time scaling problem in the discrete settings under both the uniform (Campbell et al., 2022; Ren et al., 2024; 2025a) and the absorbing (Lou et al., 2023; Shi et al., 2024) frameworks."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                720,
+                826,
+                902
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "10"
+                    }
+                ]
+            },
+            "bbox": [
+                490,
+                948,
+                509,
+                960
+            ]
+        }
+    ]
+]

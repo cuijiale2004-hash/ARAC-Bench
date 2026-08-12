@@ -1,0 +1,86 @@
+{
+  "overview": "The paper proposes Bayesian-TPNN, a Bayesian neural network for functional ANOVA models that treats the network architecture (number and structure of components) as learnable parameters via MCMC inference, enabling efficient detection of higher-order interaction components with posterior consistency guarantees.",
+  "count": 16,
+  "modules": [
+    {
+      "id": 1,
+      "name": "Data Preprocessing Module",
+      "description": "Handles loading and preprocessing of real tabular datasets and synthetic data generators. Performs one-hot encoding for categorical variables, inverse-CDF marginal rank transformation for Bayesian-TPNN/ANOVA-TPNN, mean-variance standardization for baseline models, and feature scaling to [0,1] for input variables. Supports both regression and classification dataset schemas."
+    },
+    {
+      "id": 2,
+      "name": "TPNN Basis Function Module",
+      "description": "Implements the Tensor Product Neural Network basis function φ(x|S,B,R) with the sum-to-zero correction term c_j(b,γ). Computes the product form of shifted sigmoid basis across variable indices in set S, normalizes by empirical marginal integrals to enforce the sum-to-zero condition with respect to the empirical distribution μ_n, and supports vectorized evaluation over batches."
+    },
+    {
+      "id": 3,
+      "name": "Bayesian-TPNN Model Architecture Module",
+      "description": "Constructs the full Bayesian-TPNN model f(x)=Σ_{k=1}^{K} β_k φ(x|Θ_k) where Θ_k=(S_k, b_{S_k,k}, Γ_{S_k,k}). Manages the mutable model state including number of components K, index sets S_k, and all numeric parameters. Provides forward computation for the overall function and individual component outputs, and supports dynamic addition/removal of components."
+    },
+    {
+      "id": 4,
+      "name": "Prior Specification Module",
+      "description": "Implements the hierarchical prior: (1) node-sparsity prior π(K) ∝ exp(-C_0 K log n), (2) edge-sparsity mixture prior p(S_k|K) with padd recursion controlled by α_adding and γ_adding, (3) Gaussian prior for β_k, Uniform(0,1) prior for b_{j,k}, Gamma prior for γ_{j,k}, and Inverse-Gamma prior for the noise variance. Provides log-prior evaluation for parameter subsets and prior sampling."
+    },
+    {
+      "id": 5,
+      "name": "Exponential Family Likelihood Module",
+      "description": "Implements the likelihood for exponential family regression models including Gaussian, logistic (Bernoulli), and Poisson cases. Computes log-likelihood given f(x) predictions and nuisance parameter η, log-partition function A(·), and provides gradient of log-likelihood with respect to f(x) for use in Langevin updates. Supports mini-batch likelihood evaluation."
+    },
+    {
+      "id": 6,
+      "name": "Input Importance Distribution (p_input) Module",
+      "description": "Constructs the pretrained probability mass function p_input over input variables used in proposal distributions. Extracts feature importance via global SHAP values from a pretrained DNN or feature importance from XGBoost, then normalizes to form p_input(j)∝ω_j. Also provides the conditional distribution p_input(·|S) restricted to complement sets for proposal generation."
+    },
+    {
+      "id": 7,
+      "name": "MCMC K-Update Module",
+      "description": "Implements the Metropolis-Hastings update for the number of components K. Proposes K_new = K±1 with biased probabilities. For K+1: generates new component via Random move (sample S_{K+1} from prior) or Stepwise move (copy existing S_{k*} and add edge via p_input). Computes full acceptance probability including prior ratio and proposal ratio, with RJMCMC Jacobian handling for dimension changes."
+    },
+    {
+      "id": 8,
+      "name": "MCMC Architecture (S_k) Update Module",
+      "description": "Implements the MH update for each component's variable index set S_k via three move types: Adding (sample j_new from complement via p_input and add edge), Deleting (uniformly remove an edge from S_k), and Changing (replace one index in S_k with one from complement via p_input). Handles RJMCMC dimension-matching for Adding/Deleting, computes acceptance probability with prior and proposal ratios, and generates new b/γ parameters for added edges from their priors."
+    },
+    {
+      "id": 9,
+      "name": "MCMC Numeric Parameters Update Module",
+      "description": "Implements Metropolis-adjusted Langevin dynamics for updating (b_{S_k,k}, Γ_{S_k,k}, β_k) for each component k. Computes gradients of log-posterior with respect to b, Γ, β (including chain-rule through the TPNN basis function and the sigmoid derivative), proposes via Langevin step with Gaussian noise, and accepts/rejects based on the MH ratio including the asymmetric proposal correction term."
+    },
+    {
+      "id": 10,
+      "name": "MCMC Nuisance Parameter Update Module",
+      "description": "Implements Gibbs sampling for the nuisance parameter (noise variance σ^2 in Gaussian regression). Samples directly from the conditional posterior Inverse-Gamma distribution given residuals. Provides straightforward extension hooks for other exponential family models where nuisance parameter updates may differ."
+    },
+    {
+      "id": 11,
+      "name": "MCMC Controller Module",
+      "description": "Orchestrates the full MCMC algorithm: sequentially applies K-update, per-component (S_k, b, Γ, β) updates, and nuisance parameter update each iteration. Manages burn-in period, post-burn-in sample collection, thinning, and convergence diagnostics. Supports configurable iteration counts and produces a chain of posterior samples for all parameters."
+    },
+    {
+      "id": 12,
+      "name": "Predictive Inference Module",
+      "description": "Computes the posterior predictive distribution by averaging likelihoods over posterior samples. Provides point predictions (Bayes estimator), credible intervals for predictions, and per-component credible intervals. Supports Monte Carlo integration for predictive mean and variance, and enables uncertainty quantification at each input point."
+    },
+    {
+      "id": 13,
+      "name": "Evaluation Metrics Module",
+      "description": "Computes all evaluation metrics used in the paper: RMSE and AUROC for prediction accuracy; CRPS and NLL for regression uncertainty quantification; ECE and NLL for classification calibration; AUROC-based component selection score using ℓ2-norm importance versus ground-truth signal indicators. Also computes stability scores SC_d(f) for component estimation and OOD detection AUROC using maximum predicted probability."
+    },
+    {
+      "id": 14,
+      "name": "Component Importance and Selection Module",
+      "description": "Extracts and ranks functional ANOVA components from posterior samples. Computes importance score as the empirical ℓ2-norm ‖f_S‖_{2,n} for each component, aggregates across MCMC samples, and identifies top-k important components. Supports detection of higher-order interactions beyond order 2, and provides component-wise functional form extraction for interpretation."
+    },
+    {
+      "id": 15,
+      "name": "Ablation Study and Sensitivity Analysis Module",
+      "description": "Implements the paper's ablation experiments: (1) effect of C_0 on number of bases and prediction, (2) impact of a_γ and b_γ on smoothness and prediction, (3) step size sensitivity for Langevin proposals, (4) uniform vs. pretrained p_input comparison, (5) with/without Stepwise move comparison. Runs controlled experiments with fixed seeds and aggregates results over multiple trials with standard errors."
+    },
+    {
+      "id": 16,
+      "name": "Baseline Integration and Experiment Runner Module",
+      "description": "Integrates baseline models (ANOVA-TPNN, NAM, NA2M, Linear, XGB, BART, mBNN, Deep Ensemble) with unified train/test interface. Manages 5-fold cross-validation for hyperparameter selection, 80/20 train-test splits with 5 repetitions, and experiment configurations for all 8 tabular datasets, synthetic data, 2 image datasets (with CBM pipeline using CLIP+ResNet+GPT-5 concepts), and the genomic dataset. Generates result tables in the paper's format and runtime comparison reports."
+    }
+  ]
+}

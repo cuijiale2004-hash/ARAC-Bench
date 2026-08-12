@@ -1,0 +1,1737 @@
+[
+    {
+        "type": "text",
+        "text": "ABSTRACT",
+        "text_level": 2,
+        "bbox": [
+            450,
+            282,
+            547,
+            300
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Masked diffusion models (MDMs) are a promising alternative to autoregressive models (ARMs), but they suffer from inherently much higher training variance. High variance leads to noisier gradient estimates and unstable optimization, so even pretrained MDMs and ARMs are competitive at initialization, they often diverge after task-specific training, with MDMs falling far behind. Currently, there has been no theoretical explanation or systematic solution. In this paper, we derive the first decomposition of MDM training variance into three sources: A masking pattern noise, B masking rate noise, and C data noise – while ARMs are only affected by C . This cleanly explains the fundamental training gap. Building on this foundation, we design six variance-reduction methods, including two core methods: (1) P-POTS, a Pareto-optimal t-sampler that minimizes training variance by sampling harder t values more often with appropriately smaller update steps, and (2) MIRROR, which uses negatively correlated samples to reduce A . Experiments show that, compared to standard MDM training, our methods improve accuracy by 7–8% on complex reasoning tasks, while simultaneously reducing run-to-run variability to near ARM levels, substantially narrowing the gap with strong ARM baselines; in most settings, even the best baseline method runs remain below the worst run of our method. The code will be released at https://github.com/Qwen-Applications/StableDLLM.",
+        "bbox": [
+            228,
+            314,
+            767,
+            580
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "1 INTRODUCTION",
+        "text_level": 2,
+        "bbox": [
+            174,
+            604,
+            338,
+            619
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "image",
+        "img_path": "images/af7930b01fa0631662fd328312c89e4626dd14c2d35c97b7a397d619ba9f3dc4.jpg",
+        "image_caption": [
+            "Figure 1: Graphic illustration of three sources of training variance in MDMs. The left panel illustrates standard MDM training, compared to our core methods (P-POTS and MIRROR) on the right."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            174,
+            632,
+            823,
+            814
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Recently, masked diffusion models (MDMs) (Austin et al., 2021; Lou et al., 2023; Sahoo et al., 2024) have been viewed as a strong alternative architecture for both large language models (Dream-7B (Ye et al., 2025), LLaDA-8B (Nie et al., 2025), DiffuCoder (Gong et al., 2025)) and multi-modal models (Dimple-7B (Yu et al., 2025), MMaDA-8B (Yang et al., 2025)). They operate by masking input tokens at a randomly sampled masking rate t and learning to reconstruct them. By moving beyond sequential token modeling, they potentially address limitations of auto-regressive models (ARMs), such as lack of parallelism, exposure bias, and reversal curse (Berglund et al., 2023).",
+        "bbox": [
+            169,
+            854,
+            826,
+            925
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "page_number",
+        "text": "1",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            104,
+            825,
+            133
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "However, the noise-based training paradigm that powers MDMs also makes their training unstable. Numerous studies have reported that diffusion training suffers from high variance (Meng et al., 2021; Xu et al., 2023; Jeha et al., 2024; Kim et al., 2024; Zhu et al., 2025; Arriola et al., 2025). We refer to this phenomenon as the training divergence from ARMs, which manifests in two aspects:",
+        "bbox": [
+            169,
+            138,
+            825,
+            196
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "• Across-run variability. Even under identical training setups, MDMs can converge to very different solutions: since parameter updates scale with loss gradients, fluctuations in losses translate directly into erratic updates. By contrast, ARMs are more predictable: with the same data order, they converge reliably to the same solution across runs.",
+        "bbox": [
+            171,
+            205,
+            825,
+            263
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "• Within-run sub-optimality. Although pretrained MDMs and ARMs show comparable abilities at initialization, we consistently observe a sharp divergence after post-training: once fine-tuned on the same dataset, ARMs always outperform MDMs by wide margins, even in cases where MDMs begin from a stronger point. This highlights that, even within a single run, the variance gap makes MDMs use supervision resources less efficiently, as noisier updates slow convergence.",
+        "bbox": [
+            171,
+            266,
+            826,
+            338
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "To address this problem, several prior works have proposed mitigation strategies. However, these efforts remain isolated and ad-hoc, lacking a unified theoretical framework for explaining the high training variance of MDMs. For example, Zhu et al. (2025) evaluates both the policy and reference ELBOs on the same time-steps and masking patterns so that their Monte Carlo errors cancel out at comparison, but their method is limited to preference optimization. Arriola et al. (2025) proposes adaptively re-fitting masking-rates samplers at each evaluation, selecting from a fixed number of candidate clipped intervals $\\{ \\left[ \\beta _ { j } , \\omega _ { j } \\right] \\} _ { j = 1 } ^ { b } \\subset [ 0 , 1 ]$ to determine the best interval for training until the next evaluation. While this strategy can adjust the learning process accordingly, its reliance on such coarse candidate intervals remains heuristic. These limitations call for more principled solutions.",
+        "bbox": [
+            169,
+            347,
+            826,
+            474
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Motivated by this, we revisit the basic definitions to develop a systematic explanation and theoretically grounded solutions. Specifically, Sahoo et al. (2024) derived a principled training objective:",
+        "bbox": [
+            169,
+            479,
+            823,
+            508
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathcal {L} \\mathrm{MDM} = \\mathbb {E} _ {x \\sim q (x),, t \\sim U [ 0, 1 ],, x _ {t} \\sim q (\\cdot | x, t)} \\big [ l _ {\\theta} (x, t, x _ {t}) \\big ], \\quad l _ {\\theta} = \\frac {\\alpha_ {t} ^ {\\prime}}{1 - \\alpha_ {t}} \\sum_ {\\ell = 1} ^ {L} \\log \\left\\langle x _ {\\theta} ^ {\\ell} (x _ {t} ^ {1: L}, t), x ^ {\\ell} \\right\\rangle\\tag{1}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            187,
+            513,
+            807,
+            554
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "for interpolating MDMs, where the loss $l _ { \\theta }$ is a function of the clean data $x ,$ the masking rate $t ,$ and the noised (masked) input $x _ { t }$ obtained from the forward process $q ( x _ { t } \\mid x , t )$ . To understand the variance origins in this training objective, we derive the first systematic variance decomposition (proof in A.5.1). Mathematically, this yields:",
+        "bbox": [
+            169,
+            566,
+            825,
+            623
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\operatorname{Var} _ {x _ {0}, t, x _ {t}} (l _ {\\theta}) = \\underbrace {\\mathbb {E} _ {x _ {0} , t} \\left[ \\operatorname{Var} _ {x _ {t}} (l _ {\\theta} \\mid x _ {0} , t) \\right]} _ {\\text { Masking   Pattern   Noise } ⓐ} + \\underbrace {\\mathbb {E} _ {x _ {0}} \\left[ \\operatorname{Var} _ {t} (g _ {\\theta} (x _ {0} , t) \\mid x _ {0}) \\right]} _ {\\text { Masking   Rate   Noise } ⓑ} + \\underbrace {\\operatorname{Var} _ {x _ {0}} \\left(\\mathbb {E} _ {t} [ g _ {\\theta} (x _ {0} , t) ]\\right)} _ {\\text { Data   Noise } ⓒ}\\tag{2}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            186,
+            627,
+            790,
+            665
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "with $g _ { \\theta } ( x _ { 0 } , t ) = \\mathbb { E } _ { x _ { t } } [ l _ { \\theta } ~ \\vert ~ x _ { 0 } , t ] .$ . This decomposition relies on no hard assumptions and emerges naturally, so it both explains existing methods and lays a foundation for understanding how they may complement one another. As shown in Figure 1, the MDM training variance is decomposed into three factors: $\\textcircled{6}$ Masking Pattern Noise (randomness from $x _ { t }$ even if $x _ { 0 }$ and t are fixed), B Masking Rate Noise (variability in the expected loss $g ( x _ { 0 } , t )$ across different t for the same $x _ { 0 } )$ , and $©$ Data Noise (variability across $x _ { 0 } ,$ , as some are inherently easier or harder to predict). In contrast, ARMs are subject to only data noise $@$ Therefore, the high training variance of MDMs is explained by the extra sources $\\textcircled{8}$ and B , highlighting the need to reduce them to stabilize MDM training.",
+        "bbox": [
+            169,
+            670,
+            826,
+            787
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "To address this challenge, we introduce six techniques, including two core methods (P-POTS and MIRROR in §3.1) and four additional ones. Specifically, P-POTS is the Pareto optimal t-sampler among all unbiased ones in minimizing $\\textcircled{8} , \\textcircled{8 }$ and $© :$ it focuses training on high-variance tregions while down-weighting their updates to prevent destabilizing optimization. MIRROR, on the other hand, constructs two complementary noised inputs and employs their negative correlation to explicitly reduce $\\textcircled{4} .$ Crucially, these two methods exhibit strong synergy, leading us to recommend P-POTS alone for cost-efficiency and P-POTS+MIRROR for maximal performance.",
+        "bbox": [
+            169,
+            791,
+            826,
+            890
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Experiments validate our claims. On GSM8K, the accuracy of standard MDM training ranges from 50.6% to 53.7%, while P-POTS+MIRROR improves to 58.6%–62.0%. On HiTab, the accuracy range rises from 52.9%–62.6% to 66.0%–68.6%. On these textual datasets, our method allows MDMs to match or even surpass ARMs, with run-to-run variability reduced to near-ARM levels. On text-to-image-2M, the CLIP score range narrows from 28.61-34.28 to 34.10-35.27.",
+        "bbox": [
+            169,
+            895,
+            826,
+            924
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "page_number",
+        "text": "2",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            104,
+            825,
+            147
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Our major contributions can be summarized as follows:",
+        "bbox": [
+            171,
+            152,
+            540,
+            167
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "• We derive the first systematic variance decomposition for MDM training as a foundational framework (Eq. 2) and link prior w orks to relevant variance factors they actually address (§2).",
+        "bbox": [
+            171,
+            181,
+            823,
+            210
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "• We introduce six variance-reduction methods, with P-POTS Pareto optimal and P-POTS+MIR-ROR giving the best results. Each method is theoretically grounded with proofs or analysis, simple to implement (requiring little or no hyperparameter tuning) and robust across datasets.",
+        "bbox": [
+            171,
+            214,
+            825,
+            257
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "• We validate our methods on both textual and multi-modal data across various masked diffusion models, demonstrating their effectiveness and generality in stabilizing MDM training.",
+        "bbox": [
+            171,
+            261,
+            825,
+            291
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "2 RELATED WORK",
+        "text_level": 2,
+        "bbox": [
+            171,
+            310,
+            346,
+            325
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "The inherently high training variance in diffusion models has been empirically observed. Several remedies have been proposed, yet most of them target continuous diffusion models that are widely used in image generation, and relatively few of them directly apply to masked diffusion models, the model architecture behind dLLMs (diffusion LLMs). Moreover, due to the lack of a theoretical decomposition of the variance sources, the methods remain largely isolated and heuristic. Concretely:",
+        "bbox": [
+            169,
+            342,
+            825,
+            412
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "• Meng et al. (2021) proposes using denoising models trained at antithetic levels of Gaussian noise, which reduces mask pattern noise $\\textcircled{4} .$ but is limited to continuous diffusion models.",
+        "bbox": [
+            171,
+            424,
+            823,
+            453
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "• Xu et al. (2023) computes the denoising score as a self-normalized importance-sampled weighted average over a reference batch. It reduces $\\textcircled{8}$ and B , but introduces systematic bias with finite reference batches and suffer weight degeneracy in high-dimensional or poorly covered posteriors.",
+        "bbox": [
+            171,
+            457,
+            825,
+            501
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "• Jeha et al. (2024) uses a kth order Taylor expansion of the denoising score as a control variate and subtracting it (with an optimally fitted coefficient) from the Monte Carlo estimate. However, it depends on closed-form Gaussian moment calculations that don’t generalize to non-Gaussian noise $( \\mathrm { e . g . }$ , masked diffusion models). Moreover, the method’s reliance on low-order Taylor approximations leads to ineffective variance reduction under high noise or rapidly varying derivatives.",
+        "bbox": [
+            171,
+            503,
+            825,
+            575
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "• Kim et al. (2024) dynamically adjusts the probability of sampling each diffusion timestep based on online estimates of gradient variance. This reduces mask ratio noise B , but does not apply importance reweighting, which biases their loss estimates; moreover, the sampler is restricted to a simple $\\mathrm { B e t a } ( a , b )$ , which may fail to capture the true optimal sampling distribution.",
+        "bbox": [
+            171,
+            578,
+            826,
+            636
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "• Zhu et al. (2025) formalizes the variance of ELBO-based gradient estimates in masked diffusion language models and employs optimal Monte Carlo budget allocation and antithetic sampling, reducing the mask pattern noise $\\textcircled{8}$ , but is limited in preference optimization.",
+        "bbox": [
+            171,
+            638,
+            825,
+            683
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "• Arriola et al. (2025) select a t-sampling interval by evaluating candidate sub-intervals and choosing the one that minimizes evaluation variance, which reduces $\\textcircled{4} + \\textcircled { B } + \\textcircled { C }$ . While they justify clipping away extreme ts (e.g., to [0.45, 0.95]), our analysis suggests extremes can be worth emphasizing, so their gains likely come from clipping that sometimes approximates the optimal $p ( t )$",
+        "bbox": [
+            171,
+            686,
+            825,
+            744
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "3 METHOD",
+        "text_level": 2,
+        "bbox": [
+            171,
+            763,
+            284,
+            779
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Let’s recap the standard training algorithm for masked diffusion models (MDMs). Let $x _ { 0 }$ denote the concatenation of prompt and response tokens and $P$ denote the number of response tokens, then:",
+        "bbox": [
+            169,
+            794,
+            823,
+            824
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "1. Sample clean data $x _ { 0 }$ from the data distribution.",
+        "bbox": [
+            210,
+            835,
+            549,
+            849
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "2. Sample a masking rate $t \\sim \\mathcal { U } [ 0 , 1 ]$",
+        "bbox": [
+            209,
+            854,
+            462,
+            869
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "3. For each eligible token i, sample $U _ { i } \\sim \\mathcal { U } [ 0 , 1 ]$ , and construct $x _ { t }$ by replacing $x _ { 0 } ( i )$ with [MASK] if $U _ { i } < t ,$ , so each eligible token is independently masked with probability t.",
+        "bbox": [
+            207,
+            873,
+            823,
+            902
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "4. Compute the sample loss $\\begin{array} { r } { l _ { \\theta } ( x _ { 0 } , t , x _ { t } ) ~ = ~ - \\frac { 1 } { P t } \\sum _ { i = 1 } ^ { P } 1 [ x _ { t } ( i ) = \\tt [ M A S K ] ] \\log { p _ { \\theta } ( x _ { 0 } ( i ) \\mid x _ { t } ) } } \\end{array}$",
+        "bbox": [
+            210,
+            907,
+            834,
+            926
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "page_number",
+        "text": "3",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "5. Average $l _ { \\theta } ( x _ { 0 } , t , x _ { t } )$ across the batch to obtain $\\hat { l } _ { \\theta }$ and update θ via backpropagation.",
+        "text_level": 2,
+        "bbox": [
+            209,
+            103,
+            782,
+            119
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Which tokens are eligible for masking depends on the training stage: in pretraining both prompts and responses are eligible, while in supervised fine-tuning only responses are. This algorithm is a special case of discrete diffusion (Austin et al., 2021) – MDMs with $\\alpha _ { t } = t \\ ( { \\sec \\ } \\mathrm { E q } . \\ 1 )$ . Nearly all pretrained MDMs adopt this setting. Beyond this, MDMs can model both text and image tokens (Yang et al., 2025), making it a unified framework for both language and multi-modal modeling.",
+        "bbox": [
+            169,
+            128,
+            825,
+            200
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "To minimize the training objective in Eq. 1, gradient-based methods such as stochastic gradient descent (SGD) are typically used (Robbins & Monro, 1951). However, these methods require an empirical estimate of Eq. 1, which is usually the batch mean of losses $\\begin{array} { r l } { ~ } & { { } \\frac { 1 } { B } \\sum _ { i = 1 } ^ { B } \\ell ( x _ { 0 } ^ { ( i ) } , t _ { i } , x _ { t } ^ { ( i ) } } \\end{array}$ $\\theta )$ . For ARMs, this estimator is generally reliable, since the variance $( \\operatorname { E q } . 2 )$ arises only from ${ \\mathfrak { C } } .$ However, in MDM training, we question its reliability, since extra sources $\\textcircled{8}$ and B come into play. While the standard MDM training procedure gives an unbiased estimator of Eq. 1, its variance can be significantly high. This raises a central question – can we construct an alternative estimator that remains unbiased but achieves lower variance, providing a more stable basis for optimization?",
+        "bbox": [
+            169,
+            205,
+            825,
+            325
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "In the rest of this section, we introduce six methods – two core methods and then four others – to address the problem. A qualitative analysis of their combinations is provided in A.6.",
+        "bbox": [
+            169,
+            330,
+            823,
+            361
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3.1 CORE METHODS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            376,
+            333,
+            391
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3.1.1 P-POTS: PARAMETRIC-PARETO OPTIMAL T-SAMPLING",
+        "text_level": 2,
+        "bbox": [
+            171,
+            402,
+            614,
+            417
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "P-POTS (Parametric-Pareto Optimal Timestep Sampling) replaces the masking rate sampler $t \\sim$ $U [ 0 , 1 ]$ ] with a data-fitted non-uniform one to reduce $\\textcircled{8} + \\textcircled { B } + \\textcircled { C }$ . To estimate Eq. 1, standard training uses $t \\sim U [ 0 , 1 ]$ directly: unbiased but high variance (§3). Instead, one could use another t-sampler that remains unbiased but reduces variance via importance weights (Kahn & Marshall, 1953).",
+        "bbox": [
+            171,
+            426,
+            825,
+            483
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "We now derive the optimal unbiased t-sampler in the view of minimizing $\\textcircled{4} + \\textcircled { B } + \\textcircled { C }$ . If we instead sample $t \\sim p ( t )$ , we can re-weight to form $\\begin{array} { r } { \\frac { 1 } { p ( t ) } l _ { \\theta } } \\end{array}$ . This estimator has the same expectation as $t \\sim U [ 0 , 1 ]$ and is thus still unbiased in estimating the training objective 1, as shown below:",
+        "bbox": [
+            169,
+            488,
+            825,
+            536
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\mathbb {E} _ {t \\sim p, x _ {t}} \\left[ \\frac {1}{p (t)} l _ {\\theta} (x _ {0}, t, x _ {t}) \\right] = \\int_ {0} ^ {1} p (t) \\frac {1}{p (t)} g (t) d t = \\int_ {0} ^ {1} g (t) d t = \\mathbb {E} _ {t \\sim U, x _ {t}} (l _ {\\theta}),\\tag{3}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            235,
+            551,
+            759,
+            587
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "With Eq. 3 establishing the unbiasedness, we next turn to minimizing its variance from $x _ { 0 } , t$ and $x _ { t } .$ , which is exactly $\\widetilde { \\mathrm { ( A ) } } + \\widetilde { \\mathrm { B } } + \\widetilde { \\mathrm { C } } \\mathrm { ) }$ in Eq. 2. Define $v ( t ) = \\operatorname { V a r } _ { x _ { 0 } , x _ { t } } ( l _ { \\theta } ^ { \\circ } | \\ t )$ and $g ( t ) = E _ { x _ { 0 } , x _ { t } } ( l _ { \\theta } \\ |$ $t )$ . Under regularity conditions, Fubini’s theorem (Rudin, 1987) allows us to change the order of expectation between t and $x _ { 0 } , x _ { t }$ . The variance can then be written as (detailed proof in A.5.2):",
+        "bbox": [
+            171,
+            595,
+            825,
+            652
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\nⒶ + ⓐ + Ⓒ = \\operatorname{Var} _ {x _ {0}, t, x _ {t}} (\\frac {1}{p (t)} l _ {\\theta} (x _ {0}, t, x _ {t}))) = \\int_ {0} ^ {1} \\frac {g (t) ^ {2} + v (t)}{p (t)} d t - \\Big (\\int_ {0} ^ {1} g (t) d t \\Big) ^ {2}.\\tag{4}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            191,
+            656,
+            782,
+            691
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\np ^ {*} (t) = \\frac {\\sqrt {g (t) ^ {2} + v (t)}}{\\int_ {0} ^ {1} \\sqrt {g (t) ^ {2} + v (t)} d t} \\propto \\sqrt {g (t) ^ {2} + v (t)}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            295,
+            717,
+            589,
+            744
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\nⒶ, Ⓑ\n$$",
+        "text_format": "latex",
+        "bbox": [
+            696,
+            720,
+            743,
+            738
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\nⒸ\n$$",
+        "text_format": "latex",
+        "bbox": [
+            771,
+            720,
+            792,
+            738
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\nU [ 0, 1 ]\n$$",
+        "text_format": "latex",
+        "bbox": [
+            511,
+            744,
+            560,
+            758
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Algorithm of P-POTS. Since $g ( t )$ and $v ( t )$ are unknown, P-POTS estimates them empirically: before training, for each of $\\{ x _ { 0 } ^ { ( i ) } \\} _ { i = 1 } ^ { a }$ , draw b values $\\{ t _ { j } \\} _ { j = 1 } ^ { b }$ and, for each $( x _ { 0 } ^ { ( i ) } , t _ { j } )$ , draw c masked samples $\\{ x _ { t } ^ { ( i , j , k ) } \\} _ { j = 1 } ^ { c }$ with losses $\\ell _ { i , j , k } : = l _ { \\theta } ( x _ { 0 } ^ { ( i ) } , t _ { j } , x _ { t } ^ { ( i , j , k ) } )$ . We then compute",
+        "bbox": [
+            171,
+            763,
+            823,
+            819
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\hat {g} _ {j} = \\frac {1}{a c} \\sum_ {i = 1} ^ {a} \\sum_ {k = 1} ^ {c} \\ell_ {i, j, k}, \\hat {v} _ {j} = \\frac {1}{a} \\sum_ {i = 1} ^ {a} \\frac {1}{c - 1} \\sum_ {k = 1} ^ {c} (\\ell_ {i, j, k} - \\frac {1}{c} \\sum_ {k ^ {\\prime} = 1} ^ {c} \\ell_ {i, j, k ^ {\\prime}}) ^ {2}, \\hat {p} _ {j} = \\sqrt {\\hat {g} _ {j} ^ {2} + \\hat {v} _ {j}} / \\sum_ {j = 1} ^ {c} \\sqrt {\\hat {g} _ {j} ^ {2} + \\hat {v} _ {j}}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            171,
+            824,
+            823,
+            864
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "for $j = 1 , \\dotsc , b$ . The weights $\\{ \\hat { p } _ { j } \\} _ { j = 1 } ^ { b }$ represent an empirical scatter of the underlying optimal $p ^ { * } ( t )$ . To capture its structure, we design a model called EPR (Exponential-Polynomial Root) as:",
+        "bbox": [
+            169,
+            871,
+            823,
+            902
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\np ^ {\\mathrm{EPR}} (t) = \\sqrt {a t ^ {r} + b (1 - t) ^ {q} + A ^ {2} \\exp (2 \\kappa t ^ {m})}, \\qquad a, b, A, \\kappa > 0, r, q \\geq 0, m > 1\\tag{5}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            220,
+            907,
+            774,
+            925
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "page_number",
+        "text": "4",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "chart",
+        "img_path": "images/b7f908c7ffb738b996e72c5115acd1147d9055a21e9d41fd9ec9d1d59ea59e50.jpg",
+        "content": "",
+        "chart_caption": [
+            "(a) OpenScience"
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            179,
+            104,
+            383,
+            219
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "chart",
+        "img_path": "images/8042ce480403501d39d3e8f351dae922943b82b617729d79628b67fbf952a4c3.jpg",
+        "content": "",
+        "chart_caption": [
+            "(b) GSM8K"
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            400,
+            104,
+            602,
+            219
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "chart",
+        "img_path": "images/1354357bfa2e51691658f9d17e10ab31a1295decbc9c3307d6bd8ad328303181.jpg",
+        "content": "",
+        "chart_caption": [
+            "(c) HiTab",
+            "Figure 2: Empirical $\\{ p _ { j } \\} _ { j = 1 } ^ { b }$ (scatter) and the fitted curve $p ^ { * } ( t ) = \\sqrt { g ( t ) ^ { 2 } + v ( t ) }$ (line) on three datasets: (a) OpenScience, (b) GSM8K, and (c) HiTab. The equations in each subplot show the fitted forms of $g ( t )$ and $v ( t )$ which together characterize the sampling distribution across masking rates t."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            620,
+            104,
+            821,
+            219
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "with $g ^ { \\mathrm { E P R } } ( ( t ) = A \\exp ( \\kappa t ^ { m } )$ and $v ^ { \\mathrm { E P R } } ( ( t ) = b ( 1 - t ) ^ { q } + a t ^ { r }$ , and we fit it via KL divergence. By the EPV rule that suggests 10 data points per fitted parameter (Peduzzi et al., 1996), we set $b = 7 0$ and slightly raise a and c to 15, which proved reliable. As shown in Figure 2, EPR fits $\\{ \\hat { p } _ { j } \\} _ { j = 1 } ^ { 7 0 }$ almost perfectly with only seven parameters, suggesting it captures the characteristic form of optimal $p ^ { * } ( t )$",
+        "bbox": [
+            169,
+            310,
+            825,
+            371
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Intuition behind P-POTS. We call a t hard to train if $\\sqrt { g ^ { 2 } ( t ) + v ( t ) }$ is large, typically at higher t (Figure 2). Our P-POTS allocates more samples to these regions, providing extra training on them, while the reweighting factor $1 / p ^ { * } ( t )$ keeps their contribution small so that their noisy signals do not dominate and hurt global optimization. In this way, $p ^ { * } ( t )$ acts as an adaptive sampler, directing training effort where it is most needed and using resources more efficiently.",
+        "bbox": [
+            169,
+            377,
+            826,
+            449
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Intuition behind EPR. To motivate our forms of $v ^ { \\mathrm { E P R } } ( t )$ and $g ^ { \\mathrm { E P R } } ( t )$ in Eq. 5, we consider loss behavior at different t. The mean loss $g ( t )$ reflects average task difficulty at t. Its growth is not just because more tokens are masked, but because entire reasoning chains are broken. Once a chain is cut, the model must guess at multiple points, and errors compound multiplicatively (or equivalently, add in log space), motivating an exponential form with delayed ignition. The design of $m > 1$ ensures $g ^ { \\mathrm { E P R ^ { \\prime } } } ( 0 ) = 0$ , since the average loss $g ( t )$ at $t = 0$ is 0 and must be a local minimum.",
+        "bbox": [
+            169,
+            454,
+            825,
+            542
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Meanwhile, empirically, we find that $v ( t )$ falls when t is small, rises after a local minimum, and falls again after a local maximum – thus exhibiting up to two turning points. We explain this behavior as follows. At small t, a loss spike occurs if a critical set of r key tokens is masked simultaneously $( \\sim t ^ { r } )$ . At large t, loss remains high unless a set of $q$ key tokens survives $( \\sim ( 1 - t ) ^ { q } )$ . Since the variance of a rare event is approximately its probability, and multiple nearly independent rare events contribute additively, these mechanisms together generate the observed curvature . Based on this explanation, we propose the model $v ( t ) = \\bar { a } t ^ { r } + \\bar { b ( 1 - t ) } ^ { q }$",
+        "bbox": [
+            169,
+            547,
+            826,
+            647
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "While one may wonder if it suffices to naively fit $\\{ p _ { j } \\} _ { j = 1 } ^ { b }$ with polynomials, we argue this is problematic for three reasons. First, as discussed in the next paragraph, $p ( t )$ faces a drift problem: its shape may evolve during training. Although this drift is typically slow, it can become severe if the training loss remains high $( e . g .$ ., MMaDA on text-to-image-2M). Consequently, polynomials quickly lose effectiveness if the true functional form of $p ^ { * } ( t )$ is not well understood. Experiments in A.8 show that EPR performs better in this case. Second, polynomials require manual tuning of degree, while P-POTS requires no tuning at all. Third, they lack interpretability and ignore known structure.",
+        "bbox": [
+            169,
+            651,
+            826,
+            753
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Drift of $p ( t )$ . While $p ( t )$ reduces variance, it may become outdated as model evolves during training—a phenomenon we refer to as the drift $o f p ( t )$ . In practice, P-POTS only fits $p ^ { * } ( t )$ once before training and then replaces the uniform sampler. This incurs negligible overhead, but leaves the sampler static and therefore potentially exposed to drift. Empirically, however, the drift tends to be slow, since our experiments show strong gains even without correction; see §4. An adaptive strategy, such as periodically re-estimating $p ( t )$ to re-estimate $p ( t )$ , could address this. Given the strong empirical performance of P-POTS, we leave such validation to future work.",
+        "bbox": [
+            169,
+            758,
+            826,
+            858
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "3.1.2 MIRROR: VARIANCE REDUCTION WITH MIRRORED MASKS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            871,
+            651,
+            886
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "MIRROR (Variance reduction with MIRRORed masks) targets $\\textcircled{8}$ by creating two masked samples complementarily from the same $x _ { 0 }$ and t. With the notation introduced in $\\ S 3$ , it works as follows:",
+        "bbox": [
+            169,
+            895,
+            825,
+            924
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "page_number",
+        "text": "5",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "1. Sample clean data $x _ { 0 }$ from the data distribution.",
+        "bbox": [
+            210,
+            104,
+            547,
+            119
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "2. Sample a masking rate $t \\sim \\mathcal { U } [ 0 , 1 ]$",
+        "bbox": [
+            210,
+            122,
+            464,
+            137
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "3. After sampling $x _ { 0 }$ and $t ,$ for each eligible token $i ,$ sample, and generate two noisy samples:",
+        "bbox": [
+            209,
+            141,
+            823,
+            156
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "• $\\boldsymbol { x } _ { t } ^ { 1 }$ by masking $x _ { 0 } ( i )$ if $U _ { i } < t$",
+        "bbox": [
+            230,
+            159,
+            450,
+            175
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "• $\\boldsymbol { x } _ { t } ^ { 2 }$ by masking $x _ { 0 } ( i )$ if $U _ { i } > 1 - t$",
+        "bbox": [
+            230,
+            175,
+            477,
+            191
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "4. Compute $\\begin{array} { r } { l _ { j } = - \\frac { 1 } { t } \\sum _ { i = 1 } ^ { P } 1 \\big [ x _ { t } ^ { j } ( i ) = [ \\mathtt { M A S K } ] \\big ] \\log p _ { \\theta } ( x _ { 0 } ( i ) \\mid x _ { t } ^ { j } ) \\mathrm { f o r } j \\in \\{ 1 , 2 \\} } \\end{array}$",
+        "bbox": [
+            210,
+            195,
+            750,
+            214
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "5. Average $\\begin{array} { r } { \\bar { l } = \\frac { 1 } { 2 } ( l _ { 1 } + l _ { 2 } ) } \\end{array}$ across batch for backpropagation.",
+        "bbox": [
+            210,
+            217,
+            611,
+            234
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Compared to standard training that averages $l _ { 1 }$ from a single $\\boldsymbol { x } _ { t } ^ { 1 }$ across the batch, MIRROR uses $\\bar { l } ,$ which remains unbiased in estimating the the training objective $( \\mathrm { E q . ~ 1 ) }$ . It uses the same number of $x _ { 0 }$ samples, thereby avoiding overfitting. While it doubles training cost due to an extra forward pass, it is particularly effective on long-response datasets and shows strong synergy with P-POTS.",
+        "bbox": [
+            169,
+            244,
+            825,
+            304
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Intuition behind MIRROR. MIRROR can be understood as a hedging strategy between two assets. To reduce $\\textcircled{8} .$ one needs a loss estimate from $x _ { 0 }$ with lower variance that arises solely from masking patterns. Suppose the token sequence is masked at n positions, if the easier tokens are masked $( e . g .$ uninformative prefix tokens) versus the harder ones $( e . g .$ , answer tokens), the resulting losses can differ significantly. To reduce this variance, MIRROR samples two noised inputs as described above. Due to the “complementary” masking pattern design, the two noised samples tend to yield negatively correlated losses. Consequently, regardless of whether $\\boldsymbol { x } _ { t } ^ { 1 }$ correspond to an easier or harder case, $x _ { t } ^ { 2 }$ provides the complementary one, and the averaged loss from them still remains a reliable estimate.",
+        "bbox": [
+            169,
+            309,
+            825,
+            422
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "$\\textcircled{4}$ Reduced by at Least a Half. Given $x _ { 0 }$ and t, the only randomness comes from $x _ { t } .$ Since $l _ { 1 }$ and $l _ { 2 }$ are identically distributed, define $\\sigma ^ { 2 } = \\mathrm { V a r } ( l _ { 1 } ) = \\mathrm { V a r } ( l _ { 2 } )$ and $\\rho = \\mathrm { C o r r } ( l _ { 1 } , l _ { 2 } ) \\le 0$ . Then",
+        "bbox": [
+            171,
+            428,
+            825,
+            459
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\operatorname{Var} (\\bar {l}) = \\operatorname{Var} \\left(\\frac {1}{2} \\left(l _ {1} + l _ {2}\\right)\\right) = \\frac {1}{4} \\left(\\operatorname{Var} \\left(l _ {1}\\right) + \\operatorname{Var} \\left(l _ {2}\\right) + 2 \\operatorname{Cov} \\left(l _ {1}, l _ {2}\\right)\\right) = \\frac {2 \\sigma^ {2}}{4} (1 + \\rho) = \\frac {\\sigma^ {2}}{2} (1 + \\rho),\n$$",
+        "text_format": "latex",
+        "bbox": [
+            171,
+            464,
+            826,
+            496
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "The effectiveness of variance reduction depends on $\\rho = \\mathrm { C o r r } ( l _ { 1 } , l _ { 2 } )$ . Since $\\rho \\in [ - 1 , 1 ] , \\operatorname { V a r } ( { \\bar { l } } ) \\leq$ $\\mathrm { V a r } ( l _ { 1 } )$ , so MIRROR is never worse than standard training. Because $\\boldsymbol { x } _ { t } ^ { 1 }$ and $x _ { t } ^ { 2 }$ are constructed complementarily, $\\rho$ tends to be negative, which already reduces $\\textcircled{8}$ by at least a half. For $t < 0 . 5$ the two masks have no overlap, producing even stronger negative correlation between $l _ { 1 }$ and $l _ { 2 }$ and thus greater variance reduction. This explains its synergy with P-POTS (discussed later in §3.1.3).",
+        "bbox": [
+            169,
+            508,
+            823,
+            582
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Comparison to MultiSample-k. We refer to as MultiSample-k the method that estimates $l _ { \\theta } ( \\cdot \\ |$ $x _ { 0 } , t )$ by drawing k independent masked samples $x _ { t } ^ { ( 1 ) } , \\ldots , x _ { t } ^ { ( k ) }$ from the same masking strategy $U _ { i } < t$ and averaging $\\begin{array} { r } { \\tilde { l } = \\frac { 1 } { k } \\sum _ { j = 1 } ^ { k } l _ { \\theta } ( x _ { t } ^ { ( j ) } \\mid x _ { 0 } , t ) } \\end{array}$ . Our comparison focuses on:",
+        "bbox": [
+            171,
+            587,
+            825,
+            638
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "• Negative Correlation: MultiSample-2 uses independent masks, so $\\mathrm { C o v } ( l _ { 1 } , l _ { 2 } ) = 0 .$ . MIRROR introduces natural complementarity, leading to $\\mathrm { C o v } ( l _ { 1 } , l _ { 2 } ) < 0$ and better variance reduction.",
+        "bbox": [
+            171,
+            651,
+            823,
+            680
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "• Token Coverage: Only masked tokens contribute to gradient updates. Intuitively, masking more tokens reduces pattern noise, as each token carries less individual weight when more contribute. Standard training masks each token with probability t, giving expected coverage $t P .$ MIRROR uses complementary masks, which together maximize two-view coverage as ${ \\mathrm { P r } } ( i \\in M _ { 1 } \\cup M _ { 2 } ) \\ =$ $\\operatorname* { P r } ( U _ { i } < \\mathbf { \\dot { \\tau } } t ) + \\operatorname* { P r } ( \\dot { U } _ { i } > 1 - t ) \\ = \\ \\operatorname* { m i n } ( 1 , 2 t )$ . By contrast, MultiSample2 does not have double coverage: $\\operatorname* { P r } ( i \\in M _ { 1 } \\cup M _ { 2 } ) = 1 - \\operatorname* { P r } ( i \\notin M _ { 1 } \\cap \\dot { M } _ { 2 } ) = 1 - \\left( 1 - t \\right) ^ { 2 } = 2 t - t ^ { 2 } \\leq 2 t$",
+        "bbox": [
+            171,
+            684,
+            825,
+            768
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "3.1.3 SYNERGY OF P-POTS AND MIRROR",
+        "text_level": 2,
+        "bbox": [
+            171,
+            782,
+            491,
+            797
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "P-POTS and MIRROR are compatible because they rely on non-interacting assumptions – accurate modeling of $p ( t )$ and negative correlation between $( x _ { t } ^ { 1 } , \\dot { x } _ { t } ^ { 2 } )$ . However, why their combination yields synergies beyond simple additivity $( 1 + 1 > 2 )$ worth further investigation.",
+        "bbox": [
+            169,
+            806,
+            823,
+            849
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "To answer this question, we return to Eq. 4, the variance in estimating the training objective $( l _ { \\theta }$ in Eq. 1). With $p ( t ) \\propto \\sqrt { g ^ { 2 } ( t ) + v ( t ) }$ , it becomes $\\begin{array} { r } { \\bigg ( \\int _ { 0 } ^ { 1 } \\sqrt { { g ^ { * } } ^ { 2 } ( t ) + v ^ { * } ( t ) } d t \\bigg ) ^ { 2 } - \\bigg ( \\int _ { 0 } ^ { 1 } g ^ { * } ( t ) d t \\bigg ) ^ { 2 } } \\end{array}$ Since this value no longer depends on $p ( t )$ , for fixed ${ \\bf \\boldsymbol { g } } ( t )$ and $v ( t )$ , it cannot be further reduced by altering $p ( t )$ . However, it can still be lowered by changing $g ( t )$ and $v ( t )$ during training.",
+        "bbox": [
+            169,
+            854,
+            823,
+            925
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "page_number",
+        "text": "6",
+        "bbox": [
+            493,
+            948,
+            504,
+            960
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Suppose $\\boldsymbol { v } ( t ) \\ \\ne \\ \\boldsymbol { 0 }$ and $\\textstyle \\int _ { 0 } ^ { 1 } v ( t ) d t \\ = \\ V \\ > \\ 0$ is fixed. The variance depends on how close $\\begin{array} { r } { \\int _ { 0 } ^ { 1 } \\sqrt { g ^ { 2 } ( t ) + v ( t ) } } \\end{array}$ dt and $\\begin{array} { r } { \\int _ { 0 } ^ { 1 } g ( t ) \\ d t } \\end{array}$ dt are. To bring them closer, $v ( t )$ should be concentrated where $g ( t )$ is large, as $\\sqrt { g ^ { 2 } ( t ) + v ( t ) }$ is less sensitive to $v ( t )$ in this regime. MIRROR helps here by suppressing $v ( t )$ most strongly at moderate t, leaving v(t) relatively larger where $g ( t )$ is high. Thus, MIRROR naturally shifts $v ( t )$ towards the direction favored by P-POTS. Together they reinforce each other: MIRROR clears moderate-t regions, while P-POTS emphasizes low- and high-t. This synergy is remarkable, as naive method combinations rarely deliver such gains (A.6).",
+        "bbox": [
+            169,
+            102,
+            825,
+            212
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "3.2 OTHER TECHNIQUES",
+        "text_level": 2,
+        "bbox": [
+            171,
+            228,
+            362,
+            244
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "We introduce several other variance-reduction techniques as baseline methods in our experiments.",
+        "bbox": [
+            171,
+            255,
+            821,
+            271
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "3.2.1 ISAD: IMPORTANCE SAMPLING ON ANSWER DELIMITERS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            287,
+            635,
+            303
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "ISAD shift masking toward answer delimiters, targeting $\\textcircled{8}$ , by the sampling distribution:",
+        "bbox": [
+            171,
+            311,
+            759,
+            329
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "equation",
+        "text": "$$\nq _ {j} (t) = \\left\\{ \\begin{array}{l l} t, & \\text { if   token   j\\notin   rare   ids }, \\\\ \\min (1, t + \\Delta), & \\text { if   token   j\\in   rare   ids }, \\end{array} \\right.\n$$",
+        "text_format": "latex",
+        "bbox": [
+            334,
+            338,
+            660,
+            372
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "with $\\Delta \\in ( 0 , 1 )$ . To keep the estimator unbiased, token-level losses are reweighted by $1 / q _ { j } ( t )$ . The intuition is to guide the model on when to output answer tokens for better downstream performance.",
+        "bbox": [
+            169,
+            381,
+            825,
+            412
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "3.2.2 SYRM: SYNTAX-AND-RESPONSE MASK",
+        "text_level": 2,
+        "bbox": [
+            171,
+            426,
+            509,
+            443
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "SyRM is designed for structured data such as HTML tables, source code, or graphs. We partition tokens into two groups: (i) response tokens $R ,$ and (ii) syntax tokens C in the prompt. For example, in an HTML table, $\\dot { C }$ includes tags such as <table>, <tr>, <th>, and <td>. SyRM modifies the eligibility set for masking to $R \\cup C ,$ so that both response tokens and syntax tokens may be masked.",
+        "bbox": [
+            169,
+            452,
+            825,
+            511
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Rationale. Assuming (i) tokens within each group are homogeneous in first and second moments of token-level losses, (ii) syntax tokens are predicted more stably than response tokens, and (iii) reasoning errors couple response tokens more strongly, we show that SyRM reduces masking-pattern noise $\\textcircled{8}$ at the cost of a small, bounded bias (optimum shift). Overall, the mean-squared error of estimating training loss can still decrease. Intuitively, by treating easy-to-predict syntax tokens as auxiliary targets, SyRM stabilizes training and mitigates mask-pattern noise, while still preserving the primary learning signal on response tokens (see A.5.4 for the rigorous proof).",
+        "bbox": [
+            169,
+            516,
+            826,
+            616
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "3.2.3 STRATS: STRATIFIED T-SAMPLING",
+        "text_level": 2,
+        "bbox": [
+            171,
+            631,
+            472,
+            646
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Instead of drawing i.i.d. $t _ { i } \\sim \\mathcal { U } [ 0 , 1 ]$ for batch size n, partition [0, 1] into k equal strata $[ j / k , ( j +$ $1 ) / k ]$ with $j = 0 , \\ldots , k - 1$ and draw $\\left\\lfloor { \\frac { n } { k } } \\right\\rfloor$ values of $t _ { i }$ per stratum, with leftovers assigned randomly.",
+        "bbox": [
+            171,
+            655,
+            823,
+            688
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "This approach was first introduced in Sahoo et al. (2024) with $k = n$ . In this work, we prove that stratified sampling yields an unbiased estimator and reduces $\\textcircled{8}$ via inter-stratum variance. Furthermore, we recommend $k = \\lceil { \\sqrt { n } } \\rceil$ instead of $k = n$ as a general strategy (see Appendix A.5.5). Although StraTS uses stratified sampling for the t-sampler instead of $p ^ { * } ( t ) \\left( \\ S 3 . 1 . 1 \\right)$ and is not optimal for minimizing $A _ { x _ { 0 } } + B _ { x _ { 0 } }$ , it still outperforms baselines and is easy to implement.",
+        "bbox": [
+            169,
+            691,
+            825,
+            763
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "3.2.4 EMA: BIN-WISE EMA CONTROL VARIATE",
+        "text_level": 2,
+        "bbox": [
+            171,
+            779,
+            532,
+            794
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "To reduce $\\textcircled{8}$ , we reduce its variance arising from heteroscedastic losses across masking rates by maintaining an exponential moving average (EMA) of losses within bins of $t \\in [ 0 , 1 ]$ Each bin tracks a baseline that is updated online, yielding a piecewise-constant approximation of the expected loss against t. By using these bin-wise estimates as control variates, we cancel baseline-related noise more effectively than with fixed scaling, while preserving unbiasedness of gradient estimates.",
+        "bbox": [
+            169,
+            804,
+            825,
+            876
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "This approach requires choosing the number of bins $m$ and EMA rate $\\eta ,$ which balances stability and adaptivity. From our MSE-minimization analysis in A.5.6, we derive m×batch size per GPU ≈ $0 . 1 \\times n \\times$ (train data size), which serves as a practical rule for selecting m and $\\eta .$",
+        "bbox": [
+            169,
+            882,
+            825,
+            925
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "page_number",
+        "text": "7",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "4 EXPERIMENTS",
+        "text_level": 2,
+        "bbox": [
+            173,
+            103,
+            328,
+            118
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "image",
+        "img_path": "images/e10b49bd253908d9e68cafb9d5bf6f941141ef3bdecfcb22b6309575ab8aa24a.jpg",
+        "image_caption": [
+            "(a)"
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            174,
+            155,
+            331,
+            277
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "image",
+        "img_path": "images/5b69d05d9ec4a0c210d0a9125e66d27e246c042e75477077f042c0d86760d7dd.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            339,
+            154,
+            498,
+            277
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "image",
+        "img_path": "images/06f3245798b22986a951b4759c901746e39a155ffa9a26acf5488e20b16cdd14.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            506,
+            154,
+            663,
+            277
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "image",
+        "img_path": "images/8d3970bdfccbb7db01bf3974d4aacb440a3427d9d40d44001efc7d633ccc69d1.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            666,
+            155,
+            823,
+            277
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "image",
+        "img_path": "images/4f3397da042e213e515e7148068de982643b7829697d4facfc9db541bb5671e3.jpg",
+        "image_caption": [
+            "(b)",
+            "(e)"
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            174,
+            297,
+            331,
+            419
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "image",
+        "img_path": "images/9f4639d2dd4eed2e50473a0cedbbcdefd7a89b5035cb49683d2b9411a2bfd753.jpg",
+        "image_caption": [
+            "(d)",
+            "(f)"
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            339,
+            296,
+            498,
+            419
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "image",
+        "img_path": "images/b131fc6dcf3a665a23d26682cb2fad4ef63b249f00847c5e376a7fa5b1d86059.jpg",
+        "image_caption": [
+            "(c)",
+            "(g)"
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            506,
+            295,
+            665,
+            419
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "image",
+        "img_path": "images/d712d984428d06011d3c1959313c8ddaa2d527ba686341bec16ef0c491b72d3a.jpg",
+        "image_caption": [
+            "(h)",
+            "Figure 3: Images generated by MMaDA-8B-MixCoT trained with P-POTS+MIRROR (top row) and the standard method (bottom row) under the same seed. The columns correspond to the prompts: 1) A woman with blonde hair is wearing a colorful crochet headband and a black top with a floral patterned shawl. She is holding a toy sword with a green handle and a yellow ball on top; 2) A rustic wooden farmhouse with a weathered roof and a small porch stands in a field of dry grass. The sky is filled with fluffy white clouds, and a single bird is flying in the distance. The landscape is devoid of any other structures or signs of life, giving the scene a serene and isolated feel; 3) A car is on fire under a bridge with smoke billowing out. The fire is intense, with flames visible on the car’s underside. The bridge has a metal railing and is located near a forested area. There is a street lamp above the bridge, and the scene appears to be at night or during dusk; 4) A close-up of a grey fringed purse with a tassel detail on the front. The purse is placed on a surface with a soft, blurred background; more case studies can be found in A.11."
+        ],
+        "image_footnote": [],
+        "content": "",
+        "bbox": [
+            665,
+            296,
+            823,
+            419
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Limited by resources, and given that current MDMs perform comparably to strong ARM baselines (Nie et al., 2025; Yang et al., 2025), we focus our validation on supervised fine-tuning, though our methods naturally extend to pretraining. We evaluate our methods using the setup below:",
+        "bbox": [
+            171,
+            589,
+            825,
+            633
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Setting. We train each model three times independently using seeds 42, 731 and 20231, holding model, data and all hyper-parameters fixed, and evaluate the trained models by greedy decoding. This setting ensures difference across runs arise solely from training, not inference.",
+        "bbox": [
+            171,
+            638,
+            825,
+            681
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Tasks. We evaluate on three textual datasets – OpenScience (NVIDIA Corporation, 2025), GSM8K (Cobbe et al., 2021), and HiTab (Cheng et al., 2022) – as well as one image generation dataset, text-to-image-2M (Hate, 2024). OpenScience is a multi-domain, knowledge-intensive dataset spanning humanities, law, and STEM; GSM8K targets mathematical reasoning; and HiTab focuses on tabular question answering. Together with the multimodal text-to-image-2M benchmark, diverse data modalities and domains are covered. Details of data processing and training/inference hyper-parameters are provided in Appendix A.7. We report pass@1 accuracy for OpenScience, GSM8K and HiTab, and CLIP score for text-to-image-2M.",
+        "bbox": [
+            169,
+            686,
+            826,
+            800
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Models. We evaluate two MDMs in total. On textual datasets, we evaluate one MDM, LLaDA-8B-Instruct (Nie et al., 2025), with three ARMs, Qwen2.5-7B-Instruct (Team, 2024), Qwen3-8B (Team, 2025) and Llama3.1-8B-Instruct (Meta AI, 2024b). For text-to-image-2M, we evaluate one multimodal MDM, MMaDA-8B-MixCoT (Yang et al., 2025).",
+        "bbox": [
+            169,
+            805,
+            825,
+            863
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Baselines. We compare our methods to two baselines: (i) standard training (§3), and (ii) the clipped noise schedule of Arriola et al. (2025), which has been reported to achieve the best performance on perplexity across most standard schedules (Chang et al., 2022), including linear, logarithmic, square root, square, and cosine. We therefore adopt it as a representative baseline.",
+        "bbox": [
+            169,
+            867,
+            826,
+            925
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "page_number",
+        "text": "8",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "table",
+        "img_path": "images/71f5b57ea6ee960143974a0c67e6e918f7b6e249ba92b14f06d9226b5ec6e251.jpg",
+        "table_caption": [
+            "Table 1: Per-seed performance comparison of MDMs and ARMs. The best performance within MDMs training methods is bolded. Training is repeated under three seeds, with model, data and all hyper-parameters fixed, and we evaluate trained models by greedy decoding, so difference across runs are solely from training rather than inference. Avg is the mean over available runs."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td rowspan=\"2\">Method (Seed)</td><td colspan=\"4\">OpenScience</td><td colspan=\"4\">GSM8K</td><td colspan=\"4\">HiTab</td></tr><tr><td>42</td><td>731</td><td>20231</td><td>Avg</td><td>42</td><td>731</td><td>20231</td><td>Avg</td><td>42</td><td>731</td><td>20231</td><td>Avg</td></tr><tr><td colspan=\"13\">LLaDA-8B-Instruct</td></tr><tr><td>P-POTS+Mirror</td><td>50.80</td><td>53.80</td><td>53.00</td><td>52.53</td><td>62.02</td><td>58.61</td><td>60.96</td><td>60.53</td><td>66.02</td><td>66.67</td><td>68.62</td><td>67.10</td></tr><tr><td>P-POTS</td><td>45.34</td><td>47.60</td><td>47.47</td><td>46.80</td><td>59.59</td><td>59.36</td><td>56.79</td><td>58.58</td><td>60.56</td><td>64.74</td><td>58.80</td><td>61.37</td></tr><tr><td>MIRROR</td><td>45.63</td><td>47.25</td><td>46.25</td><td>46.38</td><td>56.56</td><td>51.40</td><td>53.15</td><td>53.70</td><td>64.72</td><td>65.04</td><td>63.68</td><td>64.48</td></tr><tr><td>ISAD</td><td>45.40</td><td>-</td><td>-</td><td>45.40</td><td>55.27</td><td>-</td><td>-</td><td>55.27</td><td>64.39</td><td>-</td><td>-</td><td>64.39</td></tr><tr><td>SyRM</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>59.79</td><td>-</td><td>-</td><td>59.79</td></tr><tr><td>StraTS</td><td>44.69</td><td>-</td><td>-</td><td>44.69</td><td>55.57</td><td>-</td><td>-</td><td>55.57</td><td>61.86</td><td>-</td><td>-</td><td>61.86</td></tr><tr><td>EMA</td><td>47.08</td><td>-</td><td>-</td><td>47.08</td><td>52.39</td><td>-</td><td>-</td><td>52.39</td><td>61.66</td><td>-</td><td>-</td><td>61.66</td></tr><tr><td>Clipped</td><td>47.90</td><td>49.20</td><td>50.90</td><td>49.33</td><td>55.57</td><td>54.60</td><td>58.38</td><td>56.18</td><td>58.90</td><td>60.80</td><td>62.20</td><td>60.63</td></tr><tr><td>Standard</td><td>43.57</td><td>46.50</td><td>46.50</td><td>45.52</td><td>50.64</td><td>53.22</td><td>53.68</td><td>52.51</td><td>52.96</td><td>60.43</td><td>62.64</td><td>58.68</td></tr><tr><td colspan=\"13\">Auto-Regressive Large Language Models</td></tr><tr><td>Qwen2.5-7B-Instruct</td><td>47.85</td><td>46.30</td><td>45.10</td><td>46.42</td><td>56.20</td><td>54.66</td><td>53.60</td><td>54.82</td><td>46.55</td><td>45.74</td><td>45.20</td><td>45.83</td></tr><tr><td>Qwen3-8B-Base</td><td>53.05</td><td>51.70</td><td>50.10</td><td>51.62</td><td>72.40</td><td>70.58</td><td>69.80</td><td>70.93</td><td>49.70</td><td>48.84</td><td>48.20</td><td>48.91</td></tr><tr><td>Llama3.1-8B-Instruct</td><td>44.95</td><td>47.07</td><td>47.76</td><td>46.59</td><td>47.60</td><td>46.40</td><td>49.10</td><td>47.70</td><td>65.02</td><td>66.28</td><td>64.88</td><td>65.39</td></tr></table>",
+        "bbox": [
+            174,
+            155,
+            823,
+            410
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "table",
+        "img_path": "images/d5844e0f1604e0187581b1b1084a733b8891b3063c7be310a732e8fef47ee7cc.jpg",
+        "table_caption": [
+            "Table 2: Per-seed performance of MMaDA-8B-MixCoT on text-to-image-2M. We report CLIP scores under three training seeds with identical model, data, and hyper-parameters. Avg is the mean CLIP over runs."
+        ],
+        "table_footnote": [],
+        "table_body": "<table><tr><td rowspan=\"2\">Method (Seed)</td><td colspan=\"3\">text-to-image-2M</td><td rowspan=\"2\">Avg</td></tr><tr><td>42</td><td>731</td><td>20231</td></tr><tr><td>P-POTS+Mirror</td><td>35.27</td><td>34.10</td><td>34.39</td><td>34.59</td></tr><tr><td>Standard</td><td>28.61</td><td>34.28</td><td>31.19</td><td>31.36</td></tr><tr><td>P-POTS</td><td>31.51</td><td>30.02</td><td>33.41</td><td>31.65</td></tr><tr><td>Mirror</td><td>34.88</td><td>33.77</td><td>33.57</td><td>34.07</td></tr></table>",
+        "bbox": [
+            303,
+            462,
+            692,
+            590
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "4.1 KEY INSIGHTS",
+        "text_level": 2,
+        "bbox": [
+            171,
+            625,
+            320,
+            638
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "MDMs exhibit uniquely high training variance, which makes gradient updates noisy and optimization less stable. As a result, even pretrained MDMs are shown to achieve comparable performance with strong ARMs, after task-specific training, they often under-perform by a wide margin. This instability is evident in Table 1: under standard MDM training on HiTab, accuracy varies substantially across random seeds (about 52% ∼ 63%), and the mean performance across datasets frequently remains below that of ARMs. Our method targets this root cause by reducing MDM training variance. Figure 4 shows that P-POTS+MIRROR (green) converges to a lower final loss with smoother dynamics than the Standard method (red), indicating more stable training. This improved stability shows consistent improvement and closes the training gap effectively: on all three textual benchmarks, even the best Standard/Clipped run remains below the worst run of our method (OpenScience: best Standard 46.50 vs. worst P-POTS+MIRROR 50.80; GSM8K: 53.68 vs. 58.61; HiTab: 62.64 vs. 66.02). On text-to-image-2M, the two methods are essentially comparable (best Standard 34.28 vs. worst ours 34.10). This highlights the importance of variance reduction in delivering more consistent and reliable performance across runs. Overall, MDMs trained with our method can match, and in some cases surpass, strong ARMs, while run-to-run variability drops to near ARM levels.",
+        "bbox": [
+            169,
+            652,
+            826,
+            863
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Moreover, ablation studies in A.8 confirm synergy between P-POTS and MIRROR. On GSM8K and OpenScience, compared to standard training, the accuracy gains from P-POTS+MIRROR (8.02% and 7.01% respectively) surpass the sum of the individual gains from P-POTS and MIRROR ((6.07+ $1 . 1 9 ) \\% = 7 . 2 \\hat { 6 } \\%$ and $( 1 . 2 \\bar { 8 } + 0 . 8 6 ) \\% = 2 . 1 4 \\%$ ), while on HiTab they are nearly additive (8.42% and $( 2 . 6 9 + 5 . 8 0 ) \\% = 8 . 4 9 \\% )$ . We emphasize that this is nontrivial, because as discussed in A.6, naive combinations of methods do not typically yield such improvements.",
+        "bbox": [
+            169,
+            867,
+            826,
+            925
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "page_number",
+        "text": "9",
+        "bbox": [
+            493,
+            948,
+            504,
+            959
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "chart",
+        "img_path": "images/de56febedd67e862ab75ee30178d5ef1b9b6b3fe9ad2cdd44c778346e25c7a53.jpg",
+        "content": "",
+        "chart_caption": [],
+        "chart_footnote": [],
+        "bbox": [
+            176,
+            102,
+            491,
+            191
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "chart",
+        "img_path": "images/3f87418e863dd23501c8fc9c07f60ebbc9bc26be44685d98354db0226c2788ae.jpg",
+        "content": "",
+        "chart_caption": [
+            "Figure 4: Training loss comparison between P-POTS+MIRROR (green) and Standard (red) on OpenScience (left) and text-to-image-2M (right). The annotations indicate the average loss at the beginning and end of training over the first and last 5 steps. Overall, P-POTS+MIRROR achieves more stable loss trajectories with consistently lower end losses compared to the Standard baseline."
+        ],
+        "chart_footnote": [],
+        "bbox": [
+            504,
+            102,
+            820,
+            191
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "",
+        "bbox": [
+            169,
+            273,
+            823,
+            304
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "MIRROR is especially effective on long-response datasets due to its design. As shown in Tables 1 and 2, its gains on OpenScience, HiTab and text-to-image-2M are substantially higher than on GSM8K. This aligns with its design: MIRROR targets masking pattern noise A , which becomes more severe with longer responses due to the greater number of possible masking patterns.",
+        "bbox": [
+            169,
+            310,
+            825,
+            368
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "MDMs achieve comparable performance as ARMs with much shorter outputs. In our experiments, MDMs often generate responses as short as 5% of ARM outputs and consistently shorter than training labels (see exact values in A.7.1). Truncating ARMs to the same length severely hurts their performance because outputs are often cut off mid-reasoning. One possible explanation is that MDMs decode by repeatedly unmasking a block of [MASK] tokens whose length is predetermined by the user-passed max new tokens, giving the model an implicit sense of how many tokens it is allowed to generate. In contrast, ARMs generate token by token without an explicit stopping criterion until hitting EOS, which can lead to verbosity or redundancy.",
+        "bbox": [
+            169,
+            373,
+            826,
+            486
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "On text-to-image-2M, the drift in p is more severe; see A.8.2. We attribute this to larger loss scales (and thus gradients) that move θ faster. Although EPR targets a U-shape, we use it as a stable compromise because P-POTS fits p(t) only once pre-training; empirically, EPR is more robust than fitting the initial S-shape, so we recommend it as a default. In principle, periodically refitting p(t) (e.g., at each eval) could further improve P-POTS and P-POTS+MIRROR.",
+        "bbox": [
+            169,
+            491,
+            826,
+            563
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "4.2 CASE STUDY",
+        "text_level": 2,
+        "bbox": [
+            171,
+            579,
+            308,
+            594
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "In Figure 3, standard training often produces blurry images or misses fine details. We suspect two causes. First, rare detail-critical tokens are masked too infrequently under uniform p(t), so the model under-trains on details. Consequently, features such as the “crochet headband” and “toy sword” in case (b) are missing or distorted. Second, cross-entropy on masked image tokens can show an averaging effect. When multiple outputs are possible, the model may learn to predict their mean; at inference with low temperature, argmax decoding turns this into unstable choices, leading to blur. This may explain case (d), where fire and smoke looks unrealistic. By contrast, P-POTS+MIRROR may address these problems. P-POTS emphasizes harder regions, while MIRROR averages two negatively correlated samples and reduces the tendency to hedge. Together, they could improve the gradient signal-to-noise ratio, giving sharper textures and more faithful objects, e.g. correct headband/sword in (a) and more realistic flames in (c).",
+        "bbox": [
+            169,
+            604,
+            826,
+            760
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "5 CONCLUSION",
+        "text_level": 2,
+        "bbox": [
+            171,
+            780,
+            321,
+            796
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "This work derives a systematic decomposition of MDM training variance as a fundamental framework for variance reduction, and proposes six corresponding techniques. Among them, P-POTS is provably Pareto-optimal for minimizing loss variance, while MIRROR is particularly beneficial on long-response datasets; together, they yield strong synergy. Our methods reduce both run-to-run variability and within-run suboptimality, making one training run sufficient for reliable performance. Looking forward, we expect our decomposition and methods to serve as building blocks for scalable MDM training, and to inspire future work toward a unified framework for variance control in masked diffusion models.",
+        "bbox": [
+            169,
+            813,
+            826,
+            924
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "header",
+        "text": "Published as a conference paper at ICLR 2026",
+        "bbox": [
+            171,
+            32,
+            480,
+            47
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "page_number",
+        "text": "10",
+        "bbox": [
+            490,
+            948,
+            509,
+            960
+        ],
+        "page_idx": 9
+    }
+]

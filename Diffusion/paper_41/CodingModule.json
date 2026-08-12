@@ -1,0 +1,86 @@
+{
+  "overview": "The paper proposes wd1, a ratio-free weighted log-likelihood policy optimization method for reasoning in diffusion language models (dLLMs), which avoids unstable policy ratio estimation by reformulating the RL objective with complementary positive/negative advantage weights, and extends to wd1++ by incorporating intermediate denoising step completions for stepwise optimization.",
+  "count": 16,
+  "modules": [
+    {
+      "id": 1,
+      "name": "Masked Diffusion Language Model Core",
+      "description": "Implementation of the masked discrete diffusion language model architecture including the forward absorption process (noise schedule, transition kernel), the denoising network that predicts clean tokens conditioned on masked sequences, and the concrete score parametrization used for likelihood computation."
+    },
+    {
+      "id": 2,
+      "name": "Likelihood Approximation Engine",
+      "description": "Module implementing tractable approximations to the intractable dLLM log-likelihood, supporting both the efficient d1-style single-step approximation at t=1 and the ELBO-based Monte Carlo estimator with configurable sample sizes over diffusion timesteps, serving as the foundation for all downstream policy optimization objectives."
+    },
+    {
+      "id": 3,
+      "name": "Geometric Mixture Policy Sampling",
+      "description": "Implementation of sampling from the geometric mixture policy π_ref_old ∝ π_old^(λ/(λ+β)) · π_ref^(β/(λ+β)) by combining the denoising logits of the old and reference policies during the diffusion decoding process, enabling off-policy training without explicit reference likelihood computation."
+    },
+    {
+      "id": 4,
+      "name": "Reward Function Suite",
+      "description": "Task-specific multi-component reward functions for each benchmark: GSM8K (XML structure, format, integer answer, correctness), Countdown (target reachability with number matching), Sudoku (fraction of correctly filled cells), and MATH500 (format with boxed answer plus correctness), as well as the verifier-based reward used for wd1++."
+    },
+    {
+      "id": 5,
+      "name": "Group-Relative Advantage Computation",
+      "description": "Module that computes group-relative advantages by normalizing rewards within a group of G completions sampled per prompt, subtracting the group mean reward to obtain the advantage estimator Âᵢ = R(q, oᵢ) − mean(R(q, o₁:G)), which serves as the basis for all weight computations in wd1."
+    },
+    {
+      "id": 6,
+      "name": "wd1 Weight Computation",
+      "description": "Implementation of the complementary advantage-based weight system: positive weight w₊ ∝ exp(ψÂ) and negative weight w₋ ∝ exp(−ψÂ), each normalized over the group of completions, where the hyperparameter ψ controls the exponential weighting scale and the final weight is (−w₊ + w₋) balancing positive reinforcement and negative penalization."
+    },
+    {
+      "id": 7,
+      "name": "wd1 Core Loss Function",
+      "description": "The central weighted log-likelihood objective L_wd1 = E[Σᵢ (−w₊(q,oᵢ) + w₋(q,oᵢ)) · log πθ(oᵢ|q)], combining positive sample likelihood maximization with negative sample likelihood minimization, using the approximated log-likelihood from the likelihood engine and the computed weights, with the property that training naturally halts when all advantages are identical (w₊ = w₋)."
+    },
+    {
+      "id": 8,
+      "name": "wd1++ Stepwise Extension",
+      "description": "Extension of wd1 to leverage intermediate clean completions generated at each denoising step during decoding, expanding the completion group to include all intermediate predictions x₀|ₗ for each denoising step l, computing stepwise weights and advantages over this expanded set, and applying the weighted log-likelihood objective at each denoising step conditioned on the corresponding masked state."
+    },
+    {
+      "id": 9,
+      "name": "Confidence-Based Remasking Decoder",
+      "description": "Inference-time decoding module implementing the iterative denoising-and-remasking strategy: at each denoising step, predict clean tokens conditional on the current masked sequence, then re-mask tokens with low prediction confidence for further refinement, producing both the final completion and the intermediate completions needed for wd1++."
+    },
+    {
+      "id": 10,
+      "name": "Policy Iteration Training Loop",
+      "description": "The outer training loop implementing the full wd1/wd1++ policy optimization: sampling prompts and completions from the geometric mixture policy, computing rewards and advantages, calculating weights, and performing µ inner gradient update steps with the wd1 loss on the same rollout batch, with periodic synchronization of the old policy after completing gradient updates."
+    },
+    {
+      "id": 11,
+      "name": "LoRA Adaptation Integration",
+      "description": "Low-Rank Adaptation module for parameter-efficient fine-tuning of the dLLM, handling the injection and merging of LoRA adapters into the denoising network layers, supporting both the training policy πθ and the frozen reference policy πref, with configurable rank, alpha, and dropout parameters."
+    },
+    {
+      "id": 12,
+      "name": "Evaluation and Benchmarking Suite",
+      "description": "Comprehensive evaluation module supporting zero-shot and pass@1 accuracy measurement across all benchmarks (Sudoku, Countdown, GSM8K, MATH500) at various generation lengths and diffusion step configurations, with answer parsing and verification for math benchmarks using Math-Verify, and configurable checkpoint selection protocols."
+    },
+    {
+      "id": 13,
+      "name": "Ablation Study Framework",
+      "description": "Structured ablation framework supporting controlled experiments: (1) SFT vs. no-SFT comparison, (2) negative weight w₋ removal (wd1-P/WLL variant), (3) combined weight λ sensitivity analysis balancing w₊ and w₋ proportions, (4) exponential scale ψ sensitivity, and (5) comparison between wd1 and wd1++ with different rollout budgets."
+    },
+    {
+      "id": 14,
+      "name": "Training Cost Profiler",
+      "description": "Module for measuring and reporting computational efficiency metrics including per-step runtime, FLOPs (via DeepSpeed Flops Profiler), number of function evaluations (NFEs) for likelihood computation, total training steps, total rollout counts, and GPU memory usage, enabling direct cost comparison between wd1 and baseline methods."
+    },
+    {
+      "id": 15,
+      "name": "Dataset Processing and Loading",
+      "description": "Data pipeline handling the loading, splitting, and preprocessing of all task datasets (GSM8K train/test splits, MATH train split and MATH500, Sudoku 4×4 puzzle generation, Countdown 3-number subset), with custom samplers for per-prompt group generation, random prompt masking with configurable mask probability, and batching strategies for diffusion-based generation."
+    },
+    {
+      "id": 16,
+      "name": "Configuration and Experiment Management",
+      "description": "Unified configuration system managing all hyperparameters (LoRA, training, RL, diffusion, generation), experiment tracking with training reward dynamics and completion length monitoring, checkpoint saving/loading with best-model selection across evaluation steps, and automated result aggregation for table generation comparing wd1, wd1++, and all baselines."
+    }
+  ]
+}

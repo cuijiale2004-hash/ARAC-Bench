@@ -1,0 +1,216 @@
+## ABSTRACT
+
+Machine learning approaches to solving Boolean Satisfiability (SAT) aim to replace handcrafted heuristics with learning-based models. Graph Neural Networks have emerged as the main architecture for SAT solving, due to the natural graph representation of Boolean formulas. We analyze the expressive power of GNNs for SAT solving through the lens of the Weisfeiler-Leman (WL) test. As our main result, we prove that the full WL hierarchy cannot, in general, distinguish between satisfiable and unsatisfiable instances. We show that indistinguishability under higher-order WL carries over to practical limitations for WL-bounded solvers that set variables sequentially. We further study the expressivity required for several important families of SAT instances, including regular, random and planar instances. To quantify expressivity needs in practice, we conduct experiments on random instances from the G4SAT benchmark and industrial instances from the International SAT Competition. Our results suggest that while random instances are largely distinguishable, industrial instances often require more expressivity to predict a satisfying assignment.
+
+## 1 INTRODUCTION
+
+Boolean Satisfiability (SAT) is a central reasoning problem in computer science and one of the canonical NP-complete problems. Classic SAT solvers are highly optimized and can handle instances with millions of variables (Heule et al., 2024). Part of their success comes from carefully engineered heuristics, such as branching and restart strategies (Moskewicz et al., 2001; Biere, 2008), conflict-driven clause learning (CDCL) (Silva & Sakallah, 1996), and learned clause management (Audemard & Simon, 2009). These heuristics are based on recurring patterns that differ across distributions: CDCL solvers are effective on industrial instances with strong community structure (Ansotegui et al., 2012), whereas look-ahead solvers are better suited for random instances (Alyahya´ et al., 2022). However, designing distribution-specific heuristics is time-consuming and requires expertise in the field.
+
+Machine learning offers a promising alternative, where heuristics can be learned from data. Graph Neural Networks (GNNs) (Scarselli et al., 2008; Kipf, 2016; Xu et al., 2018) have become the main architecture for learning-based SAT solving (Guo et al., 2023), since formulas can be naturally expressed as graphs. A common choice is the Literal Clause Graph (LCG), where literals are connected to clauses in a bipartite graph (see Figure 2 for an example). Existing GNN methods range from end-to-end SAT solvers, such as NeuroSAT (Selsam et al., 2019) and QuerySAT (Ozolins et al., 2022), to hybrid approaches that augment components of classic solvers (Wang et al., 2024; Guo et al., 2023).
+
+However, GNNs are inherently limited in their expressive power (Xu et al., 2019)—that is, their ability to distinguish different graph structures. The expressive power of GNNs is characterized by the Weisfeiler-Leman (WL) test (Weisfeiler & Lehman, 1968), and the extended k-WL hierarchy (Immerman & Lander, 1990), which provide universal limits on which graphs GNNs can distinguish. In particular, any GNN bounded by the WL hierarchy produces identical outputs on graphs that are WL-equivalent (Xu et al., 2019). This poses a concrete limitation in the context of SAT, where solving relies on uncovering structural patterns in graphs representing formulas. This raises a fundamental question: Are GNNs expressive enough to reason about satisfiability?
+
+![](images/7b58aec7488b3588ad9041a4c99eec13bddae682ec462477ac366cff03bd750b.jpg)  
+Figure 1: Literal-clause graph with negation connections (LCN) of a formula f. Removing the literal-literal edges represented by dashed lines gives the literal-clause graph (LCG).
+
+Our main result shows that even the full Weisfeiler-Leman hierarchy cannot, in general, distinguish satisfiable from unsatisfiable formulas. Specifically, we construct pairs of 3-SAT instances with O(n) variables are indistinguishable under the n-WL test, despite one being satisfiable and the other unsatisfiable (Theorem 5.3)<sup>1</sup>. This result mirrors the classic construction of Cai et al. (1992) in the context of boolean formulas, demonstrating that indistinguishable formulas may also differ in satisfiability. This has practical implications for solvers that assign variables sequentially, such as QuerySAT (Ozolins et al., 2022). Even with Ω(n) variable assignments, satisfiability of the residual formula may remain undecidable with a WL-powerful architecture<sup>2</sup> (Lemma 5.4, Corollary 5.5). This result is notable because it transfers a theoretical limitation (k-WL indistinguishability) to a realistic computational setting.
+
+We analyze regular, planar, and random SAT instances to examine how expressivity requirements vary across families. In RegularSAT—a family which we introduce and show is NP-complete —all instances of the same size are indistinguishable, making WL-powerful GNNs essentially useless. In contrast, PlanarSAT is fully identified by the 4-WL test (Theorem 6.1).
+
+Similarly, we argue that random SAT instances are largely distinguishable by the WL test, mirroring behavior observed in graph isomorphism testing (Babai et al., 1980). We prove this formally for formulas generated using the method of Wu & Ramanujan (2021) (Lemma 6.3). Interestingly, learning-based SAT solvers are often trained on random instances, primarily because they are easy to generate (Li et al., 2024). While both random and industrial instances can be hard in the traditional sense, they differ significantly in structure (Alyahya et al., 2022). Our results show that these instance families also differ in the level of expressivity required to solve them.
+
+We quantify this difference experimentally. We test whether WL-powerful GNNs can theoretically distinguish literals sufficiently to predict a satisfying assignment. For datasets, we use random instances from the G4SAT benchmark (Li et al., 2024) as well as industrial and crafted instances from the International SAT competition (Heule et al., 2024). In general, literals in random instances are quickly distinguished. In contrast, competition instances often require more iterations, and sometimes WL-powerful GNNs are simply not expressive enough to predict a satisfying assignment. This confirms that industrial and crafted instances pose a greater challenge from the perspective of expressivity.
+
+## 2 PRELIMINARIES
+
+Boolean satisfiability. Let $x _ { 1 } , \ldots , x _ { n }$ denote variables in a propositional logic. A literal ℓ is a variable x or its negation ¬x. A clause $c = \{ \ell _ { 1 } , \ldots , \ell _ { s } \}$ is a set of literals, representing the disjunction $\ell _ { 1 } \vee \cdots \vee \ell _ { s } .$ A formula $f$ in Conjunctive Normal Form (CNF) is a set of m clauses $\{ c _ { 1 } , \ldots , c _ { m } \}$ , representing the conjunction $c _ { 1 } \wedge \cdots \wedge c _ { m }$ We write f as a logical formula $\textstyle \bigwedge _ { c \in f } \bigvee _ { \ell \in c } \ell$ or as sets, depending on the context. Let $L ( f ) = \cup _ { c \in f } \cup _ { \ell \in c } \ell$ be the set of all literals in a formula. The Boolean Satisfiability Problem (SAT) is defined as follows: given a formula $f ,$ check whether f is satisfiable. 3-SAT is the SAT problem where each formula is in CNF and each clause consists of at most 3 literals.
+
+Graph Notation. A graph G is a tuple $( V , E )$ . If the graph is not clear from context, we write $V ( G )$ and $\bar { \boldsymbol { E } } ( \boldsymbol { G } )$ . All graphs are undirected unless otherwise specified. $N ( v )$ denotes the set of neighbors of a node v and $\bar { d ( v ) } = | N ( v ) |$ is the degree of v. On a directed graph $d ^ { \mathrm { o u t } }$ denotes the outdegree of a node. A node coloring is a function $\lambda _ { V } : V \to { \mathcal { C } }$ where $\mathcal { C }$ is a set of colors. Similarly, an edge coloring is a function ${ \bar { \lambda } } _ { E } : E \to { \mathcal { C } }$ . On edge-colored graphs we write $N _ { c } ( v ) = \{ w \in V \bar { ( G ) }$ $\exists \{ v , w \} \in E ( G ) { \mathrm { ~ s . t . ~ } } \lambda _ { E } ( \{ v , w \} ) = c \}$ for the neighbors of v through edges of color c.
+
+Isomorphism. Two graphs $G$ and H are isomorphic if there exists a bijection $\sigma : V ( G ) \to V ( H )$ such that $\{ v , w \} \in \bar { E } ( \bar { G } )$ iff $\{ \sigma ( v ) , \sigma ( w ) \} \in \dot { E ( H ) }$ . On graphs with a node-coloring $( c _ { G } , c _ { H }$ for $G , H$ , respectively) we also require that $c _ { G } ( v ) = c _ { H } ( \sigma ( v ) )$ ) for all $v \in V ( G )$ . The definition is extended for edge-colored graphs in the natural way.
+
+Two CNF formulas $f , g$ are isomorphic if there are bijections $\sigma _ { L } : L ( f ) \to L ( g )$ and $\sigma _ { C } : f  g$ such that $( 1 . ) \sigma _ { L } ( \lnot \ell ) = \lnot \sigma _ { L } ( \ell )$ for all $\ell \in L ( f ) , \operatorname { i . e . } \sigma _ { L }$ preserves the relationship between a literal and its negation, and (2.) $\sigma _ { C } ( \cdot ) = \{ \sigma _ { L } ( \ell ) : \ell \in c \}$ for all $c \in f$
+
+Graph Neural Networks. We focus on Message Passing Neural Networks (MPNNs) which encapsulate the majority of GNN architectures. Nodes have some initial features $s _ { v } ^ { 0 } \in \mathbb { R } ^ { d }$ . An MPNN operates in synchronous rounds, which are typically structured as follows. In each round $1 \leq \ell \leq L ,$ every node aggregates the states of its neighbors, $\begin{array} { r } { \check { a } _ { v } ^ { \ell } = \mathsf { a g g } ( \{ \{ s _ { w } ^ { \ell - 1 } : w \in N ( v ) \} \} ) } \end{array}$ ), where $\{ \{ . \} \}$ denotes a multiset. The nodes update their state using their previous state and the aggregated messages: $s _ { v } ^ { \ell } = \mathrm { u p d } ( s _ { v } ^ { \ell - 1 } , a _ { v } ^ { \ell } )$ . The functions agg and upd are differentiable functions typically parameterized by neural networks. The final representations $s _ { v } ^ { L }$ can be used for node-level prediction tasks, or they can be aggregated into a graph-level representation.
+
+Weisfeiler-Leman Test. The expressive power of MPNNs is bounded by the Weisfeiler-Leman (WL) algorithm, also known as color refinement:
+
+Definition 2.1 (Weisfeiler-Leman algorithm). Let $\lambda _ { V } : V ( G ) \to C$ be a vertex coloring. The WL algorithm computes new colorings of the graph iteratively. The initial coloring is given by $\mathbf { \lambda } ^ { \mathrm { ~ \circ ~ } } : = \lambda _ { V }$ For $\ell \in \mathbb { N } ,$ , a new coloring $\chi ^ { \ell }$ is defined as $\chi ^ { \ell } ( v ) : = ( \chi ^ { \ell - 1 } ( v ) , \{ \{ \chi _ { \scriptscriptstyle \cdot } ^ { \ell - 1 } ( w ) \bar { : } \bar { w } \in \bar { N ( v ) } \} \} )$ . The color refinement is continued until the partition of nodes given by $\chi ^ { \ell }$ equals the partition given by $\chi ^ { \ell + 1 }$ . The output of the WL algorithm is the stable coloring $\chi ^ { \ell }$
+
+The WL algorithm can be generalized to also use an edge-coloring $\lambda _ { E } : E ( G ) \to { \mathcal { C } } _ { E } .$ . The update considers each color class of edges separately: $\chi ^ { \ell } ( v ) \ : = \ ( \chi ^ { \ell - 1 } ( v ) , \{ \{ \chi _ { N _ { c } } : c \in \mathcal { C } _ { E } \} \} )$ ), where $\chi _ { N _ { c } } = \{ \{ \chi ^ { \ell - 1 } ( w ) : w \in N _ { c } ( v ) \} \}$ are the colors of neighbors through edges of color c.
+
+In the Weisfeiler-Leman test, the WL algorithm is applied to the disjoint union of G and $G ^ { \prime }$ . The WL test distinguishes G and $G ^ { \prime }$ if there is a color c such that the sets $\{ v : v \in V ( G ) , \chi ( v ) = c \} , \{ v :$ $v \in V ( G ^ { \prime } ) , \chi ( v ) = c \}$ have different cardinalities. We say that a graph G is identified by WL if it is distinguished from every other non-isomorphic graph H. A class of graphs K is identified if every graph in K is distinguished from every other non-isomorphic graph H (possibly $H \not \in \mathcal { K } )$
+
+k-Weisfeiler Leman Test. Let $k \geq 2$ be an integer. The atomic type of a tuple ${ \overline { { v } } } \in V ( G ) ^ { k }$ encodes all facts about edge connections and colors within the tuple. Two tuples $\overline { { v } } ^ { \cdot } \in V ( G ) ^ { k } , \overline { { u } } ^ { \cdot } \in V ( G ^ { \prime } ) ^ { k }$ have the same atomic type if and only if the mapping $v _ { i } \mapsto u _ { i }$ is an isomorphism of the induced colored subgraph $G [ \{ v _ { 1 } , \ldots , v _ { k } \} ]$ ] to $\dot { G } [ \{ u _ { 1 } , \ldots , \bar { u _ { k } } \} ]$
+
+Definition 2.2 (k-dimensional WL algorithm). The k-Weisfeiler-Leman (k-WL) algorithm initializes $\chi ^ { 0 } ( \overline { { \upsilon } } )$ as the atomic type of v for each $\overline { { v } } \in V ( G ) ^ { k }$ For $\ell \in \mathbb { N } .$ , a new coloring $\chi ^ { \ell }$ is defined as $\chi ^ { \ell } ( \overline { { { v } } } ) ~ : = ~ ( \chi ^ { \ell - 1 } ( \overline { { { v } } } ) , \chi _ { 1 } ^ { \ell - 1 } ( \overline { { { v } } } ) , \chi _ { 2 } ^ { \ell - 1 } ( \overline { { { v } } } ) , . . , \chi _ { k } ^ { \ell - 1 } ( \overline { { { v } } } ) )$ , where $\chi _ { i } ^ { \ell - 1 } ( \overline { { v } } ) =$ $\{ \{ \chi ^ { \ell - 1 } ( \overline { { v } } _ { 1 } , \dots , \overline { { v } } _ { i - 1 } , u , \overline { { v } } _ { i + 1 } , \dots , \overline { { v } } _ { k } ) : u \in V ( G ) \} \}$ . The color refinement is continued until the partition of tuples given by $\chi ^ { \ell }$ equals the partition given by $\chi ^ { \ell + 1 }$ . The output of the WL algorithm is the stable coloring $\chi ^ { \ell }$ . The k-dimensional WL test is defined analogously to the WL test. We say that G and $G ^ { \prime }$ are distinguished if there exists a color c such that the sets $\{ { \overline { { v } } } : { \overline { { v } } } \in V ( G ) ^ { k } , \chi ( { \overline { { v } } } ) = c { \big \} }$ and $\{ \overline { { v } } : \overline { { v } } \in V ( G ^ { \prime } ) , \chi ( \mathbf { \bar { v } } ) = c \}$ have different cardinalities.
+
+Remark 2.3. There are two algorithms and naming conventions in the literature. This version of the k-WL algorithm is most common in machine learning literature. Through connections to counting logic, it can be shown (Grohe, 2017) to be equivalent to (k − 1)-WL, as defined in for example (Cai et al., 1992; Kiefer et al., 2019). See (Huang & Villar, 2021) for an overview.
+
+## 3 GRAPH REPRESENTATIONS OF SAT FORMULAS
+
+A standard way to represent SAT formulas as graphs is the literal-clause graph (LCG). The LCG is a bipartite graph with literals on one side and clauses on the other. Edges connect literals to clauses where they appear. See Figure 1 for an example.
+
+In GNNs, node labels of a graph are omitted to preserve permutation invariance. To avoid information loss, it is essential to include edges between literals and their negations.<sup>3</sup> We call the extended representation the literal-clause graph with negation connections (LCN). It is defined as the LCG with additional edges connecting each variable to its negation. The literal-literal edges are assigned a distinct color from the literal-clause edges. The LCN of a CNF formula f is denoted LCN(f).
+
+Literal-literal edges is necessary to preserve information once labels are removed (see Appendix A for an example). The LCN representation is also sufficient to preserve all information:
+
+Observation 3.1. An LCN without node labels uniquely determines the corresponding SAT formula up to isomorphism. The formula can be constructed by grouping nodes into variable pairs according to the literal-literal edges, labeling them arbitrarily as x<sub>i</sub>, ¬x<sub>i</sub>, and reading clauses from the literalclause edges.
+
+Other representations include the variable-clause graph (VCG) and less common literal-incidence graph (LIG) and clause-incidence graph (CIG). We focus on the LCN in this work, as the LIG and CIG representations are lossy, and VCG is not suitable for expressivity analysis because the same formula (up to isomorphism) can have non-isomorphic VCG representations. See Appendix A for details.
+
+## 4 RELATED WORK
+
+Machine Learning for SAT. One of the earliest works in this area is NeuroSAT (Selsam et al., 2019) – an end-to-end SAT solver framework with GNNs. Their algorithm is based on predicting satisfiability, and hence works with single-bit supervision. QuerySAT (Ozolins et al., 2022) uses an unsupervised loss computed from continuous variable values, and a query mechanism to update the variable values. Other approaches include transformer-based models such as SATformer (Shi et al., 2023) and attention-based variants like SAT-GATv2 (Chang & Liu, 2025). In a complementary line of work, Yolcu & Poczos (2019) build a local search SAT solver whose variable selection strategy´ is learned by a GNN. Several of these architectures and losses can be evaluated on the G4SAT benchmark (Li et al., 2024).
+
+The end-to-end SAT solvers are mostly of methodological interest, and currently not practical for large instances. Another line of research augments classic SAT solvers with machine learning components, such as learned heuristics or branching strategies. Selsam & Bjørner (2019) adapt the NeuroSAT architecture to predict unsatisfiability cores, which is used to select branching variables. Other SAT solving components with potential for ML solutions include variable initialization (Wu, 2017), clause deletion (Vaezipoor et al., 2020) and restart policy (Liang et al., 2018b). See (Guo et al., 2023) for a comprehensive survey on machine learning methods in SAT solving.
+
+Dataset generation is another promising application area. To mimic industrial SAT instances, Wu & Ramanujan (2021) use a learning-based graph representation and design a method to generate SAT instances from their implicit model. Another line of work frames SAT generation as a bipartite graph generation problem (You et al., 2019).
+
+Expressivity and the Weisfeiler-Leman test. It is well known that the Weisfeiler-Leman test bounds the expressive power of MPNNs (Xu et al., 2019). This limitation has motivated a large number of more expressive GNN architectures, with expressivity corresponding to k-WL for some $k > 2$ (Morris et al., 2019; Maron et al., 2019; Keriven & Peyre, 2019). A comparison of the´ expressivity of different GNN extensions is given by (Papp & Wattenhofer, 2022).
+
+The k-WL is a powerful tool, but it is not able to solve graph isomorphism in general. The seminal work of Cai et al. (1992) shows that there are pairs of non-isomorphic $O ( n )$ )-node graphs that are indistinguishable by the $n { \mathrm { - } } \mathbf { W } \mathbf { L }$ test. There are positive results for special graph classes. Namely, Kiefer et al. (2019) show that planar graphs are identified by 4-WL. Random graphs are mostly identifiable by the WL test in two iterations (Babai et al., 1980).
+
+Beyond structural expressivity, Grohe (2023) analyzes the power of GNNs in terms of circuit complexity, showing that GNNs can decide problems in $\mathrm { T C } ^ { 0 }$ (constant-depth circuits with polynomial size).<sup>4</sup>
+
+Complexity Theory. Boolean satisfiability was the first problem proven to be NP-complete, by Stephen Cook (Cook, 1971). Later, several variants of SAT have been proven to be equally hard, such as PlanarSAT (Lichtenstein, 1982). SAT solving remains an active area of research, with SAT competitions being held annually (Heule et al., 2024).
+
+The computational complexity of different equivalence relations between boolean functions was studied by Borchert et al. (1998). In their work, two formulas $f , f ^ { \prime }$ on the same set of variables are said to be isomorphic if there is a bijection σ of the variables such that $f , f ^ { \prime }$ agree on all assignments up to the mapping σ. Under this definition, for instance, a tautology is isomorphic to the empty formula. Our notion of isomorphism is stricter, as it requires clauses to be preserved under the mapping. We find that this notion is better suited for the setting with graph representations.
+
+Proof Complexity. The complexity of proving the unsatisfiability of propositional formulas is a central topic in proof complexity. One of the most studied systems is resolution, where the proof consists of clauses derived from the original formula using a simple inference rule. Hard examples for resolution include the Pigeonhole principle (Haken, 1985) and the Tseitin formulas (Urquhart, 1987). Resolution proof length can be related to the width of the proof, where the width of a resolution proof is the maximum number of literals in any clause of the proof (Ben-Sasson & Wigderson, 2001). The complexity of resolution has also been characterized in terms of pebbling games (Atserias & Dalmau, 2008; Galesi & Thapen, 2005). In this setting, pebbling games are played on a single graph—unlike the two-graph pebbling games that correspond to k-WL indistinguishability (Cai et al., 1992).
+
+## 5 INDISTINGUISHABLE FAMILIES OF SAT INSTANCES
+
+In this section, we construct explicit families of SAT formulas that are provably indistinguishable by the WL-test and the WL hierarchy. As our main technical contribution, we show that there are 3-SAT formulas that are indistinguishable by the n-WL test, despite one being satisfiable and the other not (Section 5.2). We also identify a practically relevant family of regular SAT formulas that are indistinguishable by WL, yet remain NP-complete. In general, distinguishing SAT instances (regardless of satisfiability) is as hard as graph isomorphism (Appendix C).
+
+## 5.1 3-REGULAR SAT
+
+To motivate our first contribution, we start the section with a simple example of a pair of WLindistinguishable formulas. Consider a CNF formula $f$ on three variables $x _ { 1 } , x _ { 2 } , x _ { 3 } { \mathrm { : } }$
+
+$$
+\begin{array}{l l} f = (x _ {1} \vee \neg x _ {3}) \wedge (\neg x _ {1} \vee x _ {3}) \ldots & x _ {1} = x _ {3} \\ \wedge (x _ {1} \vee x _ {2}) \wedge (\neg x _ {1} \vee \neg x _ {2}) \ldots & x _ {1} \otimes x _ {2} \\ \wedge (x _ {2} \vee x _ {3}) \wedge (\neg x _ {2} \vee \neg x _ {3}) & x _ {2} \otimes x _ {3} \end{array}
+$$
+
+where ⊗ denotes the xor. See Figure 1 for the graph representation. The formula is satisfied by $\boldsymbol { x } = ( 1 , 0 , 1 )$ or $x = ( 0 , 1 , 0 )$ . We can make a similar but unsatisfiable formula $f ^ { \prime }$ by replacing the clauses encoding $x _ { 2 } \otimes x _ { 3 }$ (the third line) with clauses encoding $x _ { 2 } = x _ { 3 }$ . Note that this change keeps all literal degrees the same. Since each literal appears in exactly two clauses in both $f$ and $\bar { f } ^ { \prime }$ , the LCGs of $f$ and $f ^ { \prime }$ are WL-indistinguishable. However, $f ^ { \prime }$ is clearly unsatisfiable.
+
+This example can be generalized to a family of 3-regular SAT instances. We say that a SAT instance is k-regular if each literal appears in exactly k clauses and each clause contains exactly k literals. Despite this strong regularity, the class remains computationally hard:
+
+Theorem 5.1. 3-regular SAT is NP-complete.
+
+Although related NP-complete variants have appeared in the literature (3-SAT (Karp, 1972), 3-SAT with each variable appearing at most 4 times (Tovey, 1984)), we are not aware of a formal proof of this specific result, so we provide one in Appendix D for completeness. If formulas are given in the 3-regular SAT format, a WL-powerful GNN is essentially useless in solving them:
+
+Observation 5.2. The WL test does not distinguish between any two 3-regular SAT formulas with the same number of variables.
+
+## 5.2 K-WL INDISTINGUISHABLE SAT INSTANCES
+
+Given that WL cannot distinguish some formulas, one might wonder whether higher-order WL tests suffice. In this section, we answer the question in the negative, showing that there are 3-SAT formulas that are indistinguishable by the WL hierarchy, despite one being satisfiable and the other not.
+
+Theorem 5.3. There are 3-SATformulas $f , { \tilde { f } }$ with $O ( n )$ variables and $O ( n )$ clauses such that $f$ is satisfiable and $\tilde { f }$ is not, but the LCNs off and $\tilde { f }$ are indistinguishable by the n-WL test.
+
+Our result uses the seminal work of Cai, Furer and Immerman Cai et al. (1992), giving a pair of non-¨ isomorphic graphs H and H<sup>˜</sup> which are indistinguishable by n-WL. We construct a pair of formulas $f , { \tilde { f } }$ with LCNs isomorphic to $H$ and $\tilde { H }$ , respectively. On a high level, our formula $f _ { G }$ encodes the existence of an even orientation for a graph ${ \bf \Gamma } _ { G }$ This is an orientation of the edges such that each node has an even number of outedges. We show that such an orientation exists if and only if the number of edges is even. Then, we construct a twisted formula $\tilde { f } _ { G }$ , encoding the existence of an even orientation when one of the edges is bidirectional. Exactly one of $f _ { G }$ and $\tilde { f } _ { G }$ are satisfiable, depending on the parity of $m .$ . The proof of Theorem 5.3 is given in Appendix B.
+
+Interestingly, the construction in Theorem 5.3 is similar to Tseitin formulas, which are known as hard instances for resolution refutation (Urquhart, 1987). Tseitin formulas encode a set of linear inequalities over nodes of a graph. See Definition B.11 for a formal definition. Resolution proofs—and likewise the WL test—rely on exploiting local patterns in the formula (or graph), and in both settings, the hardest instances include a global inconsistency that cannot be detected through purely local reasoning. To the best of our knowledge, this connection between Tseitin formulas and the construction of Cai et al. (1992) has not been previously observed.
+
+Implications for WL-powerful architectures. Theorem 5.3 shows that in general, satisfiability cannot be expressed by any GNN architecture bounded by the WL hierarchy. In contrast to predicting satisfiability directly, classic SAT solvers, and some GNN-based approaches (Ozolins et al., 2022), work by sequentially setting variables. A natural question is whether a few variable assignments can help to break symmetries, making formulas more distinguishable, i.e., increasing the effective expressive power of the solver. This mirrors how node labeling tricks are useful for GNNs to solve certain tasks like triangle counting (You et al., 2021; Zhang et al., 2021). However, even in this setting, WL-powerful GNNs have fundamental limitations:
+
+Lemma 5.4. Let $f , \ { \tilde { f } }$ be formulas with LCNs indistinguishable by k-WL for some $k \geq 4 .$ . For any partial assignment σ of variables of f with at most $\lfloor k / 2 \rfloor - \dot { 1 }$ variables set, there is a corresponding partial assignment σ˜ of the variables of $\tilde { f }$ such that $\operatorname { L C N } ( \sigma ( f ) )$ ) and $\operatorname { L C N } ( \tilde { \sigma } ( \tilde { f } ) )$ are WL-indistinguishable.
+
+Here, $\operatorname { L C N } ( \sigma ( f ) )$ denotes the LCN of the formula $f ,$ with additional labels ⊤ or ⊥ for literals set to true or false by σ. Lemma 5.4 transfers a theoretical k-WL indistinguishability result to a practical setting, where a WL-powerful GNN is used to make sequential decisions—any decision that is made for $f$ could also be made for $\tilde { f }$ .
+
+Restart strategies provide a concrete example of this limitation. When restarting, the solver discards the current assignment and restarts the search from scratch. Restarting is a core component of classic solvers (Gomes et al., 2000; Huang et al., 2007), and ML has also been used to guide such restarts (Liang et al., 2018a). The following result is a corollary of Theorem 5.3 and Lemma 5.4, showing that restart prediction is fundamentally hard for WL-powerful models:
+
+Corollary 5.5. WL-powerful GNNs cannot, in general, distinguish a satisfiable residual formula from an unsatisfiable one, even with Θ(n) variable assignments, where n is the number ofvariables in the formula.
+
+## 6 POSITIVE RESULTS FOR DISTINGUISHABILITY
+
+Having shown expressivity limits, we now identify families where GNNs can succeed.
+
+## 6.1 PLANAR SAT
+
+PlanarSAT is a variant of SAT where the clauses are represented as a planar graph. The PlanarSAT language is NP-complete (Lichtenstein, 1982). The following result is a consequence of Kiefer et al. (2019), who showed that the 4-WL test distinguishes all planar graphs.
+
+Theorem 6.1. For any SATformula f, there is an equisatisfiable PlanarSATformula f<sup>′</sup> withpolynomially many variables and clauses, such that the 4-WL test distinguishes f<sup>′</sup> from any otherformula.
+
+Proof. PlanarSAT is NP-complete (Lichtenstein, 1982) (this also works in the LCN representation, see Lemma 1 in (Lichtenstein, 1982)). The 4-WL test distinguishes between all planar graphs (Kiefer et al., 2019). □
+
+This result shows that, despite the general limitations of the WL-hierarchy in distinguishing formulas (Section 5.2), there exist natural and computationally hard subsets of SAT, such as PlanarSAT, where already 4-WL is fully expressive. The reduction to PlanarSAT is done by replacing edge crossings in the LCN with gadgets that ensure planarity. Unfortunately, the reduction is not efficient in practice, because each gadget adds 9 variables and 20 clauses and there may be up to $O ( n ^ { 2 } )$ edge crossings.
+
+## 6.2 RANDOM SAT INSTANCES
+
+Random SAT instances can be defined in various ways, often depending on the desired structure or difficulty. In this section, we consider instances generated from randomly sampled literal-incidence graphs (LIGs), where each literal is a node and edges connect literals that co-occur in a clause. While the LIG representation loses some logical information, Wu & Ramanujan (2021) give a principled procedure for extracting a CNF formula from it:
+
+Lemma 6.2 ((Wu & Ramanujan, 2021)). Given a literal-incidence graph G, a corresponding CNF formula can be extracted by computing a minimal clique edge cover of G.<sup>5</sup> The clauses of the formula correspond to the cliques in the edge cover. The generatedformula does not contain duplicate clauses, subsumed clauses or unit clauses.
+
+We show that a CNF formula extracted from a random literal-incidence graph is likely identified by WL. The proof can be found in Appendix E.
+
+Theorem 6.3. A CNF formula extracted from a uniformly random literal-incidence graph with n literals is identified by the WL test with probability at least $1 - ( n ) ^ { - 1 / 7 }$ , over the choice of a LIG, for a large-enough n.
+
+## 7 EXPERIMENTS
+
+We aim to evaluate whether WL-powerful architectures (such as GIN (Xu et al., 2019)) are, in principle, capable of predicting a satisfying assignment to SAT formulas.
+
+## 7.1 SETUP
+
+Our experiments are based on the fact that in a node-level prediction task, nodes that are WLequivalent must have the same output. Given a satisfiable formula, we add equality constraints between all WL-equivalent literals, and check whether the augmented formula remains satisfiable. This is a necessary (but not a sufficient) condition for a WL-powerful GNN to predict a satisfying assignment.
+
+Formally, let f be a satisfiable formula. Running WL for $r \geq 1$ rounds on LCN(f) gives a partition of the literals $L _ { 1 } , \dots , L _ { s }$ . We construct an augmented formula $f _ { r }$ that restricts literals in each partition to the same value. For each equivalence class $L _ { j } = \{ \ell _ { 1 } ^ { j } , \ldots , \ell _ { n _ { j } } ^ { j } \}$ , we add the clauses $\begin{array} { r } { g _ { j } : = ( \neg { \ell } _ { n _ { j } } ^ { j } \lor { \ell } _ { 1 } ^ { j } ) \land \bigwedge _ { i = 1 } ^ { n _ { j } - 1 } ( \neg { \ell } _ { i } ^ { j } \lor { \ell } _ { i + 1 } ^ { j } ) } \end{array}$ . The formula $g _ { j }$ encodes an equality constraint between the literals in $L _ { j } .$ Given a satisfiable formula f, a WL-powerful architecture can predict a satisfying assignment within r rounds only $i f f _ { r } = f \wedge \bigwedge _ { i = 1 } ^ { s } g _ { j }$ is satisfiable. We solve $f _ { r }$ for different values of $r ,$ from $r = 1 \mathrm { t o } r = r _ { \mathrm { c o n v e r g e d } } ,$ where r<sub>converged</sub> is the number of rounds for WL to converge on the LCN of the original formula $f .$ We let $r _ { \mathrm { c r i t } }$ be the smallest r such that $f _ { r }$ is satisfiable, if such a round exists. Conversely, if $f _ { r }$ is unsatisfiable for all $r ,$ we conclude that WL is not sufficiently powerful to predict satisfying assignments for $f .$
+
+## 7.2 DATASETS
+
+Random instances. The G4SAT benchmark (Li et al., 2024) generates random instances from various families, including random 3-SAT (Crawford & Auton, 1996) and the CA family mimicking community structures in industrial instances (Giraldez-Cru & Levy, 2015). Instances are grouped´ by size (referred to as difficulty in (Li et al., 2024)). The benchmark is designed so that all instances are challenging, by choosing instances that are near the satisfiability threshold for 3-SAT (Crawford & Auton, 1996) and analogously for other families. See (Li et al., 2024) for descriptions of the families.
+
+SAT competition instances. We use instances from the International SAT competition (Heule et al., 2024), spanning the competitions held between years 2020 and 2025. The instances are selected as hard examples from various applications, including scheduling, cryptography, and hardware equivalence checking. Some families are hand-crafted to be difficult for SAT solvers, such as formulas encoding the Pigeonhole principle. Detailed descriptions of the families can be found in the competition proceedings; see (Heule et al., 2024) for the 2024 edition.<sup>6</sup>. The size of the instance varies from a few hundred variables to 50 million variables. Due to limited computational resources, we limit instances to those under 10 MB in size.
+
+## 7.3 RESULTS
+
+See Table 1 for results on random instances. The number of rounds needed for WL to distinguish literals sufficiently is very low, usually 3 or 4. We observed that in many cases (about 40% of all formulas), WL actually gives all literals unique identifiers. In this case, the constrained formula $f _ { r }$ is trivially satisfiable because it is equal to f. There are a few instances in the k-clique and k-vercov families (2.0% and 0.3%, respectively) that WL could not solve.<sup>7</sup> See Table 4 for the full results on random instances.
+
+For random 3-SAT instances, regardless of the size of the formula, literals are almost always sufficiently identified after 3 iterations, and WL converges in 4 rounds. This pattern is due to the constant degree of the clauses. In the first iteration, each literal sees its degree $d _ { \ell } .$ . However, the second iteration does not refine the literal partition because every neighbor is a clause with degree 3—only on the third iteration, the literals observe the degrees of other literals in shared clauses.
+
+Table 1: Results on random instances, grouped by family. All instances were initially satisfiable. $r _ { \mathrm { c r i t } }$ is the smallest number of rounds for which the augmented formula $f _ { r }$ is satisfiable. We write unsat when this value does not exist. r<sub>converged</sub> is the number of rounds for WL to converge. All values are reported as mean ± std.
+
+<table><tr><td>family</td><td>difficulty</td><td> $r_{\text{crit}}$ </td><td> $r_{\text{converged}}$ </td><td>Variables</td><td>Clauses</td><td>Count</td></tr><tr><td rowspan="5">3-sat</td><td>easy</td><td>2.97 ± 0.18</td><td>3.68 ± 0.47</td><td>26 ± 9</td><td>119 ± 36</td><td>1000</td></tr><tr><td>medium</td><td>3.00 ± 0.04</td><td>3.92 ± 0.28</td><td>119 ± 47</td><td>509 ± 198</td><td>1000</td></tr><tr><td>hard</td><td>3.00 ± 0.00</td><td>4.00 ± 0.00</td><td>250 ± 29</td><td>1065 ± 125</td><td>100</td></tr><tr><td>hard+</td><td>3.00 ± 0.00</td><td>4.00 ± 0.00</td><td>921 ± 48</td><td>3775 ± 196</td><td>24</td></tr><tr><td>hard++</td><td>3.08 ± 0.28</td><td>4.00 ± 0.00</td><td>5001 ± 62</td><td>20504 ± 256</td><td>25</td></tr><tr><td rowspan="5">k-clique</td><td>easy</td><td>4.12 ± 0.73</td><td>6.26 ± 0.83</td><td>33 ± 13</td><td>543 ± 426</td><td>960</td></tr><tr><td></td><td>unsat</td><td>6.00 ± 0.78</td><td>22 ± 7</td><td>217 ± 194</td><td>40</td></tr><tr><td>medium</td><td>4.11 ± 0.52</td><td>6.33 ± 0.95</td><td>68 ± 17</td><td>2156 ± 960</td><td>999</td></tr><tr><td></td><td>unsat</td><td>6.00 ± 0.00</td><td>45 ± 0</td><td>939 ± 0</td><td>1</td></tr><tr><td>hard</td><td>4.00 ± 0.00</td><td>6.00 ± 0.00</td><td>114 ± 20</td><td>5554 ± 1718</td><td>100</td></tr></table>
+
+Table 2: Results on a selection of instances from the international SAT competition. All instances were initially satisfiable.
+
+<table><tr><td>family</td><td> $r_{\text{crit}}$ </td><td> $r_{\text{converged}}$ </td><td>Variables</td><td>Count</td></tr><tr><td>argumentation</td><td>2.94 ± 0.44</td><td>4.31 ± 0.87</td><td>1266 ± 625</td><td>16</td></tr><tr><td>circuit-multiplier</td><td>unsat</td><td>7.18 ± 0.40</td><td>1075 ± 50</td><td>11</td></tr><tr><td>cryptography</td><td>15.74 ± 14.67</td><td>17.63 ± 14.34</td><td>41510 ± 29705</td><td>19</td></tr><tr><td></td><td>unsat</td><td>18.74 ± 13.38</td><td>19257 ± 37634</td><td>23</td></tr><tr><td>hamiltonian</td><td>4.17 ± 0.51</td><td>5.44 ± 0.51</td><td>550 ± 45</td><td>18</td></tr><tr><td>heule-folkman</td><td>unsat</td><td>4.91 ± 0.30</td><td>16614 ± 1103</td><td>11</td></tr><tr><td>heule-nol</td><td>unsat</td><td>8.60 ± 1.26</td><td>1419 ± 0</td><td>10</td></tr><tr><td>maxsat-optimum</td><td>26.64 ± 3.64</td><td>29.27 ± 2.49</td><td>22157 ± 5623</td><td>11</td></tr><tr><td></td><td>unsat</td><td>59.00 ± 0.00</td><td>27597 ± 8713</td><td>7</td></tr></table>
+
+SAT Competition Instances. An overview of the results is shown in Table 2 and a more detailed breakdown is given in Table 3 (Appendix G). WL takes considerably more rounds to converge. Out of 448 evaluated instances, only 234 could be solved with the expressive power of WL. Across 69 instance families, 38 contained instances where WL is not expressive enough. An example of a family with indistinguishable structure is heule-nol, which encodes a type of grid coloring problem (Heule et al., 2024). The regular structure of the instances makes it difficult for WL to distinguish literals.
+
+## 8 CONCLUSIONS AND FUTURE WORK
+
+Our theoretical results establish fundamental limitations on the expressive power of GNNs for SAT solving. We show that even the full WL hierarchy cannot distinguish between satisfiable and unsatisfiable formulas, while also revealing connections to resolution complexity and offering a new perspective on the classic construction of Cai et al. (1992). Additionally, we identify an NP-complete but WL-indistinguishable class of SAT instances, as well as provide positive guarantees for distinguishing random and planar SAT instances.
+
+Experimentally, we show that WL-powerful architectures are, in principle, expressive enough to predict satisfying assignments for random SAT instances, but struggle with industrial and crafted benchmarks. Our test setup allows us to see if a WL-powerful GNN has the necessary expressive power for predicting satisfying assignments, though it does not capture whether that expressivity is sufficient for generalizable learning. Even for random SAT formulas, improved generalization may require higher-order GNNs, symmetry breaking, or other architectural improvements.
+
+We hope to see GNNs applied to industrial SAT instances in the future. While this remains challenging—due to the lack of scalable generators and the large size of many industrial instances—these instances provide a structurally richer and potentially more demanding testbed. Progress in this direction could offer new insights into generalization that remain hidden when only using random instance distributions.
+
+## REPRODUCIBILITY STATEMENT
+
+The code for the experiments is available online<sup>8</sup> Complete proofs of all theoretical results, including background results such as the NP-completeness of 3-regular SAT, are included in the appendix (Appendices B-E). Details of dataset selection and generation are given in Section 7.2 and Appendix G.
+
+## REFERENCES
+
+M. Ajtai. Recursive construction for 3-regular expanders. Combinatorica, 14(4):379–416, 1994. doi: 10.1007/BF01302963. URL https://doi.org/10.1007/BF01302963.
+
+Tasniem Nasser Alyahya, Mohamed El Bachir Menai, and Hassan Mathkour. On the structure of the boolean satisfiability problem: A survey. ACM Comput. Surv., 55(3), March 2022. ISSN 0360-0300. doi: 10.1145/3491210. URL https://doi.org/10.1145/3491210.
+
+Carlos Ansotegui, Jes´ us Gir´ aldez-Cru, and Jordi Levy. The community structure of sat formulas.´ In International Conference on Theory and Applications of Satisfiability Testing, pp. 410–423. Springer, 2012.
+
+Albert Atserias and V´ıctor Dalmau. A combinatorial characterization of resolution width. Journal of Computer and System Sciences, 74(3):323–334, 2008. ISSN 0022-0000. doi: https://doi. org/10.1016/j.jcss.2007.06.025. URL https://www.sciencedirect.com/science/ article/pii/S0022000007000876. Computational Complexity 2003.
+
+Gilles Audemard and Laurent Simon. Predicting learnt clauses quality in modern sat solvers. In IJCAI, volume 9, pp. 399–404, 2009.
+
+Laszl´ o Babai, Paul Erd´ os, and Stanley M. Selkow. Random graph isomorphism.¨ SIAM Journal on Computing, 9(3):628–635, 1980. doi: 10.1137/0209047. URL https://doi.org/10. 1137/0209047.
+
+Eli Ben-Sasson and Avi Wigderson. Short proofs are narrow—resolution made simple. J. ACM, 48(2):149–169, March 2001. ISSN 0004-5411. doi: 10.1145/375827.375835. URL https: //doi.org/10.1145/375827.375835.
+
+Armin Biere. Adaptive restart strategies for conflict driven sat solvers. In International Conference on Theory and Applications of Satisfiability Testing, pp. 28–33. Springer, 2008.
+
+B. Borchert, D. Ranjan, and F. Stephan. On the computational complexity of some classical equivalence relations on boolean functions. Theory ofComputing Systems, 31(6):679–693, 1998. doi: 10.1007/s002240000109. URL https://doi.org/10.1007/s002240000109.
+
+Jin-Yi Cai, Martin Furer, and Neil Immerman. An optimal lower bound on the number of variables¨ for graph identification. Combinatorica, 12(4):389–410, 1992. doi: 10.1007/BF01305232. URL https://doi.org/10.1007/BF01305232.
+
+Wenjing Chang and Wenlong Liu. Sat-gatv2: A dynamic attention-based graph neural network for solving boolean satisfiability problem. Electronics, 14(3):423, 2025.
+
+Stephen A. Cook. The complexity of theorem-proving procedures. In Proceedings of the Third Annual ACM Symposium on Theory of Computing, STOC ’71, pp. 151–158, New York, NY, USA, 1971. Association for Computing Machinery. ISBN 9781450374644. doi: 10.1145/800157. 805047.

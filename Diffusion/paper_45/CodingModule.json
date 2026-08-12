@@ -1,0 +1,86 @@
+{
+  "overview": "Discrete Diffusion Forcing (D2F) refurbishes pre-trained bidirectional diffusion LLMs into a block-wise causal AR-diffusion hybrid via asymmetric distillation, enabling pipelined parallel decoding with KV cache to achieve faster-than-autoregressive inference on mathematical reasoning and code generation benchmarks.",
+  "count": 16,
+  "modules": [
+    {
+      "id": 1,
+      "name": "Data Preprocessing and Tokenization",
+      "description": "Load and preprocess the Bespoke-Stratos-17k dataset (and OpenCoder SFT data for DiffuCoder). Perform tokenization using the model's tokenizer, filter sequences to a maximum token length, and pad or truncate all sequences to a uniform length. Format data into prompt-response pairs suitable for distillation training."
+    },
+    {
+      "id": 2,
+      "name": "Block-wise Partitioning Module",
+      "description": "Divide a clean token sequence into N non-overlapping blocks of fixed size. For each sequence, compute the block index mappings and produce block-level subsequence views. This module serves as a foundational utility used by both the masking and distillation components."
+    },
+    {
+      "id": 3,
+      "name": "Monotonic Noise Schedule and Forward Masking",
+      "description": "Implement the forward corruption process where blocks receive monotonically increasing mask ratios (t1 < t2 < ... < tN), with earlier blocks less masked and later blocks more masked. Sample noise schedules per block within specified min/max thresholds, and apply independent token masking to each block according to its assigned mask ratio, producing the partially corrupted sequence Y^t."
+    },
+    {
+      "id": 4,
+      "name": "D2F Model Architecture with Block-wise Causal Attention",
+      "description": "Construct the student D2F model by modifying the attention mechanism of a pre-trained bidirectional dLLM. Replace the full bidirectional attention mask with a block-wise causal attention mask: tokens within the same block attend bidirectionally to each other, while tokens in later blocks cannot attend to earlier blocks that precede their causal scope. This preserves intra-block context while enabling exact KV cache reuse across blocks."
+    },
+    {
+      "id": 5,
+      "name": "LoRA Adapter Integration",
+      "description": "Inject LoRA (Low-Rank Adaptation) modules into the query, key, value, and output projection layers of the D2F model. Configure rank, scaling factor, and dropout rate for the LoRA adapters. Freeze the base model parameters and only train the LoRA weights during distillation, enabling efficient parameter-efficient fine-tuning of the large dLLM backbone."
+    },
+    {
+      "id": 6,
+      "name": "Asymmetric Distillation Loss",
+      "description": "Compute the KL divergence loss between the teacher and student predictions for each block. The teacher (pre-trained bidirectional dLLM) predicts each block conditioned on all noisy blocks (global view), while the student (D2F model) predicts each block conditioned only on causally preceding noisy blocks (causal view). Aggregate the per-block KL divergences over mask tokens across all blocks to form the training objective."
+    },
+    {
+      "id": 7,
+      "name": "Teacher-Student Forward Pass Coordination",
+      "description": "Orchestrate the dual forward pass for distillation: run the frozen teacher model with full bidirectional attention on the globally corrupted sequence to obtain teacher logits for all blocks, and run the student model with block-wise causal attention on the same corrupted input. Handle the no-gradient context for the teacher and ensure correct attention masks are applied to each model."
+    },
+    {
+      "id": 8,
+      "name": "Training Loop and Optimization",
+      "description": "Implement the main training loop for asymmetric distillation. Manage epoch iteration, batch processing, optimizer stepping with AdamW, and constant learning rate scheduling. Handle gradient computation and backpropagation through the student model only. Support multi-GPU distributed training with DDP for the distillation process."
+    },
+    {
+      "id": 9,
+      "name": "KV Cache Management for Block-wise Inference",
+      "description": "Implement a block-aware KV cache that stores key-value states for fully decoded blocks and reuses them in subsequent inference steps. Ensure cache accuracy by constraining attention to be block-wise causal, so that cached KV states of completed blocks remain valid even as new blocks are decoded. Handle cache appending, lookup, and memory management during pipelined decoding."
+    },
+    {
+      "id": 10,
+      "name": "Pipelined Parallel Decoding Algorithm",
+      "description": "Implement the core inference algorithm that dynamically manages a sliding window of active blocks. When the decoded-token ratio of the last active block exceeds the addition threshold, append a new fully-masked block to the pipeline. Maintain the pipeline of blocks being decoded in parallel, and trigger block activation transitions based on the predecessor's completion ratio."
+    },
+    {
+      "id": 11,
+      "name": "Dual-State Decoding Mechanism",
+      "description": "Implement the semi-activated and fully-activated decoding states for pipeline blocks. Semi-activated blocks only accept tokens whose prediction confidence exceeds the confidence threshold. Fully-activated blocks additionally enforce selection of the most confident token when no token exceeds the threshold, ensuring progress. A block transitions from semi-activated to fully-activated when its predecessor's decoded-token ratio exceeds the activation threshold."
+    },
+    {
+      "id": 12,
+      "name": "Confidence-Based Token Selection and Remasking",
+      "description": "At each inference step, compute prediction confidence for each masked token position in active blocks. For positions above the confidence threshold, sample and fix the token. For positions below the threshold, remask them for future denoising iterations. Handle the greedy sampling strategy (temperature zero) for deterministic inference."
+    },
+    {
+      "id": 13,
+      "name": "Evaluation Metrics Computation",
+      "description": "Implement scoring functions for all benchmarks: exact-match and numerical answer extraction for GSM8K and MATH; pass@k evaluation with code execution sandbox for HumanEval, HumanEval+, MBPP, and MBPP+; and chain-of-thought answer extraction for GSM8K-CoT. Support both few-shot and zero-shot evaluation protocols."
+    },
+    {
+      "id": 14,
+      "name": "Throughput and Latency Benchmarking",
+      "description": "Measure tokens-per-second (TPS) and end-to-end latency for inference. Track the actual number of generated tokens and generation length per sample. Compute speedup ratios relative to baseline models (vanilla dLLM, dLLM-Cache, Fast-dLLM, and AR models). Ensure timing excludes model loading and prompt processing for fair comparison."
+    },
+    {
+      "id": 15,
+      "name": "Ablation Study and Hyperparameter Sensitivity Framework",
+      "description": "Provide configurable ablation experiments: (1) Cache-only vs. Cache+Parallel decoding, (2) D2F monotonic mask schedule vs. random mask schedule, (3) Impact of block size on speed-accuracy trade-off, (4) Sensitivity analysis of inference thresholds (τ_add, τ_act, τ_conf), (5) Control experiment fine-tuning baseline without D2F distillation. Automate sweep execution and result aggregation."
+    },
+    {
+      "id": 16,
+      "name": "Configuration, Logging, and Experiment Management",
+      "description": "Manage all hyperparameters via structured configuration files, including training parameters (block size, mask ratio bounds, LoRA config), inference parameters (block size, τ_add, τ_act, τ_conf, max generation length), and benchmark settings. Implement experiment logging with training loss curves, checkpoint saving/loading, and automated generation of result tables and throughput-vs-score plots for publication."
+    }
+  ]
+}

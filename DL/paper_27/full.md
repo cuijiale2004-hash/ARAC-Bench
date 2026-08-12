@@ -1,0 +1,224 @@
+## ABSTRACT
+
+Multi-Agent Path Finding (MAPF) is a representative multi-agent coordination problem, where multiple agents are required to navigate to their respective goals without collisions. Solving MAPF optimally is known to be NP-hard, leading to the adoption of learning-based approaches to alleviate the online computational burden. Prevailing approaches, such as Graph Neural Networks (GNNs), are typically constrained to pairwise message passing between agents. However, this limitation leads to suboptimal behaviours and critical issues, such as attention dilution, particularly in dense environments where group (i.e. beyond just two agents) coordination is most critical. Despite the importance of such higher-order interactions, existing approaches have not been able to fully explore them. To address this representational bottleneck, we introduce HMAGAT (Hypergraph Multi-Agent Attention Network), a novel architecture that leverages attentional mechanisms over directed hypergraphs to explicitly capture group dynamics. Empirically, HMAGAT establishes a new state-of-the-art among learning-based MAPF solvers: e.g., despite having just 1M parameters and being trained on 100× less data, it outperforms the current SoTA 85M parameter model. Through detailed analysis of HMAGAT’s attention values, we demonstrate how hypergraph representations mitigate the attention dilution inherent in GNNs and capture complex interactions where pairwise methods fail. Our results illustrate that appropriate inductive biases are often more critical than the training data size or sheer parameter count for multi-agent problems.
+
+## 1 INTRODUCTION
+
+Multi-agent coordination is a fundamental topic in multi-agent systems, where multiple agents work together to achieve a common goal. Applications include warehouse automation (Wurman et al., 2008), autonomous driving (Shalev-Shwartz et al., 2016), traffic management (Adler & Blue, 2002) and manufacturing process control (Leng et al., 2023). These settings involve complex interactions and dependencies among agents. In the literature, such interactions are typically modelled in a pairwise manner, using graph neural networks (GNNs) or transformers (Bernardez et al., 2023; Liu´ et al., 2024; Li et al., 2024b). However, pairwise interactions are insufficient to fully capture highlycoupled multi-agent dynamics, where interactions may involve multiple agents simultaneously.
+
+This insufficiency has led to the exploration of higher-order representational structures, such as hypergraphs, which can naturally model group interactions. Recent works have shown that hypergraphs can effectively model small-scale multi-agent problems (Zhu et al., 2024; Zhao et al., 2025) and simple group interactions, like social groups in trajectory prediction tasks (Lin et al., 2024; Xu et al., 2022). However, the question remains, “Can hypergraphs scale beyond simple group settings to capture the dynamics of complex, highly-coupled multi-agent tasks?”
+
+In this work, we provide a positive answer to this question by focusing on one such problem of multi-agent pathfinding (MAPF), where the goal is to compute collision-free paths that efficiently guide a team of agents to their respective destinations. Optimally solving MAPF is known to be
+
+(b)  
+(a)  
+![](images/a8c3129a0ad772b8b9db4cfc977d5b6a5f8264bc6fa929234bf57430d217af81.jpg)  
+(c) — HMAGAT (1M) -- MAPF-GPT (85M) -- MAPF-GPT (6M) MAGAT (0.75M) -- MAPF-GPT-DDG (2M
+
+![](images/d38c10b444dbfba45e3bf63a24f334577a4e6cc71835091eac833799714adf06.jpg)  
+Figure 1: (a) MAPF requires group interactions. (i) The SoC-optimal (sum-of-costs) group interaction-based solution. (iii-v) Pairwise interactions with agent A, showing the optimal paths when agent pairs are isolated. (ii) Combination of the pairwise solutions. This solution is suboptimal compared to the group interaction-based solution. (b) Group interaction modelling has been previously unexplored. Positioning of MAPF solvers with respect to their interaction modelling. (c) HMAGAT achieves state-of-the-art performance. Radar plot comparing learnt MAPF solvers, showing average solution quality and scalability (both the higher, the better) across different small maps<sup>1</sup>and agent densities, and a focused view on the highest agent density (High AD) scenarios. Details of the metrics are in Appendix B.
+
+NP-hard (Surynek, 2010), even in sparse grids (Geft & Halperin, 2022), which highlights the strong entanglement among agents. This makes MAPF a suitable testbed for studying highly-coupled multi-agent problems, especially in obstacle-dense maps with large numbers of agents.
+
+As with the other multi-agent problems, previous works on MAPF have focused on pairwise interaction-modelling, popularly using GNNs (Li et al., 2020; 2021; Veerapaneni et al., 2025) or transformers (Wang et al., 2023; Andreychuk et al., 2025a). However, MAPF is inherently a group problem, i.e., optimality and completeness can, generally, only be achieved when modelling the full joint state space of all agents (not just two), as shown in Figure 1a. We argue that the use of hypergraphs provides strong inductive biases for capturing group interactions, thereby enabling the development of more capable MAPF approaches.
+
+To address this gap, (i) we propose HMAGAT, a novel imitation learning framework for MAPF, leveraging a hypergraph attention network to better model the higher-order group interactions. (ii) We propose hypergraph generation strategies that dynamically construct directed hypergraphs and (iii) empirically demonstrate the prowess of our approach over existing solvers, as shown in <sub>Fig.</sub> <sub>1c,</sub> <sub>beating</sub> <sub>the</sub> <sub>previous</sub> <sub>state-of-the-art</sub> <sub>learning</sub> <sub>model</sub> <sub>while</sub> <sub>using</sub> <sub>only</sub> \~<sub>1.2%</sub> <sub>parameters</sub> <sub>and</sub> \~<sub>1% of the training data. (iv) Through experiments, we perform a deeper analysis on why pairwise</sub> attention fails while modelling group interactions, and how hypergraphs overcome these issues.
+
+## 2 PRELIMINARIES
+
+## 2.1 HYPERGRAPHS AND MULTI-AGENT LEARNING
+
+Hypergraphs are a higher-order generalisation of graphs, where edges, called hyperedges, can connect any number of nodes. Formally, a directed hypergraph is defined as $\mathcal { H } = ( \nu , \mathcal { E } )$ , where $\nu$ is the set of nodes and E is the set of directed hyperedges. Each hyperedge $e \in { \mathcal { E } }$ is an ordered pair $( T ( e ) , H ( e ) )$ ), where $T ( e ) \subseteq \mathcal { V }$ is the tail and $H ( e ) \subseteq \nu$ is the head of the hyperedge. A set of hyperedges incident to node $i \in \nu$ is denoted as $\Gamma ( i ) = \{ e \in \mathcal { E } \mid i \in T ( e ) \cup H ( e ) \}$
+
+The hypergraph counterpart of graph neural networks (GNNs) is referred to as hypergraph neural networks $( H G N N s )$ . HGNNs have been increasingly adopted in multi-agent learning tasks due to their ability to capture higher-order interactions. $\mathrm { E . g . }$ , HGNNs for formation control and robotic warehouses (Zhao et al., 2025), multi-agent continuous trajectory prediction (Lin et al., 2024; Xu et al., 2022) and social robot navigation (Li et al., 2024a; Wang et al., 2024). While these studies focus on problems with often modest team sizes $( \approx 1 0 ^ { 1 }$ agents), where tightly coupled coordination among agents is less critical, our work explores the potential of HGNNs in a more challenging coupled setting containing large number of agents, namely, MAPF.
+
+## 2.2 MULTI-AGENT PATHFINDING (MAPF)
+
+We consider a widely used MAPF formulation (Stern et al., 2019), defined by a team of agents $A = \{ 1 , 2 , \dots , n \}$ , a four-connected grid graph $G = ( V , E )$ , and a distinct start $s _ { i } \in V$ and goal $g _ { i } \in V$ for each agent $i \in A$ . At each timestep, each agent either stays in place or moves to an adjacent vertex. Vertex and edge collisions are prohibited: agents cannot occupy the same vertex simultaneously or swap their occupied vertices. Then, for each agent $i \in A$ , we aim to assign a collision-free path $\pi _ { i } \stackrel { - } { = } ( v ^ { 0 } = s _ { i } , \stackrel { - } { v } ^ { 1 } , \dotsc , v ^ { T } = g _ { i } )$ . The solution quality is assessed by sum- $\cdot o f \cdot$ costs (SoC), which sums the travel time of each agent until it stops at the target location. Herein, a configuration ${ \mathcal { Q } } \in V ^ { n }$ refers to the locations for all agents. The dist function returns the shortest path length between two vertices on $G ,$ while neigh(v) represents adjacent vertices for $v \in V$
+
+MAPF is an appealing benchmark to assess the capabilities of multi-agent learning techniques, tailored to industrial setups such as warehouse automation (Agaskar et al., 2025). Several directions exist on how to leverage ML for MAPF (Alkazzi & Okumura, 2024), with a major thrust being the governance of agent-wise neural policies that interpret their surrounding information and output actions, ideally leading to coordination beyond mere greedy behaviour. Such policies are typically constructed either via reinforcement learning (RL) (Sartoretti et al., 2019) or imitation learning (IL) (Li et al., 2021). This work focuses on IL setups, motivated by recent findings that (i) collecting demonstration data is inexpensive with modern MAPF solvers (Okumura, 2024), and (ii) IL consistently outperforms RL (Andreychuk et al., 2025a; Veerapaneni et al., 2025).
+
+## 2.3 MAGAT: GNN-BASED POLICY FOR MAPF
+
+Among existing IL policies for MAPF to date, MAGAT (Li et al., 2021) is a representative approach that employs GNNs to capture pairwise agent interactions. Formally, it governs a policy $\pi _ { i } ( v \mid o _ { i } , { \mathcal { G } } )$ that outputs an action distribution over candidate target vertices v for agent $i ,$ given its observation $o _ { i }$ and the communication graph ${ \mathcal { G } } ,$ which is constructed based on spatial proximity within a radius $R ^ { \mathrm { c o m m } } \in \mathbb { N } _ { > 0 }$ . The model consists of (i) a CNN encoder that converts $o _ { i }$ into the node feature $\mathbf { x } _ { i } .$ (ii) a GNN layer that aggregates messages from other agents following ${ \mathcal { G } } ,$ and (iii) an MLP decoder.
+
+Our proposed HMAGAT builds upon MAGAT. In addition to replacing the GNN with HGNN layers, HMAGAT also incorporates techniques introduced in follow-up works on MAGAT. These include stacking GNN layers (three) to enhance representational power (Veerapaneni et al., 2025) and incorporating position-based edge features embedded into ${ \bf { \bar { \boldsymbol { g } } } } .$ Our implementation of MAGAT also includes these improvements.
+
+Local Observation. Throughout the rest of the paper, we fix the observation tensor $o _ { i }$ for agent i at a configuration $\mathcal { Q }$ to be centred around its current position $\mathcal { Q } [ i ]$ , with shape $4 \times ( 2 R ^ { \mathrm { o b s } } + \bar { 1 } ) \times$ $( 2 R ^ { \mathrm { o b s } } + \mathsf { \bar { 1 } } )$ , where $R ^ { \mathrm { o b s } } ~ \in ~ \mathbb { N } _ { > 0 }$ determines the FOV size. The four channels consist of (i) an obstacle map, (ii) an agent map, (iii) a projection of the goal direction, and (iv) a normalised costto-go map. For each location $v \in V$ within FOV, the normalised cost-to-go value is computed as $\bar { ( } \mathsf { d i s t } ( \bar { v } , g _ { i } ) - \mathsf { d i s t } ( \mathscr { Q } [ i ] , g _ { i } ) ) / ( 2 R ^ { \mathrm { o b s } } )$ , while setting it to 1 for obstacles. This construction is commonly used in learning-based MAPF studies (Alkazzi & Okumura, 2024).
+
+![](images/8e4da6a4735dda772501a13f50fdb3b99029afcf203ab9492be328964c2dc463.jpg)  
+Figure 2: Overview of HMAGAT. (a) We collect demonstrations using an expert solver over 21K instances. (b) For each timestep, we extract a directed hypergraph representation (head agent shown with bold outline here). (c) These are used to train our HGNN-based model. (d) Post-training, we train the model using expert trajectories over intermediate instances, to improve solution quality. A temperature sampler is also trained to make the model more confident.
+
+## 3 HMAGAT
+
+While GNNs have shown promise in modelling multi-agent systems, they inherently focus on pairwise interactions between agents. This pairwise focus can limit their ability to capture the complex coupled-dynamics in multi-agent systems with interactions involving multiple agents simultaneously. We identify two key limitations of GNNs, specifically MAGAT, in this context.
+
+Attention in dense scenarios. In multi-agent systems, agent interactions tend to be uneven, where for a given agent, some interactions might be more important than others. Thus, methods like MAGAT use an attentional mechanism to better model the interactions between agents. The attention scores are computed in a pairwise manner and normalised over the neighbourhood (via softmax). This, however, can be problematic in out-of-distribution dense scenarios. In such scenarios, each agent will have a dense neighbourhood, with only a few agents being truly relevant. However, since the attention scores are first computed pairwise and then normalised over the neighbourhood, the presence of many irrelevant agents will dilute the attention scores of the relevant agents. Appendix E.1 includes an informal proof that GNNs suffer from this phenomenon.
+
+Group Interactions. The interactions in GNNs are inherently pairwise, while multi-agent problems, like MAPF, tend to be fundamentally a group planning problem. Models like MAGAT can assuage this to some extent by using multiple GNN layers, where deeper layers can theoretically learn to capture group interactions. However, without an explicit bias for these group interactions, the model would likely struggle to learn such interactions. We provide further details on these limitations in Appendix F.
+
+Motivated by these observations, we propose HMAGAT, an attentional hypergraph neural network (HGNN)-based imitation learning model for MAPF. We first describe the architecture of HMAGAT, and then explore different hypergraph generation strategies.
+
+## 3.1 ARCHITECTURE
+
+To model the group interaction of multiple agents influencing a single agent’s decision, we design directed hypergraphs, with a singleton head and a multi-node tail. We replace the GNN layers in MAGAT with our HGNN layers, resulting in a pipeline consisting of (i) a CNN encoder, followed by (ii) HGNN layers, and (iii) an MLP decoder.
+
+Communication Hypergraph. We detail several strategies to generate a hypergraph H in Section 3.2. We include hyperedge features $\omega _ { j e }$ for each $e \in \mathcal { H }$ and $j \in T ( e )$ . This is set to be a three-dimensional vector, consisting of the relative positional co-ordinates and the Manhattan distance between the agent and the hyperedge centre, which is taken to be the position of the head agent or, in the general case, the centroid of the head agents.
+
+Hypergraph Attention Network. We design our HGNN in a message-passing manner, with messages going from the tail nodes to the hyperedges to the head nodes. Concretely, let $\mathbf { x } _ { i } ^ { ( l ) }$ denote the node feature of agent i at layer l. The layer update proceeds with:
+
+$$
+\mathbf {x} _ {i} ^ {(l + 1)} = \sigma \Bigg (\mathbf {W} _ {R} ^ {(l)} \mathbf {x} _ {i} ^ {(l)} + \sum_ {e \in \Gamma (i) \land i \in H (e)} \alpha_ {i e} ^ {(l)} \left(\mathbf {W} _ {h} ^ {(l)} \mathbf {h} _ {e} ^ {(l)}\right) \Bigg)\tag{1}
+$$
+
+$$
+\alpha_ {i e} ^ {(l)} = \mathrm{softmax} \left[ \mathrm{LeakyReLU} \left(\left(\mathbf {x} _ {i} ^ {(l)}\right) ^ {\top} \left(\Theta_ {h} ^ {(l)} \mathbf {h} _ {e} ^ {(l)}\right)\right) \right]\tag{2}
+$$
+
+$$
+\mathbf {h} _ {e} ^ {(l)} = \sum_ {j \in T (e)} \alpha_ {e j} ^ {(l)} \left(\mathbf {W} _ {n} ^ {(l)} \mathbf {x} _ {j} ^ {(l)} + \mathbf {W} _ {e} ^ {(l)} \mathbf {w} _ {j e}\right) \quad (\text { hyperedge   representation })\tag{3}
+$$
+
+$$
+\alpha_ {e j} ^ {(l)} = \mathrm{softmax} \bigg [ \mathrm{LeakyReLU} \bigg (\bigg (\sum_ {i \in H (e)} \mathbf {x} _ {i} ^ {(l)} / | H (e) | \bigg) ^ {\top} \left(\Theta_ {n} ^ {(l)} \mathbf {x} _ {j} ^ {(l)} + \Theta_ {e} ^ {(l)} \mathbf {w} _ {j e}\right) \bigg) \bigg ]\tag{4}
+$$
+
+Here, ${ \bf w } _ { j e } = \phi ( \omega _ { j e } )$ is the hyperedge feature processed via an ML $\mathbf { \nabla } _ { \mathbf { P } } \phi , \alpha _ { e j } ^ { ( l ) }$ and $\alpha _ { i e } ^ { ( l ) }$ are the normalised attention weights, $\mathbf { W } _ { \{ R , n , e , h \} } ^ { ( l ) }$ and $\Theta _ { \{ n , e , h \} } ^ { ( l ) }$ are the learnable weights, and σ is a non-linearity. The above design reflects the necessity of modelling variable hypergraph and hyperedge sizes. Instead of architectures with fixed and uniquely identifiable relation types (Busbridge et al., 2019), HMAGAT is derivative from attentional HGNNs (Bai et al., 2021; Chen et al., 2020), which can accommodate dynamic and flexible hypergraph structures.
+
+This HGNN architecture is capable of mitigating attention dilution. We provide an informal proof in Appendix E.2.
+
+## 3.2 HYPERGRAPH GENERATION
+
+Unlike GNNs, which naturally introduce pairwise interactions over a communication graph, defining hypergraphs for MAPF that capture group interactions is not trivial. We focus on directed hypergraphs with singleton heads and multi-node tails. An intuitive approach is to assign a
+
+<div class="mineru-algorithm" style="white-space: pre-wrap; font-family:monospace;">
+Algorithm 1 COLOURINGBASEDHYPERGRAPHS
+input: colours C, colouring R, agents A, positions Q
+1:  $E \leftarrow \emptyset$ 
+2: for  $v \in A, c \in C$  do
+3:  $T \leftarrow \{u \in A \mid \|Q[u] - Q[v]\| \leq R^{\text{comm}} \wedge (Q[u], c) \in R\}$ 
+4: if  $T \neq \emptyset$  then  $E \leftarrow E \cup \{(T \cup \{v\}, \{v\})\}$ 
+5: return  $(A, E)$ $\triangleright$  directed hypergraph
+</div>
+
+colour—potentially multiple colours—to each vertex $v \in V .$ , based on geometric adjacency, under the belief that agents in the same local region are more likely to interact collectively. We then form groups according to agent locations and their colours; that is, agents sharing the same colour form the tail of a hyperedge. Concretely, let C be the set of colours, and let $R : V \mapsto 2 ^ { | C | }$ denote the colouring function. Given C and R, Alg. 1 creates a directed hypergraph subject to the constraint of a communication radius $R ^ { \mathrm { { c o m m } } }$ . We next discuss strategies to build the colouring R.
+
+Lloyd Hypergraphs. A principled approach to workspace partitioning is to employ a Voronoi diagram, which divides the space into regions based on distances to a set of k initial seed locations. By applying Lloyd’s algorithm (Lloyd, 1982; Zaman et al., 2024), one can obtain a balanced Voronoi partition with approximately equal-sized regions, regardless of the choice of initial seeds. In principle, each region can be assigned a distinct colour. How-
+
+(a)  
+![](images/3dd8e4dd2aac3431cb459e6a42d44cd90d87eec1d315d6d551ec03fffc904b84.jpg)
+
+(b)  
+![](images/36142b1ca0527ba12f425a1a61c3fe8869f1646a724882074db38a474d5bcae3.jpg)  
+Figure 3: Going from (a) strict partitioning to (b) overlapping groups.
+
+ever, a strict partitioning is not ideal for our setting, since agents may interact across these artificial boundaries. This motivates us to introduce “soft” borders by allowing multiple colours per vertex.
+
+Concretely, after the Lloyd’s algorithm, we discard half of the least populous colours and reassign the corresponding regions to the colours of their neighbouring regions. An illustration of this process is shown in Figure 3, with the pseudocode provided in Appendix A.
+
+k-means Hypergraphs. Since Lloyd’s algorithm requires $O ( | V | ^ { 3 } )$ time for updating centroids, it becomes impractical for large graphs. In a faster method, we first diffuse colours from k randomly sampled vertices, where each vertex is associated with a k-dimensional vector and each dimension corresponds to one colour. Over a fixed number of iterations T, each vertex updates its vector to the mean of its neighbours’ vectors. We then apply k-means clustering (MacQueen, 1967) to these vectors, followed by the “soft boundary operation” described above. This procedure reduces the complexity to $O ( k | V | )$ . See Appendix A for the detailed procedure.
+
+Shortest Distance-based Hypergraphs. We also explore non-colouring-based hypergraphs. Given an agent i, we say that two agents j and k should be in the tail of a hyperedge with head i if agent i can encounter one agent while visiting the other. We formalise this using the shortest path distances between the agents. We include further details of this strategy in Appendix A.
+
+## 3.3 TRAINING PIPELINE
+
+Model Training. We use the POGEMA toolkit (Skrynnik et al., 2025), also employed in the development of MAPF-GPT (Andreychuk et al., 2025a). Following $\mathrm { M A P F - G P T ^ { \circ } s }$ training protocol, we generate a total of 21K instances, of which, 20% feature randomly placed obstacles, while the remaining 80% are maze-like environments. Map sizes range from 17×17 to 21×21, with 16, 24, or 32 agents. For reference, MAPF-GPT uses 3.75M instances for training. In line with MAPF-GPT, we generate expert trajectories using lacam3 (Okumura, 2024), a state-of-the-art anytime MAPF solver. We adopt a staged timeout strategy with time limits of [1, 5, 15, 60]s, where a longer timeout is used only if the shorter ones fail. As the training set does not include challenging situations, most instances were solved within 1 s. HMAGAT, with ${ \check { R } } ^ { \mathrm { c o m m } } = 7$ and $R ^ { \mathrm { o b s } } = 5$ , is trained on the collected expert trajectories using cross-entropy loss. We train for 200 epochs, requiring about 100 hours on an NVIDIA L40S GPU, using the AdamW optimiser (Loshchilov & Hutter, 2019).
+
+Online Expert. To mitigate the distributional shift common in imitation learning, we further apply on-demand dataset aggregation (Ross et al., 2011), collecting new trajectories where the model fails, following MAGAT (Li et al., 2021). To improve the quality of trajectories, after achieving 80% success rate, we check if the length of the model’s solution exceeds $\delta _ { \mathrm { b u f } } \times$ the expert trajectory length, with $\delta _ { \mathrm { b u f } } = 1 . 2$ . If so, we follow Andreychuk et al. (2025b) and extract instances at every h-th step, where $h = 1 6$ . We then solve these instances using lacam3 with timeouts of [1, 2, 10]s, adding trajectories that are $\delta _ { \mathrm { b u f } } \times$ shorter than the model’s trajectory. To keep the training time manageable, we limit the total number of quality improvement expert-calls to 30 per online expert phase.
+
+Post-Training. We follow MAPF-GPT-DDG (Andreychuk et al., 2025b) and apply a post-training phase to further improve the solution quality. This follows the same training procedure as before, but with the quality improvement online expert being called for all 500 instances and with the training consisting of 1 : 3 ratio of the quality improvement instances and the pre-collected instances, respectively. We run the online expert after every epoch, due to the high accuracy of the model. We run this post-training for 20 epochs, requiring about 30 hours on an NVIDIA L40S GPU.
+
+Temperature Sampling. Previous works have shown that GNNs can achieve high accuracy, but tend to be miscalibrated, having low confidence in their predictions (Hsu et al., 2022; Wang et al., 2021). This is particularly problematic in MAPF, where we sample the next action based on the model’s output distribution. Similar problems are likely to exist for HGNNs as well. To tackle this, we use a softmax temperature τ between 0.5 and 1.0. We train an RL module to dynamically adjust τ for each agent based on its local observability and action log-odds. This module is trained for 50 epochs, taking about 3 hours on an NVIDIA L40S GPU. We include further details in Appendix A.
+
+## 4 EVALUATION
+
+Baselines. We compare HMAGAT with the following three state-of-the-art learning-based MAPF solvers: (i) MAGAT (Li et al., 2021), an attentional GNN-based model. (ii) MAPF-GPT (Andreychuk et al., 2025a), the most capable IL policy to date, using a GPT-like architecture. The authors provided three model sizes: 2M, 6M, and 85M. (iii) MAPF-GPT-DDG (Andreychuk et al., 2025b), a finetuned version of MAPF-GPT (2M) model, which the authors claim matches the 85M model. We use PIBT-based collision shielding (Okumura et al., 2022) for all these methods, as recommended by Veerapaneni et al. (2025). We also run our evaluation on SSIL (Veerapaneni et al., 2025), another GNN-based IL model, and SCRIMP (Wang et al., 2023) and DCC (Ma et al., 2021), two RL models. However, due to the vast difference in performance, we limit their results to Appendix C.
+
+Metrics. We present the success rates, the average relative sum-of-costs (Rel. SoC) with respect to lacam3 with a 30 s budget and the average runtime per-map. The success rate measures the percentage of instances in which all the agents reach their respective goals. For calculating SoC for failed instances, we follow POGEMA’s (Skrynnik et al., 2025) and, in turn, MAPF-GPT’s (Andreychuk et al., 2025a) strategy of assigning the episode length to be the costs for agents that fail to reach their goals. For iterative solvers, this is a valid strategy to get a lower bound on the SoC if the episode length was not limited. lacam3 is the only search-based solver evaluated, and it succeeds in all the evaluated scenarios, leading to no issues.
+
+Evaluation Maps. The commonly used MAPF-benchmarking maps can be divided into seven main categories (Stern et al., 2019): (i) Maze, (ii) Warehouse, (iii) Room, (iv) Game, (v) City, (vi) Random and (vii) Open.
+
+In our evaluation below, we use (i) Sparse Maze and (ii) Empty Room with 256 step limit and 60 s time limit, (iii) Dense Maze, (iv) Dense Room and (v) Dense Warehouse with 512 step limit and 60 s time limit, and (vi) ost003d with 1024 step limit and 90 s time limit. Since Random and Open maps are just simpler versions of Maze maps, we omit their results. City maps are large and sparse, with simple obstacle structures, so we limit their evaluation to Appendix C.
+
+## 4.1 RESULTS
+
+![](images/202b22b4e7f87c402d32823e273f2e4e8b4328ade713b50bb24a0abe5b72b872.jpg)  
+Figure 4: Evaluation of the learning-based MAPF policies, averaged over 128 instances. Transparent regions represent 95% confidence intervals. SoC is reported relative to lacam3 (w/ 30 s time limit).
+
+Figure 4 shows the results on the different maps. We see that all HMAGAT strategies consistently obtain higher quality solutions than MAGAT, as well as larger models, like MAPF-GPT (2M), MAPF-GPT (6M) and MAPF-GPT-DDG (2M). HMAGAT remains competitive with the largest MAPF-GPT (85M) model, while being significantly faster. k-means and Lloyd’s HMAGAT have consistently high solution quality, with the k-means strategy being faster, especially on the larger maps, as expected. For the rest of the analysis, we focus on k-means hypergraphs.
+
+HMAGAT outperforms MAPF-GPT (85M) in the Maze maps in terms of solution quality, but MAPF-GPT (85M) outperforms HMAGAT in the Room and Warehouse maps, except for the highest agent density case for Dense Warehouse map. In fact, HMAGAT achieves $7 5 + \%$ success rate even in this challenging scenario, while the other methods achieve <11% success rates. MAPF-GPT (85M) is fails to scale to ost003d, while HMAGAT obtains solutions close to lacam3’s quality.
+
+Table 1: Comparison of HGNN and GNN, corresponding to HMAGAT w/o embellishments and MAGAT, on different maps with the maximum agent density. Rel. SoC is relative to lacam3.
+
+<table><tr><td>Metric</td><td>Method</td><td>Dense Maze</td><td>Dense Warehouse</td><td>Dense Room</td><td>ost003d</td><td>Paris</td></tr><tr><td rowspan="2">Success Rate</td><td>GNN</td><td>72.7%</td><td>2.3%</td><td>66.4%</td><td>100.0%</td><td>100.0%</td></tr><tr><td>HGNN</td><td>75.8%</td><td>39.8%</td><td>75.0%</td><td>100.0%</td><td>100.0%</td></tr><tr><td rowspan="2">Rel. SoC(95% CI)</td><td>GNN</td><td> $2.07 \pm 0.09$ </td><td> $2.12 \pm 0.10$ </td><td> $2.63 \pm 0.07$ </td><td> $1.06 \pm 0.00$ </td><td> $1.03 \pm 0.00$ </td></tr><tr><td>HGNN</td><td> $1.79 \pm 0.09$ </td><td> $1.78 \pm 0.08$ </td><td> $2.35 \pm 0.06$ </td><td> $1.05 \pm 0.00$ </td><td> $1.02 \pm 0.00$ </td></tr></table>
+
+Ablation Study. Figure 5 shows the results of our ablation study over the highest agent density scenarios on each of the small maps, where we start from MAGAT and incrementally add components to reach HMAGAT. For ease, we fix the hypergraph generation strategy to be kmeans colouring-based. The addition of each module improves both the success rate and the solution quality, except for the RL-based temperature sampling, which trades off the success rate for improved solution qual-
+
+![](images/802d125646046a867392fdd50164ec4de55b902f74c7ec8caaa8bd2e2eeb6f2b.jpg)  
+Figure 5: Ablation study. We start from MAGAT and incrementally add components to reach HMAGAT. We plot the failure rate and Rel. SoC (both the lower the better), over the highest agent density scenarios of the small maps.
+
+ity. This shows the importance of each component for the success of HMAGAT.
+
+## 4.2 HGNN VS GNN – DEEPER ANALYSIS
+
+In this section, we further analyse the difference due to the use of HGNNs over GNNs. To isolate the effects and perform a direct comparison, we focus on a stripped-down version of HMAGAT, consisting solely of the replacement of the GNN layers with HGNNs. To emphasise the difference from HMAGAT, we refer to this stripped-down version as simply the HGNN model and MAGAT as the GNN model, for this analysis.
+
+Table 1 shows the comparison between the two models over different maps. We see that the HGNN model consistently outperforms the GNN model across all maps, especially in the denser maps. This aligns with our hypothesis that HGNNs are better able to capture complex group interactions. The HGNN model also has a higher success rate in the dense scenarios. This gap is particularly pronounced on the Dense Warehouse map, where the HGNN model has a success rate of 39.8% compared to the GNN model’s 2.3%.
+
+![](images/559a7d3407801455632269092886821595f5c005225cc8fe580be4c5d7b8712e.jpg)
+
+![](images/2b3a36a90ae9e914d8bc7c0d24df8fafd76368d11570c1a1b3bda4d48d28566c.jpg)  
+Attention score bins (log scale)  
+Figure 6: Attention score distribution in the first layer of the models with 128 agent instances.
+
+Attentional Analysis. To better understand the difference in performance of the two models, we analyse the attention scores in the first layer of both the models. Figure 6 shows the distribution of these attention scores over a sample instance of Dense Warehouse and Dense Maze maps. The GNN model has a high concentration of attention scores in the higher-middle range, which leads to a dilution of attention, resulting in very few agents receiving high attention. On the other hand, the HGNN model has fewer agents in this range, allowing it to maintain more agents in the highest attention score bin. This supports our hypothesis that GNNs struggle in high density scenarios due to the dilution of attention scores, which our HGNN model is able to overcome. We provide further analysis of attention dilution in Appendix H.
+
+## 4.3 HAND-CRAFTED SCENARIOS
+
+We now analyse the two models on hand-crafted scenarios and showcase the limitations of GNNs due to (i) attention dilution in dense scenarios and (ii) the inability to effectively capture group interactions, which HGNNs are able to overcome since they do not rely on pairwise interactions.
+
+![](images/b6d1b0c2f3fd9d419abcc986719f89788088d17b42efcd0040163411f032ed2d.jpg)  
+Table 2: CV of attention scores (in the first layer) for agent 0 as we vary the number of agents from 4 to 8 (inclusive both) in the map described in Figure 7 (left).
+
+<table><tr><td>Method</td><td>Grp. 0</td><td>Grp. 1</td><td>Grp. 2</td><td>Grp. 3</td></tr><tr><td>GNN</td><td>29.4%</td><td>20.0%</td><td>14.9%</td><td>39.2%</td></tr><tr><td>HGNN</td><td>6.0%</td><td>4.3%</td><td>7.4%</td><td>14.7%</td></tr><tr><td>Ratio</td><td>4.94</td><td>4.66</td><td>2.01</td><td>2.66</td></tr></table>
+
+Figure 7: Hand-crafted scenarios. The filled circles represent the agent locations, while the empty ones represent their targets. Scenario 1 (left): We form 4 groups of agents, shown by different colours here. Scenario 2 (right): We show the next greedy actions for the agents.
+
+Table 3: Percentage Shapley values for the agents with respect to agent 0 in Figure 7 (right).
+
+<table><tr><td>Method</td><td>Agt. 1</td><td>Agt. 2</td><td>Agt. 3</td><td>Agt. 4</td><td>Agts. 3 vs. 4</td></tr><tr><td>GNN</td><td>15.0%</td><td>60.3%</td><td>13.1%</td><td>11.6%</td><td>+13%</td></tr><tr><td>HGNN</td><td>19.0%</td><td>59.6%</td><td>19.3%</td><td>2.1%</td><td>+802%</td></tr></table>
+
+Scenario 1. Since, in GNNs, the attention scores are computed in a pairwise manner, a high density of agents in unimportant regions will lead to a dilution of attention. To illustrate this, we consider the scenario shown in Figure 7 (left). We can create a sequence of scenarios by starting with 4 agents (agents 0-3 in groups 0-3, respectively) and sequentially adding agents 4-7 to group 3. We focus on the first layer attention scores wrt. agent 0. By design, agent 0 primarily needs to attend to agent 2 and, potentially, agent 1, as their respective greedy paths have intersections with agent 0’s. On the other hand, the agents in group 3 are not expected to interfere with agent 0’s path, and thus, increasing the number of agents in group 3 should not affect the attention distribution for agent 0.
+
+Table 2 shows the coefficient of variation (CV) of the attention scores. The GNN model exhibits a high variation in the attention scores as we increase the number of agents in less important regions, leading to a dilution of the attention scores in the important regions. In contrast, the HGNN model exhibits a much lower variation, remaining relatively unaffected by the number of agents in group 3, as desired. We include more details on the attention scores in Appendix D.
+
+Scenario 2. In this scenario, we aim to illustrate the ability of HGNNs to capture group interactions as opposed to GNNs. Towards this end, we design the scenario shown in Figure 7 (right), analysing how agents 1-4 influence agent 0. To quantify the influence, we make use of Shapley values (Shapley, 1951; Lundberg & Lee, 2017), taking the mean of the absolute Shapley values for each plausible action-class log-odds prediction.
+
+By design, we expect the following influence ranking: Agent 2 > Agent 3 ≈ Agent 1 > Agent 4. This is because agent 2’s next greedy action conflicts with agent 0’s. Agent 3’s greedy path will want agent 1 to occupy this conflicting cell, leading to a group interaction effect and thus, a similar high influence on agent 0’s actions. Since agent 2 is already moving away from agent 4, agent 4 is expected to have a low influence. From a purely pairwise perspective, agents 3 and 4 have mirrored start and goal locations wrt. agent 0, and thus, should have similar influence on agent 0’s actions. However, due to group interactions, we expect agent 3 to have a higher influence than agent 4.
+
+Table 3 shows the percentage Shapley values for the GNN and HGNN models. As expected, we see that both models assign the highest influence to agent 2. For the GNN model, agents 1, 3 and 4 have a similar influence, with agent 3 having only 13% more influence than agent 4. This highlights the inability of the GNN model to capture group interactions effectively. On the other hand, in the HGNN model, agent 3 has a significantly higher influence (802% more) than agent 4, showcasing the ability of HGNNs to capture group interactions and distinguish between the agents.
+
+## 5 CONCLUSION
+
+In this work, we explored MAPF as a representative multi-agent problem with complex interactions. We proposed HMAGAT, an MAPF solver based on hypergraph neural networks (HGNNs), as a solution to model higher order interactions. We empirically demonstrated that our approach outperforms current state-of-the-art methods, which only consider pairwise interactions. HMAGAT achieves superior performance to MAPF-GPT (85M), a 85× larger model, trained on 100× more data. We perform further analyses to show that, indeed, the HGNNs help to capture group interactions better than GNNs via explicit group modelling. Our results show how higher order representational learning models can lead to improved model performance, while lowering the sample complexity and model size, strongly motivating future research to explore hypergraph-based methods for challenging multi-agent problems with highly coupled interactions. As our model achieves SoTA performance with a significantly smaller parameter count than previous works, our results demonstrate that better inductive biases, such as hypergraph-based interaction modelling, are a complementary strategy to training larger models when tackling difficult multi-agent problems.
+
+## REPRODUCIBILITY STATEMENT
+
+Section 3 details our proposed HMAGAT model and training procedure. In order to make our work easily reproducible, we provide further details about the model architecture and training in Appendix A, including relevant hyperparameters. We provide our codebase as supplementary material, which includes instructions to reproduce our results as well as checkpoints for our trained models. The codebase also includes scripts to generate the instances used to train and evaluate models.
+
+## ACKNOWLEDGMENTS
+
+This research was funded in part by Trinity College Cambridge, European Research Council (ERC) Project 949940 (gAIa), JST ACT-X (JPMJAX22A1), and JST PRESTO (JPMJPR2513).
+
+## REFERENCES
+
+Jeffrey L Adler and Victor J Blue. A cooperative multi-agent transportation management and route guidance system. Transportation Research Part C: Emerging Technologies, 10(5):433–454, 2002. ISSN 0968-090X. doi: https://doi.org/10.1016/S0968-090X(02)00030-X. URL https: //www.sciencedirect.com/science/article/pii/S0968090X0200030X.
+
+Ameya Agaskar, Sriram Siva, William Pickering, Kyle O’Brien, Charles Kekeh, Ang Li, Brianna Gallo Sarker, Alicia Chua, Mayur Nemade, Charun Thattai, et al. Deepfleet: Multi-agent foundation models for mobile robots. arXiv preprint arXiv:2508.08574, 2025.
+
+Jean-Marc Alkazzi and Keisuke Okumura. A comprehensive review on leveraging machine learning for multi-agent path finding. IEEE Access, 2024.
+
+Anton Andreychuk, Konstantin Yakovlev, Aleksandr Panov, and Alexey Skrynnik. Mapf-gpt: Imitation learning for multi-agent pathfinding at scale. In Proceedings ofAAAI Conference on Artificial Intelligence (AAAI), 2025a.
+
+Anton Andreychuk, Konstantin Yakovlev, Aleksandr Panov, and Alexey Skrynnik. Advancing learnable multi-agent pathfinding solvers with active fine-tuning. arXiv preprint arXiv:2506.23793, 2025b.

@@ -1,0 +1,86 @@
+{
+  "overview": "The paper proposes SD-RPN, a self-distilled region proposal framework that denoises MLLM internal attention maps into high-quality pseudo-labels to train an efficient RPN for RoI prediction, enabling two-stage high-resolution inference that significantly improves fine-grained perception on document/OCR and vision-centric benchmarks without external annotations.",
+  "count": 16,
+  "modules": [
+    {
+      "id": 1,
+      "name": "MLLM Backbone Interface Module",
+      "description": "Wraps and interfaces with frozen MLLM backbones (LLaVA-1.5, DeepSeek-VL, Qwen2.5-VL), providing unified access to vision encoder outputs, intermediate layer hidden states, cross-attention maps, and the auto-regressive decoding pipeline for response generation."
+    },
+    {
+      "id": 2,
+      "name": "Cross-Attention Map Extraction Module",
+      "description": "Extracts response-to-image cross-attention maps from selected middle layers of the MLLM. Aggregates attention across heads and response tokens to produce a per-layer RoI importance map over spatial visual tokens, supporting both single-layer and multi-layer averaged extraction."
+    },
+    {
+      "id": 3,
+      "name": "Sink Token Detection & Removal Module",
+      "description": "Identifies and suppresses sink tokens—visual tokens that attract erroneously high attention despite being semantically irrelevant—by computing L2-norms of visual token features and zeroing out attention values for tokens whose norms exceed a predefined threshold, yielding a denoised RoI map."
+    },
+    {
+      "id": 4,
+      "name": "Pseudo-Label Assignment Module",
+      "description": "Transforms the denoised RoI map into a sparse, reliable supervisory signal via selective binary classification. Assigns foreground labels to high-confidence tokens, background labels to low-confidence tokens outside a minimal enclosing bounding box, and ignores ambiguous middle-range tokens, producing a tri-valued pseudo-label map."
+    },
+    {
+      "id": 5,
+      "name": "SD-RPN Architecture Module",
+      "description": "Implements the Region Proposal Network as R transformer blocks initialized from the pretrained MLLM's layers (B+1 to B+R) built atop B frozen backbone layers. Includes query token extraction from conversation context (final token of each user question), layer-normalized projection into query/key spaces, and dense RoI map prediction via matrix multiplication."
+    },
+    {
+      "id": 6,
+      "name": "Self-Distillation Training Loop Module",
+      "description": "Orchestrates the end-to-end training: the teacher pass generates responses auto-regressively, extracts and denoises attention maps to produce pseudo-labels; the student pass runs the RPN forward on the same input to predict a dense RoI map; computes masked binary cross-entropy loss only on foreground/background tokens, ignoring ambiguous regions."
+    },
+    {
+      "id": 7,
+      "name": "RoI Map Post-Processing Module",
+      "description": "Converts the RPN's predicted dense RoI map into a clean binary foreground mask by reshaping the 1D map to 2D spatial dimensions, applying Gaussian smoothing to consolidate activated regions, and binarizing using a fixed threshold. Also extracts connected-component regions and computes minimal axis-aligned bounding boxes."
+    },
+    {
+      "id": 8,
+      "name": "Box Upscaling Module",
+      "description": "Implements the first upscaling strategy: independently processes each connected-component foreground region by cropping sub-images using their individual minimal bounding boxes from the original high-resolution source image, encoding each crop through the vision encoder and projector to produce separate high-resolution visual embeddings."
+    },
+    {
+      "id": 9,
+      "name": "Masked Upscaling Module",
+      "description": "Implements the second upscaling strategy: computes a single unified bounding box enclosing the union of all foreground connected components, crops one sub-image from the original image, encodes it, and applies the binary mask to select only foreground features, preserving global spatial relationships between all salient regions."
+    },
+    {
+      "id": 10,
+      "name": "Two-Stage Inference Pipeline Module",
+      "description": "Orchestrates the complete inference workflow: Stage 1 performs a partial forward pass through frozen backbone and RPN to predict the RoI map, post-processes it into a binary mask, and selects an upscaling strategy; Stage 2 inserts the high-resolution visual tokens into the token sequence after the original visual tokens and runs the full LLM auto-regressive decoding to generate the final answer."
+    },
+    {
+      "id": 11,
+      "name": "Data Preparation & Loading Module",
+      "description": "Handles loading and preprocessing of GQA and OCR-VQA datasets for pseudo-label generation and RPN training. Manages image-text pair formatting with model-specific prompt templates, batching strategies, and data sampling (supporting variable-size subsets from 10K to 152K for data efficiency experiments)."
+    },
+    {
+      "id": 12,
+      "name": "Training Configuration & Optimization Module",
+      "description": "Manages training hyperparameters (AdamW optimizer, cosine decay learning rate scheduling, linear warmup), gradient computation for trainable RPN parameters only, training epoch control, and supports mixed-precision training for efficiency across multiple GPU configurations."
+    },
+    {
+      "id": 13,
+      "name": "Benchmark Evaluation Module",
+      "description": "Runs standardized evaluation across all benchmarks: Document & OCR category (DocVQA, ChartQA, OCRBench, InfoVQA, TextVQA without external OCR) and Vision-Centric / High-Resolution category (V* Bench, POPE, HR-Bench 4K/8K). Computes accuracy for all benchmarks and F1-score for POPE, integrated with the lmms-eval evaluation library."
+    },
+    {
+      "id": 14,
+      "name": "Ablation Study Framework Module",
+      "description": "Provides controlled experiment configurations for systematic ablation: component-wise removal (attention baseline, attention regression, label assignment, sink removal, upscaling strategy), backbone depth variation (B3R3 through B18R3), data efficiency analysis (10K–152K samples with self vs. ground-truth response comparison), and foreground/background threshold sensitivity analysis."
+    },
+    {
+      "id": 15,
+      "name": "Visualization & Qualitative Analysis Module",
+      "description": "Generates attention map heatmaps, RPN-predicted RoI heatmaps overlaid on input images, mixed visualizations highlighting high-confidence foreground regions, and side-by-side qualitative comparisons between baseline and SD-RPN. Also produces failure case analysis visualizations categorized by incomplete activation, localization error, and spatial relationship error."
+    },
+    {
+      "id": 16,
+      "name": "Efficiency Analysis Module",
+      "description": "Measures and compares computational efficiency metrics: relative throughput (tokens/s) against baselines, RPN prediction latency (ms), total benchmark evaluation time (s), performance-throughput trade-off curves at varying visual token counts, and comparison against external grounding models (Grounding-DINO) on both speed and accuracy."
+    }
+  ]
+}

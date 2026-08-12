@@ -1,0 +1,2526 @@
+[
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "ABSTRACT"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                450,
+                281,
+                547,
+                297
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Multimodal large language models (MLLMs) have achieved notable gains in various tasks by incorporating chain-of-thought (CoT) reasoning in language spaces. Recent work extends this direction by leveraging external tools for visual editing, thereby enhancing the visual signal along the reasoning trajectories. Nevertheless, these approaches remain fundamentally constrained: reasoning is still confined to the language space, with visual information treated as static preconditions. We introduce Latent Visual Reasoning (LVR), a new paradigm that enables autoregressive reasoning directly in the visual embedding space. A visual encoder first projects images into visual tokens within a joint semantic space shared with the language model. The language model is then trained to generate latent states that reconstruct key visual tokens critical for answering the query, constituting the process of latent visual reasoning. By interleaving LVR with standard text generation, our model achieves substantial gains on perception-intensive visual question answering tasks. In addition, we adapt the GRPO algorithm to conduct reinforcement learning on latent reasoning, further balancing LVR and textual generation. We show that LVR substantially improves fine-grained visual understanding and perception, achieving 71.67% on MMVP compared to 66.67% with Qwen2.5-VL. The Code base and model weights will be released later."
+                    }
+                ]
+            },
+            "bbox": [
+                230,
+                315,
+                767,
+                568
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "1 INTRODUCTION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                174,
+                601,
+                338,
+                616
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Multimodal large language models (MLLMs) (Li et al., 2024b; Bai et al., 2025b; Wang et al., 2025d) have shown remarkable capability in jointly understanding visual and textual content. By leveraging the generative capabilities of their backbone large language models (LLMs), MLLMs extend the expressiveness of visual encoders beyond simple perception tasks. This advancement has enabled the integration of chain-of-thought (CoT) reasoning into MLLMs, allowing them to perform structured textual reasoning in response to complex multimodal queries. In this paradigm, the LLM decomposes a query into intermediate steps and resolves each step while conditioning on static visual inputs. This approach, referred to as “Thinking about Images” by (Su et al., 2025d), has proven effective across diverse domains, including scientific visual question answering (Zhang et al., 2023), mathematics (Huang et al., 2025a), and visual grounding (Bai et al., 2025c)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                635,
+                826,
+                776
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Further research has expanded the multimodal reasoning workspace by enabling active editing of input images alongside textual reasoning trajectories. Such editing includes drawing auxiliary lines (Hu et al., 2024), zooming in (Shao et al., 2024a; Su et al., 2025a; Sur´ıs et al., 2023), shifting image styles (Liu et al., 2025a), highlighting sub-regions (Fu et al., 2025), and more. During intermediate CoT steps, methods in this paradigm either call external tools or generate programs to manipulate images, re-encode the edited outputs, and inject the new image tokens as visual enhancements into subsequent textual reasoning. In this way, the salient visual information is actively incorporated throughout the reasoning process. These methods are commonly termed “Thinking with images.”"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                781,
+                826,
+                895
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "<sup>∗</sup>Work done during an internship at AMD."
+                    }
+                ]
+            },
+            "bbox": [
+                191,
+                909,
+                446,
+                924
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "1"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                503,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/1beb9d43b30eedcf3d9086a9e49f942d084716173eb7617d1e0a3f1c484fe72d.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 1: Conceptual illustration of LATENT VISUAL REASONING (LVR). We compare LVR with two paradigms: “Think about images,” which performs multimodal reasoning entirely in text space, and “Think with images”, which leverages external visual tools to highlight regions of interest (ROIs). In contrast, LVR leverages the LLM’s latent space to reconstruct the semantics of ROIs, enabling seamless cross-modal reasoning."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                174,
+                99,
+                818,
+                244
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Both “Thinking about Images” and “Thinking with Images” aim to address a core limitation in current MLLMs: despite sophisticated visual encoders projecting visual information into text spaces, backbone LLMs often fail to capture the visual details most relevant to the text query. This shortcoming arises from factors such as modality projection bias (Zhang et al., 2024; Liu et al., 2023), modality interference (Cai et al., 2025; Wang et al., 2025e; Pezeshkpour et al., 2025; Deng et al., 2025a), and cross-modality attention bias (Zhang et al., 2025c). “Thinking about Images” addresses these issues by generating additional task-relevant text tokens in the context window, thereby increasing the likelihood of correct answers. However, excessive token generation may cause the textual context to dominate, overshadowing essential visual inputs (Huang et al., 2024). In contrast, “Thinking with Images” leverages external tools to inject visual information during text generation, calibrating the alignment between generated text and the original visual input. Yet these approaches often bypass the newly injected sub-images due to training data bias, or remain constrained by the predefined operations of the tools (Su et al., 2025a). In short, both categories primarily refine text generation to improve cross-modality understanding, yet a fundamental gap persists between visual inputs and text generation in producing the final answer."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                325,
+                826,
+                537
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "A parallel line of research explores omni-modality foundation models that accept both text and visual inputs and generate outputs in both modalities simultaneously (Team, 2024; Deng et al., 2025b; Xie et al., 2025). Some subsequent works attempt to exploit image generation capabilities for multimodal reasoning, but effectiveness has so far been demonstrated only in specific downstream tasks such as navigation and maze solving (Li et al., 2025; Xu et al., 2025). Moreover, it remains unclear whether visual inputs, once decoded and re-encoded by such models, can still faithfully preserve the original information. Rethinking the input of MLLMs, where continuous visual tokens and discrete text tokens are embedded in a shared latent semantic space, we ask the following question:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                541,
+                826,
+                654
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "If visual and textual tokens are embedded in a joint semantic space within an MLLM, why not reason over both jointly as well?"
+                    }
+                ]
+            },
+            "bbox": [
+                194,
+                672,
+                800,
+                702
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "It is both natural and efficient to extend reasoning beyond discrete text tokens to include visual tokens that directly encode visual information. However, conventional LLMs are limited to operating on discrete tokens due to their next-token prediction training objective. To address this, Hao et al. proposed passing last hidden states rather than text tokens, enabling more efficient expression of complex thoughts through latent reasoning. Building on this idea, we introduce LATENT VISUAL REASONING (LVR), a novel paradigm for multimodal reasoning (see Fig. 1). Our approach involves a simple yet fundamental modification to the conventional Vision–Projector–LLM structure: the LLM is able to perform hybrid reasoning that alternates between LVR and standard text generation. In the LVR phase, the LLM leverages the last hidden state to approximate the question-relevant visual tokens within the visual inputs. During the text generation phase, the model predicts the next text token in sequence. Both phases operate in an auto-regressive manner."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                722,
+                826,
+                877
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We propose a two-stage training pipeline for LVR. The first stage is supervised fine-tuning (SFT), which jointly optimizes LVR ’s internal processes alongside next-token prediction for text generation. The second stage applies reinforcement learning (RL), allowing LVR to self-evolve the latent reasoning process while receiving policy rewards from generated text, thereby encouraging a more unified semantic space. Specifically, we adapt the GRPO algorithm (Shao et al., 2024c) to replay latent reasoning steps during policy gradient loss computation. In addition, GRPO leverages verifiable rewards to evaluate roll-out responses, where the policy gradient loss is computed solely from the token distribution of the text generation component. Experimental results demonstrate that LVR achieves substantial improvements over state-of-the-art MLLMs, particularly on perceptionintensive and visual detail-dependent understanding tasks."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                882,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "2"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                826,
+                203
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In summary, our contributions are as follows:"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                209,
+                473,
+                224
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• We propose LATENT VISUAL REASONING, a novel multimodal reasoning paradigm that unifies latent reasoning over visual inputs with text generation in the language space, enabling deeper integration of visual and textual signals throughout the model’s reasoning process."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                234,
+                826,
+                279
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• We introduce architectural innovations and training frameworks for stable and scalable training MLLMs with LVR. Our approach combines a reconstruction loss with next-token prediction for SFT and extends the GRPO algorithm to latent reasoning for reinforcement learning."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                285,
+                826,
+                329
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• Through extensive evaluation, we demonstrate that LVR achieves strong performance across diverse visual question answering benchmarks requiring fine-grained visual understanding and perception. In addition, our comprehensive ablation studies and discussions explore alternative architectural designs and training objectives, providing insights to guide future research on this emerging paradigm."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                334,
+                826,
+                405
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2 RELATED WORKS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                426,
+                357,
+                441
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Think about Images. Many prior works have employed text-space chain-of-thought (CoT) reasoning to enhance visual perception and multimodal mathematical reasoning. Early approaches focused on constructing SFT datasets (Xu et al., 2024; Shao et al., 2024a; Wei et al., 2025b), aiming for models to fully acquire such reasoning patterns during training. More recently, the field has shifted toward RL–based methods (Peng et al., 2025; Tan et al., 2025; Meng et al., 2025; Yang et al., 2025a) with many discussions on data design (Liang et al., 2025), loss design (Hong et al., 2025) and training stages (Wei et al., 2025a; Deng et al., 2025c; Liu et al., 2025b; Chen et al., 2025b). Some studies explore specialized RL phase designs, while others mitigate visual hallucination by generating auxiliary captions (Xia et al., 2025) or randomly masking parts of the image (Wang et al., 2025g). Additional efforts guide models to focus on regions of interest (ROIs) by predicting points, bounding boxes, or descriptions (Jiang et al., 2025; Ni et al., 2025; Yu et al., 2025; Liu et al., 2025c), ensuring that answers are grounded in the correct visual evidence. Another line of work incorporates verification or rewriting steps to refine reasoning quality (Wang et al., 2025c; Shen et al., 2025a; Zhang et al., 2025b; Chen et al., 2025a). Despite these advances, most methods still perform reasoning in text space, which remains an indirect and inefficient representation of visual understanding. Humans, by contrast, can reason about images naturally without translating them into text. Inspired by this observation, our work seeks to more closely mimic human visual reasoning by enabling models to understand and reason directly in the visual space."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                459,
+                826,
+                710
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Think with Images. Another recent line of research emphasizes augmenting multimodal models with external, predefined visual tools. Many approaches employ zoom-in or cropping utilities (Su et al., 2025b; Zhang et al., 2025d) to locate ROIs relevant to a given question, while others integrate more advanced tools such as OCR engines, chart parsers, or even drawing interfaces (Huang et al., 2025b). To determine when and how to invoke these tools, early studies relied on supervised finetuning (Wang et al., 2025b; Zhang et al., 2025a; Chung et al., 2025), whereas more recent work adopts reinforcement learning to learn tool-using behaviors (Zhang et al., 2025d; Su et al., 2025c; Geng et al., 2025; Wu et al., 2025a), enabling interleaved CoT reasoning and tool execution (Wu et al., 2025b; Zheng et al., 2025). Despite their success, these approaches remain constrained by the availability and design of external tools. Tool APIs can be difficult to extend, and updates or changes often require substantial training effort. Moreover, many fundamental operations, such as zooming, cropping, or OCR, can potentially be solved directly within modern MLLMs without tool invocation. Motivated by these limitations, our work explores latent visual reasoning, approximating question-relevant visual tokens directly in the visual representation space rather than relying on explicit external tools."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                715,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "3"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/57a4a12a04f8207de7f9f3e86d1fc8b942fc534b7318145b4488ac3bbd3f5380.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 2: Training and inference pipeline of LVR. The overall framework closely follows a standard MLLM. Images are encoded into tokens by a visual encoder and mapped into a joint semantic space with text embeddings. During the SFT stage, bounding boxes are provided to identify query-relevant visual tokens, which supervise the last hidden states in the LVR process. Here, only the LLM’s last hidden states are passed forward for latent reasoning, optimized with a mean squared error (MSE) loss. The LVR process is wrapped with special tokens that indicate reasoning mode. Once all query-relevant visual tokens are consumed, the model exits LVR and resumes standard text generation with cross-entropy loss. During RL training, the model self-evolves the LVR process learned in SFT, while only the text generation part is supervised, using our adapted GRP O<sub>latent</sub>. At inference, the model triggers LVR upon generating the special token, propagates hidden states to reconstruct visual semantics, and resumes text generation when a stopping criterion is met."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                173,
+                99,
+                818,
+                335
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Latent Reasoning. In natural language processing, several studies have explored performing reasoning in the latent space (e.g., the final layer outputs) rather than directly in the token space (Hao et al., 2024). Some work (Shen et al., 2025b) leverages latent representations to approximate token-level reasoning, investigating both fixed-length and variable-length latent reasoning strategies (Cheng & Van Durme, 2024). However, latent spaces in NLP are often difficult to interpret, making supervision of such representations challenging. Building on this idea, we extend latentspace reasoning to the visual domain, where the latent tokens are grounded in visual meaning. Specifically, we aim for these tokens to approximate question-relevant visual features. Recent efforts have also explored similar directions, using latent spaces to capture visual content, but many rely on auxiliary images to supervise latent tokens (Yang et al., 2025b; Bigverdi et al., 2025). Such auxiliary data introduces additional labeling and pairing costs, ultimately limiting scalability. In contrast, our approach requires no extra images and can be readily applied across diverse vision tasks after a single training."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                505,
+                826,
+                689
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3 LATENT VISUAL REASONING"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                722,
+                452,
+                739
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this section, we introduce LATENT VISUAL REASONING, a new paradigm that enables MLLMs to reason jointly over text and visual tokens. The overall inference pipeline is illustrated in Figure 2. At a high level, LVR is trained to reconstruct visual semantics relevant to both the input image and the accompanying text query. These reconstructed semantics, which we term latent visual thoughts, are then combined with the original inputs to guide the generation of textual responses."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                763,
+                826,
+                835
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We begin by providing an overview of the LVR architecture, which is built on the Qwen-2.5-VL series (Bai et al., 2025a) (§3.1). Next, we present a two-stage training pipeline—combining supervised fine-tuning and reinforcement learning—that jointly teaches the model to reconstruct visual semantics and generate text (§3.2). Finally, we introduce decoding strategies that allow the model to flexibly alternate between LATENT VISUAL REASONING and standard text generation (§3.3) during the inference."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                839,
+                826,
+                924
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "4"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.1 METHOD OVERVIEW"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                104,
+                361,
+                118
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Fig. 2 illustrates the architecture of LVR, which largely follows the standard MLLM design. It consists of three key components: a vision encoder vision(·), an LLM backbone "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\theta ( \\cdot )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and a multimodal projector "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p r o j ( \\cdot )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "that aligns the two modalities. Given an input image–question pair "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( \\mathbf { X } _ { v } , \\mathbf { X } _ { t } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", the vision encoder transforms the image into visual features "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { V } \\bar { = } v i s i o n ( \\bar { \\mathbf { X } } _ { v } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". In parallel, the textual question "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { X } _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is embedded into language features T by the LLM’s embedding layers. Since visual and textual features reside in distinct latent spaces, the projector "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p r o j ( \\cdot )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "maps the visual features into a representation aligned with the language model’s latent space, denoted as "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { V } _ { T } = p r o j ( \\mathbf { V } )"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                132,
+                825,
+                231
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In standard MLLMs, both "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { V } _ { T }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { T }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "are passed into the LLM "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\theta ( \\cdot )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". However, the decoding process remains strictly text-centric: hidden states are computed auto-regressively and mapped, through the language modeling head, to discrete tokens in the vocabulary. Thus, while visual information can guide the reasoning process, the output space is still constrained to text tokens, limiting the model’s ability to directly reason over visual semantics."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                236,
+                826,
+                306
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To overcome this limitation, we propose LVR, which extends the conventional text-only generation paradigm by enabling interleaved LATENT VISUAL REASONING. When the special token "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "< | \\mathrm { 1 v r . s t a r t } | >"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is generated, the model enters a latent reasoning mode, where it reconstructs visual semantics in the space of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { V } _ { T }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to better support answering the textual query. The hidden states produced in this mode are directly propagated as input embeddings to subsequent positions until a stopping criterion is reached. At that point, the model generates the token "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "< \\mathrm { | 1 v r . e n d | } >"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and resumes standard text generation. The hidden-state sequence produced during the LVR segment can be regarded as an analogue of a human’s “visual thinking,” where query-relevant visual semantics are mentally reconstructed to enhance the precision of reasoning and answering."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                313,
+                826,
+                440
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.2 TWO-STAGE TRAINING PIPELINE"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                460,
+                444,
+                474
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.2.1 SUPERVISED FINE-TUNING."
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                489,
+                421,
+                503
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We begin with supervised fine-tuning (SFT) to instill the basic pattern of latent visual reasoning. During this stage, we explicitly supervise the reasoning content by forcing the MLLM to use its latent space embeddings (i.e., last hidden states) to reconstruct the ground-truth regions of interest for each image–text pair. Since the reconstruction loss directly dictates what the model must reason about, the reasoning process is constrained rather than free-form. We therefore characterize this stage as a teacher-forcing paradigm for latent visual reasoning: although restrictive, it allows the model to quickly acquire the fundamental ability to reason in the latent space."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                513,
+                826,
+                614
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Each SFT instance consists of an image-question pair, accompanied by a pre-annotated bounding box of a region of interest (ROI) relevant to the query. For a given image, the model’s image processor first crops it into a grid of visual patches. Based on the ROI bounding box, LVR efficiently selects the corresponding patches and retrieves their indices "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\textbf { I } = \\{ I _ { 1 } , I _ { 2 } , \\hat { I _ { 3 } } , . . . , I _ { T _ { v } } \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "from the sequence of flattened visual patches in "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "O ( 1 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "time. During the forward pass, the image is encoded into a sequence of visual embeddings in the semantic space, followed by the embeddings of the text tokens. A subset of visual embeddings "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf v = \\{ v _ { 1 } , v _ { 2 } , \\ldots , v _ { T _ { v } } \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is then gathered using the index list I, which—by design of the ViT encoder—directly corresponds to the visual patches within the ROI. These selected tokens are enclosed by the special tokens "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "< | \\mathtt { l v r \\_ s t a r t } | > \\mathtt { a n d } < | \\mathtt { l v r \\_ e n d } | >"
+                    },
+                    {
+                        "type": "text",
+                        "content": "thereby defining the LATENT VISUAL REASONING process. Finally, the remaining textual response is appended to the sequence for generation."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                619,
+                826,
+                773
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We train our model with two joint learning objectives that explicitly couple latent visual reasoning with downstream text generation."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                779,
+                823,
+                808
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Visual Reconstruction Loss. During latent reasoning, the model predicts a sequence of the final hidden states "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{ { \\bf h } _ { t } \\} _ { t = 1 } ^ { T _ { v } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "that are expected to encode the underlying visual semantics. We enforce these hidden states to approximate the ground-truth visual embeddings "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{ \\mathbf { v } _ { t } \\} _ { t = 1 } ^ { T _ { v } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "via a mean squared error (MSE) objective:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                820,
+                826,
+                881
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {L} _ {\\mathrm{LVR}} = \\frac {1}{T _ {v}} \\sum_ {t = 1} ^ {T _ {v}} \\left\\| \\mathbf {h} _ {t} - \\mathbf {v} _ {t} \\right\\| _ {2} ^ {2}.\\tag{1}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/6be7b4c4b8f609efcd425966023bc542a85431e4dff528f5f960603dcd4b37a6.jpg"
+                }
+            },
+            "bbox": [
+                398,
+                886,
+                596,
+                926
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "5"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Next-Token Prediction (NTP) Loss. For the subsequent language modeling phase, the model generates the final response tokens "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{ y _ { t } \\} _ { t = 1 } ^ { T _ { y } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to answer the visual question. We adopt the standard crossentropy (CE) loss to maximize the likelihood of the ground-truth sequence:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                104,
+                825,
+                150
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {L} _ {\\mathrm{NTP}} = - \\frac {1}{T _ {y}} \\sum_ {t = 1} ^ {T _ {y}} \\log p _ {\\theta} (y _ {t} \\mid y _ {<   t}, \\mathbf {h} _ {1: T _ {v}}).\\tag{2}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/04b4c8f7e8cd0cec0c0fc48aa76dd072c8086ae2660caef53a0399f3d64604ed.jpg"
+                }
+            },
+            "bbox": [
+                354,
+                156,
+                640,
+                198
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Joint Objective. The overall training loss is a weighted sum of the two components:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                210,
+                740,
+                227
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {L} = \\mathcal {L} _ {\\mathrm{NTP}} + \\lambda_ {\\mathrm{LVR}} \\cdot \\mathcal {L} _ {\\mathrm{LVR}},\\tag{3}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/0e057102eef5bf28737efb839d9ff071d2d51e96bf181d328582c14f5ae46121.jpg"
+                }
+            },
+            "bbox": [
+                403,
+                232,
+                593,
+                250
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\lambda _ { \\mathrm { L V R } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is a hyperparameter to balance reconstruction and generation signals."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                253,
+                710,
+                270
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.2.2 REINFORCEMENT LEARNING"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                284,
+                431,
+                299
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We employ GRPO to further refine the interaction between LVR and standard text generation. In this stage, rewards are computed solely based on output accuracy and adherence to the required response format. Unlike supervised fine-tuning, no constraints are imposed on the intermediate outputs of LVR, allowing the model to freely explore the latent visual reasoning space. This relaxation also removes the need for pre-annotated ROI bounding boxes, as GRPO training can be performed directly on image–text pairs. Moreover, GRPO implicitly encourages the generation of the "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "< | \\mathtt { l v r \\_ s t a r t } | >"
+                    },
+                    {
+                        "type": "text",
+                        "content": "token, thereby increasing the likelihood of activating the LVR process during response generation."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                308,
+                826,
+                420
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "However, directly applying the standard GRPO algorithm to LVR is non-trivial. The key challenge lies in the mismatch between the policy-gradient loss, which is defined over token distributions, and the latent reasoning process, which lacks an explicit token distribution. To address this issue, we propose "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "G R P O _ { l a t e n t } ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", a variant that can be seamlessly applied to any latent-reasoning model."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                426,
+                826,
+                484
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\begin{array}{l} J _ {\\mathrm{GRPO} _ {\\text {latent}}} (\\theta) = \\mathbb {E} _ {q, I, o \\sim \\pi_ {\\theta_ {\\text {old}}}} \\bigg [ \\frac {1}{| y |} \\sum_ {t = 1} ^ {| y |} \\min \\left(r _ {t} (\\theta)   \\hat {A} _ {t}, \\operatorname{clip} (r _ {t} (\\theta), 1 - \\varepsilon , 1 + \\varepsilon)   \\hat {A} _ {t}\\right) \\\\ \\quad - \\beta   D _ {\\mathrm{KL}} \\big (\\pi_ {\\theta} (\\cdot   |   q, I)   \\|   \\pi_ {\\text {ref}} (\\cdot   |   q, I) \\big) \\bigg ] \\end{array}\\tag{4}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/6b2992ad8355a30c8b35b1cae579c6391bb4b29cde711058498cd19a5d93ae2c.jpg"
+                }
+            },
+            "bbox": [
+                209,
+                508,
+                785,
+                592
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Here, the token-wise importance ratio "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "r _ { i , t } ( \\theta )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for a text token "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "y _ { i , t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "<sub>t</sub> is computed using a teacher-forcing log-probability pass, where the latent reasoning hidden states are replayed from the original rollout: ~"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                599,
+                825,
+                642
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "r _ {i, t} (\\theta) = \\frac {\\pi_ {\\theta} (y _ {i , t} \\mid q , I , \\widetilde {h} _ {i} ^ {\\mathrm{latent}} , y _ {i , <   t})}{\\pi_ {\\theta_ {\\mathrm{old}}} (y _ {i , t} \\mid q , I , \\widetilde {h} _ {i} ^ {\\mathrm{latent}} , y _ {i , <   t})}\\tag{5}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/9411a7b465c995c6cacc8e32f25259d154a7fbc09d4cfef150a2b85c488d62e3.jpg"
+                }
+            },
+            "bbox": [
+                362,
+                638,
+                630,
+                678
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "During rollout we record the last hidden states of LVR processes"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                686,
+                598,
+                700
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\widetilde {h} _ {i} ^ {\\mathrm{latent}} = \\{h _ {i, 1} ^ {\\mathrm{latent}}, \\dots , h _ {i, L} ^ {\\mathrm{latent}} \\}.",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/1cada380f550657d4780af3fbd8c0b7f45ba1e10603267d40eb481b6b5e0a483.jpg"
+                }
+            },
+            "bbox": [
+                385,
+                705,
+                609,
+                727
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To evaluate importance ratios, we perform a teacher-forcing forward pass under both "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pi _ { \\theta _ { \\mathrm { o l d } } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "The recorded hidden states "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\widetilde { h } _ { i } ^ { \\mathrm { l a t e n t } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "are patched into the latent-reasoning positions of the model, thereby restoring the exact context preceding text generation and ensuring consistent conditional log-probabilities for the output sequence."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                731,
+                823,
+                792
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Rewards are derived solely from the text output "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "y ."
+                    },
+                    {
+                        "type": "text",
+                        "content": "We incorporate two reward types: a format reward, which equals 1 if the response contains both "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "< | \\mathtt { l v \\bar { r } \\_ s t a r t } | > \\mathtt { a n d < } | \\mathtt { l v \\Sigma \\_ e n d } | >"
+                    },
+                    {
+                        "type": "text",
+                        "content": "tokens and 0 otherwise, and an accuracy reward, which equals 1 if the answer is correct and 0 otherwise. The format reward will encourage LVR process in the response while the accuracy reward indirectly supervises the latent reasoning process through its impact on text generation."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                797,
+                826,
+                869
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Finally, the group-normalized reward is defined as:"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                875,
+                509,
+                888
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\tilde {R} _ {i} = \\frac {R (y _ {i}) - \\mathrm{mean} (R (y _ {1}) , \\ldots , R (y _ {G}))}{\\mathrm{std} (R (y _ {1}) , \\ldots , R (y _ {G}))}, \\qquad \\hat {A} _ {i, t} = \\tilde {R} _ {i} (\\forall t \\in \\{1, \\ldots , | y _ {i} | \\}).\\tag{6}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/8412e280525640621f913c8706441a1dd822ab2319e8bdb04ae0d6a38589fcd2.jpg"
+                }
+            },
+            "bbox": [
+                218,
+                895,
+                774,
+                928
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "6"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.3 DECODING STRATEGIES"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                104,
+                385,
+                118
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Our initial results reveal that decoding in LVR can be challenging, as it is often unclear when the model should exit the LVR process. Specifically, when the next-token prediction introduces "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { ~ a ~ } <"
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\left| \\mathrm { 1 v r } _ { - } \\mathrm { s t a r t } \\right| >"
+                    },
+                    {
+                        "type": "text",
+                        "content": "token, the decoder switches into the LVR mode, passing the last hidden states instead of the language model head’s predicted tokens. During this phase, the language model head continues producing token predictions, but it should ideally emit "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "< | 1 \\mathrm { v } \\mathrm { r } \\mathrm { . e n d } | > \\mathrm { o n c e }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "an optimal length of latent reasoning has been reached, reconstructing all necessary visual semantics for the current task. In practice, however, the predicted tokens during latent reasoning are often unstable, motivating us to propose three decoding strategies:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                128,
+                826,
+                243
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• Fixed Token: assigns a constant budget of reasoning steps. Once the budget is reached, the model immediately exits latent reasoning mode."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                250,
+                825,
+                279
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• Latent End Token: introduces a trainable tensor in the hidden state space. When the last hidden state approaches this tensor, the decoder resumes text-token generation."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                282,
+                825,
+                311
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• Mode Switching Loss: adds an auxiliary loss term during SFT that supervises the token distribution predicted by the language model head in the latent reasoning phase. A BCE loss encourages the distribution of the final latent reasoning token toward "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "< | \\mathtt { l v r \\_ e n d } | > ( \\mathrm { c l o s e \\ t o \\ 1 } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", while all intermediate tokens are pushed away from "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "< | \\mathrm { 1 v r \\_ e n d } | > ( \\mathrm { c l o s e ~ t o ~ } 0 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". At inference time, the model exits latent reasoning mode once "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "< | \\mathsf { l } \\mathsf { v r } _ { - } \\mathsf { e n d } | >"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is predicted."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                313,
+                826,
+                385
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Empirically, we find that Fixed Token achieves the best performance, while Mode Switching Loss fails to work as intended. A detailed analysis is provided in Section 4.5."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                392,
+                825,
+                422
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4 EXPERIMENT"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                440,
+                320,
+                455
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We adopt Qwen-2.5-VL 3B and 7B as the backbone MLLMs. For the visual encoder, we set the maximum resolution to "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "5 1 2 0 \\times 2 8 \\times 2 8"
+                    },
+                    {
+                        "type": "text",
+                        "content": "pixels and the minimum to "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "1 2 8 \\times 2 8 \\times 2 8"
+                    },
+                    {
+                        "type": "text",
+                        "content": "pixels. In both training stages, the visual encoder and multimodal projector are kept frozen, with only the LLM parameters updated. This design reflects the learning objective of LVR to unify the reasoning space under the hypothesis that an optimal modality projection can be achieved without additional tuning."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                470,
+                826,
+                542
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In the SFT stage, we use VISUAL COT (Shao et al., 2024b) as the primary training data. This large-scale VQA dataset contains 438k question–answer pairs, each annotated with bounding boxes that mark the critical regions needed to derive the answer. During training, the variable number of image tokens and LVR tokens results in imbalanced instance lengths. To address this, we adopt the adaptive multimodal data-packing strategy from Chen et al. (2024), which supports dynamic batching: multiple shorter instances can be packed together, while longer ones are grouped in smaller numbers. On average, this yields an effective batch size of ∼3.2 per device. The learning rate is set to "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "1 \\times 1 0 ^ { - 5 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". For the 7B variant, supervised fine-tuning requires roughly 40 hours to complete 2,500 steps on a 4×AMD MI250 GPU cluster."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                547,
+                826,
+                674
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "For reinforcement learning, we implement a latent GRPO framework customized from the Hugging-Face TRL package, using ViRL (Wang et "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { a l . , } 2 0 2 5 \\mathrm { a } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "as the training data. The policy generates 8 responses per input, with a learning rate of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "1 \\times 1 0 ^ { - 5 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", a fixed sampling temperature of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\tau = 0 . 9"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and a KL coefficient of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\beta = 0 . 0 4"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". This stage is applied only to the 3B variant, requiring about 20 hours to complete 1,500 steps. We do not extend it to the 7B variant due to limited computational resources."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                679,
+                826,
+                751
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.1 EVALUATION BENCHMARKS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                765,
+                413,
+                779
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We evaluate LVR on the visual detail understanding task and a diverse set of vision-centric benchmarks. For visual detail understanding, we adopt "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "V ^ { * }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "Bench, which assesses "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathbf { M L L M s } ^ { \\prime }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "ability to perform fine-grained visual detail search and relative spatial reasoning respectively on two subsets. We further employ MMVP (Tong et al., 2024) to measure perception robustness under subtle image perturbations, providing a rigorous test of LVR ’s fine-grained reasoning capabilities."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                791,
+                826,
+                863
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Beyond these, we evaluate on Counting (object enumeration), JigSaw (image reconstruction from fragments), Relative Reflectance (pixel-level albedo comparison), and Spatial Relation (object–relation understanding within a scene). These tasks are drawn from BLINK (Fu et al., 2024), a benchmark of expert-annotated, perception-heavy tasks designed for MLLMs."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                868,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "7"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/a1eb41b1bbdb45ff8eb1a2fc115d41e0e4b6c67d673e4874aa62408b3712aa39.jpg"
+                },
+                "table_caption": [],
+                "table_footnote": [],
+                "html": "<table><tr><td>Method</td><td> $V^{*}$ </td><td> $V_{D.A.}^{*}$ </td><td> $V_{R.P.}^{*}$ </td><td>MMVP</td><td>Counting</td><td>IQ-Test</td><td>JigSaw</td><td>Relative Reflect</td><td>Spatial Relation</td></tr><tr><td colspan=\"10\">Close Source Models</td></tr><tr><td>GPT-4o</td><td>62.8</td><td>-</td><td>-</td><td>-</td><td>51.7</td><td>30.0</td><td>58.0</td><td>38.8</td><td>76.9</td></tr><tr><td>Gemini2.5-Pro</td><td>79.2</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr><tr><td>ARGUS-X3</td><td>78.5</td><td>-</td><td>-</td><td>45.5</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr><tr><td colspan=\"10\">Open Models based on Qwen2.5-VL-7B</td></tr><tr><td>Qwen2.5-VL</td><td>78.5</td><td>81.7</td><td>73.7</td><td>66.7</td><td>66.7</td><td>26.0</td><td>52.0</td><td>38.8</td><td>87.4</td></tr><tr><td>PAPO</td><td>36.1</td><td>25.2</td><td>52.6</td><td>54.3</td><td>66.7</td><td>29.3</td><td>52.0</td><td>39.6</td><td>88.8</td></tr><tr><td>Vision-R1</td><td>70.2</td><td>70.4</td><td>69.7</td><td>46.7</td><td>51.7</td><td>26.7</td><td>27.3</td><td>44.8</td><td>66.4</td></tr><tr><td>PixelReasoner</td><td>80.1</td><td>81.7</td><td>77.6</td><td>67.0</td><td>66.7</td><td>25.3</td><td>52.7</td><td>42.5</td><td>88.1</td></tr><tr><td>SFT</td><td>79.1</td><td>82.6</td><td>73.7</td><td>65.7</td><td>67.5</td><td>26.7</td><td>45.3</td><td>33.6</td><td>88.8</td></tr><tr><td>LVR (4 Steps)</td><td>81.2</td><td>84.4</td><td>76.3</td><td>72.0</td><td>69.2</td><td>28.7</td><td>52.7</td><td>42.5</td><td>89.5</td></tr><tr><td>LVR (8 Steps)</td><td>81.7</td><td>84.4</td><td>77.6</td><td>71.7</td><td>70.0</td><td>29.3</td><td>52.0</td><td>42.5</td><td>86.0</td></tr><tr><td>LVR (16 Steps)</td><td>80.6</td><td>81.7</td><td>79.0</td><td>71.7</td><td>70.8</td><td>27.3</td><td>52.7</td><td>41.8</td><td>87.4</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                176,
+                103,
+                820,
+                267
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/3ff7fca35d077484ce9f5a4895ca4aa3bbb0208c299389db1c95a713b5cd2b0c.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 1: Experimental results on vision-centric tasks. LVR outperforms both “Think about Images” and “Think with Images” , highlighting the scalability of this new paradigm for MLLMs."
+                    },
+                    {
+                        "type": "text",
+                        "content": "Table 2: RL results with 3B models. "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "G R P O _ { l a t e n t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "further boosts performance, demonstrating the effectiveness of adapting RL for latent reasoning and enabling self-evolution."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Method</td><td> $V^{*}$ </td><td> $V_{D.A.}^{*}$ </td><td> $V_{R.P.}^{*}$ </td><td>MMVP</td><td>IQ-Test</td><td>JigSaw</td></tr><tr><td>PAPO</td><td>31.94</td><td>22.61</td><td>46.05</td><td>50</td><td>31.33</td><td>46.67</td></tr><tr><td>LVR (4 | 8 | 16)</td><td>64.9 | 65.5 | 66.5</td><td>69.6 | 71.3 | 71.3</td><td>60.5 | 60.5 | 56.6</td><td>54.7 | 56.0 | 56.0</td><td>29.3 | 30.7 | 30.0</td><td>52.7 | 52.7 | 52.0</td></tr><tr><td>LVR  $_{RL}$  (4 | 8 | 16)</td><td>65.5 | 67.0 | 66.5</td><td>69.6 | 72.2 | 71.3</td><td>59.2 | 59.2 | 59.2</td><td>55.3 | 55.3 | 58.0</td><td>30.7 | 32.0 | 30.0</td><td>52.7 | 52.7 | 50.7</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                176,
+                316,
+                821,
+                364
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To ensure consistency and fairness, all evaluations follow the standardized metrics provided by LMMs-Eval (Li et al., 2024a)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                415,
+                823,
+                444
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.2 BASELINES"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                460,
+                297,
+                476
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We compare LVR against state-of-the-art MLLM baselines, grouped into the following categories:"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                487,
+                818,
+                503
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Thinking about Images. This category includes Vision-R1 (Huang et al., 2025a) and PAPO (Wang et al., 2025f), which use reinforcement learning with verifiable rewards to equip MLLMs with chainof-thought reasoning. Vision-R1 follows a “think before answer” trajectory, while PAPO adds an implicit perception loss for image-grounded descriptions."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                508,
+                825,
+                566
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Thinking with Images. This category includes PixelReasoner (Su et al., 2025a) and Argus-X3 (Man et al., 2025). PixelReasoner employs image-editing tools to iteratively enhance the input image during reasoning. In contrast, Argus-X3 detects regions of interest via bounding boxes, extracts the corresponding visual tokens, and reinjects them into the MLLM input to strengthen perception. This makes Argus-X3 a strong reference point for comparison with LVR: whereas Argus-X3 depends on external tools for feature extraction, LVR directly learns to reconstruct visual semantics."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                571,
+                826,
+                657
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To isolate the effect of training data, we also include a baseline trained with standard supervised fine-tuning on the same dataset as LVR, denoted as SFT. For completeness, we include each baseline model’s system prompt when it is available in the documentation."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                662,
+                826,
+                707
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.3 MAIN RESULTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                723,
+                326,
+                738
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The main evaluation results are summarized in Table 1. We report performance under the best decoding strategy, Fixed Token, with LVR steps set to [4, 8, 16]. Overall, LVR achieves state-ofthe-art results across most benchmarks. Importantly, for a fair comparison, all open-source baselines are built on the same backbone MLLMs as LVR, highlighting the effectiveness of latent reasoning over existing “Think about images” or “Think with images” approaches."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                750,
+                826,
+                821
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The largest gains are observed on the V<sup>∗</sup> and MMVP benchmarks, where LVR consistently achieves top performance across all step settings. In particular, it improves the base model by 2.7% on the "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "V _ { D . A } ^ { * }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "subset, which measures visual detail search, and by 5.3% on the "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "V _ { R . P . } ^ { * }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "subset, which evaluates relative spatial reasoning. On MMVP, which perturbs subtle image details to assess perception robustness, LVR demonstrates strong performance by reconstructing target visual semantics, accurately identifying differences, and thereby improving accuracy. Moreover, it surpasses PixelReasoner in both categories, despite PixelReasoner relying on external tools to crop image sub-regions."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                825,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "8"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/90014079177e9fdc6d710a21ea059113c395aa7a0a3540f82c1f932904238b78.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 3: Ablation studies on the 7B model show the standard approach performs best, indicating the LLM natively aligns visual and textual semantics without an extra head. However, the unstable latent end token suggests a need for future work on variable-length reasoning."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Method</td><td> $V^{*}$ </td><td> $V_{D.A.}^{*}$ </td><td> $V_{R.P.}^{*}$ </td><td>MMVP</td><td>IQ-Test</td><td>JigSaw</td></tr><tr><td>LVR</td><td>81.7</td><td>84.4</td><td>77.6</td><td>71.7</td><td>29.3</td><td>52.0</td></tr><tr><td>LVR LatentEnd</td><td>39.8</td><td>32.2</td><td>51.3</td><td>19.0</td><td>6.7</td><td>13.3</td></tr><tr><td>LVR MLPHead</td><td>74.4</td><td>76.5</td><td>71.1</td><td>69.7</td><td>23.3</td><td>50.0</td></tr><tr><td>LVR GLUHead</td><td>79.6</td><td>82.6</td><td>75.0</td><td>69.0</td><td>25.3</td><td>44.0</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                285,
+                101,
+                705,
+                172
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "This underscores that reconstructing visual semantics can be more effective than depending on external visual-editing tools (as in “Think with Images”) for fine-grained visual understanding. In addition, both PAPO and Vision-R1 exhibit degraded performance on "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "V ^ { * }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", suggesting that textual-space CoT in MLLMs (i.e., “Think about Images”) may introduce cross-modal interference and weaken perception, whereas LVR avoids this issue by reasoning jointly across modalities."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                236,
+                826,
+                321
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "LVR also achieves leading results on Counting, IQ-Test, JigSaw, and Spatial Relation. In Counting, the model is required to enumerate specific objects in a scene; in IQ-Test, it solves geometry-based puzzles; In JigSaw, it reassembles image crops; and in Spatial Relation, it answers questions about relative object positions. These results demonstrate that LATENT VISUAL REASONING effectively unifies object detection, visual-dependent logical reasoning, visual reconstruction, and spatial relation understanding."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                325,
+                826,
+                412
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "However, LVR does not achieve top performance on Relative Reflect. We attribute this gap to a distribution shift between training and evaluation data: such tasks require reasoning over multiple images, whereas LVR was trained exclusively on single-image data. We anticipate that incorporating cross-image data augmentation in future work will further strengthen LVR ’s capability for multiimage reasoning."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                417,
+                826,
+                489
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.4 RL RESULTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                511,
+                305,
+                526
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We present the results of our proposed "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "G R P O _ { \\mathrm { l a t e n t } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "in Table 2. Reinforcement learning further enhances LVR performance beyond the SFT stage across multiple benchmarks. The superior results demonstrate that incorporating a format reward based on the "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "< \\mathrm { | 1 0 r . s t a r t | } >"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "< | \\mathsf { l } \\mathsf { v } \\mathtt { r } \\mathtt { e n d } | >"
+                    },
+                    {
+                        "type": "text",
+                        "content": "tokens effectively encourages the model to perform LATENT VISUAL REASON-ING. In contrast, removing these trigger tokens from the reward function destabilizes training, resulting in purely textual responses and degraded performance."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                539,
+                826,
+                626
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.5 ABLATION STUDIES"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                647,
+                357,
+                661
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We examine variants in the architectural design and decoding strategies of LVR models."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                675,
+                748,
+                691
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "LVR with heads. Analogous to the LM head in LLMs, which maps text hidden states to logits, we add a LVR head on top of the latent reasoning positions to transfer LLM hidden states into visual semantics. We evaluate two designs: (i) a 2-layer MLP without intermediate up-casting, and (ii) a gated linear unit (GLU) with an intermediate dimension expanded to 3× the LM hidden size. The 7B results (Fig. 3) show that standard LVR consistently achieves the best performance across benchmarks. This is expected, as the LVR process is directly supervised in the joint semantic space of text and vision, ensuring no semantic gap between the LLM’s last hidden states and those of LVR."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                703,
+                826,
+                801
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Unrestricted LVR decoding. As discussed in §3.3, we explored two alternative decoding strategies, Mode Switching Loss and Latent End Token, for variable-length LVR processes. However, Mode Switching Loss failed to encode stopping conditions, collapsing to zero LVR steps. The performance of Latent End Token is reported in Fig. 3, where we observe significant instability. Human evaluation indicates that this instability stems from unreliable distance measurements between LVR hidden states and the latent end token. Despite testing cosine similarity, L1, and L2 distances under varying thresholds, the model often failed to terminate properly and max out generation steps. We expect future work on improving stability for fully free-form LATENT VISUAL REASONING."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                811,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "9"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5 CONCLUSION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                173,
+                103,
+                321,
+                118
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this paper, we presented LVR as a novel multimodal reasoning paradigm that unifies latent reasoning over visual tokens with standard text generation. By extending the Vision–Projector–LLM structure and training with supervised fine-tuning plus GRPO-based reinforcement learning, LVR achieves stable hybrid reasoning. Experiments show substantial gains on perception-intensive benchmarks, demonstrating that reasoning jointly over latent visual and textual spaces offers a promising direction for future multimodal reasoning."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                135,
+                826,
+                220
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "6 ETHICS STATEMENT"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                239,
+                374,
+                256
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Technological innovations in multimodal large language models present both opportunities and risks. The impact of our proposed latent reasoning framework, associated decoding strategies, and evaluation benchmarks depends heavily on data quality and intended use. Ethical deployment requires that all training data be sourced responsibly and in compliance with legal and ethical standards, alongside safeguards for individual data rights. In the absence of comprehensive regulation, responsibility lies with practitioners to ensure proper use. Biases in either supervised finetuning data or reinforcement learning rewards may propagate disparities, particularly affecting underrepresented groups and undermining fairness and generalizability. To mitigate these risks, we emphasize adherence to ethical principles in system design, including transparency in training data and modeling choices, open-source releases to support accountability, and protective measures for vulnerable populations."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                273,
+                826,
+                426
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "7 REPRODUCIBILITY STATEMENT"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                448,
+                467,
+                463
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Our experiments utilized open-source models (Qwen-2.5-VL) and datasets (VISUAL COT, VIRL) for training. Training was conducted using open-source tools, including the Huggingface Trainer and DeepSpeed frameworks. To ensure full reproducibility, we will release our complete code base, model weights, and a corresponding Docker file, allowing for a complete replication of our setup."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                479,
+                826,
+                537
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "REFERENCES"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                173,
+                558,
+                287,
+                573
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Shuai Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin Ge, Sibo Song, Kai Dang, Peng Wang, Shijie Wang, Jun Tang, Humen Zhong, Yuanzhi Zhu, Mingkun Yang, Zhaohai Li, Jianqiang Wan, Pengfei Wang, Wei Ding, Zheren Fu, Yiheng Xu, Jiabo Ye, Xi Zhang, Tianbao Xie, Zesen Cheng, Hang Zhang, Zhibo Yang, Haiyang Xu, and Junyang Lin. Qwen2.5-vl technical report. arXiv preprint arXiv:2502.13923, 2025a."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                174,
+                583,
+                823,
+                652
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Shuai Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin Ge, Sibo Song, Kai Dang, Peng Wang, Shijie Wang, Jun Tang, et al. Qwen2. 5-vl technical report. arXiv preprint arXiv:2502.13923, 2025b."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                174,
+                664,
+                823,
+                705
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Sule Bai, Mingxing Li, Yong Liu, Jing Tang, Haoji Zhang, Lei Sun, Xiangxiang Chu, and Yansong Tang. Univg-r1: Reasoning guided universal visual grounding with reinforcement learning. arXiv preprint arXiv:2505.14231, 2025c."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                174,
+                719,
+                823,
+                761
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Mahtab Bigverdi, Zelun Luo, Cheng-Yu Hsieh, Ethan Shen, Dongping Chen, Linda G Shapiro, and Ranjay Krishna. Perception tokens enhance visual reasoning in multimodal language models. In Proceedings ofthe Computer Vision and Pattern Recognition Conference, pp. 3836–3845, 2025."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                174,
+                773,
+                823,
+                815
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Rui Cai, Bangzheng Li, Xiaofei Wen, Muhao Chen, and Zhe Zhao. Diagnosing and mitigating modality interference in multimodal large language models. arXiv preprint arXiv:2505.19616, 2025."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                174,
+                827,
+                823,
+                868
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Hardy Chen, Haoqin Tu, Fali Wang, Hui Liu, Xianfeng Tang, Xinya Du, Yuyin Zhou, and Cihang Xie. Sft or rl? an early investigation into training r1-like reasoning large vision-language models. arXiv preprint arXiv:2504.11468, 2025a."
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                174,
+                882,
+                823,
+                922
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "10"
+                    }
+                ]
+            },
+            "bbox": [
+                490,
+                948,
+                509,
+                960
+            ]
+        }
+    ]
+]

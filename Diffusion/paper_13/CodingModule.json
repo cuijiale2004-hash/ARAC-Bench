@@ -1,0 +1,86 @@
+{
+  "overview": "SLA proposes a trainable hybrid Sparse-Linear Attention for Diffusion Transformers that classifies attention weights into critical (O(N²) sparse FlashAttention), marginal (O(N) linear attention), and negligible (skipped) categories, achieving ~95% attention sparsity with ~20× computation reduction while preserving video generation quality.",
+  "count": 16,
+  "modules": [
+    {
+      "id": 1,
+      "name": "Attention Weight Analysis & Decomposition",
+      "description": "Module for analyzing the distribution and rank structure of attention weights in pre-trained DiT models. Implements stable rank computation, weight histogram analysis, and the decomposition of full attention weights P into a sparse high-rank component (P ⊙ M) and a dense low-rank component (P ⊙ (1-M)). Validates the key observation that top-k% weights carry high rank while the remaining weights have extremely low rank."
+    },
+    {
+      "id": 2,
+      "name": "Compressed Attention Weight Prediction",
+      "description": "Implements the prediction of compressed attention weights Pc via mean pooling along the token dimension followed by Softmax(pool(Q)pool(K)⊤/√d). This lightweight prediction mechanism avoids computing the full N×N attention matrix to determine which blocks are critical, marginal, or negligible."
+    },
+    {
+      "id": 3,
+      "name": "Three-Way Mask Generation",
+      "description": "Generates the compressed mask Mc ∈ R^(N/bq × N/bkv) by classifying each entry of Pc into three categories: critical (top kh%, labeled 1), negligible (bottom kl%, labeled -1), and marginal (remaining, labeled 0). Supports both top-k and top-CDF masking strategies for comparison."
+    },
+    {
+      "id": 4,
+      "name": "Sparse Attention Component (Critical Weights)",
+      "description": "Implements block sparse FlashAttention for critical attention weights (Mc[i,j]=1). Uses online softmax for block-wise computation with numerical stability (max tracking and log-sum-exp). Iterates over K,V blocks and accumulates output Os only when the mask indicates critical status."
+    },
+    {
+      "id": 5,
+      "name": "Linear Attention Component (Marginal Weights)",
+      "description": "Implements linear attention for marginal attention weights (Mc[i,j]=0). Precomputes intermediate results H_j = φ(K_j)⊤V_j and Z_j = rowsum(φ(K_j)⊤) for each key-value block. Supports multiple activation functions φ (softmax, ELU+1, hedgehog). Computes output Ol_i = φ(Q_i)H_i / (φ(Q_i)Z_i) for each query block."
+    },
+    {
+      "id": 6,
+      "name": "SLA Forward Pass Kernel",
+      "description": "Fuses sparse and linear attention components into a single GPU kernel. Implements Algorithm 1: precomputes linear attention intermediates, predicts compressed mask, then iterates block-wise to compute sparse output Os via FlashAttention and linear output Ol via accumulated H and Z. Combines final output as O = Os + Proj(Ol). Handles online softmax normalization across mixed block types."
+    },
+    {
+      "id": 7,
+      "name": "SLA Backward Pass Kernel",
+      "description": "Fuses gradient computation for both sparse and linear components into a single GPU kernel. Implements Algorithm 2: computes sparse attention gradients (dQ, dK, dV via recompute and standard softmax backward), linear attention gradients (dQ_φ, dK_φ, dV via chain rule through H and Z), and the projection layer gradient. Precomputes dH_i and dZ_i to reduce redundant computation."
+    },
+    {
+      "id": 8,
+      "name": "Learnable Projection Layer",
+      "description": "Implements the learnable linear transformation Proj: R^d → R^d applied to the linear attention output Ol before combining with sparse output. This projection reduces distribution mismatch between softmax and linear attention outputs, enabling the model to adapt during fine-tuning."
+    },
+    {
+      "id": 9,
+      "name": "Kernel Efficiency Optimizations",
+      "description": "Implements three efficiency optimizations for different sparsity regimes: (1) Lookup table for highly sparse masks (>90%) to avoid scanning entire rows/columns, (2) Pre-aggregation for linear attention that replaces 90% additions with 10% subtractions by computing full sums then subtracting non-zero mask contributions, (3) Method of Four Russians for medium sparsity (~50%) using precomputed segment subset sums."
+    },
+    {
+      "id": 10,
+      "name": "Video Data Processing & Loading",
+      "description": "Handles video dataset preparation including format conversion to tensors, resolution normalization to 480p, temporal cropping to 5-second segments, frame-level tokenization for DiT input, and batch collation. Implements custom Dataset and DataLoader with appropriate sampling strategies for video diffusion training."
+    },
+    {
+      "id": 11,
+      "name": "DiT Fine-tuning Pipeline with SLA",
+      "description": "Orchestration module for fine-tuning pre-trained DiT models (e.g., Wan2.1-1.3B) by replacing standard attention with SLA. Manages epoch/step control, gradient accumulation, mixed-precision training, optimizer configuration, learning rate scheduling, checkpoint saving, and LoRA integration. Supports both full-parameter and parameter-efficient fine-tuning paradigms."
+    },
+    {
+      "id": 12,
+      "name": "Video Quality Evaluation Metrics",
+      "description": "Computes video generation quality metrics including VBench dimensions (Imaging Quality, Overall Consistency, Aesthetic Quality, Subject Consistency), VisionReward for human preference, Aesthetic Video Quality (VA), and Technical Video Quality (VT). Aggregates scores across generated samples and supports batch evaluation."
+    },
+    {
+      "id": 13,
+      "name": "Image Quality Evaluation Metrics",
+      "description": "Computes image generation quality metrics, primarily FID (Fréchet Inception Distance) on ImageNet datasets at 512×512 resolution. Implements Inception feature extraction, reference statistics computation, and comparison pipeline following standard evaluation protocols."
+    },
+    {
+      "id": 14,
+      "name": "Computational Efficiency Benchmarking",
+      "description": "Measures attention kernel FLOPs, FLOPS (floating-point operations per second), attention kernel latency, and end-to-end video generation latency. Supports profiling across multiple GPU architectures (RTX4090, RTX5090, A800, L20, H800). Computes theoretical complexity ratios and memory footprint metrics (MFU, L2/DRAM utilization, peak memory)."
+    },
+    {
+      "id": 15,
+      "name": "Ablation Study & Baseline Framework",
+      "description": "Framework for systematic ablation studies: (1) Component ablation (Linear Only, Sparse Only, L+S direct sum vs SLA fusion), (2) Activation function comparison (softmax, ELU+1, hedgehog), (3) Hyperparameter sensitivity (kh%, kl%, bq, bkv), (4) Fine-tuning step analysis (0-shot, 250/1000/2000 steps), (5) Baseline implementations (Sparge-F, Sparge-T, VSA, VMoBa, Block Diagonal). Controls for fair comparison with matched sparsity levels and training budgets."
+    },
+    {
+      "id": 16,
+      "name": "Experiment Configuration & Result Reporting",
+      "description": "Manages experiment configurations (YAML/JSON), logging integration with training progress, checkpoint persistence, and automated result aggregation. Generates LaTeX tables for quality and efficiency comparisons, produces visualization figures for video examples and speed comparisons, and tracks experiments across different settings."
+    }
+  ]
+}

@@ -1,0 +1,3143 @@
+[
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "ABSTRACT"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                450,
+                318,
+                547,
+                333
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Studies have shown that catastrophic forgetting primarily stems from the difficulty of reactivating old memories; although parameter-efficient fine-tuning can mitigate forgetting while keeping most model parameters frozen, it still falls short in fully reawakening knowledge of prior tasks. In contrast, humans can efficiently retrieve and flexibly integrate existing experiences when learning new tasks, thereby main taining stable performance on earlier ones. During cognition, the hippocampal EC–DG–CA3–CA1 circuit engages in multiple rounds of associative recall, and its pattern-separation and memory-completion mechanisms excel at activating historical information. Inspired by this mechanism, we propose HippoTune, a latent-space iterative retrieval strategy that embeds a query–retrieve–feedback loop within each Transformer layer. Starting from the hidden state as an initial query, the model performs a few rounds of soft key–value retrieval, projects the retrieved signals back into the query, and updates it iteratively until convergence or a preset iteration limit. Theoretically, we show this process implements a Krylov-style polynomial approximation, equivalent to a differentiable second-order preconditioner, thereby deepening retrieval in a principled way. Empirically, HippoTune outperforms classical buffer-free PEFT-CL methods by 5–8% in accuracy across three vision benchmarks, while reducing training FLOPs by 50%, effectively mitigating forgetting under tight compute constraints. Code is available at: https://github.com/yan4xi1/HippoTune."
+                    }
+                ]
+            },
+            "bbox": [
+                230,
+                349,
+                769,
+                616
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "1 INTRODUCTION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                174,
+                640,
+                336,
+                655
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Deep neural networks excel under independent and identically distributed (i.i.d.) data, yet in continual learning (CL) settings where tasks arrive sequentially and distributions shift, they often suffer catastrophicforgetting: performance on earlier tasks degrades sharply when learning new ones McCloskey & Cohen (1989); Kirkpatrick et al. (2017). Classical approaches such as replay, regularization, and structural isolation often require large-scale fine-tuning of the entire network, leading to high computational and storage costs as models grow. Moreover, many such methods are largely model-agnostic and do not leverage inductive biases of prevalent architectures such as Transformers Rebuffi et al. (2017); Kirkpatrick et al. (2017); Mallya & Lazebnik (2018); Vaswani et al. (2017)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                672,
+                826,
+                785
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Parameter-efficient fine-tuning (PEFT) mitigates these costs by inserting a small number of trainable modules (e.g., adapters, LoRA modules, or prompts) into an otherwise frozen backbone, substantially reducing training overhead Houlsby et al. (2019); Hu et al. (2022); Lester et al. (2021); Li & Liang (2021). Recent PEFT-CL methods further maintain a “parameter/prompt pool” and, at inference time, retrieve and activate a subset of submodules using the sample representation as a query. However, this single-step retrieval can under-activate old-task memories and often requires a full backbone forward pass to extract high-level features for the query, introducing additional latency. In contrast, humans performing previously learned tasks engage in multiple rounds of associative recall and integration, leading to richer reactivation of historical knowledge. Concretely, sparse cues can trigger multi-round recall via the hippocampal EC–DG–CA3–CA1 circuit, enabling pattern separation and completion without repeatedly reconstructing high-level semantic representations. This circuit serves as a core pathway for memory formation and retrieval in the brain: information flows from the entorhinal cortex (EC), through the dentate gyrus (DG) for pattern separation, is completed via auto-associative recurrence in CA3, and finally integrated in CA1 into a coherent memory traceYassa & Stark (2011); Treves & Rolls (1994)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                790,
+                826,
+                888
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "<sup>∗</sup>Corresponding author."
+                    }
+                ]
+            },
+            "bbox": [
+                192,
+                896,
+                334,
+                910
+            ]
+        },
+        {
+            "type": "page_footnote",
+            "content": {
+                "page_footnote_content": [
+                    {
+                        "type": "text",
+                        "content": "<sup>†</sup>This work was done while the author was at Li Auto. Now at Shopee."
+                    }
+                ]
+            },
+            "bbox": [
+                192,
+                909,
+                611,
+                924
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "1"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                949,
+                503,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                826,
+                215
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Inspired by the pattern separation, association, and integration mechanisms of the EC–DG–CA3–CA1 circuit, we propose Latent Deliberation, a layer-internal, differentiable, iterative retrieval mechanism. At each Transformer layer, we embed a light-weight associative loop: the previous layer’s hidden state serves as the initial query; we perform soft key–value retrieval to activate relevant memories; the retrieved signal is linearly projected and fed back to update the query; the loop continues until convergence or a maximum number of iterations; finally, we fuse the per-iteration outputs to realize multi-level completion and integration of prior-task knowledge. Operating entirely in latent space avoids repeated construction of high-level features, and exposes practical budget controls via the maximum iteration count, a convergence threshold, and top-k sparsity. This unified view also clarifies relationships to prompt-pool methods such as L2P Wang et al. (2022b), DualPrompt Wang et al. (2022a), and CODA-Prompt Smith et al. (2023): these can be seen as single-depth retrieval, whereas our method provides a differentiable deepening of retrieval depth to increase expressiveness and precision in memory access. See Fig. 1 for the differences between our method and the classic PEFT-CL approaches."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                222,
+                826,
+                417
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "On the theory side, we characterize two key properties. First, near a fixed point, multi-step iteration implements a Krylov subspace polynomial approximation to the inverse Hessian, yielding an implicit second-order preconditioner for gradient propagation, achieving curvature correction in a finite number of steps without explicitly computing or storing second-order information Saad (2003); Martens & Grosse (2015). Second, we provide convergence and stability conditions based on step sizes and Jacobian spectral bounds, which translate into actionable choices for maximum iteration count, temperature, and entropy regularization; in effect, they operationalize the intuition that “longer deliberation/retrieval leads to better old-task performance” into verifiable and tunable optimization criteria Boyd & Vandenberghe (2004)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                422,
+                826,
+                550
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "We highlight four key contributions:"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                565,
+                431,
+                580
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• A unified retrieval perspective for PEFT-CL. We distill existing prompt-pool continual learning methods into a single key–value formulation, clarifying their shared trade-offs and the limits of one-shot retrieval."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                593,
+                825,
+                635
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• Latent Deliberation: hippocampal-inspired iterative retrieval. Drawing on the EC–DG–CA3–CA1 circuit, we embed a lightweight, multi-step soft lookup–and–feedback process within each Transformer layer, deepening memory activation without extra backbone passes."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                641,
+                825,
+                684
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• Krylov-subspace preconditioning theory. We prove that our finite-step loop implements a polynomial approximation to the inverse Hessian, acting as an implicit second-order preconditioner. We also derive convergence and stability criteria to guide iteration count, temperature, and regularization."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                689,
+                826,
+                744
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• Strong performance at low compute cost. On three vision benchmarks, HippoTune delivers substantial accuracy gains over one-shot PEFT-CL baselines while using only about half the training FLOPs, demonstrating efficiency under tight resource constraints."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                751,
+                826,
+                794
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2 RELATED WORK"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                821,
+                343,
+                837
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Continual Learning with Parameter-Efficient Fine-Tuning Within PEFT paradigm, continual learning has evolved into a prominent direction, now marked by the convergence of modularity, routing, and theoretical grounding. Early methods such as L2P Wang et al. (2022b), DualPrompt Wang et al. (2022a), and CoDA-Prompt Smith et al. (2023) introduced learnable prompt pools with key–query retrieval to select modules during training and inference, mitigating forgetting without relying on replay. Later approaches such as LAE Gao et al. (2023a), HiDe Zuo et al. (2023), and MoE-Adapter Yu et al. (2024) have further improved adaptability and efficiency via dynamic expansion, module merging, and expert routing. Theoretical work, including NTK analysis Doan et al. (2021) and loss landscape studies, has provided insights into how routing reduces gradient interference. However, most methods lack end-to-end optimization and seldom explore fundamental architectural principles for CL, limiting their scalability."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                854,
+                826,
+                926
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "2"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/0cd62542a9df10b81df8a15f122b315ee4e87ed329780e18c9dc0c6137cb3154.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 1: Classic PEFT-CL vs. HippoTune. (Left) Standard prompt-based continual learning retrieves a single prompt "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "v ^ { ( l ) }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "per ViT layer to compute "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\it { h ^ { ( l ) } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". (Right) HippoTune iteratively retrieves and integrates multiple prompts "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{ v _ { 1 } ^ { ( l ) } , \\ldots , v _ { T } ^ { ( l ) } \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "using "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\boldsymbol { h } ^ { ( l - 1 ) }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", enabling deeper memory activation and improved retention."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                176,
+                83,
+                813,
+                184
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                258,
+                826,
+                345
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Hippocampus–Neocortex Inspired Continual Learning Inspired by the hippocampus–neocortex interplay, continual learning research has proposed the Complementary Learning Systems (CLS) theory: the hippocampus rapidly encodes new experiences, while the neocortex gradually extracts generalized knowledge. Building on this, models like FearNet Kemker & Kanan (2018), CLS-ER Arani et al. (2022), and Triple Memory Networks Wang et al. (2021) employ short- and long-term memory modules to balance fast adaptation with long-term retention via experience replay. Key cognitive mechanisms such as hippocampal replay, pattern separation (DG), and pattern completion (CA3) have been abstracted into algorithmic strategies. Some models adopt key–value memory for associative retrieval, while GATE Liu et al. (2025) simulates gated pathways across hippocampal subregions. Despite improving the stability–plasticity trade-off, these brain-inspired methods are often architecturally complex, replay-dependent, and rarely applied under the PEFT paradigm. In this work, we propose a fine-grained emulation of hippocampal associative memory, aligned with the EC–DG–CA3–CA1 circuit. We further validate its biological plausibility and computational efficacy from both theoretical and empirical perspectives."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                359,
+                826,
+                555
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3 METHODOLOGY"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                574,
+                343,
+                590
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We unify all PEFT modules into a shared retrieval pool and perform iterative key–value lookups and one-shot fusion at each Transformer layer, mimicking EC–DG–CA3–CA1 hippocampal loops to dynamically activate and integrate past-task knowledge. The model is trained end-to-end with classification, orthogonality, and entropy losses, using truncated BPTT to align training and inference budgets."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                606,
+                825,
+                676
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.1 PROBLEM DEFINITION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                693,
+                372,
+                708
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In the continual learning (CL) setting, the model is exposed to a sequence of tasks "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{ \\mathcal { T } _ { 1 } , \\mathcal { T } _ { 2 } , \\ldots , \\mathcal { T } _ { L } \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "each associated with a dataset "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { D } _ { t } = \\mathbf { \\bar { \\{ } }  ( x _ { i } , y _ { i } ) \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". The goal is to learn a new task "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { T } _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "while maintaining performance on previous tasks "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\{ \\mathcal { T } _ { 1 } , \\ldots , \\mathcal { T } _ { t - 1 } \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "}. Formally, given a model output "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "f ( x ; \\Theta )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", we aim to optimize:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                719,
+                825,
+                775
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\min _ {\\Theta} \\sum_ {k = 1} ^ {t} \\mathcal {L} _ {\\mathrm{cls}} ^ {(k)} \\left(f (x; \\Theta)\\right),\\tag{1}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/dbde3f40df4184deec537ab9f6a158c9dab074d67d535d8dabc0d742316fb809.jpg"
+                }
+            },
+            "bbox": [
+                413,
+                776,
+                580,
+                816
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { L } _ { \\mathrm { c l s } } ^ { ( k ) }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denotes the cross-entropy classification loss for task k."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                820,
+                607,
+                840
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.2 PEFT-CL FRAMEWORK FORMALIZATION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                854,
+                504,
+                869
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this subsection, we present a formalization of the PEFT-CL framework: we unify all lightweight modules into a shared retrieval pool, define how to compute relevance scores from a frozen backbone state, and show how to aggregate module outputs to update the model representation."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                882,
+                825,
+                924
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "3"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We collect all m parameter-efficient modules into a single pool"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                104,
+                588,
+                119
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {V} = \\{\\theta^ {(1)}, \\dots , \\theta^ {(m)} \\},",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/c1d109c6fee080d15654821c6c082fb63cce1ea1ef863a507c81f8253a168028.jpg"
+                }
+            },
+            "bbox": [
+                421,
+                125,
+                573,
+                143
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "indexed by a learnable key matrix"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                148,
+                398,
+                165
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "K = \\left[ k ^ {(1)}, \\dots , k ^ {(m)} \\right] ^ {\\top} \\in \\mathbb {R} ^ {m \\times d}.",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/7c6d3295673aa3b2b02e357a72d723cb6390b53dfff19760501c1d0c5bd8d029.jpg"
+                }
+            },
+            "bbox": [
+                387,
+                170,
+                607,
+                189
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Each "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\theta ^ { ( i ) }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "parameterizes a small PEFT block that takes a layer hidden state as input and produces a residual update (for example, an adapter, a prompt-induced projection, or a LoRA-style low-rank block)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                196,
+                826,
+                239
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Following prior works Gao et al. (2023b); He et al. (2022), we use "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\phi ( x ; \\theta ^ { ( i ) } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "as an abstract notation to unify these different PEFT modules; details of the specific form are provided in Appendix A. Here "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\phi ( \\cdot ; \\theta ^ { ( \\bar { i } ) } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denotes the forward mapping of the i-th PEFT module applied to the hidden state x."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                244,
+                825,
+                291
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Given a frozen-backbone hidden state "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "x \\in \\mathbb { R } ^ { d }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", we first compute the routing scores"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                296,
+                714,
+                311
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "s = \\frac {x K ^ {\\top}}{\\tau}, g = \\operatorname{softmax} (s) \\in \\Delta^ {m - 1},\\tag{2}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/7c55fe5533b7bffb6a122f4de76ee426d25a6eae821720b9c638ca2b8eaa790f.jpg"
+                }
+            },
+            "bbox": [
+                359,
+                316,
+                635,
+                349
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "with optional Top-k truncation. Each module then emits a residual "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\Delta h ^ { ( i ) } = \\phi \\big ( \\boldsymbol { x } ; \\theta ^ { ( i ) } \\big ) \\ \\in \\ \\mathbb { R } ^ { d }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", which can be understood as the effect of the i-th PEFT module on this layer’s representation. We stack all residuals as"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                356,
+                825,
+                398
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\Delta H = \\left[ \\Delta h ^ {(1)}, \\dots , \\Delta h ^ {(m)} \\right] ^ {\\top}.",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/7f43827f9ec0858531135f765825f3354bab7f77c12a6996dc088bfc0b5e8d8e.jpg"
+                }
+            },
+            "bbox": [
+                397,
+                396,
+                598,
+                414
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Starting from the current backbone state "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "h = x ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", we conceptually update it by mixing all module outputs with the routing weights "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "g \\colon"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                424,
+                823,
+                454
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "h \\leftarrow h + g ^ {\\top} \\Delta H.\\tag{3}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/4accc84304c3403579ab5a2f1284b40772b49097c54c0fed45bee6162fc17186.jpg"
+                }
+            },
+            "bbox": [
+                424,
+                460,
+                568,
+                477
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In implementation, this update is realized by integrating the PEFT modules into the backbone block so that the layer directly outputs the updated "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "h ;"
+                    },
+                    {
+                        "type": "text",
+                        "content": "the residual formulation above is an equivalent, unified view used for analysis. We provide a detailed explanation in Appendix A on how classical PEFT-CL methods correspond to this framework."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                484,
+                826,
+                541
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "Why this unification matters."
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                555,
+                380,
+                570
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "1. Query cost. Using the model’s hidden output as the retrieval query leverages rich semantic features but incurs extra computation."
+                    }
+                ]
+            },
+            "bbox": [
+                209,
+                580,
+                823,
+                609
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "2. Retrieval depth. All existing PEFT-CL methods perform only a single retrieval; this framework points naturally to deeper, iterative retrieval strategies."
+                    }
+                ]
+            },
+            "bbox": [
+                207,
+                614,
+                825,
+                643
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "3. Key-gating design. Learning and regularizing K, and choosing temperature, Top-k or entropy penalties, determines which modules activate."
+                    }
+                ]
+            },
+            "bbox": [
+                207,
+                646,
+                826,
+                675
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.3 LATENT DELIBERATION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                696,
+                383,
+                710
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "At each Transformer layer, we extend the standard forward pass into a controllable dynamic process, modeled as an iterative associative loop."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                723,
+                825,
+                751
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We treat the hidden state from the previous layer "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "h ^ { ( l - 1 ) } \\in \\mathbb { R } ^ { d }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "as the initial query: "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "q ^ { ( 1 ) } = h ^ { ( l - 1 ) }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Each layer maintains a learnable key matrix "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\boldsymbol { K } ^ { ( l ) } \\in \\mathbb { R } ^ { M \\times d }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and value matrix "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\bar { V } ^ { ( l ) } \\in \\mathbb { R } ^ { M \\times d _ { v } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to capture old-task subspaces. This is inspired by the EC–DG structure in the hippocampus, where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "K ^ { ( l ) }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "acts as a guide to fixed-point memory."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                758,
+                825,
+                818
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "At step t, the query "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "q ^ { ( t ) }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "retrieves from memory via:"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                825,
+                513,
+                840
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "S ^ {(t)} = \\mathrm{softmax} \\left(\\frac {q ^ {(t)} K ^ {(l) ^ {\\top}}}{T}\\right), \\quad v ^ {(t)} = S ^ {(t)} V ^ {(l)},\\tag{4}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/dd02408ba5a65a647a9b07b3b44eb11da111238899d37e42fd392b0da8ec4510.jpg"
+                }
+            },
+            "bbox": [
+                325,
+                845,
+                669,
+                888
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where the temperature "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T > 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": "modulates retrieval sharpness. Optionally, Top-k filtering can be applied to "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "S ^ { ( t ) }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to retain only the most relevant memory slots. The top-k hyperparameter is robust within the range of 3 to 10. As this is a standard setting for prompt-based methods, we omit it from further discussion."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                893,
+                825,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "4"
+                    }
+                ]
+            },
+            "bbox": [
+                491,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/04b4503c063430c0b3dfb924d9a704b37c9aa2636e6e990b3db82ebcc52be8b6.jpg"
+                },
+                "content": "",
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 2: A comparative illustration of HippoTune. At each Transformer layer, use the hidden state as an initial query to iteratively perform key–value soft retrieval (with orthogonality and entropy regularization), update the query via projected residual feedback until convergence or max iterations, then fuse all retrievals into a memory-enhanced output, enabling selective multi-round activation of parameter-pool submodules."
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                205,
+                102,
+                790,
+                340
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                454,
+                825,
+                482
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Then, the query is updated by incorporating the retrieved memory:"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                489,
+                611,
+                505
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "q ^ {(t + 1)} = \\alpha q ^ {(t)} + (1 - \\alpha) P ^ {(l)} \\left(v ^ {(t)}\\right),\\tag{5}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/dd87f52f9a12d69fa04e6779ae6f91f5c5c2a40a2986fc1e5d0ee288fbcb10bf.jpg"
+                }
+            },
+            "bbox": [
+                370,
+                516,
+                625,
+                535
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "P ^ { ( l ) }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is a layer-specific linear transformation, and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\alpha ~ \\in ~ [ 0 , 1 ]"
+                    },
+                    {
+                        "type": "text",
+                        "content": "controls the blending. The CA3 region features an auto-associative recurrent mechanism and can be regarded as the core of associative memory. This can be seen as a minimal abstraction of the recurrent CA3 circuit performing memory completion and state integration. The loop terminates when either "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\lVert \\boldsymbol { v } ^ { ( t ) } - \\boldsymbol { v } ^ { ( t - 1 ) } \\rVert ^ { \\frac { \\vee } { 2 } } < \\varepsilon"
+                    },
+                    {
+                        "type": "text",
+                        "content": "or "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "t = T _ { \\mathrm { m a x } }"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                549,
+                826,
+                621
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To avoid repeated forward passes after each retrieval iteration, we adopt a one-shot fusion strategy, which integrates all retrieved vectors within the latent space in a unified manner. Specifically, the retrieval vector "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "v ^ { ( t ) }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "obtained at each iteration t is concatenated along the feature dimension to form an aggregated retrieval vector:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                626,
+                826,
+                685
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "V _ {\\mathrm{cat}} = \\left[ v ^ {(1)} \\parallel v ^ {(2)} \\parallel \\dots \\parallel v ^ {(T)} \\right] \\in \\mathbb {R} ^ {T d _ {v}},\\tag{6}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/25bc5c20693f91a74c80d154460ee498e502d7382f04dd5735f07a3aa10a5e7f.jpg"
+                }
+            },
+            "bbox": [
+                356,
+                696,
+                640,
+                715
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where ∥ denotes vector concatenation."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                728,
+                424,
+                743
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Next, the output of the (l−1)-th layer, denoted as "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\boldsymbol { h } ^ { ( l - 1 ) }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", is combined with the concatenated retrieval vector "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "V _ { \\mathrm { c a t } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and fed into the l-th layer’s ViT block to produce the output of layer l:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                751,
+                823,
+                780
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "h ^ {(l)} = \\operatorname{ViT} ^ {(l)} \\left(\\left[ h ^ {(l - 1)} \\| V _ {\\text { cat }} \\right]\\right),\\tag{7}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/8ad27cbdf986be4e1f5c8d57fa18b5b342da1a0c513fe2c82c0fe3af608ee10a.jpg"
+                }
+            },
+            "bbox": [
+                388,
+                792,
+                604,
+                816
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathrm { V i T } ^ { ( l ) }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "represents the backbone network of the l-th layer. This one-shot fusion operation corresponds to the CA1 region in the hippocampal circuit, which is responsible for integrating the retrieved information from both DG and CA3 and producing a complete memory representation."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                830,
+                825,
+                876
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Importantly, this mechanism enables explicit controllability during inference via hyperparameters such as "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T _ { \\mathrm { m a x } } , \\varepsilon ."
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and Top-k, allowing flexible trade-offs between retrieval quality and efficiency. The method framework is shown in Fig. 2. The pseudocode is provided in Appendix B."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                882,
+                825,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "5"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.4 END-TO-END TRAINING OBJECTIVE"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                104,
+                468,
+                118
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We design a unified loss to jointly optimize task performance, retrieval sparsity, and module disentanglement:"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                128,
+                826,
+                157
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {L} = \\mathcal {L} _ {\\mathrm{cls}} + \\lambda_ {\\mathrm{orth}} \\mathcal {L} _ {\\mathrm{orth}} + \\lambda_ {\\mathrm{ent}} \\mathcal {L} _ {\\mathrm{ent}}.\\tag{8}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/2a44dce4e805db2a00661f2c3a5f64e75b9ddee1ab399dd17ed70b191467efff.jpg"
+                }
+            },
+            "bbox": [
+                374,
+                157,
+                620,
+                172
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• Classification Loss "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { L } _ { \\mathrm { c l s } } \\mathrm { : }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "Cross-entropy loss supervising downstream performance:"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                181,
+                733,
+                198
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {L} _ {\\mathrm{cls}} = - \\frac {1}{N} \\sum_ {i = 1} ^ {N} \\sum_ {c = 1} ^ {C} y _ {i, c} \\log p _ {i, c},\\tag{9}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/d5d1e89918d01fc7c96c9ca495ae8f47982d50a70e2d6829d425077b2d55e28d.jpg"
+                }
+            },
+            "bbox": [
+                393,
+                199,
+                614,
+                239
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "y _ { i , c }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the one-hot label and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { i , c }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "the predicted probability."
+                    }
+                ]
+            },
+            "bbox": [
+                184,
+                241,
+                609,
+                257
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• Orthogonality Regularization "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { L } _ { \\mathrm { o r t h } } \\mathrm { : }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ": Encourages keys "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "K ^ { ( l ) }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to be orthogonal, reducing memory interference:"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                260,
+                825,
+                289
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {L} _ {\\text { orth }} = \\sum_ {l} \\left\\| K ^ {(l) ^ {\\top}} K ^ {(l)} - I \\right\\| _ {F} ^ {2}.\\tag{10}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/b5f6858a8839041c0953afee0bd674ea084b74bda0e3d730ff299f0fcf72cf3f.jpg"
+                }
+            },
+            "bbox": [
+                390,
+                285,
+                617,
+                320
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• Entropy Regularization "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\mathcal { L } } _ { \\mathrm { e n t } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ": Controls the entropy of retrieval weights "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "S ^ { ( t ) }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", balancing sharpness and robustness: T"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                325,
+                825,
+                354
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {L} _ {\\mathrm{ent}} = - \\sum_ {l} \\sum_ {t = 1} ^ {T} \\sum_ {i} S _ {i} ^ {(t)} \\log S _ {i} ^ {(t)}.\\tag{11}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/fb7de6af135f010d1d08f158f5ff6285f780bc3c23d2aca239ff2049b27d0bb6.jpg"
+                }
+            },
+            "bbox": [
+                385,
+                351,
+                624,
+                392
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The weights "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\lambda _ { \\mathrm { o r t h } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\lambda _ { \\mathrm { e n t } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "balance these objectives, guiding the model towards disentangled, controllable, and generalizable behaviors."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                397,
+                825,
+                426
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "During training, we adopt Truncated Backpropagation Through Time (BPTT), propagating gradients only through the final steps of the retrieval loop. This design aligns with the dynamic budget at inference "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( \\mathbf { e } . \\mathbf { g } . , T _ { \\mathrm { m a x } } , \\mathrm { T o p }  – k )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", ensuring consistency between training and deployment."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                431,
+                825,
+                477
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4 THEORETICAL ANALYSIS: MULTI-STEP RECURRENCE AND HIGHER-ORDERPRECONDITIONING"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                494,
+                823,
+                527
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We abstract a single-layer “recurrence” as gradient descent on a smooth potential function "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\phi ( q )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ":"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                542,
+                800,
+                558
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "q ^ {(t + 1)} = q ^ {(t)} - \\eta \\nabla \\phi (q ^ {(t)}), t = 1, 2, \\dots , T _ {\\max} - 1,\\tag{12}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/c1d6d850ab62cc348d96a1ed335d68557f461d50d0ed12b4a19108f63e0cb5ff.jpg"
+                }
+            },
+            "bbox": [
+                316,
+                559,
+                678,
+                577
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "with step size "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\eta > 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". The outer loss depends only on the final state "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "q ^ { ( T _ { \\mathrm { m a x } } ) }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", so we denote"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                580,
+                754,
+                595
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "g _ {\\mathrm{out}} = \\frac {\\partial \\mathcal {L}}{\\partial q ^ {(T _ {\\mathrm{max}})}}.\\tag{13}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/cc3a5e72957d9560073d89b65e8146512d4e08ed13a13865aa3158635e75d33e.jpg"
+                }
+            },
+            "bbox": [
+                431,
+                597,
+                563,
+                628
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Proposition 1 (Krylov Subspace Polynomial Approximation). Suppose ϕ is twice differentiable near afixed point "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "q ^ { \\star }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and its Hessian "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\dot { H _ { \\mathrm { ~ } } } = \\nabla ^ { 2 } \\phi ( q ^ { \\dot { \\star } } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is symmetric positive definite. Further assume the step size satisfies "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\rho ( I - \\eta H ) < 1 . D e f"
+                    },
+                    {
+                        "type": "text",
+                        "content": "ne"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                630,
+                825,
+                674
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "J = I - \\eta H, P = \\left. \\frac {\\partial (s t e p)}{\\partial \\theta} \\right| _ {q ^ {\\star}}, b _ {\\theta} = P ^ {\\top} g _ {\\mathrm{out}}.\\tag{14}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/53b7aace3526f8b7234e9c2d817b27998e0d870f117e7eed9080710fbb5fdfcf.jpg"
+                }
+            },
+            "bbox": [
+                333,
+                674,
+                663,
+                708
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Then the leading term of the gradient w.r.t. parameters θ after "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T _ { \\mathrm { m a x } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "steps is"
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                710,
+                669,
+                726
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\nabla_ {\\theta} \\mathcal {L} _ {T _ {\\max}} = \\sum_ {k = 0} ^ {T _ {\\max} - 1} (J ^ {\\top}) ^ {k} b _ {\\theta} = \\mathcal {K} _ {T _ {\\max}} (H) b _ {\\theta},\\tag{15}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/1b7a35dedad78c0b94ef3a8e17662b2f7f3faa13c3663b37e2c08b5dbf7d8973.jpg"
+                }
+            },
+            "bbox": [
+                339,
+                728,
+                656,
+                768
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                771,
+                218,
+                784
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {K} _ {T _ {\\max}} (H) = \\sum_ {k = 0} ^ {T _ {\\max} - 1} (I - \\eta H ^ {\\top}) ^ {k}\\tag{16}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/15cddb07806b581411dd46d920e65327ef68986ff738552c0043f20c543dfb6b.jpg"
+                }
+            },
+            "bbox": [
+                380,
+                781,
+                614,
+                821
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "is the Krylov series operator. As "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T _ { \\mathrm { m a x } } \\to \\infty ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", the Neumann series converges and"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                823,
+                700,
+                837
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\mathcal {K} _ {T _ {\\max}} (H) \\to (\\eta H ^ {\\top}) ^ {- 1}, \\Longrightarrow \\nabla_ {\\theta} \\mathcal {L} _ {\\infty} \\approx H ^ {- 1} b _ {\\theta}.\\tag{17}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/c237012c42ae20735bb601015591896260becb68079b1441af46b21610967762.jpg"
+                }
+            },
+            "bbox": [
+                328,
+                839,
+                665,
+                856
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The detailed proof is provided in Appendix C."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                864,
+                478,
+                880
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Corollary 1 (Effect of Finite-step Preconditioning). For any finite "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T _ { \\mathrm { m a x } } ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": "the operator "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ { \\ K } _ { { T _ { \\operatorname* { m a x } } } } } ( H )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is a truncated polynomial approximation of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "H ^ { - 1 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "in the Krylov subspace. In practice, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T _ { \\mathrm { m a x } } = 2 \\stackrel { . } { \\sim } 4"
+                    },
+                    {
+                        "type": "text",
+                        "content": "already yields effective second-order correction at only linear computational cost."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                881,
+                825,
+                924
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "6"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/7bf74a7d51403dba7464b4fcc3ff8e4f538a24d2e034d8813269868dafe13eaf.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 1: Comparison of Continual Learning Methods on Seq-CIFAR100, Seq-ImageNet-R, and Seq-CUB200 in terms of Accuracy (Acc) and Average Accuracy Across All Tasks (AAA), along with Training Time."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\">Method</td><td rowspan=\"2\">GFLOPs</td><td colspan=\"2\">Seq-CIFAR100</td><td colspan=\"2\">Seq-ImageNet-R</td><td colspan=\"2\">Seq-CUB200</td></tr><tr><td>Acc</td><td>AAA</td><td>Acc</td><td>AAA</td><td>Acc</td><td>AAA</td></tr><tr><td colspan=\"8\">Classical-CL (w/ buffer)</td></tr><tr><td>LwF Li &amp; Hoiem (2016)</td><td>16.88</td><td> $80.29 \\pm 0.86$ </td><td> $87.33 \\pm 0.73$ </td><td> $60.74 \\pm 0.51$ </td><td> $68.55 \\pm 0.65$ </td><td> $69.75 \\pm 1.37$ </td><td> $80.45 \\pm 2.08$ </td></tr><tr><td>DER++ Buzzega et al. (2020)</td><td>16.88</td><td> $84.50 \\pm 1.67$ </td><td> $90.16 \\pm 0.61$ </td><td> $54.21 \\pm 0.52$ </td><td> $65.26 \\pm 0.58$ </td><td> $77.42 \\pm 0.71$ </td><td> $83.61 \\pm 0.09$ </td></tr><tr><td colspan=\"8\">PEFT-CL (w/o buffer)</td></tr><tr><td>L2P Wang et al. (2022b)</td><td>35.20</td><td> $82.76 \\pm 1.17$ </td><td> $88.48 \\pm 0.83$ </td><td> $71.26 \\pm 0.44$ </td><td> $76.13 \\pm 0.46$ </td><td> $68.39 \\pm 0.46$ </td><td> $78.29 \\pm 0.38$ </td></tr><tr><td>DualPrompt Wang et al. (2022a)</td><td>35.38</td><td> $85.56 \\pm 0.33$ </td><td> $90.33 \\pm 0.33$ </td><td> $68.22 \\pm 0.20$ </td><td> $73.81 \\pm 0.39$ </td><td> $66.00 \\pm 0.57$ </td><td> $77.92 \\pm 0.50$ </td></tr><tr><td>CODA-Prompt Smith et al. (2023)</td><td>35.84</td><td> $86.28 \\pm 0.26$ </td><td> $91.05 \\pm 0.37$ </td><td> $74.05 \\pm 0.41$ </td><td> $78.14 \\pm 0.39$ </td><td> $72.45 \\pm 0.51$ </td><td> $78.94 \\pm 0.37$ </td></tr><tr><td>LAE-PreT Gao et al. (2023a)</td><td>35.68</td><td> $85.25 \\pm 0.66$ </td><td> $89.71 \\pm 0.42$ </td><td> $62.81 \\pm 0.48$ </td><td> $69.47 \\pm 0.44$ </td><td> $77.48 \\pm 0.79$ </td><td> $85.83 \\pm 0.68$ </td></tr><tr><td>HiDe-Prompt Zuo et al. (2023)</td><td>35.25</td><td> $88.25 \\pm 0.24$ </td><td> $92.69 \\pm 0.27$ </td><td> $74.65 \\pm 0.14$ </td><td> $78.46 \\pm 0.18$ </td><td> $84.27 \\pm 0.16$ </td><td> $88.64 \\pm 0.19$ </td></tr><tr><td colspan=\"8\">Ours (w/o buffer)</td></tr><tr><td>HippoTune (ours)</td><td>16.92</td><td> $87.65 \\pm 0.21$ </td><td> $92.07 \\pm 0.25$ </td><td> $74.85 \\pm 0.17$ </td><td> $79.92 \\pm 0.22$ </td><td> $81.12 \\pm 0.34$ </td><td> $86.63 \\pm 0.41$ </td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                194,
+                101,
+                800,
+                267
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "Practical Guidelines"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                349,
+                318,
+                364
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "1. Ensure convergence: Spectrally normalize H or choose a sufficiently small η so that "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\rho ( I - \\eta H ) < 1"
+                    }
+                ]
+            },
+            "bbox": [
+                210,
+                375,
+                825,
+                405
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "2. Choose "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T _ { m a x } \\colon \\mathbf { A }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "small constant "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T _ { m a x }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "≈ 2–4 balances second-order preconditioning with computational budget."
+                    }
+                ]
+            },
+            "bbox": [
+                209,
+                409,
+                825,
+                439
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "3. Early stopping: When "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\| q ^ { ( t + 1 ) } - q ^ { ( t ) } \\|"
+                    },
+                    {
+                        "type": "text",
+                        "content": "falls below a threshold, the Krylov polynomial has effectively converged and further iterations are unnecessary."
+                    }
+                ]
+            },
+            "bbox": [
+                209,
+                443,
+                825,
+                473
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Conclusion. The revised derivation eliminates the erroneous “product = series sum” step and uses the chain rule and recursive expansion to rigorously demonstrate how multi-step recurrence implicitly implements Newton or natural-gradient second-order preconditioning in the gradient."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                491,
+                825,
+                536
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5 EXPERIMENTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                555,
+                328,
+                571
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.1 EXPERIMENTAL SETUPS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                585,
+                385,
+                602
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Benchmarks We evaluate on three mainstream vision continual-learning benchmarks: Seq-CIFAR100 Krizhevsky (2009); Lomonaco et al. (2021) is randomly split by class into 10 subtasks, each with 10 categories; Seq-ImageNet-R Boschini et al. (2022) is divided into 10 subtasks of 20 classes each; Seq-CUB200 Wah et al. (2011); Lomonaco et al. (2021) is split into 10 subtasks, each containing 20 bird species. We conduct evaluations under the Class-Incremental Learning."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                613,
+                826,
+                685
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Compared Methods We evaluate two broad classes of methods. First, classical continual learning methods: LwF Li & Hoiem (2016) is a regularization-based approach and does not use any replay buffer, while DER++ Buzzega et al. (2020) is replay-based and in our experiments maintains a memory buffer of 1000 images. Second, buffer-free PEFT-CL methods, including L2P Wang et al. (2022b), DualPrompt Wang et al. (2022a), CODA-Prompt Smith et al. (2023), LAE-PreT Gao et al. (2023a), and HiDe-Prompt Zuo et al. (2023), freeze the backbone and train only lightweight inserted modules. We include HippoTune in the buffer-free setting and re-implement all baselines under the same backbone and training regime, using published results for LAE-PreT and HiDe-Prompt."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                699,
+                826,
+                813
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Implementation Details We adopt ViT-Base/16 as the backbone Dosovitskiy et al. (2021), freeze all non-PEFT parameters, and fine-tune only the key–value projection layers of the inserted prompt modules. Training uses the Adam optimizer Kingma & Ba (2015) with a base learning rate of 0.01, a batch size of 128, and 5 epochs per subtask. Unless otherwise noted, modules are inserted into layers 1–7 and an orthogonality regularization coefficient of λ = 1 is applied. All experiments run on NVIDIA L40S GPUs without any replay buffer, and results are averaged over three random seeds. The detailed hyperparameter settings and code link are provided in Appendix D."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                825,
+                828,
+                926
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "7"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/e222fba900c1a209206765e98deb46a8c31df0a775e201d0c801f9da54dfedc1.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 2: Comparison of Continual Learning Methods on ImageNet-R under different task numbers (N), including GFLOPs. Results are reported in terms of final Accuracy (Acc ↑) and Average Accuracy Across All Tasks (AAA ↑)."
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\">Method</td><td rowspan=\"2\">GFLOPs</td><td colspan=\"2\">ImageNet-R (N = 5)</td><td colspan=\"2\">ImageNet-R (N = 10)</td><td colspan=\"2\">ImageNet-R (N = 20)</td></tr><tr><td>Acc</td><td>AAA</td><td>Acc</td><td>AAA</td><td>Acc</td><td>AAA</td></tr><tr><td>Full Fine-Tuning</td><td>16.88</td><td> $64.92 \\pm 0.87$ </td><td> $75.57 \\pm 0.50$ </td><td> $60.57 \\pm 1.06$ </td><td> $72.31 \\pm 1.09$ </td><td> $49.95 \\pm 1.31$ </td><td> $65.32 \\pm 0.84$ </td></tr><tr><td colspan=\"8\">PEFT-CL (w/o buffer)</td></tr><tr><td>L2P Wang et al. (2022b)</td><td>35.20</td><td> $73.04 \\pm 0.71$ </td><td> $76.94 \\pm 0.41$ </td><td> $71.26 \\pm 0.44$ </td><td> $76.13 \\pm 0.46$ </td><td> $68.97 \\pm 0.51$ </td><td> $74.16 \\pm 0.32$ </td></tr><tr><td>DualPrompt Wang et al. (2022a)</td><td>35.38</td><td> $69.99 \\pm 0.57$ </td><td> $72.24 \\pm 0.41$ </td><td> $68.22 \\pm 0.20$ </td><td> $73.81 \\pm 0.39$ </td><td> $65.23 \\pm 0.45$ </td><td> $71.30 \\pm 0.16$ </td></tr><tr><td>CODA-Prompt Smith et al. (2023)</td><td>35.84</td><td> $76.63 \\pm 0.27$ </td><td> $80.30 \\pm 0.28$ </td><td> $74.05 \\pm 0.41$ </td><td> $78.14 \\pm 0.39$ </td><td> $69.38 \\pm 0.33$ </td><td> $73.95 \\pm 0.63$ </td></tr><tr><td>HiDe-Prompt Zuo et al. (2023)</td><td>35.25</td><td> $74.77 \\pm 0.25$ </td><td> $78.15 \\pm 0.24$ </td><td> $74.65 \\pm 0.14$ </td><td> $78.46 \\pm 0.18$ </td><td> $73.59 \\pm 0.19$ </td><td> $77.93 \\pm 0.19$ </td></tr><tr><td colspan=\"8\">Ours (w/o buffer)</td></tr><tr><td>HippoTune (ours)</td><td>16.92</td><td> $77.16 \\pm 0.28$ </td><td> $81.04 \\pm 0.37$ </td><td> $74.85 \\pm 0.17$ </td><td> $79.92 \\pm 0.22$ </td><td> $74.06 \\pm 0.25$ </td><td> $79.33 \\pm 0.49$ </td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                183,
+                101,
+                813,
+                237
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/2bb3b6676c48f9cb2aa4242fb567e96af009bd7eef44ee3be2b5b020747a3c26.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                174,
+                306,
+                367,
+                452
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/0435e32cc2c2dffe1ac6c897a03128cc81cc47f2c9479a59655752c575feef8b.jpg"
+                },
+                "content": "",
+                "chart_caption": [],
+                "chart_footnote": []
+            },
+            "bbox": [
+                401,
+                306,
+                596,
+                452
+            ]
+        },
+        {
+            "type": "chart",
+            "content": {
+                "image_source": {
+                    "path": "images/d10fc92195b76f12324762c936edef2a40a070b1dd311afa521061bfcdeaa56d.jpg"
+                },
+                "content": "",
+                "chart_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 3: Further analysis on Seq-CIFAR100 for three design choices. (Left) Moderate max iterations "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( \\mathrm { e . g . , } T _ { \\mathrm { m a x } } = 4 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "balance early gains and late stability; too few/many degrade results. (Middle) Temperature T tunes retrieval softness: mid-range "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( 1 0 ^ { \\overset { - } { - } 1 } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is best; extremes underperform. (Right) PEFT depth: combining shallow+middle (1–7) beats shallow (1–4), middle (5–8), or deep (9–12), highlighting multi-level memory."
+                    }
+                ],
+                "chart_footnote": []
+            },
+            "bbox": [
+                627,
+                308,
+                821,
+                452
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.2 EXPERIMENTAL RESULTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                577,
+                393,
+                590
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this section, we adopt Acc and AAA as evaluation metrics. Table 1 presents the results of various methods on three benchmarks, along with their respective computational cost (GFLOPs)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                604,
+                825,
+                633
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• Comparison with Classical CL Methods Using Replay Buffers Without relying on sample replay, HippoTune achieves Acc improvements of approximately 7.4, 14.1, and 11.4 percentage points over LwF on Seq-CIFAR100, Seq-ImageNet-R, and Seq-CUB200, respectively. Compared to DER++, it yields gains of around 3.2, 20.6, and 3.7 points. In terms of AAA, HippoTune also outperforms LwF (+4.7%) and DER++ (+1.9%), clearly demonstrating that the latent-space iterative retrieval mechanism can effectively suppress forgetting without any additional memory overhead."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                646,
+                826,
+                731
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• Comparison with Other PEFT-CL Methods Compared to typical prompt-tuning methods (L2P, DualPrompt, CODA-Prompt, LAE-PreT), HippoTune achieves the highest performance on Seq-ImageNet-R with 74.85% Acc and 79.92% AAA. On Seq-CIFAR100 (87.65%/92.07%) and Seq-CUB200 (81.12%/86.63%), it also surpasses most PEFT-CL baselines, second only to HiDe-Prompt with 88.25%/92.69% and 84.27%/88.64%, respectively. The superior performance of HiDe-Prompt on these two datasets can be largely attributed to its higher computational budget and more sophisticated multi-step prompting design. Notably, HippoTune achieves better results than HiDe-Prompt on Seq-ImageNet-R (despite using only 16.92 GFLOPs compared to 35.25 GFLOPs), and delivers comparable performance on the other two benchmarks—demonstrating its efficiency and competitiveness under limited computational resources."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                736,
+                828,
+                877
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• Resource Efficiency and Training Speed With a computational cost of only 16.92 GFLOPs, approximately half that of most mainstream PEFT-CL methods (around 35 GFLOPs), HippoTune significantly improves training speed and GPU memory efficiency. Under identical hardware settings, its training time is reduced by approximately 30% on average, confirming its practicality for scenarios with constrained computational resources."
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                881,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "8"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                960
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                183,
+                104,
+                825,
+                133
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.3 ABLATION STUDY"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                148,
+                344,
+                164
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In the ablation study, constraining the number of iterative retrieval steps to just one "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( T _ { \\operatorname* { m a x } } = 1 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "leads to a notable performance drop: Acc/AAA on Seq-CIFAR100 declines from 87.65%/92.07% to 86.81%/90.63%, and on Seq-ImageNet-R from 74.85%/79.92% to 73.25%/78.62%. See Table 3 for the detailed results. This highlights the critical role of multi-step retrieval in integrating historical information and mitigating forgetting. Removing orthogonality regularization has a limited effect on Seq-CIFAR100, but results in a nearly 1.2-point drop in AAA on the more complex Seq-ImageNet-R, indicating that maintaining the diversity of retrieved vectors is especially important for leveraging prior knowledge in challenging domains. In contrast, removing entropy regularization or adopting a fusion strategy that only integrates the last-step retrieval affects overall performance by less than 0.6 points, suggesting their roles are more in stabilizing and fine-tuning the core mechanism. These findings suggest that iterative retrieval and orthogonality regularization are central to preventing catastrophic forgetting, while entropy regularization and fusion strategy can be flexibly adjusted in resource-constrained or inference-sensitive settings."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                176,
+                826,
+                359
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.4 FURTHER ANALYSIS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                375,
+                357,
+                388
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "ImageNet-R under Varying Task Counts We split ImageNet-R into sequences of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "N = 5"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", 10, and 20 tasks. HippoTune consistently outperforms leading prompt-based PEFT-CL methods—gaining around 0.5–0.8 points at "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "N = 5"
+                    },
+                    {
+                        "type": "text",
+                        "content": "versus CODA-Prompt and 0.2–1.5 points at "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "N ~ = ~ 1 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": "versus HiDe-Prompt—and even in the hardest N = 20 setting maintains a similar margin. Over the range "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "N = 5 {  } 2 0 ."
+                    },
+                    {
+                        "type": "text",
+                        "content": "its overall accuracy drops by only about 3 points, far less than typical PEFT-CL declines. Crucially, these gains come at just 16.92 GFLOPs, underscoring HippoTune’s efficiency and resilience to forgetting. See Table 2 for the detailed results."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                401,
+                421,
+                652
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/782aff3c03d358c594a14525331bf8c0da079c49205c26e0b1e51290ddfdf7de.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 3: Ablation Study: Impact of Removing Individual Components of Latent Deliberation on Seq-CIFAR100 and Seq-ImageNet-R"
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td rowspan=\"2\">Variant</td><td colspan=\"2\">Seq-CIFAR100</td><td colspan=\"2\">Seq-ImageNet-R</td></tr><tr><td>Acc</td><td>AAA</td><td>Acc</td><td>AAA</td></tr><tr><td>Full Method</td><td>87.65</td><td>92.07</td><td>74.85</td><td>79.92</td></tr><tr><td>Baseline</td><td>86.28</td><td>90.33</td><td>72.93</td><td>78.16</td></tr><tr><td>w/o Orthogonality Regularization</td><td>87.32</td><td>91.87</td><td>74.09</td><td>78.77</td></tr><tr><td>w/o Entropy Regularization</td><td>87.43</td><td>91.30</td><td>74.67</td><td>79.55</td></tr><tr><td>w/o Iterative Retrieval ( $T_{\\text{max}} = 1$ )</td><td>86.51</td><td>90.63</td><td>72.89</td><td>78.10</td></tr><tr><td>w/o Orthogonality &amp; Entropy (Loop only)</td><td>87.24</td><td>91.11</td><td>74.37</td><td>78.53</td></tr><tr><td>w/o Iterative Retrieval &amp; Orthogonality</td><td>86.40</td><td>90.43</td><td>72.74</td><td>77.92</td></tr><tr><td>w/o Iterative Retrieval &amp; Entropy</td><td>86.32</td><td>90.41</td><td>72.72</td><td>78.09</td></tr><tr><td>w/o Fusion Strategy (last-step only)</td><td>87.27</td><td>91.28</td><td>74.13</td><td>79.04</td></tr><tr><td>w/o Early Stopping</td><td>87.36</td><td>91.39</td><td>74.22</td><td>79.13</td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                429,
+                473,
+                823,
+                627
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Impact of Iteration Length We sweep "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T _ { \\mathrm { m a x } } \\in \\{ 1 , 3 , 4 , 5 , 7 \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "} on Seq-CIFAR100 (Fig. 3). Increasing from "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T _ { \\mathrm { m a x } } = 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to 3 yields clear gains on tasks 2–6, while "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T _ { \\mathrm { m a x } } = 4"
+                    },
+                    {
+                        "type": "text",
+                        "content": "delivers the best overall accuracy—particularly mid-sequence—improving by about 1–2 points over "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T _ { \\mathrm { m a x } } = 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Larger budgets (5 or 7) offer only marginal early-task gains and actually degrade later-task performance, suggesting that excessive iterations introduce noise or redundancy. Thus, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T _ { \\mathrm { m a x } } = 4"
+                    },
+                    {
+                        "type": "text",
+                        "content": "strikes the right balance between effective memory reuse and stability."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                667,
+                826,
+                753
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Accuracy Comparison Across All Tasks After Training Figure 4 in Appendix E.4 shows that HippoTune consistently outperforms both DER++ and DualPrompt throughout the full task sequence. In the early tasks it gains a clear lead, demonstrating its ability to recall prior knowledge immediately. This advantage persists in the mid-stage, with baseline methods trailing by a noticeable margin, and even as all methods degrade in later tasks, HippoTune’s drop is the smallest. Overall, iterative retrieval both reinforces early memories and promotes steadier performance across all ten tasks."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                767,
+                826,
+                853
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Impact of Temperature and Insertion Depth We swept the retrieval temperature T from "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "1 0 ^ { - 3 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "to 10 on Seq-CIFAR100 (Fig. 3). Accuracy peaks at "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T = 1 0 ^ { - 1 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", with mid-phase tasks "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( 3 - 7 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "improving by 1–2 points versus "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T = \\overline { { 1 0 ^ { - 3 } } }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and smoother convergence later. Extremes "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( T = 1 0 \\mathrm { o r } 1 0 ^ { - 3 } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "degrade performance, especially in mid-to-late tasks, indicating that moderate temperature best balances knowledge sharing and task isolation. Insertion depth experiments (Fig. 3) compare placing the module in shallow (layers 1–4), middle (5–8), deep (9–12), or shallow+middle (1–7) blocks. The 1–7 configuration wins—outperforming shallow-only and middle-only by 0.5–1 point and showing smaller late-task drops than deep-only. This confirms that early-layer feature retrieval plus mid-layer memory integration yields the strongest continual-learning gains."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                867,
+                826,
+                925
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "9"
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                948,
+                504,
+                959
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                169,
+                104,
+                826,
+                176
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Model Performance in Online Continual Learning Setting Our method remains highly effective even in the online setting with just one epoch of training. On seq-CIFAR100, it achieves 84.52% accuracy—less than 3% below the offline result—and surpasses the offline performance (epoch = 5) of some competing methods (see Appendix E.1)."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                196,
+                826,
+                255
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Effectiveness on Diverse Pre-trained Backbones Experiments using DINO and SAM backbones further demonstrate the strong generalization of HippoTune. As shown in Table 6 (see Appendix E.2), our method consistently achieves superior final and average accuracy across both architectures, significantly outperforming baselines like L2P and DualPrompt. Notably, it surpasses CODA-Prompt by over 4% on the SAM backbone. These results indicate that the latent iterative deliberation mechanism is architecture-agnostic and adapts well to feature distributions from diverse pre-training objectives, effectively leveraging heterogeneous representations while minimizing forgetting."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                275,
+                826,
+                376
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Stability and Backward Transfer Analysis As shown in Table 7 (see Appendix E.3),in experiments on ImageNet-R split into 10 tasks, HippoTune outperforms standard prompt-based baselines in both accuracy and retention. While LoRA and adapter-based methods such as SD-Lora and EASE achieve high plasticity due to their architectural capacity, they suffer from significant catastrophic forgetting. In contrast, HippoTune maintains a Forgetting Measure of 4.03%, which is significantly lower than the 6% to 7% range observed in these adapter variants. This demonstrates that our method offers superior stability and effectively mitigates the interference common in high-capacity adapter approaches."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                396,
+                826,
+                508
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Results in the Task-Incremental Setting Table 8 (see Appendix E.5) presents the comparative results under the Task-Incremental Learning (TIL) setting. HippoTune consistently outperforms the PEFT-CL baselines across both Seq-CIFAR100 and ImageNet-R benchmarks. While existing methods like CODA-Prompt already mitigate interference by conditioning on task identities, our approach further pushes the performance boundary, achieving the highest average accuracy and the lowest forgetting measures. This superiority indicates that HippoTune effectively leverages task-specific contexts to refine feature representations, ensuring robust learning of new tasks without compromising the stability of previously acquired knowledge."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                530,
+                826,
+                643
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "6 CONCLUSION"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                670,
+                321,
+                686
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We introduced HippoTune, a hippocampal-inspired continual learning method that embeds an iterative retrieval loop into each Transformer layer. By simulating the brain’s multi-round associative recall and integration—combining pattern separation (DG) and completion (CA3–CA1)—HippoTune deepens memory access within PEFT frameworks without incurring repeated backbone passes. Our convergence analysis establishes a connection to Krylov-subspace second-order preconditioning, guiding choices of iteration count, temperature, and regularization. Experimentally, HippoTune delivers buffer-free gains across visual benchmarks, outperforms prompt-pool methods, and halves PEFT-CL’s computational cost. Limitations include evaluation on two-level hierarchies and image classification; future work will explore deeper loops, broader modalities, and adaptive retrieval budgets to further bridge biological memory mechanisms and scalable continual learning."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                705,
+                826,
+                847
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "ACKNOWLEDGMENTS"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                171,
+                869,
+                328,
+                883
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "This work was supported by the National Science Fund for Distinguished Young Scholars of China under Grant 62325601, and the Beijing Natural Science Foundation under Grant L247011."
+                    }
+                ]
+            },
+            "bbox": [
+                169,
+                895,
+                825,
+                924
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Published as a conference paper at ICLR 2026"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                32,
+                480,
+                47
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "10"
+                    }
+                ]
+            },
+            "bbox": [
+                488,
+                948,
+                509,
+                960
+            ]
+        }
+    ]
+]

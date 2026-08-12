@@ -1,0 +1,91 @@
+{
+  "overview": "QAM proposes a TD-based RL algorithm that uses adjoint matching to optimize expressive flow-matching policies against a critic without unstable backpropagation, transforming the critic's action gradient via lean adjoint states into a step-wise objective that converges to the optimal behavior-constrained policy.",
+  "count": 17,
+  "modules": [
+    {
+      "id": 1,
+      "name": "Flow-Matching Velocity Field Network",
+      "description": "Implements the neural network architecture for the state-conditioned velocity field f(s, a, t) used by both the behavior policy fβ and the fine-tuned policy fθ, including forward propagation, parameter initialization, and the residual connection structure for time-conditioned denoising."
+    },
+    {
+      "id": 2,
+      "name": "Behavior Flow Policy Training",
+      "description": "Implements the standard flow-matching objective L_FM(β) that trains the behavior velocity field fβ to clone the offline dataset action distribution by matching the conditional velocity target at intermediate noised actions along the linear interpolation path from noise to data."
+    },
+    {
+      "id": 3,
+      "name": "Memory-Less SDE Trajectory Sampling",
+      "description": "Implements the forward SDE sampling process with the memory-less noise schedule σ_t = √(2(1-t)/t), generating trajectory samples {a_t} from noise a_0 ~ N(0, I) using the current fine-tuned velocity field fθ, discretized with fixed step size h=1/T for use in adjoint state computation and policy optimization."
+    },
+    {
+      "id": 4,
+      "name": "Lean Adjoint State Computation",
+      "description": "Implements the reverse ODE integration for computing lean adjoint states {g̃_t} starting from the boundary condition g̃_1 = -τ∇_{a_1}Q_ϕ(s, a_1), using vector-Jacobian products (VJP) through the behavior velocity field fβ rather than the optimized fθ, stepping backward via g̃_{t-h} = g̃_t + h·VJP(∇_{a_t}(2fβ - a_t/t), g̃_t)."
+    },
+    {
+      "id": 5,
+      "name": "QAM Adjoint Matching Objective",
+      "description": "Implements the core adjoint matching loss L_AM(θ) = E[∫_0^1 ‖2(fθ - fβ)/σ_t + σ_t·g̃_t‖² dt], which directly optimizes the fine-tuned flow policy to match the optimal behavior-constrained policy π* ∝ πβ·exp(τQ) by aligning the velocity field with the behavior velocity adjusted by the lean adjoint signal, avoiding backpropagation through the denoising chain."
+    },
+    {
+      "id": 6,
+      "name": "Critic Ensemble with Pessimistic Backup",
+      "description": "Implements an ensemble of K critic networks Q_ϕ₁,...,Q_ϕK trained with TD backup using pessimistic target values Q̄_mean(s',a') - ρ·Q̄_std(s',a'), where the target action is sampled from the current fine-tuned flow policy via ODE integration, and the target critic parameters are maintained as exponential moving averages."
+    },
+    {
+      "id": 7,
+      "name": "QAM-FQL One-Step Distillation Variant",
+      "description": "Implements the first QAM variant that distills the multi-step flow policy into a one-step noise-conditioned policy μ_ω(s, z) under a Wasserstein-2 constraint W₂²(π_ω, π_θ) ≤ ε_W, optimizing L_QAM-FQL(ω) = E_z[-Q_ϕ(s, μ_ω(s,z)) + α‖μ_ω(s,z) - ODE(fθ(s,·,·),z)‖²] where the second term upper-bounds the squared Wasserstein distance to the QAM policy."
+    },
+    {
+      "id": 8,
+      "name": "QAM-EDIT Edit Policy Variant",
+      "description": "Implements the second QAM variant using a Gaussian edit policy π_ω(Δa|s,a) that predicts bounded action edits ‖Δa‖_∞ ≤ σ_a to modify actions from the QAM flow policy, optimized with L_QAM-EDIT(ω) = E[-Q_ϕ(s, Δa+a) + η·log π_ω(Δa|s,a)] plus automatic entropy tuning targeting H_target = -A/2, ensuring the Wasserstein-1 constraint W₁(π_ω, π_θ) ≤ σ_a is enforced by construction."
+    },
+    {
+      "id": 9,
+      "name": "ODE Action Sampling for Inference",
+      "description": "Implements Euler method ODE integration for generating actions at inference time: starting from noise z ~ N(0,I), iterates a_{t+h} = a_t + h·fθ(s, a_t, t) over T steps with clipping to the valid action range [-1, 1], producing deterministic action samples from the fine-tuned flow policy."
+    },
+    {
+      "id": 10,
+      "name": "OGBench Data Loading and Action Chunking",
+      "description": "Implements data loading for OGBench domains with support for diverse dataset types (play, navigate, noisy, stitch) and action chunking with configurable chunk size h, where chunked policies output high-dimensional stacked actions that increase the complexity of the behavior distribution requiring expressive policy representation."
+    },
+    {
+      "id": 11,
+      "name": "Replay Buffer Management",
+      "description": "Implements a combined replay buffer system that stores both offline dataset transitions and online environment interactions, supporting uniform sampling from the combined buffer during online fine-tuning without re-weighting between offline and online data sources."
+    },
+    {
+      "id": 12,
+      "name": "Offline Training Loop",
+      "description": "Implements the complete offline RL training workflow that jointly optimizes the behavior flow policy fβ, fine-tuned flow policy fθ via adjoint matching, and critic ensemble Q_ϕ with pessimistic TD backup over 1M training steps, sampling transition tuples uniformly from the offline dataset D."
+    },
+    {
+      "id": 13,
+      "name": "Online Fine-Tuning Loop",
+      "description": "Implements the offline-to-online fine-tuning workflow starting from the offline pre-trained initialization, where the agent interacts with the environment for trajectory episodes with maximum length H, collects transitions into the replay buffer alongside offline data, and continues training with the same QAM objective using combined on-policy and off-policy data."
+    },
+    {
+      "id": 14,
+      "name": "Policy Evaluation and Rollout",
+      "description": "Implements environment evaluation by rolling out the current policy (either the flow policy fθ, the one-step policy μ_ω, or the edit-modified policy) for complete episodes, computing discounted returns and task-specific success metrics across multiple seeds for statistical reporting."
+    },
+    {
+      "id": 15,
+      "name": "Metric Computation and Aggregated Scoring",
+      "description": "Implements per-task score normalization against reference baselines, domain-level aggregation across the 5 tasks per domain, and the final aggregated score across all 50 tasks, with 95% confidence interval computation via bootstrapping using 5000 resamples over 12 seeds."
+    },
+    {
+      "id": 16,
+      "name": "Configuration and Hyperparameter Management",
+      "description": "Implements domain-specific hyperparameter management including temperature τ, critic ensemble size K, flow steps T, gradient clipping norms, pessimism coefficient ρ, discount factor γ, and variant-specific parameters (σ_a for QAM-EDIT, α for QAM-FQL), with support for hyperparameter tuning sweeps and per-domain configuration tables."
+    },
+    {
+      "id": 17,
+      "name": "Experiment Tracking and Result Visualization",
+      "description": "Implements training curve logging for offline and online phases, sensitivity analysis visualization across gradient clipping, flow steps, critic ensemble size, and temperature, data quality comparison plots across navigate/stitch/noisy dataset variants, and automated generation of LaTeX result tables and aggregated score bar charts matching the paper's figures."
+    }
+  ]
+}

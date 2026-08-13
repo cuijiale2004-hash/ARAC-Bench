@@ -1,12 +1,10 @@
 # ARAC-Bench
 
-**Benchmarking Auto-Research's Alignment and Completeness on End-to-End Research**
+**Benchmarking Auto-Research's Alignment and Completeness on End-to-End Researchs**
 
 ARAC-Bench is a researcher-mimicking benchmark for evaluating autonomous research systems. Instead of judging only the final answer, ARAC-Bench measures how closely a system follows rigorous human research methodology across three independently evaluated stages: **Proposal**, **Experiment**, and **Synthesis**.
 
 The benchmark combines stage-specific evaluation with **Academic Cognition Skills (ACS)**, a structured collection of research principles derived from papers, reviews, rebuttals, and discussions at major AI conferences. This design turns otherwise implicit reviewer expectations into traceable and quantifiable criteria.
-
-> **Release status:** This documentation package was prepared before the dataset files were added. Before publishing the repository, complete the items in [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md), update the repository layout below to match the uploaded files, and remove this notice.
 
 ## Highlights
 
@@ -112,6 +110,4 @@ ARAC-Bench is not intended to certify that a system can conduct safe, correct, o
 - The Experiment stage intentionally emphasizes implementation fidelity and parameter intuition rather than the full range of experimental-design and resource trade-offs considered by human researchers.
 - Public release may create contamination risk for future evaluations.
 - Conference metadata, reviews, rebuttals, paper text, and third-party code may be subject to separate licenses or platform terms.
-
-See the data card for a fuller discussion.
 
